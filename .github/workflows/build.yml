@@ -1,0 +1,70 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2025-12-12
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Check
+        run: make check
+
+      - name: Fmt
+        run: make fmt
+
+      - name: Clippy
+        run: make clippy
+
+      - name: Dylint
+        run: |
+          cargo install cargo-dylint dylint-link
+          make dylint
+        env:
+          DYLINT_RUSTFLAGS: "-D warnings"
+
+      - name: Check Unused Dependencies
+        run: |
+          cargo install cargo-machete
+          cargo machete
+
+      - name: Test
+        run: make test
+
+      - name: Setup mdBook
+        uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: 'latest'
+
+      - name: Install mdbook-mermaid
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook-mermaid
+
+      - name: Test mdBook Code Blocks
+        run: make mdbook-test

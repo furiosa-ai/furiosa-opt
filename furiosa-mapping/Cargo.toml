@@ -1,0 +1,22 @@
+[package]
+name = "furiosa-mapping"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+
+[dependencies]
+abi_stable.workspace = true
+furiosa-mapping-types = { path = "../furiosa-mapping-types" }
+lalrpop-util.workspace = true
+proc-macro2.workspace = true
+quote.workspace = true
+furiosa-mapping-macro = { path = "../furiosa-mapping-macro" }
+
+
+[dev-dependencies]
+furiosa-opt-macro = { path = "../furiosa-opt-macro" }
+serde_json.workspace = true
+
+[build-dependencies]
+lalrpop.workspace = true
