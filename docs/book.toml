@@ -1,0 +1,17 @@
+[book]
+authors = ["FuriosaAI"]
+language = "en"
+src = "src"
+title = "Programming Tensor Contraction Processors"
+
+[rust]
+edition = "2024"
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html]
+mathjax-support = true
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+
+# [output.pdf]

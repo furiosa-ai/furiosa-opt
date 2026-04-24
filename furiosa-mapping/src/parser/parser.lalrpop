@@ -1,0 +1,114 @@
+use super::{IndexAssignment, Mapping, PaddingKind};
+
+grammar;
+
+extern {
+    type Location = usize;
+    type Error = crate::parser::lexer::LexicalError;
+
+    enum crate::parser::lexer::Token {
+        // --- Literals ---
+        "Symbol" => crate::parser::lexer::Token::Symbol(<String>),
+        "Nat"    => crate::parser::lexer::Token::Nat(<usize>),
+        "Expr"   => crate::parser::lexer::Token::Expr(<proc_macro2::TokenStream>),
+        "Escaped" => crate::parser::lexer::Token::Escaped(<proc_macro2::TokenStream>),
+
+        // --- Operators & Punctuation ---
+        "Slash"    => crate::parser::lexer::Token::Slash,
+        "Percent"  => crate::parser::lexer::Token::Percent,
+        "Eq"       => crate::parser::lexer::Token::Eq,
+        "Hash"     => crate::parser::lexer::Token::Hash,
+        "Comma"    => crate::parser::lexer::Token::Comma,
+        "Colon"    => crate::parser::lexer::Token::Colon,
+
+        // --- Delimiters ---
+        "LParen"   => crate::parser::lexer::Token::LParen,
+        "RParen"   => crate::parser::lexer::Token::RParen,
+        "LBracket" => crate::parser::lexer::Token::LBracket,
+        "RBracket" => crate::parser::lexer::Token::RBracket,
+    }
+}
+
+
+// --- Mapping Rules ---
+
+pub Mapping: Mapping = {
+    Mapping0,
+};
+
+Mapping0: Mapping = {
+    <left:Mapping1> "Comma" <right:Mapping0> => Mapping::Pair { left: Box::new(left), right: Box::new(right) },
+    Mapping1,
+};
+
+Mapping1: Mapping = {
+    <left:Mapping1> "Slash" <value:Nat> => Mapping::Stride { inner: Box::new(left), stride: value },
+    <left:Mapping1> "Percent" <value:Nat> => Mapping::Modulo { inner: Box::new(left), modulo: value },
+    <left:Mapping1> "Eq" <value:Nat> => Mapping::Resize { inner: Box::new(left), resize: value },
+    <left:Mapping1> "Hash" <value:Nat> => Mapping::Padding {
+        inner: Box::new(left),
+        padding: value,
+        kind: PaddingKind::Top,
+    },
+    Mapping2,
+};
+
+Mapping2: Mapping = {
+    <symbol:Symbol> => Mapping::Symbol { symbol },
+    <n:Nat> => { if n != 1 { panic!("Broadcast not supported"); } Mapping::Identity },
+    <tokens:"Escaped"> => Mapping::Escaped { tokens },
+    "LParen" <mapping:Mapping0> "RParen" => mapping,
+    "LBracket" <mapping:Mapping0> "RBracket" => mapping,
+};
+
+// --- Helpers ---
+
+Comma<T>: Vec<T> = {
+    <v:(<T> "Comma")*> <e:T?> => match e {
+        None => v,
+        Some(e) => { let mut v = v; v.push(e); v }
+    }
+};
+
+Symbol: String = "Symbol" => <>;
+Nat: usize = "Nat" => <>;
+Expr: proc_macro2::TokenStream = "Expr" => <>;
+
+// --- Index Rules ---
+
+pub Index: Vec<IndexAssignment> = {
+    Comma<IndexAssignment>,
+};
+
+IndexAssignment: IndexAssignment = {
+    <mapping:IndexMapping> "Colon" <value:Expr> => IndexAssignment { mapping, value },
+};
+
+IndexMapping: Mapping = {
+    IndexMapping0,
+};
+
+IndexMapping0: Mapping = {
+    <left:IndexMapping1> "Comma" <right:IndexMapping0> => Mapping::Pair { left: Box::new(left), right: Box::new(right) },
+    IndexMapping1,
+};
+
+IndexMapping1: Mapping = {
+    <left:IndexMapping1> "Slash" <value:Nat> => Mapping::Stride { inner: Box::new(left), stride: value },
+    <left:IndexMapping1> "Percent" <value:Nat> => Mapping::Modulo { inner: Box::new(left), modulo: value },
+    <left:IndexMapping1> "Eq" <value:Nat> => Mapping::Resize { inner: Box::new(left), resize: value },
+    <left:IndexMapping1> "Hash" <value:Nat> => Mapping::Padding {
+        inner: Box::new(left),
+        padding: value,
+        kind: PaddingKind::Top,
+    },
+    IndexMapping2,
+};
+
+IndexMapping2: Mapping = {
+    <symbol:Symbol> => Mapping::Symbol { symbol },
+    <n:Nat> => { if n != 1 { panic!("Broadcast not supported"); } Mapping::Identity },
+    <tokens:"Escaped"> => Mapping::Escaped { tokens },
+    "LParen" <mapping:IndexMapping0> "RParen" => mapping,
+    "LBracket" <mapping:IndexMapping0> "RBracket" => mapping,
+};

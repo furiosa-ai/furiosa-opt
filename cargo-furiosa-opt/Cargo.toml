@@ -1,0 +1,21 @@
+[package]
+name = "cargo-furiosa-opt"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/furiosa-ai/furiosa-opt"
+description = "TCP Virtual ISA compiler for Furiosa NPU"
+
+[[bin]]
+name = "cargo-furiosa-opt"
+path = "src/main.rs"
+
+[[bin]]
+name = "furiosa-opt-driver"
+path = "src/driver.rs"
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/cargo-furiosa-opt-{ target }{ archive-suffix }"
+bin-dir = "cargo-furiosa-opt-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+disabled-strategies = ["quick-install", "compile"]

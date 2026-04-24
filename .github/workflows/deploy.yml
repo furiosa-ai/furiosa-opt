@@ -1,0 +1,83 @@
+name: Deploy Documentation to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build_mdbook:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup mdBook
+        uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: "latest"
+
+      - name: Install mdbook-mermaid
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook-mermaid
+
+      - name: Build Book
+        run: |
+          mdbook-mermaid install docs
+          make mdbook-build
+
+      - name: Upload Book Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: book
+          path: docs/book
+          retention-days: 1
+
+  build_rustdoc:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2025-12-12
+
+      - name: Generate Documentation
+        run: |
+          cargo doc --no-deps --workspace --target-dir target-rustdoc
+
+      - name: Upload Rustdoc Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdoc
+          path: target-rustdoc/doc
+          retention-days: 1
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build_mdbook, build_rustdoc]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download All Docs Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: deploy/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy

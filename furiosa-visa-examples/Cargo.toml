@@ -1,0 +1,18 @@
+[package]
+name = "furiosa-visa-examples"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+furiosa-visa-std = { path = "../furiosa-visa-std" }
+
+[dev-dependencies]
+env_logger.workspace = true
+half.workspace = true
+rand.workspace = true
+safetensors.workspace = true
+tokio.workspace = true
