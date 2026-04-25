@@ -1,0 +1,834 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Mixture of Experts - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="mixture-of-experts"><a class="header" href="#mixture-of-experts">Mixture of Experts</a></h1>
+<!-- > **TODO(youseok.yang)**: The Gating/Router (Section 1), Sparse Expert Computation (Section 3), Combine (Section 4), and Blockwise Execution (Section 3.3–3.6) sections are written in algorithmic prose with no Virtual ISA code. -->
+<!-- > Add kernel code for at least one complete execution cycle — for example, the sparse MLP step (Section 3.5) showing how a block of tokens is fed through one expert's up/down projection using the Contraction Engine. -->
+<p>Mixture of Experts (MoE) scales model capacity by routing each token to only K of E experts rather than all of them; this sparse activation allows many parameters while keeping inference cost manageable.
+This example shows how to implement MoE on TCP hardware, focusing on two key challenges: replacing control-flow-based TopK routing with branchless matrix operations, and executing sparse expert computations blockwise.</p>
+<h2 id="background-basic-ffn"><a class="header" href="#background-basic-ffn">Background: Basic FFN</a></h2>
+<p>To understand MoE, first consider the basic FFN (Feed-Forward Network) in transformer blocks.
+The following describes FFN with only up/down projection, without gate projection:</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_ffn_norm: T x D</code></li>
+</ul>
+</li>
+<li><strong>Weights</strong>
+<ul>
+<li><code>W_up: D x F</code> (up projection)</li>
+<li><code>W_down: F x D</code> (down projection)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>ffn_out: T x D</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Up projection</strong>:
+<ul>
+<li><code>up = einsum(x_ffn_norm, W_up)</code></li>
+<li><code>(T x D), (D x F) -&gt; T x F</code></li>
+</ul>
+</li>
+<li><strong>Down projection</strong>:
+<ul>
+<li><code>ffn_out = einsum(up, W_down)</code></li>
+<li><code>(T x F), (F x D) -&gt; T x D</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="moe-structure"><a class="header" href="#moe-structure">MoE Structure</a></h2>
+<p>MoE replaces a single FFN with <code>E</code> independent FFNs called experts.
+Each expert has its own weights:</p>
+<ul>
+<li><code>W_up[0], W_up[1], ..., W_up[E-1]</code></li>
+<li><code>W_down[0], W_down[1], ..., W_down[E-1]</code></li>
+</ul>
+<p>Computing all experts would increase computation by <code>E</code> times.
+To avoid this, MoE uses a router to select only the <code>Top-K</code> most suitable experts per token, enabling sparse computation.</p>
+<h2 id="model-parameters"><a class="header" href="#model-parameters">Model Parameters</a></h2>
+<p>The following arguments define an MoE layer:</p>
+<ul>
+<li><code>T</code>: number of tokens
+<ul>
+<li>prefill: <code>T = B * S_in</code></li>
+<li>decode: <code>T = B</code></li>
+</ul>
+</li>
+<li><code>D</code>: hidden dimension</li>
+<li><code>F</code>: intermediate dimension of ffn up projection result</li>
+<li><code>E</code>: number of total experts (typically 128)</li>
+<li><code>K</code>: number of experts to apply ffn
+<ul>
+<li><code>llama4</code>: 1, <code>gpt-oss</code>: 4, <code>qwen3</code>: 8</li>
+</ul>
+</li>
+</ul>
+<h2 id="moe-processing-steps"><a class="header" href="#moe-processing-steps">MoE Processing Steps</a></h2>
+<p>MoE processing consists of three main stages: routing (selecting which experts to use), sparse expert computation (applying the selected experts), and combining (merging expert outputs with routing weights).</p>
+<h3 id="1-gating-router--top-k-selection"><a class="header" href="#1-gating-router--top-k-selection">1. Gating (Router) &amp; Top-K Selection</a></h3>
+<p>The router calculates a score for each expert for every token, determining which experts should process each token:</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_norm: T x D</code></li>
+</ul>
+</li>
+<li><strong>Weight</strong>
+<ul>
+<li><code>W_router: D x E</code> (Gating network weights)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>scores: T x E</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>scores = einsum(x_norm, W_router)</code></li>
+<li><code>(T x D), (D x E) -&gt; T x E</code></li>
+<li>Calculate the score (Logit) for <code>E</code> Experts per token</li>
+</ul>
+</li>
+</ul>
+<h3 id="2-top-k-selection"><a class="header" href="#2-top-k-selection">2. <code>Top-K</code> Selection</a></h3>
+<p>This step selects the <code>Top-K</code> Experts based on router scores and calculates the weight for each selected Expert:</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>scores: T x E</code></li>
+</ul>
+</li>
+<li><strong>Outputs</strong>
+<ul>
+<li><code>topk_indices: T x K</code> (selected Expert ID per token)</li>
+<li><code>routing_weights: T x K</code> (weight of selected Expert per token)</li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong><code>Top-K</code> Selection</strong>:
+<ul>
+<li><code>raw_weights, topk_indices = topk(scores, K)</code></li>
+<li>Extract the <code>K</code> Expert indices and scores with the highest scores per token</li>
+</ul>
+</li>
+<li><strong>Softmax Normalization</strong>:
+<ul>
+<li><code>routing_weights = softmax(raw_weights)</code></li>
+<li>Convert the selected <code>K</code> scores to probability values (sum is 1 per token)</li>
+<li><code>softmax(x)[i] = exp(x[i]) / sum(exp(x[j]) for j in 0..K)</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>The output for each token <code>t</code> consists of:</p>
+<ul>
+<li><code>topk_indices[t, :]</code>: <code>K</code> Expert IDs (<code>0 &lt;= e &lt; E</code>)</li>
+<li><code>routing_weights[t, :]</code>: weights of those Experts (sum is 1)</li>
+</ul>
+<h3 id="3-sparse-expert-computation"><a class="header" href="#3-sparse-expert-computation">3. Sparse Expert Computation</a></h3>
+<p>Only selected Experts perform computation, making this stage sparse.
+A total of <code>T * K</code> Expert calls occur, but each Expert only computes for the tokens that selected it.</p>
+<p>For each token <code>t in [0, T-1]</code> and selected Expert <code>k in [0, K-1]</code>:</p>
+<ul>
+<li><strong>Selected Expert ID</strong>: <code>e = topk_indices[t, k]</code></li>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_norm[t]: D</code> (input of token <code>t</code>)</li>
+</ul>
+</li>
+<li><strong>Weights</strong> (weights of Expert <code>e</code>)
+<ul>
+<li><code>W_up[e]: D x F</code></li>
+<li><code>W_down[e]: F x D</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>y[t, k]: D</code> (<code>k</code>-th Expert output of token <code>t</code>)</li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Up projection</strong>:
+<ul>
+<li><code>up = einsum(x_norm[t], W_up[e])</code></li>
+<li><code>D, (D x F) -&gt; F</code></li>
+</ul>
+</li>
+<li><strong>Down projection</strong>:
+<ul>
+<li><code>y[t, k] = einsum(up, W_down[e])</code></li>
+<li><code>F, (F x D) -&gt; D</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>The results for all <code>(t, k)</code> pairs are collected into <code>y_experts: T x K x D</code>.</p>
+<h3 id="4-weighted-sum-combine"><a class="header" href="#4-weighted-sum-combine">4. Weighted Sum (Combine)</a></h3>
+<p>The final step combines the <code>K</code> Expert outputs using the routing weights calculated earlier:</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>y_experts: T x K x D</code></li>
+<li><code>routing_weights: T x K</code> (weight of each Expert)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>ffn_out: T x D</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><code>ffn_out = einsum(y_experts, routing_weights)</code></li>
+</ul>
+</li>
+</ul>
+<p>The result is that each token receives the weighted average output of its selected <code>K</code> Experts.</p>
+<h2 id="moe-implementation-on-tcp"><a class="header" href="#moe-implementation-on-tcp">MoE Implementation on TCP</a></h2>
+<p>Implementing MoE efficiently on TCP requires bridging the gap between the model’s logical structure and hardware constraints.
+This section describes the techniques needed to achieve high performance.</p>
+<h3 id="1-overview-and-design-philosophy"><a class="header" href="#1-overview-and-design-philosophy">1. Overview and Design Philosophy</a></h3>
+<h4 id="11-bridging-logical-and-physical-execution"><a class="header" href="#11-bridging-logical-and-physical-execution">1.1. Bridging Logical and Physical Execution</a></h4>
+<p>Two fundamental challenges arise when implementing MoE on TCP:</p>
+<ul>
+<li><strong>Challenge 1: Conflict between control flow and parallel structure</strong>
+<ul>
+<li>Problem: General <code>Top-K</code> algorithms use branch statements where the execution path varies depending on data values.
+Such branch statements cause performance degradation in SIMT-based accelerators that process thousands of elements with a single instruction.</li>
+<li>Solution: Completely removing control flow and using Branchless <code>Top-K</code> technique with matrix operations and bit manipulation is essential.</li>
+</ul>
+</li>
+<li><strong>Challenge 2: Gap between logical Routing and physical execution</strong>
+<ul>
+<li>Problem: Logically, MoE is a process where each token finds the Expert that suits it (Token-centric).
+However, if implemented as is, memory access becomes irregular and the number of tokens to process per Expert changes dynamically, reducing TCP compiler efficiency.</li>
+<li>Solution: The perspective must be shifted to a method where the Expert becomes the subject and collects tokens (Expert-centric).</li>
+</ul>
+</li>
+</ul>
+<h4 id="12-core-techniques-for-tcp-implementation"><a class="header" href="#12-core-techniques-for-tcp-implementation">1.2. Core Techniques for TCP Implementation</a></h4>
+<p>Two core techniques address these challenges:</p>
+<ul>
+<li><strong>Branchless <code>TopK</code></strong>: Performs routing via matrix operations only, eliminating all control flow</li>
+<li><strong>Blockwise execution</strong>: Processes only selected Experts with data packed in fixed-size <code>Block</code> units</li>
+</ul>
+<p>The following sections describe each technique in detail.</p>
+<h3 id="2-branchless-topk"><a class="header" href="#2-branchless-topk">2. Branchless <code>TopK</code></a></h3>
+<p>Branchless <code>TopK</code> replaces control-flow-based sorting with pure matrix operations.
+This approach consists of three stages: bit packing to combine score and index, parallel ranking to determine order, and filtering to extract the top <code>K</code> results.</p>
+<h4 id="21-bit-packing-combining-score-and-index"><a class="header" href="#21-bit-packing-combining-score-and-index">2.1. Bit Packing (Combining Score and Index)</a></h4>
+<p>The Vector Engine pipeline operates on all 256 slices in lockstep, so any operation whose address or control path depends on runtime data values must be replaced with a fixed sequence of matrix operations.
+Bit packing bundles score and index into a single value so the Expert ID is preserved when scores are reordered during sorting:</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>scores: T x E</code></li>
+<li><code>Index_expert: E</code>
+<ul>
+<li><code>Index_expert(e) = e where e = 0, 1, 2, ..., E - 1</code></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>Packed_Value: T x E</code>
+<ul>
+<li>Tensor with (score, index) packed.</li>
+</ul>
+</li>
+<li><code>Packed_Value_cmp: T x E</code>
+<ul>
+<li>Tensor with (score, index) packed, preprocessed to enable comparison of score magnitude using integer comparison.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><strong>Packing</strong>
+<ul>
+<li>Place Expert Score (e.g., <code>bf16</code>) in the upper bits and Expert Index (e.g., <code>int16</code>) in the lower bits to create a single 32-bit integer (or float).</li>
+<li><code>Packed_Value_unprocessed = (Score &lt;&lt; 16) | Index</code></li>
+<li>Processed in Vector Engine.</li>
+</ul>
+</li>
+<li><strong>Comparison Trick</strong>
+<ul>
+<li>This preprocessing enables magnitude comparison of score values using simple integer comparison.</li>
+<li>Bit Flipping preprocessing solves the problem of negative magnitude relationships being reversed when comparing float values as integer values.
+This enables accurate Top-K selection with only integer comparators.</li>
+<li>
+<pre><code class="language-rust ignore">Packed_Value_cmp = if Packed_Value &gt;= 0 {
+    Packed_Value
+} else {
+    Packed_Value ^ 0x7fff0000
+}</code></pre>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h4 id="22-parallel-ranking-all-to-all-comparison"><a class="header" href="#22-parallel-ranking-all-to-all-comparison">2.2. Parallel Ranking (All-to-All Comparison)</a></h4>
+<p>Parallel ranking determines the order of all experts simultaneously instead of sequential sorting.
+Although this requires <code>E x E</code> comparisons, TCP efficiency remains high because only matrix operations are used without control flow:</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>Packed_Value_cmp: T x E</code>
+<ul>
+<li>32-bit Packed Tensor with Comparison Trick applied.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>Rank: T x E</code>
+<ul>
+<li>Rank of each Expert (0-based rank). Higher scores are closer to 0.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Broadcast &amp; Compare</strong>
+<ul>
+<li>Replicate (Tile) <code>Packed_Value_cmp</code> along the <code>E</code> axis to expand to <code>T x E x E</code> shape.
+Compare magnitude relationships for all Expert pairs <code>(i, j)</code>.</li>
+<li><code>Compare[t, i, j] = 1 if Packed_Value_cmp[t, j] &gt; Packed_Value_cmp[t, i] else 0</code></li>
+<li>Meaning: “Is Expert <code>j</code>’s score higher than Expert <code>i</code>’s?”</li>
+</ul>
+</li>
+<li><strong>Rank Calculation (ReduceSum)</strong>
+<ul>
+<li>Sum along the <code>E</code> (comparison target) axis to calculate rank.</li>
+<li><code>Rank[t, i] = sum(Compare[t, i, j] for j in 0..E)</code></li>
+<li>Meaning: “The total number of Experts with higher scores than me” becomes my rank.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h4 id="23-filtering--unpacking"><a class="header" href="#23-filtering--unpacking">2.3. Filtering &amp; Unpacking</a></h4>
+<p>Filtering extracts the top <code>K</code> entries based on rank, then unpacking separates the packed scores and indices:</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>Rank: T x E</code></li>
+<li><code>Packed_Value: T x E</code>
+<ul>
+<li>Note: The original Packed Value before Comparison Trick was applied must be used to restore accurate Score/Index later.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Outputs</strong>
+<ul>
+<li><code>TopK_Indices: T x K</code></li>
+<li><code>TopK_Scores: T x K</code></li>
+<li><code>routing_weights: T x K</code> (weights for K selected experts per Token)</li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Filtering (<code>FilterCompaction</code>)</strong>
+<ul>
+<li>Only elements satisfying the <code>Top-K</code> condition (<code>Rank &lt; K</code>) are kept.</li>
+<li><code>Mask[t, i] = 1 if Rank[t, i] &lt; K else 0</code></li>
+<li>Only <code>Packed_Value</code> at positions where Mask is True are collected and compressed to <code>T x K</code> size.</li>
+<li>Result: <code>Selected_Packed: T x K</code></li>
+<li>Uses the filter function of Vector Engine.</li>
+</ul>
+</li>
+<li><strong>Unpacking</strong>
+<ul>
+<li>Restore scores and indices through bit operations from the selected 32-bit values.</li>
+<li>Score Extraction: <code>TopK_Scores = Selected_Packed &gt;&gt; 16</code> (then reinterpreted as <code>bf16</code> type)</li>
+<li>Index Extraction: <code>TopK_Indices = Selected_Packed &amp; 0xffff</code></li>
+</ul>
+</li>
+<li><strong>Softmax Normalization</strong>
+<ul>
+<li>Softmax is applied to the extracted <code>Top-K</code> Scores to calculate final weights. This is used in the Combine stage later.</li>
+<li><code>routing_weights[t, k] = exp(TopK_Scores[t, k]) / sum(exp(TopK_Scores[t, j]) for j in 0..K)</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-blockwise-execution"><a class="header" href="#3-blockwise-execution">3. Blockwise Execution</a></h3>
+<p>Blockwise execution physically rearranges data based on <code>Top-K</code> routing decisions while satisfying TCP’s static shape constraints. This section describes how to handle dynamic token-to-expert assignments efficiently.</p>
+<h4 id="31-problem-dynamic-shape--memory-explosion"><a class="header" href="#31-problem-dynamic-shape--memory-explosion">3.1. Problem: Dynamic Shape &amp; Memory Explosion</a></h4>
+<p>The core challenge is that the number of tokens <code>L_e</code> assigned per Expert varies dynamically depending on the input.
+In the worst case, if all tokens are concentrated on a specific Expert, <code>L_e ~ T</code>.</p>
+<p>Two approaches address this challenge:</p>
+<ul>
+<li><strong>Naive Solution</strong>: Allocating a buffer of maximum size <code>T</code> for all Experts requires memory of <code>E x T x D</code> size, most of which is wasted as padding.</li>
+<li><strong>Blockwise Solution</strong>: Instead of variable length <code>L_e</code>, manage data in fixed-size <code>Block</code> (<code>B</code>) units to optimize memory usage to approximately <code>T x K</code> level.</li>
+</ul>
+<h4 id="32-grid-size-calculation"><a class="header" href="#32-grid-size-calculation">3.2. Grid Size Calculation</a></h4>
+<p>Grid size determines how many blocks are needed to process all tokens.
+Tokens for the same Expert are grouped into blocks of <code>B</code> tokens, enabling blockwise computation with a single expert loaded.</p>
+<p>The total number of blocks needed (<code>Grid Size</code>, <code>G</code>) is calculated as the sum of blocks required per expert:</p>
+<ul>
+<li>Number of blocks allocated to Expert <code>e</code>
+<ul>
+<li>Number of tokens allocated to <code>e</code>: <code>Count_e</code></li>
+<li>Number of blocks: <code>ceil(Count_e / B)</code></li>
+</ul>
+</li>
+<li><code>G = sum(ceil(Count_e / B) for e in 0..E)</code></li>
+</ul>
+<p>The compiler calculates the worst-case <code>G</code> value and allocates memory space.
+At runtime, sparse operations skip execution for empty Grids.</p>
+<p>In the worst case where all Experts include a grid containing only one token, <code>(T*K - E) / B + E</code> Grids are required.</p>
+<h4 id="33-index-generation-cumsum-based-address-calculation"><a class="header" href="#33-index-generation-cumsum-based-address-calculation">3.3. Index Generation (<code>Cumsum</code>-based Address Calculation)</a></h4>
+<p>Index generation computes the destination address for each token using <code>cumsum</code>-based parallel address calculation.
+(<code>Cumsum</code> is implemented in the Vector Engine using branch logging; see <a href="#4-cumsum-implementation-on-npu">Section 4</a> for the hardware implementation.)
+This approach avoids loops and enables efficient parallel execution:</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>TopK_Indices: T x K</code></li>
+<li><code>Expert_Indices: E = [0, 1, ..., E-1]</code></li>
+<li><code>Block_Range: G = [0, 1, ..., G-1]</code> (sequence of maximum block count, e.g., 32)</li>
+</ul>
+</li>
+<li><strong>Outputs</strong>
+<ul>
+<li><code>Scatter_Idx: T x K</code> (final 1D address where each token will move)</li>
+<li><code>Expert_IDs: G</code> (Expert number each Block is responsible for)</li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li>
+<p><strong>Mask Generation (One-Hot)</strong></p>
+<ul>
+<li>Convert indices to computable mask form.</li>
+<li><code>Expert_Mask: T x K x E = one_hot(TopK_Indices, depth=E)</code></li>
+</ul>
+</li>
+<li>
+<p><strong>Histogram</strong></p>
+<ul>
+<li>Sum the masks to count the number of tokens allocated per Expert.</li>
+<li><code>Count: E = reduce_sum(Expert_Mask, axis: (T, K))</code></li>
+</ul>
+</li>
+<li>
+<p><strong>Block calculation</strong></p>
+<ul>
+<li>Calculate the number of Blocks needed for each Expert.
+<ul>
+<li><code>Num_Blocks: E = ceil(Count / B)</code></li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>Global offset Calculation</strong></p>
+<ul>
+<li>Through Cumsum, obtain the Block Start Index where each Expert starts in the entire Grid (<code>G</code>).</li>
+<li><code>Global_Offset: E = cumsum(Num_Blocks) - Num_Blocks</code></li>
+</ul>
+</li>
+<li>
+<p><strong>Local Offset Calculation</strong></p>
+<ul>
+<li>Using Mask and Cumsum, calculate what position each token is in the Expert’s queue.</li>
+<li><code>Cumsum_Mask: T x K x E = cumsum(Expert_Mask, axis: (T, K))</code></li>
+<li><code>Token_Rank: T x K = gather(Cumsum_Mask, index: TopK_Indices)</code></li>
+<li><code>Local_Offset: T x K = Token_Rank - 1</code></li>
+</ul>
+</li>
+<li>
+<p><strong>Expert ID expansion</strong></p>
+<ul>
+<li><code>Diff: E x G = Num_Blocks - Block_Range</code></li>
+<li><code>Grid: E x G</code>
+<ul>
+<li>
+<pre><code class="language-rust ignore">Grid(e, i) = if Diff(e, i) &gt; 0 {
+    Expert_Indices(e)
+} else {
+    -1
+}</code></pre>
+</li>
+</ul>
+</li>
+<li><code>Expert_IDs: G = filter_compaction(Grid, condition=(Grid &gt;= 0))</code></li>
+<li>e.g.)
+<ul>
+<li>expert 0: 2 blocks, expert 1: 3 blocks, expert 3: 3 blocks</li>
+<li>Diff[0] = [2, 1, 0, -1, -2, …], Diff[1] = [3, 2, 1, 0, -1, …]: has positive terms equal to the number of allocated blocks per expert.</li>
+<li>Grid[0] = [0, 0, -1,-1, …], Grid[1] = [1, 1, 1, -1, -1, …]: has expert id equal to the number of allocated blocks per expert.</li>
+<li>Expert_IDs = [0, 0, 1, 1, 1, 3, 3, 3]: Filter only values &gt;= 0 (expert id) from Grid.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>Address Synthesis</strong></p>
+<ul>
+<li><code>Scatter_Idx = (Global_Offset * B) + Local_Offset</code></li>
+<li>Calculate which block and which position within the block each of the <code>T</code> tokens corresponds to. <code>Scatter_Idx in [0, G * B)</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h4 id="34-dispatch-blockwise-scatter"><a class="header" href="#34-dispatch-blockwise-scatter">3.4. Dispatch (Blockwise Scatter)</a></h4>
+<p>Dispatch physically rearranges tokens using the computed addresses, placing each token in its designated block position:</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_norm: T x D</code> (Input after Attention and norm)</li>
+<li><code>Scatter_Idx: T x K</code> (Final 1D address where each token will move)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_blocked: G x B x D</code> (Rearranged Blocked Tensor)</li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><strong>Scatter</strong>
+<ul>
+<li>Place tokens <code>x_norm</code> at <code>Scatter_Idx</code> positions.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h4 id="35-sparse-computation-weight-gather"><a class="header" href="#35-sparse-computation-weight-gather">3.5. Sparse Computation (Weight Gather)</a></h4>
+<p>Sparse computation applies Expert weights to the sorted Blocks.
+The key insight is that weights are gathered only for Experts that have assigned tokens:</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>x_blocked: G x B x D</code></li>
+<li><code>Expert_IDs: G</code> (Expert number each Block is responsible for)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>y_blocked: G x B x D</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Weight Gather</strong>
+<ul>
+<li>Using <code>Expert_IDs</code> as indices, only the necessary weights are fetched.</li>
+<li><code>W_gathered_up: G x D x F = gather(W_up, index: Expert_IDs)</code></li>
+<li><code>W_gathered_down: G x F x D = gather(W_down, index: Expert_IDs)</code></li>
+</ul>
+</li>
+<li><strong>Sparse MLP</strong>
+<ul>
+<li>Operations are performed only for valid Blocks (<code>G</code>).</li>
+<li><code>up: G x B x F = einsum(x_blocked, W_gathered_up)</code></li>
+<li><code>y_blocked: G x B x D = einsum(up, W_gathered_down)</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h4 id="36-combine-weighted-sum"><a class="header" href="#36-combine-weighted-sum">3.6. Combine (Weighted Sum)</a></h4>
+<p>Combine restores results to original token order and applies Routing probabilities.
+This is the final step that produces the MoE layer output:</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>y_blocked: G x B x D</code></li>
+<li><code>Scatter_Idx: T x K</code></li>
+<li><code>routing_weights: T x K</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>moe_out: T x D</code> (Final MoE layer output)</li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Gather</strong>
+<ul>
+<li>Using <code>Scatter_Idx</code> in reverse, results are fetched from <code>y_blocked</code> in the original token order.</li>
+<li><code>y_restored: T x K x D = gather(y_blocked, index: Scatter_Idx)</code></li>
+</ul>
+</li>
+<li><strong>Weighted Sum</strong>
+<ul>
+<li>The final output is summed by multiplying with <code>routing_weights</code> obtained from the Top-K process.</li>
+<li><code>y_weighted: T x K x D = einsum(y_restored, routing_weights)</code></li>
+<li><code>moe_out: T x D = reduce_sum(y_weighted, axis: K)</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="4-cumsum-implementation-on-tcp"><a class="header" href="#4-cumsum-implementation-on-tcp">4. <code>Cumsum</code> Implementation on TCP</a></h3>
+<p><code>Cumsum</code> is a key primitive used in index generation.
+On TCP, it is implemented in Vector Engine using the following approach:</p>
+<ol>
+<li>Create a static branch logger: For the axis (of size n) over which the sum is computed,</li>
+</ol>
+<pre><code class="language-rust ignore">branch(i) = if i == 0 {
+    0
+} else if i &lt; n - 1 {
+    1
+} else {
+    2  // i == n - 1
+}</code></pre>
+<ol start="2">
+<li>Configure the Vector Engine as follows:</li>
+</ol>
+<pre><code class="language-rust ignore">add %mainstream, OperandRead(branch = 1, 2)
+WriteOperand(branch = 0, 1)</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../kernel-examples/transformer.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../kernel-examples/transformer.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

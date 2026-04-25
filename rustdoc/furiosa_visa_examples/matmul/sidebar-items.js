@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["matmul_16384","matmul_4096","matmul_chip_reduce","matmul_cluster_reduce","matmul_split_reduce","matmul_split_reduce2","matmul_wo_broadcast"]};

@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["furiosa_visa_std",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/arith/trait.Add.html\" title=\"trait core::ops::arith::Add\">Add</a> for <a class=\"struct\" href=\"furiosa_visa_std/prelude/struct.bf16.html\" title=\"struct furiosa_visa_std::prelude::bf16\">bf16</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/arith/trait.Add.html\" title=\"trait core::ops::arith::Add\">Add</a> for <a class=\"struct\" href=\"furiosa_visa_std/prelude/struct.f8.html\" title=\"struct furiosa_visa_std::prelude::f8\">f8</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/arith/trait.Add.html\" title=\"trait core::ops::arith::Add\">Add</a> for <a class=\"struct\" href=\"furiosa_visa_std/prelude/struct.f8e4m3.html\" title=\"struct furiosa_visa_std::prelude::f8e4m3\">f8e4m3</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/arith/trait.Add.html\" title=\"trait core::ops::arith::Add\">Add</a> for <a class=\"struct\" href=\"furiosa_visa_std/prelude/struct.i4.html\" title=\"struct furiosa_visa_std::prelude::i4\">i4</a>"],["impl&lt;D: <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/arith/trait.Add.html\" title=\"trait core::ops::arith::Add\">Add</a>&lt;Output = D&gt;&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/arith/trait.Add.html\" title=\"trait core::ops::arith::Add\">Add</a> for <a class=\"enum\" href=\"furiosa_visa_std/prelude/enum.Opt.html\" title=\"enum furiosa_visa_std::prelude::Opt\">Opt</a>&lt;D&gt;"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1582]}

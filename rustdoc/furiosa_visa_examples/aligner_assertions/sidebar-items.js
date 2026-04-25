@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["cpacket_mapping","cpacket_size","row_size","time_broadcast","trf_mapping","trf_row_time","trf_size"],"struct":["A","B","C","D","E","F","R","T","U","V"]};

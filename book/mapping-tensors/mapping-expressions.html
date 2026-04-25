@@ -1,0 +1,772 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Mapping Expressions - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="mapping-expressions"><a class="header" href="#mapping-expressions">Mapping Expressions</a></h1>
+<p>A mapping expression defines where each tensor element sits in a buffer.
+This page covers the available mapping constructors and the equivalences between mappings.</p>
+<p>Consider a tensor with <code>axes![A = 8, B = 512]</code>.
+The mapping expression <code>m![A, B]</code> places \(A\) as the major axis and \(B\) as the minor axis, requiring a buffer of <code>8 × 512 = 4096</code> elements.
+Buffer position 0 holds \(\{A=0, B=0\}\), position 1 holds \(\{A=0, B=1\}\), and so on through all 512 elements where \(A=0\) before moving to \(A=1\).</p>
+<h2 id="axis-sizes"><a class="header" href="#axis-sizes">Axis Sizes</a></h2>
+<p>The <code>axes!</code> macro declares axis identifiers and their sizes.
+Throughout this section, assume the following axis sizes.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 8, B = 512];
+<span class="boring">}</span></code></pre>
+<h2 id="mapping-interface"><a class="header" href="#mapping-interface">Mapping Interface</a></h2>
+<p>A mapping expression like <code>m![H, W]</code> is a Rust type that describes how tensor indices map to buffer positions.
+Every mapping expression implements the <code>M</code> trait, which provides the buffer size and a buffer-index-to-tensor-index mapping function:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Inside `furiosa_visa_std::prelude`...
+<span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">use std::fmt::Debug;
+</span>
+
+/// Tensor index: a map from axis identifiers to coordinate values.
+pub struct Index { /* ... */ }
+
+/// Constructs tensor indices.
+/// `i![A: 2, B: 3]` creates an `Index` with A = 2 and B = 3.
+macro_rules! i {
+<span class="boring">    () =&gt; {};
+</span>    /* ... */
+}
+<span class="boring">}</span></code></pre>
+<p>A mapping defines what mathematical tensor a buffer represents.
+For example, <code>HostTensor&lt;bf16, m![A, B]&gt;</code> denotes a host memory buffer containing <code>m![A, B]::SIZE</code> elements of <code>bf16</code> data, which is 4096 elements.
+We say a buffer <em>holds</em> a tensor \(T\) when:</p>
+<ul>
+<li>For every buffer index <code>i</code> and tensor index <code>ti</code>,</li>
+<li>if <code>m![A, B]::map(i) = Some(ti)</code>,</li>
+<li>then the <code>i</code>-th element of the buffer stores the value of tensor \(T\) at index <code>ti</code>.</li>
+</ul>
+<h2 id="constructors"><a class="header" href="#constructors">Constructors</a></h2>
+<p>Mapping expressions are built by composing small constructors, each of which transforms or combines simpler mappings.
+These expressions use arithmetic-like operators (<code>/</code>, <code>%</code>, and <code>#</code> for padding) to concisely define the mapping between tensor and linear buffer indices.</p>
+<h3 id="symbol"><a class="header" href="#symbol">Symbol</a></h3>
+<p>A symbol is a single uppercase letter whose size comes from the shape declaration.
+The mapping <code>m![A]</code> maps 8 buffer indices linearly to tensor indices along the axis: buffer index <code>0</code> holds <code>i![]</code> (empty tensor index), index <code>1</code> holds <code>i![A: 1]</code>, index <code>2</code> holds <code>i![A: 2]</code>, and so on:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">
+</span><span class="boring">axes![A = 8];
+</span><span class="boring">
+</span>type E = m![A]; // Symbol&lt;Ident::A, 8&gt;
+
+#[test]
+fn test_symbol() {
+    for i in 0..E::SIZE {
+        assert_eq!(E::map(i), Some(i![A: i]));
+    }
+    assert_eq!(E::map(E::SIZE), None);
+}
+<span class="boring">}</span></code></pre>
+<pre><code class="language-rust ignore">// Trait implementation
+impl&lt;S: AxisName&gt; M for Symbol&lt;S&gt; {
+    const SIZE: usize = S::SIZE;
+
+    fn to_value() -&gt; Mapping {
+        Mapping::Symbol {
+            symbol: S::NAME,
+            size: S::SIZE,
+        }
+    }
+
+    fn map(i: usize) -&gt; Option&lt;Index&gt; {
+        if i &lt; S::SIZE {
+            let mut index = Index::new();
+            Index::add_term(
+                &amp;mut index,
+                Term {
+                    inner: Atom::Symbol {
+                        symbol: S::NAME,
+                        size: S::SIZE,
+                    },
+                    stride: 1,
+                    modulo: S::SIZE,
+                },
+                i,
+            );
+            Some(index)
+        } else {
+            None
+        }
+    }
+}</code></pre>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>For every symbol <code>A</code>, the 0’th index <code>i![A: 0]</code> corresponds to the empty tensor index <code>i![]</code>.</p>
+</blockquote>
+<h3 id="pair"><a class="header" href="#pair">Pair</a></h3>
+<p>One way to store a 2D tensor with shape \(\{A=8, B=512\}\) is the pair mapping <code>m![A, B]</code>.
+This creates a buffer of 4096 elements where <code>A</code> is the major axis and <code>B</code> is the minor axis.
+The first 512 elements hold <code>A = 0</code> and the next 512 elements hold <code>A = 1</code>.
+Buffer index <code>519</code> holds <code>i![A: 1, B: 7]</code> since <code>519 == 512 * 1 + 7</code>.</p>
+<p>The mapping <code>Pair&lt;L, R&gt;</code> maps the Cartesian product of two spaces into a linear buffer where <code>L</code> is the major dimension and <code>R</code> is the minor dimension.
+The size is <code>L::SIZE * R::SIZE</code>, and the mapping uses floor division and modulo to decompose indices.
+<code>m![A, B, C, D]</code> expands to <code>Pair&lt;A, Pair&lt;B, Pair&lt;C, D&gt;&gt;&gt;</code> and is right-associative.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">
+</span><span class="boring">axes![A = 8, B = 512];
+</span><span class="boring">
+</span>type E = m![A, B]; // Pair&lt;m![A], m![B]&gt;
+
+#[test]
+fn test_pair() {
+    for i in 0..E::SIZE {
+        assert_eq!(E::map(i), Some(i![A: i / &lt;m![B]&gt;::SIZE, B: i % &lt;m![B]&gt;::SIZE]));
+    }
+    assert_eq!(E::map(2 * &lt;m![B]&gt;::SIZE + 7), Some(i![A: 2, B: 7]));
+    assert_eq!(E::map(E::SIZE), None);
+}
+<span class="boring">}</span></code></pre>
+<pre><code class="language-rust ignore">// Trait implementation
+impl&lt;L, R&gt; M for Pair&lt;L, R&gt;
+where
+    L: M,
+    R: M,
+{
+    const SIZE: usize = L::SIZE * R::SIZE;
+
+    fn to_value() -&gt; Mapping {
+        Mapping::Pair {
+            left: RBox::new(L::to_value()),
+            right: RBox::new(R::to_value()),
+        }
+    }
+
+    fn map(i: usize) -&gt; Option&lt;Index&gt; {
+        let mut l = L::map(i / R::SIZE)?;
+        let r = R::map(i % R::SIZE)?;
+        Index::add(&amp;mut l, r);
+        Some(l)
+    }
+}</code></pre>
+<h3 id="identity"><a class="header" href="#identity">Identity</a></h3>
+<p>The identity mapping <code>m![1]</code> creates a single-element buffer that maps buffer index <code>0</code> to the empty tensor index <code>i![]</code>.
+It serves as the identity element for <code>Pair</code>: <code>m![1, A]</code> and <code>m![A, 1]</code> are both equivalent to <code>m![A]</code>.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">
+</span>type E = m![1]; // Identity
+
+#[test]
+fn test_identity() {
+    assert_eq!(E::map(0), Some(i![]));
+    assert_eq!(E::map(1), None);
+}
+<span class="boring">}</span></code></pre>
+<pre><code class="language-rust ignore">// Trait implementation
+impl M for Identity {
+    const SIZE: usize = 1;
+
+    fn to_value() -&gt; Mapping {
+        Mapping::Identity
+    }
+
+    fn map(i: usize) -&gt; Option&lt;Index&gt; {
+        if i == 0 { Some(Index::new()) } else { None }
+    }
+}</code></pre>
+<h3 id="padding"><a class="header" href="#padding">Padding</a></h3>
+<p>Padding aligns data to hardware requirements by adding unused buffer space.
+For example, the DMA engine requires rows to start on 64-byte boundaries.
+With <code>axes![C = 13, D = 61]</code>, <code>m![C, D]</code> creates misaligned rows since <code>61</code> is not divisible by <code>64</code>.
+<code>m![C, D # 64]</code> fixes this by aligning each row to 64-byte boundaries, using 3 extra elements per row.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">
+</span>axes![C = 13, D = 61];
+
+type E = m![C, D # 64]; // Pair&lt;m![C], Padding&lt;m![D], 64&gt;&gt;
+
+#[test]
+fn test_padding() {
+    assert_eq!(E::map(0),  Some(i![C: 0, D: 0]));
+    assert_eq!(E::map(60), Some(i![C: 0, D: 60]));
+    assert_eq!(E::map(61), None); // padding
+    assert_eq!(E::map(62), None); // padding
+    assert_eq!(E::map(63), None); // padding
+    assert_eq!(E::map(64), Some(i![C: 1, D: 0]));
+}
+<span class="boring">}</span></code></pre>
+<pre><code class="language-rust ignore">// Trait implementation
+impl&lt;L, const SIZE: usize&gt; M for Padding&lt;L, SIZE&gt;
+where
+    L: M,
+{
+    const SIZE: usize = SIZE;
+
+    fn to_value() -&gt; Mapping {
+        Mapping::Padding {
+            inner: RBox::new(L::to_value()),
+            padding: SIZE,
+            kind: PaddingKind::Top,
+        }
+    }
+
+    fn map(i: usize) -&gt; Option&lt;Index&gt; {
+        L::map(i)
+    }
+}</code></pre>
+<h3 id="resize"><a class="header" href="#resize">Resize</a></h3>
+<p>Resize constrains a mapping to a smaller logical size by truncating indices beyond the new size, discarding elements outside that range. Unlike padding, which expands the buffer, Resize shrinks the logical view.
+The mapping <code>m![D = 2]</code> takes only the first 2 elements of axis <code>D</code>, producing indices <code>D = 0</code> and <code>D = 1</code>.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">
+</span>axes![C = 2, D = 3];
+type E = m![C, D = 2]; // Pair&lt;m![C], Resize&lt;m![D], 2&gt;&gt;
+
+#[test]
+fn test_resize() {
+    assert_eq!(E::map(0), Some(i![C: 0, D: 0]));
+    assert_eq!(E::map(1), Some(i![C: 0, D: 1]));
+    assert_eq!(E::map(2), Some(i![C: 1, D: 0]));
+    assert_eq!(E::map(3), Some(i![C: 1, D: 1]));
+    assert_eq!(E::map(4), None);
+}
+<span class="boring">}</span></code></pre>
+<pre><code class="language-rust ignore">// Trait implementation
+impl&lt;L, const SIZE: usize&gt; M for Resize&lt;L, SIZE&gt;
+where
+    L: M,
+{
+    const SIZE: usize = SIZE;
+
+    fn to_value() -&gt; Mapping {
+        Mapping::Resize {
+            inner: RBox::new(L::to_value()),
+            resize: SIZE,
+        }
+    }
+
+    fn map(i: usize) -&gt; Option&lt;Index&gt; {
+        if i &lt; SIZE { L::map(i) } else { None }
+    }
+}</code></pre>
+<p>Tiling is implemented through <em>indexed views</em>, pure metadata transformations without data copies.
+The <code>.tile()</code> method extracts a tile by resizing one dimension to the tile size and offsetting into the buffer.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">
+</span><span class="boring">axes![A = 8, B = 512];
+</span><span class="boring">
+</span><span class="boring">fn tiles() {
+</span>let tensor = unsafe { HbmTensor::&lt;bf16, m![1], m![A, B]&gt;::from_addr(0) };
+let view = tensor.view(); // HbmTensorView::&lt;'_, bf16, m![1], m![A, B]&gt;
+let tile01 = view.tile::&lt;m![B], 2, m![A, B = 2 # 4]&gt;(0); // HbmTensorView::&lt;'_, bf16, m![1], m![A, B = 2 # 4]&gt;
+let tile23 = view.tile::&lt;m![B], 2, m![A, B = 2 # 4]&gt;(2); // HbmTensorView::&lt;'_, bf16, m![1], m![A, B = 2 # 4]&gt;
+<span class="boring">}
+</span><span class="boring">}</span></code></pre>
+<p>The <code>.tile()</code> method takes three type parameters and one value parameter.</p>
+<ul>
+<li>The <em>tile dimension</em> <code>m![B]</code> specifies which dimension to divide along.</li>
+<li>The <em>tile size</em> <code>2</code> specifies the number of elements per tile.</li>
+<li>The <em>tile mapping</em> <code>m![A, B = 2 # 4]</code> defines the resulting view’s mapping. The mapping <code>B = 2 # 4</code> signifies that dimension <code>B</code> has a logical size of <code>2</code> within the view but exists within a physical footprint of <code>4</code>. This is essential for preserving the original memory layout and stride calculations.</li>
+<li>The <em>starting index</em> specifies which tile to extract. Passing <code>0</code> captures the range <code>0..2</code> for <code>tile01</code>, while passing <code>2</code> captures the range <code>2..4</code> for <code>tile23</code>.</li>
+</ul>
+<h3 id="stride-and-modulo"><a class="header" href="#stride-and-modulo">Stride and Modulo</a></h3>
+<p>Stride (<code>/</code>) and modulo (<code>%</code>) decompose a single dimension into two: the outer (block index) and the inner (position within block).
+Consider the 512-element axis <code>B</code> divided into 8 blocks of 64 elements each.
+The mapping <code>m![B / 64, B % 64]</code> creates an 8 × 64 grid where the first dimension selects which block and the second dimension selects the position within that block.
+Buffer index <code>130</code> corresponds to block <code>2</code> at position <code>2</code> within that block, giving tensor index <code>B = 64 × 2 + 2 = 130</code>, equal to the flat-buffer result (since <code>m![B / 64, B % 64]</code> is equivalent to <code>m![B]</code>):</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">axes![A = 8, B = 512];
+</span>type D1 = m![B / 64]; // stride with size 8
+type D2 = m![B % 64]; // modulo with size 64
+
+type E = m![B / 64, B % 64]; // equivalent to `m![B]`
+
+#[test]
+fn test_stride_modulo() {
+    for i in 0..8 {
+        assert_eq!(D1::map(i), Some(i![B / 64: i]));
+    }
+    assert_eq!(D1::map(8), None);
+
+    for j in 0..64 {
+        assert_eq!(D2::map(j), Some(i![B % 64: j]));
+    }
+    assert_eq!(D2::map(64), None);
+
+    for i in 0..8 {
+        for j in 0..64 {
+            assert_eq!(
+                E::map(64 * i + j),     // i![B / 64: i, B % 64: j]
+                &lt;m![B]&gt;::map(64 * i + j), // equivalent to above
+            );
+        }
+    }
+    assert_eq!(E::map(512), None);
+}
+<span class="boring">}</span></code></pre>
+<pre><code class="language-rust ignore">// Trait implementation
+impl&lt;L, const SIZE: usize&gt; M for Stride&lt;L, SIZE&gt;
+where
+    L: M,
+{
+    const SIZE: usize = {
+        assert!(L::SIZE % SIZE == 0, "Stride size must divide the original size");
+        L::SIZE / SIZE
+    };
+
+    fn to_value() -&gt; Mapping {
+        Mapping::Stride {
+            inner: RBox::new(L::to_value()),
+            stride: SIZE,
+        }
+    }
+
+    fn map(i: usize) -&gt; Option&lt;Index&gt; {
+        if i &lt; Self::SIZE { L::map(i * SIZE) } else { None }
+    }
+}
+
+impl&lt;L, const SIZE: usize&gt; M for Modulo&lt;L, SIZE&gt;
+where
+    L: M,
+{
+    const SIZE: usize = {
+        assert!(L::SIZE % SIZE == 0, "Modulo size must divide the original size");
+        SIZE
+    };
+
+    fn to_value() -&gt; Mapping {
+        Mapping::Modulo {
+            inner: RBox::new(L::to_value()),
+            modulo: SIZE,
+        }
+    }
+
+    fn map(i: usize) -&gt; Option&lt;Index&gt; {
+        if i &lt; Self::SIZE { L::map(i % L::SIZE) } else { None }
+    }
+}</code></pre>
+<p>Together, <code>m![B / 64, B % 64]</code> transforms axis <code>B</code> into an 8 × 64 grid.
+The mapping is equivalent to <code>m![B]</code> but expresses a different logical view of the same data, revealing block structure hidden in the flat representation.</p>
+<p>Stride and modulo mappings can be visualized in tabular form. Consider the mapping <code>m![B / 4, B % 4]</code> with <code>B::SIZE = 16</code>. The following table shows how buffer indices are arranged: each row corresponds to a specific index of <code>B / 4</code> (the stride axis), and each column corresponds to an index of <code>B % 4</code> (the modulo axis):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th><code>i![B % 4: 0]</code></th><th><code>i![B % 4: 1]</code></th><th><code>i![B % 4: 2]</code></th><th><code>i![B % 4: 3]</code></th></tr>
+</thead>
+<tbody>
+<tr><td><code>i![B / 4: 0]</code></td><td><code>i![B: 0]</code></td><td><code>i![B: 1]</code></td><td><code>i![B: 2]</code></td><td><code>i![B: 3]</code></td></tr>
+<tr><td><code>i![B / 4: 1]</code></td><td><code>i![B: 4]</code></td><td><code>i![B: 5]</code></td><td><code>i![B: 6]</code></td><td><code>i![B: 7]</code></td></tr>
+<tr><td><code>i![B / 4: 2]</code></td><td><code>i![B: 8]</code></td><td><code>i![B: 9]</code></td><td><code>i![B: 10]</code></td><td><code>i![B: 11]</code></td></tr>
+<tr><td><code>i![B / 4: 3]</code></td><td><code>i![B: 12]</code></td><td><code>i![B: 13]</code></td><td><code>i![B: 14]</code></td><td><code>i![B: 15]</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>Stride and modulo factorize a single mapping into multiple dimensions.
+The expression <code>m![B / n]</code> creates an outer dimension indexing blocks of size <code>n</code>.
+The expression <code>m![B % n]</code> creates an inner dimension indexing positions within each block.</p>
+<p>Modulo differs from resize in how it handles buffer size:</p>
+<ul>
+<li>Resize shrinks the buffer by truncating indices beyond the new size.</li>
+<li>Modulo preserves the original buffer size while partitioning it into equal-sized blocks.</li>
+</ul>
+<p>These operations can be nested for complex decompositions.
+The following example splits <code>B</code> into three dimensions where the buffer’s bit layout differs from that of the tensor index.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">axes![A = 8, B = 512];
+</span>// B's bits: 6 - 8,  0 - 4,          5
+// Values:   0 - 7, 0 - 31,      0 - 1
+type E = m![B / 64, B % 32, B / 32 % 2];
+
+#[test]
+fn test_nested_stride() {
+    for i in 0..8 {
+        for j in 0..32 {
+            for k in 0..2 {
+                assert_eq!(
+                    E::map(64 * i + 2 * j + k),
+                    Some(i![B: 64 * i + j + 32 * k]),
+                );
+            }
+        }
+    }
+    assert_eq!(E::map(512), None);
+}
+<span class="boring">}</span></code></pre>
+<p>The buffer index decomposes as <code>64 * i + 2 * j + k</code> where <code>i</code> selects the block, <code>j</code> selects position within the block, and <code>k</code> selects the sub-block.
+The tensor index <code>B</code> reconstructs as <code>64 * i + j + 32 * k</code>, which rearranges the bit positions.</p>
+<p>For example, buffer index <code>67</code> maps to <code>B = 97</code>:</p>
+<ul>
+<li>Buffer <code>67 = 64 * 1 + 2 * 1 + 1</code> gives <code>i=1, j=1, k=1</code></li>
+<li>Tensor <code>B = 64 * 1 + 1 + 32 * 1 = 97</code></li>
+<li>Verify: <code>97 / 64 = 1</code>, <code>97 % 32 = 1</code>, <code>(97 / 32) % 2 = 1</code></li>
+</ul>
+<p>This kind of bit rearrangement maps naturally to hardware memory layouts where address bits are reordered for bank interleaving or cache efficiency.
+In binary, this rearranges bit positions: buffer <code>001_00001_1</code> becomes <code>B = 001_1_00001</code>.
+The buffer groups bits as <code>[8:6]_[5:1]_[0]</code> while <code>B</code> groups them as <code>[8:6]_[5]_[4:0]</code>.</p>
+<p>Tiling can operate on blocks rather than individual elements.
+The following example tiles by block using <code>m![B / 32]</code> and creates overlapping tiles:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">axes![A = 8, B = 512];
+</span>let tensor = unsafe { HbmTensor::&lt;bf16, m![1], m![A, B]&gt;::from_addr(0) };
+for i in 0..15 {
+    let tile = tensor.view().tile::&lt;m![B / 32], 2, m![A, B / 32 = 2 # 16, B % 32]&gt;(i);
+}
+<span class="boring">}</span></code></pre>
+<p>With <code>B = 512</code>, the dimension <code>B / 32</code> has 16 blocks numbered 0-15.
+Each tile takes 2 consecutive blocks starting at index <code>i</code>.
+Tile 0 covers blocks <code>{0, 1}</code>, tile 1 covers blocks <code>{1, 2}</code>, and so on through tile 14 covering blocks <code>{14, 15}</code>.
+These tiles overlap because consecutive tiles share one block: tiles 0 and 1 both include block 1.</p>
+<p>The tile mapping <code>B / 32 = 2</code> resizes the block dimension to 2 since each tile contains exactly 2 blocks.
+When tiling with a single block, <code>B / 32 = 1</code> simplifies to the identity <code>m![1]</code> since the dimension has only one value.</p>
+<h3 id="escape"><a class="header" href="#escape">Escape</a></h3>
+<p>For complex mappings, define type aliases and reference them using <code>{ ... }</code>.
+With separate mappings <code>L = m![A]</code> and <code>R = m![B]</code>, combining them as <code>m![{ L }, { R }]</code> produces the same result as <code>m![A, B]</code>:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">axes![A = 8, B = 512];
+</span>type L = m![A];
+type R = m![B];
+type E = m![{ L }, { R }]; // equivalent to `m![A, B]`
+<span class="boring">}</span></code></pre>
+<p>This escape syntax breaks down complex mappings into named, reusable components.</p>
+<h3 id="advanced-constructors"><a class="header" href="#advanced-constructors">Advanced Constructors</a></h3>
+<!-- > **TODO** (jeongmin.park): Need input on how to write this section. -->
+<h4 id="skewed-axis"><a class="header" href="#skewed-axis">Skewed Axis</a></h4>
+<p>A skewed axis creates a diagonal access pattern across two dimensions.
+Skewed axes introduce derived axis labels defined by arithmetic differences between existing axes; for example, <code>B' = B - A</code> defines a new axis <code>B'</code> whose coordinate at any point equals <code>B</code> minus <code>A</code>.
+Algorithms that process data along diagonals use this pattern, such as certain wavefront computations.</p>
+<p>The expression <code>m![A, B' = 4]</code> with <code>B' = B - A</code> creates a mapping where each row is shifted relative to the previous one.
+The <code>=</code> operator specifies the logical size after skewing. The result wraps around using modular arithmetic.</p>
+<p>For example, with <code>axes![A = 4, B = 4]</code> and <code>B' = B - A</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>(A, B’)</th><th>(A, B)</th></tr>
+</thead>
+<tbody>
+<tr><td>(0, 0)</td><td>(0, 0)</td></tr>
+<tr><td>(0, 1)</td><td>(0, 1)</td></tr>
+<tr><td>(0, 2)</td><td>(0, 2)</td></tr>
+<tr><td>(0, 3)</td><td>(0, 3)</td></tr>
+<tr><td>(1, 0)</td><td>(1, 1)</td></tr>
+<tr><td>(1, 1)</td><td>(1, 2)</td></tr>
+<tr><td>(1, 2)</td><td>(1, 3)</td></tr>
+<tr><td>(1, 3)</td><td>(1, 0)</td></tr>
+</tbody>
+</table>
+</div>
+<p>When <code>A = 1</code> and <code>B' = 3</code>, the original <code>B</code> coordinate wraps to <code>0</code> via modular arithmetic since <code>B = (B' + A) % 4 = (3 + 1) % 4 = 0</code>.</p>
+<h4 id="indirect-sequencing"><a class="header" href="#indirect-sequencing">Indirect Sequencing</a></h4>
+<blockquote>
+<p><strong>TODO</strong>: Document indirect sequencing patterns for non-contiguous memory access. This advanced constructor provides index-based memory access where the sequence of buffer positions is determined by an indirection table rather than a mathematical formula.</p>
+</blockquote>
+<h4 id="sliding-linear-combination"><a class="header" href="#sliding-linear-combination">Sliding (Linear Combination)</a></h4>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>Linear combination expressions <code>$(e1:n1, ..., ed:nd)</code> combine multiple dimensions with specified strides. Formal definition: <code>size_S($(e1:n1, ..., ed:nd)) = 1 + sum_k((size_S(ek) - 1) * nk)</code>. The mapping <code>S, $(e1:n1, ..., ed:nd) |- si ~ ti</code> holds if there exist <code>si1...sid, ti1...tid</code> such that for all <code>k</code>: <code>S, ek |- sik ~ tik</code>, <code>si = sum_k(sik * nk)</code>, and <code>ti = sum_k(tik * nk)</code>.</p>
+<p>Linear combinations can encode outer sum: <code>e1 * e2</code> is equivalent to <code>$(e1 : size_S(e2), e2 : 1)</code>. However, outer sum is preferred because it’s more resilient to axis reordering. Changing <code>e1 * e2</code> to <code>e2 * e1</code> doesn’t require manual stride updates.</p>
+</blockquote>
+<p>Sliding operations access overlapping data blocks, essential for convolutional neural networks.
+Consider a buffer of 9 elements representing a tensor with shape \(\{N=5, F=3\}\) where each row is a 3-element slice that slides one element at a time.
+The tensor element at \((N, F)\) maps to buffer index \(N + 2F\):</p>
+<p>$$
+\begin{array}{c|ccc}
+&amp; F=0 &amp; F=1 &amp; F=2 \\
+\hline
+N=0 &amp; 0 &amp; 2 &amp; 4 \\
+N=1 &amp; 1 &amp; 3 &amp; 5 \\
+N=2 &amp; 2 &amp; 4 &amp; 6 \\
+N=3 &amp; 3 &amp; 5 &amp; 7 \\
+N=4 &amp; 4 &amp; 6 &amp; 8 \\
+\end{array}
+$$</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>In this sliding pattern, a single space index can map to multiple tensor indices. For example, space index <code>4</code> maps to <code>{4_N}</code>, <code>{2_N, 1_F}</code>, and <code>{2_F}</code> simultaneously. This illustrates the non-one-to-one nature of <code>(S, e).maps(si, ti)</code>.</p>
+</blockquote>
+<p>This can be expressed using a linear combination expression where the <code>N</code> axis has stride <code>1</code> and the <code>F</code> axis has stride <code>2</code>, yielding a total size of <code>1 + (5-1)*1 + (3-1)*2 = 9</code>.</p>
+<!-- > **TODO**: Define the Rust pseudocode syntax for linear combination expressions. -->
+<!-- > -->
+<!-- > Expected syntax format: -->
+<!-- > ```text -->
+<!-- > // Linear combination with specified strides -->
+<!-- > m![$( N: 1, F: 2 )] -->
+<!-- > // or similar notation to express: $(e1:n1, ..., ed:nd) -->
+<!-- > ``` -->
+<h2 id="equivalent-mapping"><a class="header" href="#equivalent-mapping">Equivalent Mapping</a></h2>
+<p>Mappings <code>E1</code> and <code>E2</code> are <em>equivalent</em> when:</p>
+<ul>
+<li><code>E1::SIZE == E2::SIZE</code></li>
+<li>For every <code>i</code>, <code>E1::map(i) == E2::map(i)</code></li>
+</ul>
+<p>The equivalence relation is reflexive, symmetric, and transitive. Examples:</p>
+<ul>
+<li>Identity of pairs: for every <code>E</code>, <code>E</code> is equivalent both to <code>m![{ E }, 1]</code> and <code>m![1, { E }]</code>.</li>
+<li>Stride-modulo decomposition: for every <code>E</code> whose size <code>E::SIZE</code> is divisible by <code>n</code>, <code>E</code> and <code>m![{ E } / n, { E } % n]</code> are equivalent.</li>
+<li>Pair projection: for every <code>A</code> and <code>B</code>, <code>m![[{ A }, { B }] / B::SIZE]</code> is equivalent to <code>m![A]</code> and <code>m![[{ A }, { B }] % B::SIZE]</code> is equivalent to <code>m![B]</code>.</li>
+<li>Associativity of pairs: for every <code>E1</code>, <code>E2</code>, <code>E3</code>, <code>m![{ E1 }, { E2 }, { E3 }]</code>, <code>m![[{ E1 }, { E2 }], { E3 }]</code>, and <code>m![{ E1 }, [{ E2 }, { E3 }]]</code> are equivalent.</li>
+<li>Idempotent operations: for every <code>E</code>, <code>E</code> is equivalent to <code>m![{ E } / 1]</code>, to <code>m![{ E } # E::SIZE]</code>, and to <code>m![{ E } = E::SIZE]</code>.</li>
+<li>Modulo by 1: For every <code>E</code>, <code>m![E % 1]</code> is equivalent to the identity mapping <code>m![1]</code>.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../mapping-tensors/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../mapping-tensors/memory-stream.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../mapping-tensors/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../mapping-tensors/memory-stream.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

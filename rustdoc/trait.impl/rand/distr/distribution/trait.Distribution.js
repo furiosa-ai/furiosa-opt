@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["furiosa_visa_std",[["impl <a class=\"trait\" href=\"https://rust-random.github.io/rand/rand/distr/distribution/trait.Distribution.html\" title=\"trait rand::distr::distribution::Distribution\">Distribution</a>&lt;<a class=\"struct\" href=\"furiosa_visa_std/prelude/struct.bf16.html\" title=\"struct furiosa_visa_std::prelude::bf16\">bf16</a>&gt; for <a class=\"struct\" href=\"https://rust-random.github.io/rand/rand/distr/struct.StandardUniform.html\" title=\"struct rand::distr::StandardUniform\">StandardUniform</a>"],["impl <a class=\"trait\" href=\"https://rust-random.github.io/rand/rand/distr/distribution/trait.Distribution.html\" title=\"trait rand::distr::distribution::Distribution\">Distribution</a>&lt;<a class=\"struct\" href=\"furiosa_visa_std/prelude/struct.f8.html\" title=\"struct furiosa_visa_std::prelude::f8\">f8</a>&gt; for <a class=\"struct\" href=\"https://rust-random.github.io/rand/rand/distr/struct.StandardUniform.html\" title=\"struct rand::distr::StandardUniform\">StandardUniform</a>"],["impl <a class=\"trait\" href=\"https://rust-random.github.io/rand/rand/distr/distribution/trait.Distribution.html\" title=\"trait rand::distr::distribution::Distribution\">Distribution</a>&lt;<a class=\"struct\" href=\"furiosa_visa_std/prelude/struct.f8e4m3.html\" title=\"struct furiosa_visa_std::prelude::f8e4m3\">f8e4m3</a>&gt; for <a class=\"struct\" href=\"https://rust-random.github.io/rand/rand/distr/struct.StandardUniform.html\" title=\"struct rand::distr::StandardUniform\">StandardUniform</a>"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1528]}

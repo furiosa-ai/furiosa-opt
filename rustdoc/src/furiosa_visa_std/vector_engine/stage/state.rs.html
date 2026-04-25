@@ -1,0 +1,116 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `furiosa-visa-std/src/vector_engine/stage/state.rs`."><title>state.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../../../" data-static-root-path="../../../../static.files/" data-current-crate="furiosa_visa_std" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.0-nightly (f52090008 2025-12-10)" data-channel="nightly" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-a3946164.js" data-settings-js="settings-c38705f0.js" ><script src="../../../../static.files/storage-e2aeef58.js"></script><script defer src="../../../../static.files/src-script-813739b1.js"></script><script defer src="../../../../src-files.js"></script><script defer src="../../../../static.files/main-a410ff4d.js"></script><noscript><link rel="stylesheet" href="../../../../static.files/noscript-263c88ec.css"></noscript><link rel="alternate icon" type="image/png" href="../../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">furiosa_visa_std/vector_engine/stage/</div>state.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use </span>std::collections::HashSet;
+<a href=#2 id=2 data-nosnippet>2</a><span class="kw">use </span>std::marker::PhantomData;
+<a href=#3 id=3 data-nosnippet>3</a>
+<a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>furiosa_mapping::M;
+<a href=#5 id=5 data-nosnippet>5</a>
+<a href=#6 id=6 data-nosnippet>6</a><span class="kw">use crate</span>::{
+<a href=#7 id=7 data-nosnippet>7</a>    tensor::Tensor,
+<a href=#8 id=8 data-nosnippet>8</a>    tensor_state::{HasTensor, NoTensor, TensorState},
+<a href=#9 id=9 data-nosnippet>9</a>    vector_engine::{alu::RngdAlu, scalar::VeScalar},
+<a href=#10 id=10 data-nosnippet>10</a>};
+<a href=#11 id=11 data-nosnippet>11</a>
+<a href=#12 id=12 data-nosnippet>12</a><span class="doccomment">/// VE state that tracks stash and ALU usage.
+<a href=#13 id=13 data-nosnippet>13</a>///
+<a href=#14 id=14 data-nosnippet>14</a>/// The type parameter `D` ties the stash's scalar type to the pipeline's current scalar type,
+<a href=#15 id=15 data-nosnippet>15</a>/// ensuring at compile time that stash reads match the pipeline's `D`.
+<a href=#16 id=16 data-nosnippet>16</a>///
+<a href=#17 id=17 data-nosnippet>17</a>/// - `VeState&lt;D, NoTensor&gt;` — stash is empty.
+<a href=#18 id=18 data-nosnippet>18</a>/// - `VeState&lt;D, HasTensor&lt;D, Mapping&gt;&gt;` — stash holds a `Tensor&lt;D, Mapping&gt;`.
+<a href=#19 id=19 data-nosnippet>19</a></span><span class="attr">#[derive(Debug)]
+<a href=#20 id=20 data-nosnippet>20</a></span><span class="kw">pub struct </span>VeState&lt;D: VeScalar, Stash: TensorState&lt;D&gt;&gt; {
+<a href=#21 id=21 data-nosnippet>21</a>    <span class="doccomment">/// Stash state — either [`NoTensor`] or [`HasTensor`] holding the actual tensor.
+<a href=#22 id=22 data-nosnippet>22</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) stash: Stash,
+<a href=#23 id=23 data-nosnippet>23</a>    <span class="doccomment">/// Set of ALUs that have been used.
+<a href=#24 id=24 data-nosnippet>24</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) used_alus: HashSet&lt;RngdAlu&gt;,
+<a href=#25 id=25 data-nosnippet>25</a>    <span class="doccomment">/// Marker for the scalar type `D`.
+<a href=#26 id=26 data-nosnippet>26</a>    </span>_marker: PhantomData&lt;D&gt;,
+<a href=#27 id=27 data-nosnippet>27</a>}
+<a href=#28 id=28 data-nosnippet>28</a>
+<a href=#29 id=29 data-nosnippet>29</a><span class="kw">impl</span>&lt;D: VeScalar, Stash: TensorState&lt;D&gt;&gt; VeState&lt;D, Stash&gt; {
+<a href=#30 id=30 data-nosnippet>30</a>    <span class="doccomment">/// Checks if ALU is available and marks it as used.
+<a href=#31 id=31 data-nosnippet>31</a>    /// Panics if ALU is already in use.
+<a href=#32 id=32 data-nosnippet>32</a>    </span><span class="kw">pub fn </span>use_alu(<span class="kw-2">&amp;mut </span><span class="self">self</span>, alu: RngdAlu) {
+<a href=#33 id=33 data-nosnippet>33</a>        <span class="macro">assert!</span>(!<span class="self">self</span>.used_alus.contains(<span class="kw-2">&amp;</span>alu), <span class="string">"{alu:?} is already in use"</span>);
+<a href=#34 id=34 data-nosnippet>34</a>        <span class="self">self</span>.used_alus.insert(alu);
+<a href=#35 id=35 data-nosnippet>35</a>    }
+<a href=#36 id=36 data-nosnippet>36</a>
+<a href=#37 id=37 data-nosnippet>37</a>    <span class="doccomment">/// Clones the stash data, transposing to target mapping if needed.
+<a href=#38 id=38 data-nosnippet>38</a>    </span><span class="kw">pub fn </span>clone_stash_as&lt;TargetMapping: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;Tensor&lt;D, TargetMapping&gt;&gt; {
+<a href=#39 id=39 data-nosnippet>39</a>        <span class="self">self</span>.stash.clone_tensor_as()
+<a href=#40 id=40 data-nosnippet>40</a>    }
+<a href=#41 id=41 data-nosnippet>41</a>
+<a href=#42 id=42 data-nosnippet>42</a>    <span class="doccomment">/// Clones the stash data, transposing to target mapping if needed.
+<a href=#43 id=43 data-nosnippet>43</a>    ///
+<a href=#44 id=44 data-nosnippet>44</a>    /// TODO: This should checked at compile-time, or replaced with clone_stash_as. (PROG-155)
+<a href=#45 id=45 data-nosnippet>45</a>    ///
+<a href=#46 id=46 data-nosnippet>46</a>    /// # Panics
+<a href=#47 id=47 data-nosnippet>47</a>    /// Panics if the target type D2 does not match the stashed type D.
+<a href=#48 id=48 data-nosnippet>48</a>    </span><span class="kw">pub fn </span>force_clone_stash_as&lt;D2: VeScalar, TargetMapping: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;Tensor&lt;D2, TargetMapping&gt;&gt; {
+<a href=#49 id=49 data-nosnippet>49</a>        <span class="macro">assert!</span>(
+<a href=#50 id=50 data-nosnippet>50</a>            D::KIND == D2::KIND,
+<a href=#51 id=51 data-nosnippet>51</a>            <span class="string">"stash type mismatch: stashed as {:?}, requested as {:?}"</span>,
+<a href=#52 id=52 data-nosnippet>52</a>            D::KIND,
+<a href=#53 id=53 data-nosnippet>53</a>            D2::KIND
+<a href=#54 id=54 data-nosnippet>54</a>        );
+<a href=#55 id=55 data-nosnippet>55</a>
+<a href=#56 id=56 data-nosnippet>56</a>        <span class="kw">let </span>cloned = <span class="self">self</span>.stash.clone_tensor_as::&lt;TargetMapping&gt;();
+<a href=#57 id=57 data-nosnippet>57</a>
+<a href=#58 id=58 data-nosnippet>58</a>        <span class="comment">// SAFETY: Runtime assert above ensures D and D2 are the same concrete type
+<a href=#59 id=59 data-nosnippet>59</a>        // (both i32 or both f32), so Tensor&lt;D, _&gt; and Tensor&lt;D2, _&gt; have identical layout.
+<a href=#60 id=60 data-nosnippet>60</a>        </span>cloned.map(|t| <span class="kw">unsafe </span>{
+<a href=#61 id=61 data-nosnippet>61</a>            <span class="comment">// We cannot use transmute because compiler doesn't know that D and D2 have same size.
+<a href=#62 id=62 data-nosnippet>62</a>            // transmute_copy + forget does the same thing.
+<a href=#63 id=63 data-nosnippet>63</a>            </span><span class="kw">let </span>converted = std::mem::transmute_copy(<span class="kw-2">&amp;</span>t);
+<a href=#64 id=64 data-nosnippet>64</a>            std::mem::forget(t);
+<a href=#65 id=65 data-nosnippet>65</a>            converted
+<a href=#66 id=66 data-nosnippet>66</a>        })
+<a href=#67 id=67 data-nosnippet>67</a>    }
+<a href=#68 id=68 data-nosnippet>68</a>}
+<a href=#69 id=69 data-nosnippet>69</a>
+<a href=#70 id=70 data-nosnippet>70</a><span class="kw">impl</span>&lt;D: VeScalar&gt; VeState&lt;D, NoTensor&gt; {
+<a href=#71 id=71 data-nosnippet>71</a>    <span class="doccomment">/// Creates a new empty VeState.
+<a href=#72 id=72 data-nosnippet>72</a>    </span><span class="kw">pub fn </span>new() -&gt; <span class="self">Self </span>{
+<a href=#73 id=73 data-nosnippet>73</a>        <span class="self">Self </span>{
+<a href=#74 id=74 data-nosnippet>74</a>            stash: NoTensor,
+<a href=#75 id=75 data-nosnippet>75</a>            used_alus: HashSet::new(),
+<a href=#76 id=76 data-nosnippet>76</a>            _marker: PhantomData,
+<a href=#77 id=77 data-nosnippet>77</a>        }
+<a href=#78 id=78 data-nosnippet>78</a>    }
+<a href=#79 id=79 data-nosnippet>79</a>
+<a href=#80 id=80 data-nosnippet>80</a>    <span class="doccomment">/// Creates a new VeState with a single ALU already used.
+<a href=#81 id=81 data-nosnippet>81</a>    </span><span class="kw">pub fn </span>with_alu(alu: RngdAlu) -&gt; <span class="self">Self </span>{
+<a href=#82 id=82 data-nosnippet>82</a>        <span class="self">Self </span>{
+<a href=#83 id=83 data-nosnippet>83</a>            stash: NoTensor,
+<a href=#84 id=84 data-nosnippet>84</a>            used_alus: HashSet::from_iter([alu]),
+<a href=#85 id=85 data-nosnippet>85</a>            _marker: PhantomData,
+<a href=#86 id=86 data-nosnippet>86</a>        }
+<a href=#87 id=87 data-nosnippet>87</a>    }
+<a href=#88 id=88 data-nosnippet>88</a>
+<a href=#89 id=89 data-nosnippet>89</a>    <span class="doccomment">/// Stores the tensor data in the stash, returning a new VeState with the stash's mapping.
+<a href=#90 id=90 data-nosnippet>90</a>    /// Consumes self to change the `TensorState` parameter.
+<a href=#91 id=91 data-nosnippet>91</a>    </span><span class="kw">pub fn </span>stash&lt;NewMapping: M&gt;(<span class="self">self</span>, data: <span class="kw-2">&amp;</span>Tensor&lt;D, NewMapping&gt;) -&gt; VeState&lt;D, HasTensor&lt;D, NewMapping&gt;&gt; {
+<a href=#92 id=92 data-nosnippet>92</a>        VeState {
+<a href=#93 id=93 data-nosnippet>93</a>            stash: HasTensor::new(data.clone()),
+<a href=#94 id=94 data-nosnippet>94</a>            used_alus: <span class="self">self</span>.used_alus,
+<a href=#95 id=95 data-nosnippet>95</a>            _marker: PhantomData,
+<a href=#96 id=96 data-nosnippet>96</a>        }
+<a href=#97 id=97 data-nosnippet>97</a>    }
+<a href=#98 id=98 data-nosnippet>98</a>
+<a href=#99 id=99 data-nosnippet>99</a>    <span class="doccomment">/// Consumes another VeState and merges its ALU usage into this one.
+<a href=#100 id=100 data-nosnippet>100</a>    /// Used when combining two groups in binary operations.
+<a href=#101 id=101 data-nosnippet>101</a>    /// Since both groups share the same ALU state (global resource),
+<a href=#102 id=102 data-nosnippet>102</a>    /// this simply performs a union of used ALUs.
+<a href=#103 id=103 data-nosnippet>103</a>    </span><span class="kw">pub fn </span>merge(<span class="kw-2">&amp;mut </span><span class="self">self</span>, other: VeState&lt;D, NoTensor&gt;) {
+<a href=#104 id=104 data-nosnippet>104</a>        <span class="self">self</span>.used_alus.extend(other.used_alus);
+<a href=#105 id=105 data-nosnippet>105</a>    }
+<a href=#106 id=106 data-nosnippet>106</a>
+<a href=#107 id=107 data-nosnippet>107</a>    <span class="doccomment">/// Converts VeState to different scalar type parameters, preserving ALU tracking.
+<a href=#108 id=108 data-nosnippet>108</a>    </span><span class="kw">pub fn </span>retype&lt;NewD: VeScalar&gt;(<span class="self">self</span>) -&gt; VeState&lt;NewD, NoTensor&gt; {
+<a href=#109 id=109 data-nosnippet>109</a>        VeState {
+<a href=#110 id=110 data-nosnippet>110</a>            stash: NoTensor,
+<a href=#111 id=111 data-nosnippet>111</a>            used_alus: <span class="self">self</span>.used_alus,
+<a href=#112 id=112 data-nosnippet>112</a>            _marker: PhantomData,
+<a href=#113 id=113 data-nosnippet>113</a>        }
+<a href=#114 id=114 data-nosnippet>114</a>    }
+<a href=#115 id=115 data-nosnippet>115</a>}
+</code></pre></div></section></main></body></html>

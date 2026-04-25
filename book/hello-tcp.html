@@ -1,0 +1,794 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Hello, TCP! - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="hello-tcp"><a class="header" href="#hello-tcp">Hello, TCP!</a></h1>
+<p>This chapter introduces TCP programming through worked examples.
+Each example builds a mental model of how computation maps to hardware, making the rest of this book easier to follow.
+The first two examples cover element-wise operations; the remaining three cover tensor contractions (dot product, GEMV, and GEMM), each adding one new hardware concept.
+Two additional examples (Blocked GEMM and Flash Attention) are outlined as stubs.</p>
+<h2 id="mathematical-background"><a class="header" href="#mathematical-background">Mathematical Background</a></h2>
+<p>This section defines the two mathematical concepts that TCP is built to accelerate: tensors and their contractions.</p>
+<h3 id="tensor"><a class="header" href="#tensor">Tensor</a></h3>
+<p>A <strong>tensor</strong> is a mapping from tensor index to its corresponding value.</p>
+<p>To understand this, we must first define tensor’s shape.
+Unlike other libraries where axis order encodes meaning (e.g., NumPy’s <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html"><code>ndarray</code></a>), we define tensor’s shape as an <strong>unordered set</strong> of named axes.
+The shapes \(\{\texttt{N} = 4, \texttt{C} = 3\}\) and \(\{\texttt{C} = 3, \texttt{N} = 4\}\) identify the same tensor; axis names carry the meaning, not the position.</p>
+<p>A <strong>tensor index</strong> is formed by specifying index value for each axes.
+For a tensor with shape \(\{\texttt{N} = 4, \texttt{C} = 3\}\), the valid indices will be: \(\{\texttt{N}: 0, \texttt{C}: 0\}\), \(\{\texttt{N}: 0, \texttt{C}: 1\}\), \(\{\texttt{N}: 0, \texttt{C}: 2\}\), \(\{\texttt{N}: 1, \texttt{C}: 0\}\), etc.</p>
+<p>A tensor can behave like a multi-dimensional array of numbers. For example:</p>
+<ul>
+<li>0D Tensor (Scalar): a single number like \(5.2\)</li>
+<li>1D Tensor (Vector): a sequence like \([1, 2, 3]\) with one axis</li>
+<li>2D Tensor (Matrix): a \(2 \times 4\) grid with two axes</li>
+<li>4D Tensor: a batch of RGB images with shape \(\{\texttt{N} = 4, \texttt{C} = 3, \texttt{H} = 256, \texttt{W} = 512\}\)</li>
+</ul>
+<h3 id="tensor-contraction"><a class="header" href="#tensor-contraction">Tensor Contraction</a></h3>
+<p>A <strong>tensor contraction</strong> is a operation on a tensor that takes two tensors, pair up specific axes that appears in both inputs, then sums the products of their elements along those axes.<br><strong>Einsum notation</strong> is a compact way to write contractions: each input tensor is listed by its axis labels, and output axes follow the <code>→</code> arrow; any axis that appears in both inputs but not in the output is summed over.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Operation</th><th>Formula</th><th>Einsum notation</th></tr>
+</thead>
+<tbody>
+<tr><td>Dot product</td><td>\(\sum_i x_i y_i\)</td><td>\(I, I \rightarrow 1\)</td></tr>
+<tr><td>GEMV</td><td>\(y_i = \sum_j A_{ij} x_j\)</td><td>\(IJ, J \rightarrow I\)</td></tr>
+<tr><td>GEMM</td><td>\(C_{ij} = \sum_k A_{ik} B_{kj}\)</td><td>\(IK, KJ \rightarrow IJ\)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Every contraction can be decomposed into three steps: Broadcast, Multiply, and Reduce.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Step</th><th>Dot Product (\(I, I \rightarrow 1\))</th><th>GEMV (\(IJ, J \rightarrow I\))</th><th>GEMM (\(IK, KJ \rightarrow IJ\))</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Broadcast</strong></td><td>none (axes match)</td><td>\(x\) broadcasts across \(I\)</td><td>\(A\) across \(J\); \(B\) across \(I\)</td></tr>
+<tr><td><strong>Multiply</strong></td><td>\(x_i \cdot y_i\)</td><td>\(A_{ij} \cdot x_j\)</td><td>\(A_{ik} \cdot B_{kj}\)</td></tr>
+<tr><td><strong>Reduce</strong></td><td>\(\sum_i x_i y_i\)</td><td>\(y_i = \sum_j A_{ij} x_j\)</td><td>\(C_{ij} = \sum_k A_{ik} B_{kj}\)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="tensor-contraction-processor"><a class="header" href="#tensor-contraction-processor">Tensor Contraction Processor</a></h2>
+<p>This section covers the hardware concepts needed to understand the examples: the processing unit hierarchy, memory tiers, tensor mapping types, and execution contexts.</p>
+<h3 id="processing-units"><a class="header" href="#processing-units">Processing Units</a></h3>
+<p>The TCP architecture accelerates these contractions by streaming tensor data through a hierarchy of parallel processing units.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Level</th><th>Count (RNGD)</th><th>Role</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Chip</code></td><td>(system-dependent)</td><td>Top-level unit; holds HBM</td></tr>
+<tr><td><code>Cluster</code></td><td>2 per chip</td><td>Groups 256 slices</td></tr>
+<tr><td><code>Slice</code></td><td>256 per cluster</td><td>Runs one <strong>Tensor Unit</strong>: a Fetch → Switching → Collect → Contraction → Vector → Cast → Transpose → Commit pipeline</td></tr>
+<tr><td><code>Row</code></td><td>8 per slice</td><td>One row of the Contraction Engine’s MAC (multiply-accumulate) array</td></tr>
+</tbody>
+</table>
+</div>
+<p>The Switch Engine connects slices, enabling data redistribution across the slice array.</p>
+<h3 id="memory"><a class="header" href="#memory">Memory</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Type</th><th>Location</th><th>Capacity (RNGD)</th><th>Role</th></tr>
+</thead>
+<tbody>
+<tr><td><code>HbmTensor</code></td><td>On-package</td><td>48 GB, 1.5 TB/s</td><td>Long-term weight and activation storage</td></tr>
+<tr><td><code>DmTensor</code></td><td>On-chip SRAM</td><td>256 MB total; 512 KB/slice</td><td>Primary working memory for computations</td></tr>
+<tr><td><code>TrfTensor</code></td><td>On-chip SRAM</td><td>8 KB × 8 MAC rows / slice</td><td>Weight register file for Contraction Engine</td></tr>
+<tr><td><code>VrfTensor</code></td><td>On-chip SRAM</td><td>8 KB / slice</td><td>Operand register file for Vector Engine</td></tr>
+</tbody>
+</table>
+</div>
+<p>Most alignment and capacity constraints in this book derive from the counts and capacities in these tables.</p>
+<!-- > TODO(visual): All diagrams in this chapter need designer-produced figures. -->
+<!-- > Priority: (1) block diagram of a single RNGD chip showing the Chip → Cluster → Slice → Row nesting with physical counts labelled, (2) hardware-mapping figures for each kernel example replacing the Mermaid placeholders. -->
+<h3 id="tensor-mapping"><a class="header" href="#tensor-mapping">Tensor Mapping</a></h3>
+<p>TCP’s Virtual ISA exposes the hardware hierarchy through its type system.
+Each tensor type encodes the element type and how each logical axis distributes across the hardware hierarchy.
+For example, <code>DmTensor&lt;bf16, m![1], m![1 # 2], m![A / 8 # 256], m![A % 8]&gt;</code> (with <code>axes![A = 2048]</code>) represents a <code>bf16</code> tensor on one chip, one of two clusters, distributed across 256 slices with 8 elements per slice.
+TCP also introduces two kernel-specific parameters: <code>Time</code> indexes pipeline iterations; <code>Packet</code> indexes elements within each iteration.</p>
+<p>The mapping expression (<code>m![]</code> macro and its operators) is used to express this distribution:</p>
+<ul>
+<li><code>/</code> splits by stride: <code>A / 8</code> gives 2048 / 8 = 256 indices, the “which slice” index.</li>
+<li><code>%</code> gives the inner count: <code>A % 8</code> gives the 8 indices for each element the slice holds.</li>
+<li><code>#</code> pads to the hardware unit count: <code># 256</code> makes the slice count explicit.</li>
+</ul>
+<p>Together, each element of <code>A</code> is mapped to a well-defined position within exactly one slice.</p>
+<h3 id="execution-contexts"><a class="header" href="#execution-contexts">Execution Contexts</a></h3>
+<p>Every device kernel has two execution contexts running concurrently on separate hardware resources: <code>ctx.main</code> and <code>ctx.sub</code>.
+<code>main</code> runs the primary computation; <code>sub</code> runs a concurrent pipeline, typically used to prefetch operands into TRF or VRF while <code>main</code> computes.
+If <code>main</code> needs operands that <code>sub</code> is still fetching, <code>main</code> automatically waits for <code>sub</code>’s execution to ensure synchronization.</p>
+<p>Because both contexts share the flat on-chip SRAM, the programmer must explicitly assign DM addresses (e.g. the <code>addr</code> argument in <code>.to_dm()</code>, <code>.commit()</code>) to prevent tensors from overlapping.
+Addresses must not collide, but they can be non-contiguous.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<p>The first two examples cover element-wise operations by using the <a href="./computing-tensors/vector-engine/index.html">Vector Engine</a>; the remaining three cover tensor contractions by using the <a href="./computing-tensors/contraction-engine/index.html">Contraction Engine</a>.</p>
+<h3 id="constant-addition"><a class="header" href="#constant-addition">Constant Addition</a></h3>
+<p>The first kernel takes a vector of integers and adds the constant <code>1</code> to each element.
+It uses one chip, one of two clusters, and all 256 slices in that cluster, with one 8-element group per slice.
+The Vector Engine processes integers using fixed-point operations, so we use <code>vector_fxp(FxpBinaryOp::AddFxp, 1)</code> to add the constant value.</p>
+<pre class="mermaid">flowchart TB
+    HOST[Host] &lt;--&gt;|PCIe DMA| HBM[(HBM)]
+    HBM &lt;--&gt;|Tensor DMA| DM[(DM)]
+
+    subgraph TU[Tensor Unit]
+        direction TB
+        FE[Fetch] --&gt; SW["Switch (Forward)"] --&gt; CO[Collect] --&gt; VE["Vector (AddFxp +1)"] --&gt; CM[Commit]
+    end
+
+    DM --&gt;|stream| FE
+    CM --&gt;|stream| DM
+</pre>
+
+<p>This example demonstrates the full Tensor Unit pipeline.
+<code>to_dm</code> moves data from HBM to DM, splitting the flat tensor across 256 slices.
+The <code>begin → fetch → collect → vector_init → vector_intra_slice_branch → vector_fxp → vector_final → commit</code> chain processes each slice in one pass, and <code>vector_fxp(FxpBinaryOp::AddFxp, 1)</code> adds the integer constant <code>1</code> to every element in parallel across all 256 slices.
+<code>BranchMode::Unconditional</code> configures the pipeline to execute on every cycle.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(register_tool)]
+</span><span class="boring">#![register_tool(tcp)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">extern crate rand;
+</span>use rand::SeedableRng;
+use rand::rngs::SmallRng;
+use furiosa_visa_std::prelude::*;
+
+axes![A = 2048];  // declare named axis A with size 2048; used in all tensor types below
+
+type Chip    = m![1];
+type Cluster = m![1 # 2];            // 1 active cluster; hardware has 2 per chip
+type Slice   = m![A / 8 # 256];      // distribute A across 256 slices, 8 elements each
+
+#[tokio::main]
+async fn main() {
+    let mut ctx = Context::acquire();
+
+    // Create input on the host and transfer to HBM
+    let mut rng = SmallRng::seed_from_u64(42);
+    let input  = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
+    let in_hbm = input.to_hbm(&amp;mut ctx.pdma, 0).await;
+
+    // Launch the device kernel
+    let out_hbm = launch(kernel, (&amp;mut ctx, &amp;in_hbm)).await;
+
+    // Transfer result back to host
+    let _out = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut ctx.pdma).await;
+}
+
+#[device(chip = 1)]
+fn kernel(ctx: &amp;mut Context, input: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;) -&gt; HbmTensor&lt;i32, Chip, m![A]&gt; {
+    // HBM → DM: split 2048 elements across 256 slices (8 elements per slice)
+    let dm = input.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma, 0);
+
+    let result = ctx
+        .main
+        .begin(dm.view())
+        // Fetch: stream 8-element packets from DM into the pipeline
+        .fetch::&lt;i32, m![1], m![A % 8]&gt;()
+        // Collect: normalize the stream into 32-byte flits (8 × i32)
+        .collect::&lt;m![1], m![A % 8]&gt;()
+        // Vector Engine: enter pipeline and arm unconditionally
+        .vector_init()
+        .vector_intra_slice_branch(BranchMode::Unconditional)
+        // Add the scalar constant 1 to every element
+        .vector_fxp(FxpBinaryOp::AddFxp, 1)
+        // Exit VE and commit: write results back to DM
+        .vector_final()
+        .commit::&lt;m![A % 8]&gt;(1 &lt;&lt; 12);
+
+    // DM → HBM
+    result.to_hbm(&amp;mut ctx.tdma, 1 &lt;&lt; 28)
+}</code></pre>
+<h3 id="elementwise-multiplication"><a class="header" href="#elementwise-multiplication">Elementwise Multiplication</a></h3>
+<p>The second kernel multiplies two same-shape vectors element-wise.
+Because the Vector Engine’s fixed-point multiply unit (<code>FxpMul</code>) takes a second operand per element, that operand must come from the <strong>VRF</strong> (Vector Register File).
+The VRF is a small per-slice register file that the Vector Engine reads every cycle; it is loaded in the <code>sub</code> context while the main computation streams.</p>
+<pre class="mermaid">flowchart TB
+    LHS_HBM[(lhs: HBM)] --&gt;|Tensor DMA| LHS_DM[(lhs: DM)]
+    RHS_HBM[(rhs: HBM)] --&gt;|Tensor DMA| RHS_DM[(rhs: DM)]
+
+    subgraph sub[sub context]
+        direction LR
+        sFE[Fetch] --&gt; sSW[Switch] --&gt; sCO[Collect]
+    end
+
+    subgraph main[main context]
+        direction LR
+        mFE[Fetch] --&gt; mSW[Switch] --&gt; mCO[Collect] --&gt; VE["Vector (MulInt)"] --&gt; CM[Commit]
+    end
+
+    RHS_DM --&gt; sFE
+    LHS_DM --&gt; mFE
+    sCO --&gt; VRF[(VRF)]
+    VRF --&gt; VE
+    CM --&gt; OUT_DM[(result: DM)]
+    OUT_DM --&gt;|Tensor DMA| OUT_HBM[(HBM)]
+</pre>
+
+<p>This example adds the VRF and the <code>sub</code> context.
+<code>rhs_dm</code> is allocated at a different base address (<code>1 &lt;&lt; 12</code>) to avoid overlapping with <code>lhs_dm</code>.
+The <code>sub</code> context loads <code>rhs_dm</code> into the VRF through the Fetch → Switch → Collect → <code>.to_vrf(0)</code> pipeline.
+The <code>main</code> context then streams <code>lhs_dm</code> and multiplies each element by its VRF counterpart using <code>MulInt</code>; the hardware runs both contexts concurrently where possible.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(register_tool)]
+</span><span class="boring">#![register_tool(tcp)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">extern crate rand;
+</span>use rand::SeedableRng;
+use rand::rngs::SmallRng;
+use furiosa_visa_std::prelude::*;
+
+axes![A = 2048];
+
+type Chip    = m![1];
+type Cluster = m![1 # 2];
+type Slice   = m![A / 8 # 256];
+
+#[tokio::main]
+async fn main() {
+    let mut ctx = Context::acquire();
+
+    let mut rng = SmallRng::seed_from_u64(42);
+    let lhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
+    let rhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
+
+    let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma, 0).await;
+    let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+
+    let out_hbm = launch(kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
+
+    let _out = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut ctx.pdma).await;
+}
+
+#[device(chip = 1)]
+fn kernel(
+    ctx: &amp;mut Context,
+    lhs: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;,
+    rhs: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;,
+) -&gt; HbmTensor&lt;i32, Chip, m![A]&gt; {
+    // Move both operands from HBM to DM; use distinct base addresses to avoid overlap
+    let lhs_dm = lhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma, 0);
+    let rhs_dm = rhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
+
+    // Sub context: load rhs into VRF (runs concurrently with the main context below).
+    // VRF holds a per-slice operand that the Vector Engine reads every cycle.
+    let rhs_vrf: VrfTensor&lt;i32, Chip, Cluster, Slice, m![A % 8]&gt; = ctx
+        .sub
+        .begin(rhs_dm.view())
+        .fetch::&lt;i32, m![1], m![A % 8]&gt;()
+        .collect::&lt;m![A % 8 / 8], m![A % 8 % 8]&gt;()
+        .to_vrf(0);
+
+    // Main context: multiply every lhs element by its rhs counterpart from VRF
+    let result = ctx
+        .main
+        .begin(lhs_dm.view())
+        .fetch::&lt;i32, m![1], m![A % 8]&gt;()
+        .collect::&lt;m![1], m![A % 8]&gt;()
+        .vector_init()
+        .vector_intra_slice_branch(BranchMode::Unconditional)
+        // Each slice multiplies its 8 lhs elements by the matching 8 rhs elements in VRF
+        .vector_fxp(FxpBinaryOp::MulInt, &amp;rhs_vrf)
+        .vector_final()
+        .commit::&lt;m![A % 8]&gt;(1 &lt;&lt; 13);
+
+    result.to_hbm(&amp;mut ctx.tdma, 1 &lt;&lt; 28)
+}</code></pre>
+<p>The following three examples implement the contractions from the table above, each introducing a different Switch Engine topology.</p>
+<h3 id="dot-product"><a class="header" href="#dot-product">Dot Product</a></h3>
+<p>The dot product \(I, I \rightarrow 1\) is the simplest contraction: there is no broadcast step, and both operands reduce along the same axis.
+The <code>sub</code> context loads <code>rhs</code> into the TRF, the on-chip register file that holds one operand stationary while the other streams through, via Fetch → Collect → <code>.to_trf()</code>.
+<code>TrfAddress::Full</code> dedicates the entire TRF to this tensor.
+<code>.align()</code> pairs the streaming LHS flits with the stationary RHS, doubling the packet width.
+<code>.contract()</code> multiplies and reduce-adds along <code>A</code> spatially via the hardware reduction tree; <code>.accumulate()</code> then performs temporal accumulation across the time axis, producing a scalar per slice; <code>.cast()</code> converts the <code>f32</code> accumulator output back to <code>bf16</code>.</p>
+<!-- > **TODO** (jeongmin.park): (1) Why does `.align()` require explicit type annotations? (2) The type annotation on `.contract()` needs a brief prose explanation. -->
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(register_tool)]
+</span><span class="boring">#![register_tool(tcp)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">extern crate rand;
+</span>use rand::SeedableRng;
+use rand::rngs::SmallRng;
+use furiosa_visa_std::prelude::*;
+
+axes![A = 2048];
+
+type Chip = m![1];
+type Cluster = m![1 # 2];
+type Slice = m![1 # 256];  // 1 active slice; m![A / 8 # 256] would distribute across all 256
+type Time = m![1];         // No temporal iteration
+type Row = m![1];          // No row parallelism
+
+#[tokio::main]
+async fn main() {
+    let mut ctx = Context::acquire();
+
+    let mut rng = SmallRng::seed_from_u64(42);
+    let lhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
+    let rhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
+
+    let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma, 0).await;
+    let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+
+    let out_hbm = launch(kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
+
+    let out = out_hbm.to_host::&lt;m![1]&gt;(&amp;mut ctx.pdma).await;
+}
+
+#[device(chip = 1)]
+fn kernel(
+    ctx: &amp;mut Context,
+    lhs: &amp;HbmTensor&lt;bf16, Chip, m![A]&gt;,
+    rhs: &amp;HbmTensor&lt;bf16, Chip, m![A]&gt;,
+) -&gt; HbmTensor&lt;bf16, Chip, m![1]&gt; {
+    // HBM → DM
+    let lhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = lhs.to_dm(&amp;mut ctx.tdma, 0);
+    let rhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = rhs.to_dm(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
+
+    // Sub context: load rhs into TRF (TrfAddress::Full dedicates the entire TRF to this tensor)
+    let rhs: TrfTensor&lt;bf16, Chip, Cluster, Slice, Row, m![A]&gt; = ctx
+        .sub
+        .begin(rhs.view())
+        .fetch::&lt;bf16, Time, m![A]&gt;()
+        .collect::&lt;m![{Time}, A / 16], m![A % 16]&gt;()
+        .to_trf(TrfAddress::Full);
+
+    // Main context: stream lhs through the Contraction Engine, reduce along A
+    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1 # 8]&gt; = ctx
+        .main
+        .begin(lhs.view())
+        .fetch::&lt;bf16, Time, m![A]&gt;()
+        .collect::&lt;m![A / 16], m![A % 16]&gt;()
+        // Pair consecutive 32-byte flits into 64-byte packets, halving time steps (A/16 → A/32)
+        .align::&lt;m![A / 32], m![A % 32], _, _&gt;(&amp;rhs)
+        .contract::&lt;m![1]&gt;()
+        .accumulate::&lt;m![1], m![1 # 8]&gt;(AccumulationKind::Interleaved)
+        .cast::&lt;bf16, m![1 # 16]&gt;()  // cast f32 accumulator output back to bf16
+        .commit::&lt;m![1 # 8]&gt;(1 &lt;&lt; 13);
+
+    // DM → HBM
+    result.to_hbm(&amp;mut ctx.tdma, 2 &lt;&lt; 28)
+}</code></pre>
+<p>The dot product reduces along a single axis with no redistribution needed, so the Switch Engine is skipped and <code>collect()</code> is called directly on the <code>FetchTensor</code>.
+The pseudocode below describes this behavior:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 2048];
+
+// Dot product: both operands reduce along A; no slice redistribution needed.
+fn collect_dot_product&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, bf16, m![1], m![1], m![1 # 256], m![1], m![A]&gt;,
+) -&gt; CollectTensor&lt;'l, T, bf16, m![1], m![1], m![1 # 256], m![A / 16], m![A % 16]&gt; {
+    input.collect()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="gemv"><a class="header" href="#gemv">GEMV</a></h3>
+<p>GEMV \(IJ, J \rightarrow I\) extends the dot product by requiring the <a href="./computing-tensors/switch-engine.html">Switch Engine</a> (which redistributes data across slices between Fetch and Collect) to broadcast the vector across all <code>I</code> slices, so each slice can independently compute its row of the output \(y_i = \sum_j A_{ij} x_j\).</p>
+<p>The reduced dimension <code>J</code> splits into <code>Time</code> (one iteration per tile) and <code>Packet</code> (elements within each tile).
+The preserved output dimension <code>I</code> maps to <code>Slice</code>, distributing output elements across slices for spatial parallelism.</p>
+<p>GEMV requires broadcasting the vector to all <code>I</code> slices, which the Switch Engine handles with <code>Broadcast01</code>.
+The pseudocode below describes this behavior:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![I = 256, J = 2048];
+
+// GEMV: broadcast the vector across all I slices.
+fn switch_gemv&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, bf16, m![1], m![1], m![1 # 256], m![1], m![J]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, bf16, m![1], m![1], m![I], m![1 # 256], m![J]&gt; {
+    input.switch(SwitchConfig::Broadcast01 {
+        slice1: 256,
+        slice0: 1,
+        time0: 1,
+    })
+}
+<span class="boring">}</span></code></pre>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(register_tool)]
+</span><span class="boring">#![register_tool(tcp)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">extern crate rand;
+</span><span class="boring">use rand::SeedableRng;
+</span><span class="boring">use rand::rngs::SmallRng;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![I = 256, J = 2048];
+
+type Chip = m![1];
+type Cluster = m![1 # 2];
+type Slice = m![I];        // Distribute output dimension across slices
+type Time = m![J / 32];    // Temporal iterations for reduction dimension
+type Packet = m![J % 32];  // Packet size for reduction dimension
+type Row = m![1];
+
+async fn run() {
+    let mut ctx = Context::acquire();
+
+    // Create matrix and vector on host
+    let mut rng = SmallRng::seed_from_u64(42);
+    let matrix = HostTensor::&lt;bf16, m![I, J]&gt;::rand(&amp;mut rng);
+    let vector = HostTensor::&lt;bf16, m![J]&gt;::rand(&amp;mut rng);
+
+    // Transfer to HBM
+    let matrix_hbm = matrix.to_hbm(&amp;mut ctx.pdma, 0 &lt;&lt; 28).await;
+    let vector_hbm = vector.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+    // Launch kernel
+    let out_hbm = launch(kernel, (&amp;mut ctx, &amp;matrix_hbm, &amp;vector_hbm)).await;
+
+    // Transfer result back
+    // &gt; TODO(jeongmin.park): Consider adding a type annotation here.
+    let out = out_hbm.to_host::&lt;m![I]&gt;(&amp;mut ctx.pdma).await;
+}
+
+#[device(chip = 1)]
+fn kernel(
+    ctx: &amp;mut Context,
+    matrix: &amp;HbmTensor&lt;bf16, Chip, m![I, J]&gt;,
+    vector: &amp;HbmTensor&lt;bf16, Chip, m![J]&gt;,
+) -&gt; HbmTensor&lt;bf16, Chip, m![I]&gt; {
+    // Move data from HBM to DM
+    let matrix: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = matrix.to_dm(&amp;mut ctx.tdma, 0);
+    let vector: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = vector.to_dm(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
+
+    // Load vector into TRF
+    // The Switch Engine automatically broadcasts the vector to all `I` slices
+    let vector_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Row, m![J]&gt; = ctx
+        .sub
+        .begin(vector.view())
+        .fetch::&lt;bf16, m![1], m![J]&gt;()
+        // Collect Engine: split into 32-byte flits.
+        .collect::&lt;m![J / 16], m![J % 16]&gt;()
+        .to_trf(TrfAddress::Full);
+
+    // Compute GEMV: matrix × vector
+    // Key difference: `I` maps to slice (preserved), `J` gets reduced
+    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1]&gt; = ctx
+        .main
+        .begin(matrix.view())
+        .fetch::&lt;bf16, Time, Packet&gt;()
+        .collect::&lt;Time, Packet&gt;()
+        .align::&lt;Time, Packet, _, _&gt;(&amp;vector_trf)
+        .contract::&lt;m![1]&gt;()
+        .accumulate::&lt;m![1], m![1 # 8]&gt;(AccumulationKind::Interleaved)
+        .cast::&lt;bf16, m![1 # 16]&gt;()
+        .commit(0);
+
+    // Transfer result to HBM
+    result.to_hbm(&amp;mut ctx.tdma, 2 &lt;&lt; 28)
+}
+<span class="boring">}</span></code></pre>
+<h3 id="gemm"><a class="header" href="#gemm">GEMM</a></h3>
+<p>GEMM \(IK, JK \rightarrow IJ\) computes \(C_{ij} = \sum_k A_{ik} B_{jk}\).
+Each matrix broadcasts along its missing output dimension: \(A\) broadcasts across \(J\), \(B\) broadcasts across \(I\).
+Then the shared dimension \(K\) is reduced.</p>
+<p>The main change from the GEMV example is that two output dimensions \(I\) and \(J\) are jointly mapped to <code>Slice</code>, so each slice computes a 2D tile of the output matrix.
+The slice mapping now covers both dimensions, and the contraction output preserves both.</p>
+<p>This example introduces <code>type Slice = m![I / 32, J / 32]</code>, which decomposes two output dimensions jointly and assigns each slice a 16 × 16 output tile.
+The Switch Engine distributes each tile of <code>B</code> to the matching slice, so each slice sees only its portion of <code>J</code>.
+<code>.contract::&lt;m![1]&gt;()</code> reduces along <code>K</code> spatially, and <code>.accumulate::&lt;m![I], m![J # 8]&gt;(AccumulationKind::Interleaved)</code> accumulates over time, preserving both <code>I</code> and <code>J</code> in the output.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(register_tool)]
+</span><span class="boring">#![register_tool(tcp)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![I = 512, J = 512, K = 2048];
+
+type Chip = m![1];
+type Cluster = m![1 # 2];
+// Distribute output dimensions `I` and `J` across slices
+type Slice = m![I / 32, J / 32]; // Each slice handles a 16 × 16 output tile
+type Row = m![J % 8];
+
+// Host code similar to previous examples:
+// - Create matrix tensors A and B
+// - Transfer to HBM
+// - Launch kernel
+// - Transfer result back
+
+#[device(chip = 1)]
+fn kernel(
+    ctx: &amp;mut Context,
+    a: &amp;HbmTensor&lt;bf16, Chip, m![I, K]&gt;,
+    b: &amp;HbmTensor&lt;bf16, Chip, m![K, J]&gt;,
+) -&gt; HbmTensor&lt;bf16, Chip, m![I, J]&gt; {
+    // Move data from HBM to DM
+    let a: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, K]&gt; = a.to_dm(&amp;mut ctx.tdma, 0);
+    let b: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J % 32, K]&gt; = b.to_dm(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
+
+    // Load matrix B into TRF
+    // Switch Engine distributes B across 256 slices
+    // Each slice gets the full `K` dimension but only its (16 × 16) output tile
+    // See: Switch Engine topologies for details on distribution
+    let b_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Row, m![J / 8 % 4, K]&gt; = ctx
+        .sub
+        .begin(b.view())
+        .fetch::&lt;bf16, m![J % 8, J / 8 % 4], m![K]&gt;()
+        .collect::&lt;m![J % 8, J / 8 % 4, K / 16], m![K % 16]&gt;()
+        .to_trf(TrfAddress::Full);
+
+    // Compute GEMM: A × B
+    // Switch Engine ensures matching (`I / 32`, `J / 32`) slice distribution
+    // Contraction reduces along `K`, preserves `I` and `J`
+    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, J % 32]&gt; = ctx
+        .main
+        .begin(a.view())
+        .fetch::&lt;bf16, m![I % 32, J / 8 % 4], m![K]&gt;()
+        .collect::&lt;m![I % 32, J / 8 % 4, K / 16], m![K % 16]&gt;()
+        .align::&lt;m![I % 32, J / 8 % 4, K / 32], m![K % 32], _, _&gt;(&amp;b_trf)
+        .contract::&lt;m![1]&gt;()
+        .accumulate::&lt;m![I % 32, J / 8 % 4], m![J % 8]&gt;(AccumulationKind::Interleaved)
+        .cast::&lt;bf16, m![J % 8 # 16]&gt;()
+        .commit(0);
+
+    // Transfer result to HBM
+    result.to_hbm(&amp;mut ctx.tdma, 2 &lt;&lt; 28)
+}
+<span class="boring">}</span></code></pre>
+<h3 id="blocked-gemm"><a class="header" href="#blocked-gemm">Blocked GEMM</a></h3>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>This section is a work in progress.
+A complete example extending GEMM with blocking (tiling) for matrices that exceed on-chip DM capacity — covering temporal partitioning over the <code>K</code> dimension and spatial partitioning that distributes <code>I</code> and <code>J</code> tiles across multiple chips — will be added in a future release.</p>
+</blockquote>
+<h3 id="flash-attention"><a class="header" href="#flash-attention">Flash Attention</a></h3>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>This section is a work in progress.
+A complete flash attention example combining GEMM-style contraction, softmax (Vector Engine), and the multi-pass main/sub prefetch pattern across a full transformer attention head will be added in a future release.</p>
+</blockquote>
+<p>Together, the five complete examples above demonstrate every major hardware engine in TCP: the DMA engines (HBM to DM), the Vector Engine (element-wise ops), the Contraction Engine (multiply-reduce), and the Switch Engine (data redistribution across slices). (The Blocked GEMM and Flash Attention sections are stubs and will demonstrate additional patterns once complete.)</p>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further Reading</a></h2>
+<p>The examples above process tensors that fit in a single hardware pass.
+Real workloads often exceed the 512 KB/slice DM capacity and require partitioning into tiles.
+The next chapters cover two complementary strategies: temporal partitioning, which processes tiles sequentially over time, and spatial partitioning, which distributes tiles across parallel hardware units.</p>
+<p>Each construct introduced in this chapter is covered in depth in the reference chapters:</p>
+<ul>
+<li><code>axes![]</code>, <code>m![]</code>, <code>HbmTensor</code>, <code>DmTensor</code> → <a href="./mapping-tensors/index.html">Mapping Tensors</a></li>
+<li><code>.to_dm()</code>, <code>.to_hbm()</code>, <code>.fetch()</code>, <code>.commit()</code> → <a href="./moving-tensors/index.html">Moving Tensors</a></li>
+<li><code>.contract()</code>, <code>.accumulate()</code>, <code>.cast()</code>, <code>.switch()</code>, <code>.vector_fxp()</code> → <a href="./computing-tensors/index.html">Computing Tensors</a></li>
+<li><code>ctx.main</code>, <code>ctx.sub</code>, <code>launch()</code> → <a href="./scheduling.html">Scheduling</a></li>
+<li>End-to-end kernels combining all of the above → <a href="./kernel-examples/index.html">Kernel Examples</a></li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="introduction.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="mapping-tensors/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="introduction.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="mapping-tensors/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="mermaid-eefea253.min.js"></script>
+        <script src="mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

@@ -1,0 +1,610 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Commit Engine - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="commit-engine"><a class="header" href="#commit-engine">Commit Engine</a></h1>
+<p>The Commit Engine writes Tensor Unit results back to DM (Data Memory), the primary on-chip SRAM tier.
+It implements a <a href="./index.html">logical tensor move</a> from Tensor Unit streams to SRAM, writing each slice’s result to its designated DM address.</p>
+<p>After the Tensor Unit completes computation, results exist as streaming packets distributed across slices.
+The Commit Engine transforms these packets through an adapter (<a href="#truncating">truncating</a>) and writes them to DM via a <a href="#commit-sequencer">sequencer</a>.
+This page covers the interface and examples, the adapter stages, the sequencer, sub-context operations, and performance guidelines.</p>
+<h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
+<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: Position, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
+    StreamTensor&lt;'l, { T }, P, D, Chip, Cluster, Slice, Time, Packet&gt;
+{
+    /// Commits to the data memory.
+    #[primitive(StreamTensor::commit)]
+    pub fn commit&lt;Element: M&gt;(self, address: Address) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element&gt; {
+        verify_commit::&lt;D, Time, Packet, Element&gt;();
+        DmTensor::new(self.inner.transpose(false), address)
+    }
+
+    /// Commits to mutable tensor view in the data memory.
+    #[primitive(StreamTensor::commit_view)]
+    pub fn commit_view&lt;Element: M&gt;(self, mut dst: DmTensorViewMut&lt;'l, D, Chip, Cluster, Slice, Element&gt;) {
+        verify_commit::&lt;D, Time, Packet, Element&gt;();
+        dst.inner.write_transpose(self.inner.view(), false);
+    }
+}</code></pre>
+<p>The Commit Engine mirrors the <a href="./fetch-engine.html">Fetch Engine’s</a> structure, but operates in reverse.</p>
+<p>For detailed examples, see <a href="../kernel-examples/fetch-commit-engine.html">kernel examples</a>.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<p>Consider storing a matrix multiplication result <code>C = A * B</code> back to DM after computation.
+The <a href="../computing-tensors/cast-engine.html">Cast Engine</a> converts the Contraction Engine’s <code>f32</code> packet elements to <code>bf16</code> to save space.
+The Commit Engine stores the resulting tensor to DM.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![P = 256, M = 16, N = 8];
+
+fn cast_commit&lt;'l, const T: Tu&gt;(
+    input: AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![P], m![M], m![N]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![1], m![P], m![M, N # 16]&gt; {
+    // Cast f32 to bf16 (Cast Engine), then commit to DM (Commit Engine).
+    // Input: M = 16 time steps, N = 8 f32 elements per packet (32 bytes).
+    // After cast: N = 8 bf16 elements padded to 16 (32 bytes).
+    // The sequencer writes across P = 256 slices.
+    input.cast::&lt;bf16, m![N # 16]&gt;().commit(0)
+}
+<span class="boring">}</span></code></pre>
+<h2 id="adapter"><a class="header" href="#adapter">Adapter</a></h2>
+<p>The adapter transforms stream packets before writing to DM via <a href="#truncating">truncating</a>.</p>
+<p>The <a href="../computing-tensors/index.html#execution-contexts">main context</a> and <a href="../computing-tensors/index.html#execution-contexts">sub-context</a> adapters both support truncating.
+The sub-context is typically used for prefetching to TRF/VRF.</p>
+<h3 id="truncating"><a class="header" href="#truncating">Truncating</a></h3>
+<p>Truncating reduces packet size by keeping only the leading elements.
+The input packet is always a full 32-byte flit.
+The <code>commit_in_size</code> parameter controls how many bytes are actually written to DM: 8, 16, 24, or 32 bytes (where 32 bytes means no reduction).
+This operation discards trailing elements or satisfies downstream alignment constraints.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![M = 4, K = 2, W = 8, N = 16, J = 64];
+
+fn i8_padding_truncation&lt;'l, const T: Tu&gt;(
+    input: CastTensor&lt;'l, T, i8, m![1], m![1], m![1], m![M, K], m![W # 32]&gt;,
+) -&gt; DmTensor&lt;i8, m![1], m![1], m![1], m![M, K, W]&gt; {
+    // Input: 8 i8 elements padded to 32 (32 bytes per packet).
+    // Truncation removes padding: only the 8 leading elements are written to DM.
+    // commit_in_size = 8 elements × 1 byte = 8 bytes.
+    input.commit(0)
+}
+
+fn f32_non_padding_truncation&lt;'l, const T: Tu&gt;(
+    input: AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, K], m![W]&gt;,
+) -&gt; DmTensor&lt;f32, m![1], m![1], m![1], m![M, K, W = 4]&gt; {
+    // Input: 8 f32 elements (32 bytes per packet).
+    // Truncation: only the first 4 elements are written to DM.
+    // commit_in_size = 4 elements × 4 bytes = 16 bytes.
+    input.commit(0)
+}
+
+fn bf16_truncation_with_transpose&lt;'l, const T: Tu&gt;(
+    input: CastTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![M, K], m![N]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![1], m![1], m![K, M, N = 8]&gt; {
+    // Input: 16 bf16 elements (32 bytes per packet).
+    // Truncation: only the leading 8 elements are written to DM.
+    // commit_in_size = 8 elements × 2 bytes = 16 bytes.
+    // Time is transposed: m![M, K] → m![K, M].
+    input.commit(0)
+}
+
+fn i4_no_truncation_with_transpose&lt;'l, const T: Tu&gt;(
+    input: CastTensor&lt;'l, T, i4, m![1], m![1], m![1], m![M, K], m![J]&gt;,
+) -&gt; DmTensor&lt;i4, m![1], m![1], m![1], m![K, M, J]&gt; {
+    // Input: 64 i4 elements (32 bytes per packet).
+    // No truncation: the full 32-byte packet is written to DM.
+    // commit_in_size = 64 elements × 0.5 bytes = 32 bytes.
+    // Time is transposed: m![M, K] → m![K, M].
+    input.commit(0)
+}
+<span class="boring">}</span></code></pre>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>The <code>commit_in_size</code> value is automatically derived by the compiler from the output tensor mapping.
+It is not manually specified by the user.</p>
+</blockquote>
+<!--### Type Casting
+
+> **TODO** (jeongmin.park): Is this section still relevant? If type casting here is legacy, should it be removed or kept for completeness/backward compatibility? When is it still used?
+
+Type casting converts `f32` data to `bf16` format just before writing to DM.
+This reduces storage requirements and optionally applies a `ReLU` activation function during conversion.
+
+> [!NOTE]
+> The current compiler pipeline performs most type conversions in the Cast Engine upstream.
+> The Commit Engine's type casting and ReLU features are largely legacy functionality.
+
+#### Standard Conversion (`f32` to `bf16`)
+
+Standard conversion reduces precision from `f32` to `bf16` while preserving all values, including negative ones.
+
+> **TODO** (pedro.lobo): Current API does not support legacy type casting.
+> Remove `ignore` if we come up with an API for it, or delete the example if casting should only be handled in the Cast Engine.
+
+```rust,ignore
+# #![feature(adt_const_params)]
+# extern crate furiosa_visa_std;
+# use furiosa_visa_std::prelude::*;
+axes![N = 4, C = 3, H = 4, W = 8];
+
+fn cast_commit<'l, const T: Tu>(
+    input: AccumulationTensor<'l, T, f32, m![1], m![1], m![1], m![N, C, H], m![W]>,
+) -> DmTensor<bf16, m![1], m![1], m![1], m![N, C, H, W # 16]> {
+    // Cast f32 to bf16 (values preserved), then commit to DM.
+    // W = 8 f32 elements (32 bytes) → 8 bf16 elements padded to 16 (32 bytes).
+    input.commit_cast(0)
+}
+```
+
+#### Conversion with ReLU (`f32` to `bf16`)
+
+Conversion with ReLU applies the `ReLU` activation function during type conversion.
+Negative values are clamped to zero, while non-negative values are converted to `bf16` unchanged.
+
+> **TODO** (pedro.lobo): Current API does not support legacy type casting.
+> Remove `ignore` if we come up with an API for it, or delete the example if casting should only be handled in the Cast Engine.
+
+```rust,ignore
+# #![feature(adt_const_params)]
+# extern crate furiosa_visa_std;
+# use furiosa_visa_std::prelude::*;
+axes![N = 4, C = 3, H = 4, W = 8];
+
+fn cast_relu_commit<'l, const T: Tu>(
+    input: AccumulationTensor<'l, T, f32, m![1], m![1], m![1], m![N, C, H], m![W]>,
+) -> DmTensor<bf16, m![1], m![1], m![1], m![N, C, H, W # 16]> {
+    // Cast f32 to bf16 with ReLU: negative values clamped to 0.0.
+    // e.g., [-5.0, -0.1, 0.0, 3.7] → [0.0, 0.0, 0.0, 3.7]
+    input.commit_cast_relu(0)
+}
+```-->
+<!--### Chunking
+
+Chunking splits a single input packet into multiple smaller writes.
+This occurs when the output DM layout has stride discontinuities within `Packet`, such as padding between rows.
+This disallows the packet from being written in a single contiguous operation.
+Chunking is implicitly performed by the [Sequencer](#sequencer) and is not manually specified by the user.
+
+The commit write size (`commit_in_size`) is determined by:
+
+$$
+\texttt{commit\_in\_size} = \gcd(\texttt{contiguous\_sram\_access\_size}, \texttt{ packet\_size})
+$$
+
+where `contiguous_sram_access_size` is the byte size of the innermost contiguous region in the output DM tensor, and `packet_size` is the input packet size in bytes.
+When `commit_in_size < packet_size`, the packet is chunked into `packet_size / commit_in_size` writes.
+
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_visa_std;
+# use furiosa_visa_std::prelude::*;
+axes![N = 3, R = 4, C = 8];
+
+fn chunking_commit<'l, const T: Tu>(
+    input: AccumulationTensor<'l, T, i8, m![1], m![1], m![1], m![N], m![R, C]>,
+) -> DmTensor<i8, m![1], m![1], m![1], m![N, R, C # 16]> {
+    // Input: R × C = 4 × 8 = 32 i8 elements = 32-byte packet.
+    // Output: m![N, R, C # 16] — each C row is 8 useful bytes, padded to 16 in DM.
+    //
+    // Compiler-generated configuration: [
+    //   N -> 3 : 64,   (64 == 4 * 16, contiguous)
+    //   R -> 4 : 16,   (16 != 8 * 1,  NOT contiguous — padding gap)
+    //   C -> 8 : 1
+    // ] : 8
+    // contiguous_sram_access_size = 8
+    // commit_in_size = gcd(contiguous_sram_access_size, packet_size)
+    //                = gcd(8, 32) = 8
+    //
+    // The 32-byte packet is split into 4 × 8-byte writes along the R axis:
+    // - Write 0: packet[ 0.. 8] → DM offset  0 (row R=0)
+    // - Write 1: packet[ 8..16] → DM offset 16 (row R=1, stride 16)
+    // - Write 2: packet[16..24] → DM offset 32 (row R=2)
+    // - Write 3: packet[24..32] → DM offset 48 (row R=3)
+    // Each write places 8 non-padded elements into a 16-element-padded row.
+    input.commit(0)
+}
+```
+
+Without padding (`Element = m![N, R, C]`), the layout is fully contiguous: `contiguous_sram_access_size = N × R × C = 96`, `gcd(96, 32) = 32`, and the entire packet is written in a single 32-byte operation with no chunking.
+
+> [!NOTE]
+> Chunking is automatically performed by the Commit Engine's sequencer.
+> The user does not manually specify the sequencer configuration.-->
+<h2 id="commit-sequencer"><a class="header" href="#commit-sequencer">Commit Sequencer</a></h2>
+<p>The commit sequencer writes streams to DM across slices.
+Each slice within an aggregation executes its own sequencer.
+This mirrors how fetch sequencers pull data into Tensor Units.</p>
+<p>The <code>commit_size</code> value determines how many bytes are written per sequencer step.
+It is analogous to the Fetch Engine’s <a href="./fetch-engine.html#constraints"><code>fetch_size</code></a> and is also derived from <code>contiguous_sram_access_size</code>:</p>
+<p>$$
+\texttt{commit_size} = \gcd(\texttt{contiguous_sram_access_size_bytes},\ \texttt{commit_in_size})
+$$</p>
+<ul>
+<li>When <code>commit_size == commit_in_size</code>, each time step produces a single DM write.</li>
+<li>When <code>commit_size &lt; commit_in_size</code>, the packet is split into <code>commit_in_size / commit_size</code> writes per time step.</li>
+</ul>
+<p>The main context supports a <code>commit_size</code> of 8, 16, 24, or 32 bytes (see <a href="../computing-tensors/index.html#execution-contexts">main context</a>).
+The sub-context supports a <code>commit_size</code> of 8 bytes only (see <a href="../computing-tensors/index.html#execution-contexts">sub-context</a>).</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![M = 4, K = 2, W = 8, N = 16];
+
+// Compiler-generated configuration: [
+//   M -&gt; 4 : 16,  (16 == 2 * 8,  contiguous)
+//   K -&gt; 2 : 8,   (8  == 8 * 1,  contiguous)
+//   W -&gt; 8 : 1    (packet dimension, contiguous)
+// ] : 8
+// contiguous_sram_access_size = (8 * 2 * 4) elements × 1 byte = 64 bytes
+// commit_in_size = 8 bytes (8 valid i8 elements out of 32-byte flit)
+// commit_size = gcd(64, 8) = 8
+fn no_transpose&lt;'l, const T: Tu&gt;(
+    input: CastTensor&lt;'l, T, i8, m![1], m![1], m![1], m![M, K], m![W # 32]&gt;,
+) -&gt; DmTensor&lt;i8, m![1], m![1], m![1], m![M, K, W]&gt; {
+    input.commit(0)
+}
+
+// Compiler-generated configuration: [
+//   M -&gt; 4 : 8,   (8  != 2 * 32, NOT contiguous)
+//   K -&gt; 2 : 32,  (32 != 8 * 1,  NOT contiguous)
+//   W -&gt; 8 : 1    (packet dimension, contiguous)
+// ] : 32
+// contiguous_sram_access_size = 8 elements × 4 bytes = 32 bytes
+// commit_in_size = 32 bytes
+// commit_size = gcd(32, 32) = 32
+fn transpose&lt;'l, const T: Tu&gt;(
+    input: AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, K], m![W]&gt;,
+) -&gt; DmTensor&lt;f32, m![1], m![1], m![1], m![K, M, W]&gt; {
+    input.commit(0)
+}
+
+// Compiler-generated configuration: [
+//   M -&gt; 4 : 8,   (8  != 2 * 32, NOT contiguous)
+//   K -&gt; 2 : 32,  (32 != 8 * 1,  NOT contiguous)
+//   N -&gt; 8 : 1    (truncated packet dimension, contiguous)
+// ] : 16
+// contiguous_sram_access_size = 8 elements × 2 bytes = 16 bytes
+// commit_in_size = 16 bytes (8 bf16 elements; truncation from 16 elements to 8)
+// commit_size = gcd(16, 16) = 16
+fn transpose_with_truncation&lt;'l, const T: Tu&gt;(
+    input: CastTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![M, K], m![N]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![1], m![1], m![K, M, N = 8]&gt; {
+    input.commit(0)
+}
+
+// Compiler-generated configuration: [
+//   K -&gt; 2 : 64,  (64 == 4 * 16, contiguous)
+//   M -&gt; 4 : 16,  (16 != 8 * 1,  NOT contiguous)
+//   W -&gt; 8 : 1    (packet dimension, contiguous)
+// ] : 8
+// contiguous_sram_access_size = 8 elements × 1 byte = 8 bytes
+// commit_in_size = 32 bytes
+// commit_size = gcd(8, 32) = 8
+//
+// The 32-byte packet is split into 4 × 8-byte writes along the M axis:
+// - Write 0: packet[ 0.. 8] → DM offset  0
+// - Write 1: packet[ 8..16] → DM offset 16
+// - Write 2: packet[16..24] → DM offset 32
+// - Write 3: packet[24..32] → DM offset 48
+fn padding_chunking&lt;'l, const T: Tu&gt;(
+    input: CastTensor&lt;'l, T, i8, m![1], m![1], m![1], m![K], m![M, W]&gt;,
+) -&gt; DmTensor&lt;i8, m![1], m![1], m![1], m![K, M, W # 16]&gt; {
+    input.commit(0)
+}
+<span class="boring">}</span></code></pre>
+<h3 id="slice-bitmap"><a class="header" href="#slice-bitmap">Slice Bitmap</a></h3>
+<p>The slice bitmap enables selective commits to specific slices.
+A <code>256</code>-bit mask controls which slices receive commit data, with each bit corresponding to one slice.</p>
+<p>For example:</p>
+<ul>
+<li><code>bitmap = 00000000...01</code> enables commit only to slice <code>0</code></li>
+<li><code>bitmap = 11111111...10</code> enables commit to all slices except slice <code>0</code></li>
+</ul>
+<p>This feature supports workflows that compute on specific slices and commit results only to those slices.</p>
+<h3 id="hardware-constraint"><a class="header" href="#hardware-constraint">Hardware Constraint</a></h3>
+<p>The commit sequencer must adhere to the same limits as fetch sequencers.
+See <a href="./fetch-engine.html#constraints">fetch sequencer constraints</a> for details.</p>
+<h2 id="sub-context-operations"><a class="header" href="#sub-context-operations">Sub-Context Operations</a></h2>
+<p>The sub-context Commit Engine provides specialized capabilities beyond the main context, though it supports fewer adapter stages.</p>
+<!-- > **TODO** (jeongmin.park): Please document this section. -->
+<ul>
+<li><strong>Valid Count Packing</strong>: This operation selectively commits only valid tensor elements based on a runtime count, excluding padding or invalid data from the output buffer. When computation produces variable-length results (for example, filtering operations or dynamic sequence lengths), valid count packing ensures that only meaningful elements are written to DM, preventing wasted memory and simplifying downstream processing. The hardware uses a count parameter to determine how many leading elements from each packet should be committed, discarding the remainder.</li>
+</ul>
+<!-- > **TODO**: Add detailed specification including count parameter format, interaction with slice bitmap, and performance characteristics of variable-length commits. -->
+<ul>
+<li><strong>Generate Mode</strong>: Writes a single <code>32</code>-bit value to a specified address via an <code>ITOS</code> (immediate-to-SRAM) command, bypassing the Tensor Unit execution pipeline.</li>
+</ul>
+<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
+<ul>
+<li>The input packet size must be 32 bytes.</li>
+<li>The <code>commit_in_size</code> must be 8, 16, 24, or 32 bytes.
+The <code>commit_size</code> must be 8, 16, 24, or 32 bytes for the <a href="../computing-tensors/index.html#execution-contexts">main context</a> and 8 bytes only for the <a href="../computing-tensors/index.html#execution-contexts">sub-context</a>. Note that the user only specifies the <code>Element</code> mapping. These constraints are internal to the compiler.</li>
+</ul>
+<!--- Type casting is available in the [main context](./computing-tensors.md#execution-contexts) only. The only supported type conversion is `f32` → `bf16`, with an optional `ReLU` activation. No other type conversions are supported.-->
+<ul>
+<li>The two contexts support different capabilities:</li>
+</ul>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stage</th><th>Main context</th><th>Sub context</th></tr>
+</thead>
+<tbody>
+<tr><td>Truncating</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Valid Count Packing</td><td>No</td><td>Yes</td></tr>
+<tr><td>Generate Mode</td><td>No</td><td>Yes</td></tr>
+</tbody>
+</table>
+</div>
+<!--| Chunking            | Yes                             | Yes         |-->
+<!--| Type Casting        | f32 → bf16 (with optional ReLU) | No          |-->
+<ul>
+<li>Sub-context commits can only follow <code>fetch</code>.
+These cannot be preceded by <a href="../computing-tensors/cast-engine.html">Cast Engine</a> or <a href="../computing-tensors/transpose-engine.html">Transpose Engine</a> operations.</li>
+<li>The commit sequencer shares the same limits as the fetch sequencer (see <a href="./fetch-engine.html#constraints">fetch sequencer constraints</a>).
+Additionally, all sequencer strides must be multiples of 8 bytes.</li>
+</ul>
+<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
+<p>Commit Engine performance directly affects overall computation throughput since DM writes must complete before subsequent operations can access the data.</p>
+<h3 id="write-bandwidth"><a class="header" href="#write-bandwidth">Write Bandwidth</a></h3>
+<p>The Commit Engine achieves maximum write bandwidth when:</p>
+<ul>
+<li><strong>Slice Interleaving</strong>: Distributing writes across all active slices (or the subset specified by the slice bitmap) avoids bottlenecks on individual slices.
+The RNGD chip has 64 slices per PE. The 256-bit bitmap accommodates up to 4 PEs (4 × 64 = 256).</li>
+<li><strong>Sequential Addresses</strong>: Writing to sequential DM addresses within each slice enables parallel bank access (128 B/cycle per DMN, 256 B/cycle with DMN interleaving).</li>
+<li><strong>Aligned Packet Sizes</strong>: Using 8-byte aligned packet sizes (8, 16, 24, 32 bytes) avoids partial bank writes.</li>
+</ul>
+<p>For detailed memory performance characteristics, see <a href="./memory-performance.html">Memory Performance</a>.</p>
+<h3 id="adapter-stage-costs"><a class="header" href="#adapter-stage-costs">Adapter Stage Costs</a></h3>
+<p>Each adapter stage adds minimal latency:</p>
+<ul>
+<li><strong>Truncating</strong>: Nearly zero cost (simple data width reduction)</li>
+</ul>
+<!--- **Chunking**: Increases time proportionally (splitting one 32-byte packet into four 8-byte packets takes 4× longer)-->
+<!--- **Type Casting**: 1-2 cycle latency for `f32` to `bf16` conversion-->
+<h3 id="bank-starvation-prevention"><a class="header" href="#bank-starvation-prevention">Bank Starvation Prevention</a></h3>
+<p>The Commit Engine shares DM bank access with the <a href="./fetch-engine.html">Fetch Engine</a> and <a href="./dma-engine.html">DMA Engine</a>.
+To prevent bank starvation and catastrophic NoC timeouts, ensure commit patterns avoid <code>64</code>+ consecutive accesses to the same bank.
+The compiler automatically enforces this constraint by treating violating operations as if they occupy DMA context, preventing concurrent DMA operations.</p>
+<p>See <a href="./memory-performance.html#bank-starvation">DM Bank Starvation</a> for details.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../moving-tensors/fetch-engine.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../moving-tensors/dma-engine.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../moving-tensors/fetch-engine.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../moving-tensors/dma-engine.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

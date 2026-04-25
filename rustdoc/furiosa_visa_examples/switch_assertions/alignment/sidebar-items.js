@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["aligned_fetch_packet_bf16","aligned_fetch_packet_i4","aligned_fetch_packet_i8","unaligned_fetch_packet_bf16","unaligned_fetch_packet_i4","unaligned_fetch_packet_i8"],"struct":["AlignedFetchPacketBf16","AlignedFetchPacketI4","AlignedFetchPacketI8","UnalignedFetchPacketBf16","UnalignedFetchPacketI4","UnalignedFetchPacketI8"]};

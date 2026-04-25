@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Atom","DivisionError","DivisionSide","Factor","IndexValueError","Mapping","PaddingKind"],"struct":["BlockBounds","Division","DivisionTerm","FMapping","Ident","Index","RSortedMap","Relaxed","Span","Strict","Term","TermBounds","TermPosition"],"trait":["DivisionMode","M"]};

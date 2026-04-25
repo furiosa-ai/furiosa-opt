@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["invalid_time_mapping","invalid_time_size","invalid_transpose_placement","valid_single_axis","valid_split_inner","valid_three_axes"],"struct":["InvalidTimeMapping","InvalidTimeSize","InvalidTransposePlacement","ValidSingleAxis","ValidSplitInner","ValidThreeAxes"]};

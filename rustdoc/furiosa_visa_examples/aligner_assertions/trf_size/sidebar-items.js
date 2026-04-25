@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["invalid_to_trf_full","invalid_to_trf_half","valid_to_trf_full","valid_to_trf_half"],"struct":["InvalidToTrfFull","InvalidToTrfHalf","ValidToTrfFull","ValidToTrfHalf"]};

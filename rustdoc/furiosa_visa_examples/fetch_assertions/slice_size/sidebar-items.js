@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["invalid_slice_size","valid_slice_size"],"struct":["InvalidSliceSize","ValidSliceSize"]};

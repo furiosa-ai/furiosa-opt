@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PacketMode","VeOrder"],"mod":["markers"],"struct":["Branch","Clip","Filter","Fp","FpDiv","FpToFxp","Fxp","FxpToFp","Group","InterSliceReduce","IntraSliceReduce","Logic","Narrow","Output","Standalone","Widen","Zipped"],"trait":["CanTransitionTo","Commitable","InterSliceStage","IntraSliceStage","Stage","Stashable","VeTensorContext"]};

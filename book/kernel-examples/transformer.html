@@ -1,0 +1,1339 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Transformer - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="transformer-architecture"><a class="header" href="#transformer-architecture">Transformer Architecture</a></h1>
+<!-- > **TODO(youseok.yang)**: This page describes each transformer operation in terms of mathematical shapes and hardware engine annotations, but shows no Virtual ISA code. -->
+<!-- > Add kernel code for representative operations following the style of `fetch-commit-engine.md` — at minimum: one einsum (e.g., QKV projection showing the Contraction Engine axis mapping) and one Vector Engine operation (e.g., RMSNorm showing the elementwise sequence). -->
+<p>This page uses Llama 3 70B as a concrete example to show how each transformer operation maps to specific TCP hardware components.
+Llama 3 70B implements a decoder-only transformer architecture with two main phases: prefill (input encoding) and decode (token generation).</p>
+<h2 id="model-parameters"><a class="header" href="#model-parameters">Model Parameters</a></h2>
+<p>The following parameters define the Llama 3 70B architecture, grouped by category:</p>
+<p><strong>Sequence dimensions</strong> (control input/output length):</p>
+<ul>
+<li><code>B</code>: batch size</li>
+<li><code>s_in</code>: input sequence length</li>
+<li><code>s_max</code>: maximum sequence length/context length</li>
+<li><code>s</code>: total sequence length processed so far (prefill + decode)</li>
+</ul>
+<p><strong>Model size</strong> (vocabulary and layer counts):</p>
+<ul>
+<li><code>V = 128256</code>: vocab size</li>
+<li><code>D = 8192</code>: hidden dimension/size of embedding</li>
+<li><code>F = 28672</code>: intermediate dimension for FFN up projection</li>
+<li><code>L = 80</code>: num layers</li>
+</ul>
+<p><strong>Attention head dimensions</strong> (how attention is partitioned):</p>
+<ul>
+<li><code>h_q = 64</code>: number of query heads</li>
+<li><code>h_kv = 8</code>: number of key/value heads</li>
+<li><code>G = 8</code>: number of attention groups (<code>= h_q / h_kv</code>)</li>
+<li><code>d_k = 128</code>: head dimension (equal to <code>D / h_q</code>)</li>
+<li><code>d_k_prime = 64</code>: split head dimension for RoPE computation</li>
+<li><code>f = 2</code>: frequency dimension for adjacent heads (<code>d_k = d_k_prime * f</code>)</li>
+</ul>
+<h2 id="prefill-phase"><a class="header" href="#prefill-phase">Prefill Phase</a></h2>
+<p>The prefill phase processes the entire input sequence in parallel, outputting the first token while storing computed Key/Value pairs as KV cache.
+The transformer block executes on all input tokens provided by the user.
+The following subsections describe each step in order.</p>
+<h3 id="1-embedding-lookup"><a class="header" href="#1-embedding-lookup">1. Embedding Lookup</a></h3>
+<p>Embedding lookup converts input tokens to vector space representations.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>input: shape![B, s_in]</code></li>
+<li>Token indices of input text (which vocabulary entry each token corresponds to)</li>
+</ul>
+</li>
+<li><strong>Weight</strong>
+<ul>
+<li><code>w_emb: shape![V, D]</code></li>
+<li>Pre-trained embedding value table for each vocabulary entry</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_0: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_0 = gather(index: input, table: w_emb)</code></li>
+<li>gather: Operation that reads values from the table using index values specified in the index tensor.
+<ul>
+<li>Processed by TensorDMA.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="2-transformer-layers-repeated-l-times"><a class="header" href="#2-transformer-layers-repeated-l-times">2. Transformer Layers (repeated L times)</a></h3>
+<p>Each transformer layer applies attention and feed-forward operations sequentially.
+For each layer <code>l = 1, ..., L</code>, perform the following:</p>
+<h4 id="21-input-layer-normalization"><a class="header" href="#21-input-layer-normalization">2.1. Input Layer Normalization</a></h4>
+<p>Input layer normalization stabilizes training by normalizing activations before attention.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_prev: shape![B, s_in, D]</code> (layer input from previous layer)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_norm: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li>Apply RMSNorm</li>
+<li><code>x_norm = RMSNorm(x_prev)</code></li>
+<li>RMSNorm: Root Mean Square Layer Normalization
+<ul>
+<li>Processed by Vector Engine.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h4 id="22-multi-head-grouped-query-attention-gqa"><a class="header" href="#22-multi-head-grouped-query-attention-gqa">2.2. Multi-Head Grouped Query Attention (GQA)</a></h4>
+<p>Grouped Query Attention (GQA) improves memory efficiency by sharing key/value heads across multiple query heads, reducing KV cache size.</p>
+<h5 id="221-qkv-projection"><a class="header" href="#221-qkv-projection">2.2.1. QKV Projection</a></h5>
+<p>QKV projection transforms the normalized input into Query, Key, and Value tensors.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_norm: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Weights</strong>
+<ul>
+<li><code>w_q: shape![D, h_q, d_k]</code></li>
+<li><code>w_k: shape![D, h_kv, d_k]</code></li>
+<li><code>w_v: shape![D, h_kv, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Outputs</strong>
+<ul>
+<li><code>Q: shape![B, s_in, h_q, d_k]</code></li>
+<li><code>K: shape![B, s_in, h_kv, d_k]</code></li>
+<li><code>V: shape![B, s_in, h_kv, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><code>Q = einsum(x_norm, w_q)</code></li>
+<li><code>K = einsum(x_norm, w_k)</code></li>
+<li><code>V = einsum(x_norm, w_v)</code></li>
+<li>matmul corresponds to einsum (= broadcast + elementwise mul + reduce add).</li>
+<li>elementwise mul: Contraction Engine</li>
+<li>reduce add
+<ul>
+<li>packet reduce: Reducer</li>
+<li>time reduce: Reducer</li>
+<li>slice reduce: global adder tree</li>
+<li>split reduce: interleaved fetch + Vector Engine binary op</li>
+<li>cluster/chip reduce: DMA + interleaved fetch + Vector Engine binary op</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h5 id="222-rotary-position-embedding-rope"><a class="header" href="#222-rotary-position-embedding-rope">2.2.2. Rotary Position Embedding (RoPE)</a></h5>
+<p>Rotary Position Embedding (RoPE) applies positional information to Query and Key tensors through rotation transformations.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>Q: shape![B, s_in, h_q, d_k]</code></li>
+<li><code>K: shape![B, s_in, h_kv, d_k]</code></li>
+<li><code>d_k = d_k_prime * f</code>
+<ul>
+<li>Split the <code>d_k</code> axis to apply RoPE rotation in a TCP-friendly manner.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>RoPE table</strong>
+<ul>
+<li><code>w_rope: shape![s_max, d_k_prime, 2, 2]</code></li>
+<li>Pre-computed table of cos/sin values based on sequence position and head position.</li>
+<li>RoPE operation groups consecutive pairs among <code>d_k</code> values and applies rotation transformation using cos/sin.</li>
+<li>Store the 2 × 2 matrix representing the cos/sin rotation transformation for TCP-friendly execution.</li>
+</ul>
+</li>
+<li><strong>Position</strong>
+<ul>
+<li><code>position: shape![s_in]</code></li>
+<li><code>position(i) = i</code></li>
+</ul>
+</li>
+<li><strong>Outputs</strong>
+<ul>
+<li><code>Q_rope: shape![B, h_q, s_in, d_k]</code></li>
+<li><code>K_rope: shape![B, h_kv, s_in, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>RoPE table lookup</strong>
+<ul>
+<li><code>t_rope: shape![s_in, d_k_prime, 2, 2] = gather(index: position, table: w_rope)</code></li>
+</ul>
+</li>
+<li><strong>Apply RoPE</strong>
+<ul>
+<li>RoPE computation reduces to a simple einsum operation given the prepared rotation transformation matrix values.</li>
+<li><strong>Reshape (noop)</strong>
+<ul>
+<li><code>Q: shape![B, s_in, h_q, d_k] == shape![B, s_in, h_q, d_k_prime, f]</code></li>
+<li><code>K: shape![B, s_in, h_kv, d_k] == shape![B, s_in, h_kv, d_k_prime, f]</code></li>
+<li><code>t_rope: shape![s_in, d_k_prime, 2, 2] == shape![s_in, d_k_prime, f, 2]</code></li>
+</ul>
+</li>
+<li><strong>einsum</strong>
+<ul>
+<li><code>Q_rope = einsum(Q, t_rope)</code>
+<ul>
+<li><code>(shape![B, s_in, h_q, d_k_prime, f], shape![s_in, d_k_prime, f, 2]) -&gt; shape![B, h_q, s_in, d_k_prime, 2] == shape![B, h_q, s_in, d_k]</code></li>
+</ul>
+</li>
+<li><code>K_rope = einsum(K, t_rope)</code>
+<ul>
+<li><code>(shape![B, s_in, h_kv, d_k_prime, f], shape![s_in, d_k_prime, f, 2]) -&gt; shape![B, h_kv, s_in, d_k_prime, 2] == shape![B, h_kv, s_in, d_k]</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>As a result of RoPE, Q/K values encode relative positional information.</p>
+<h5 id="223-store-in-kv-cache"><a class="header" href="#223-store-in-kv-cache">2.2.3. Store in KV Cache</a></h5>
+<p>KV cache stores the current layer’s Key and Value for reuse during the decode phase, avoiding redundant computation.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>K_rope: shape![B, h_kv, s_in, d_k]</code></li>
+<li><code>V: shape![B, s_in, h_kv, d_k]</code></li>
+</ul>
+</li>
+<li><strong>KV Cache</strong> (for layer <code>l</code>)
+<ul>
+<li><code>kv_cache_l_K: shape![B, h_kv, s_in, d_k]</code></li>
+<li><code>kv_cache_l_V: shape![B, h_kv, s_in, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><code>kv_cache_l_K = K_rope</code></li>
+<li><code>kv_cache_l_V = V</code></li>
+<li>Cache storage: Stores einsum computation results from DM to HBM, processed by TensorDMA.</li>
+</ul>
+</li>
+</ul>
+<h5 id="224-grouped-query-attention-computation"><a class="header" href="#224-grouped-query-attention-computation">2.2.4. Grouped Query Attention Computation</a></h5>
+<p>Grouped Query Attention shares each key/value head across multiple query heads.
+Each of the 8 KV heads is shared with 8 Query heads (<code>G = h_q / h_kv = 64 / 8 = 8</code>).</p>
+<p><strong>2.2.4.1. Attention Scores Computation</strong></p>
+<p>Attention scores measure the relevance between query and key positions using dot product similarity.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>Q_rope: shape![B, h_q, s_in, d_k]</code></li>
+<li><code>K_rope: shape![B, h_kv, s_in, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>scores: shape![B, h_q, s_in, s_in]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><code>scores = (Q_rope @ K_rope.T) / sqrt(d_k)</code></li>
+<li><strong>Reshape (noop)</strong>
+<ul>
+<li>The dot product operation can be expressed as einsum.
+Each tensor’s shape axes must be precisely distinguished from the output shape perspective to accurately represent the einsum operation semantics.</li>
+<li><code>Q_rope: shape![B, h_q, s_in, d_k] == shape![B, G, h_kv, s_in_q, d_k]</code></li>
+<li><code>K_rope: shape![B, h_kv, s_in, d_k] == shape![B, h_kv, s_in_k, d_k]</code></li>
+</ul>
+</li>
+<li><strong>einsum</strong>
+<ul>
+<li><code>scores_before_normalize = einsum(Q_rope, K_rope)</code></li>
+<li><code>(shape![B, G, h_kv, s_in_q, d_k], shape![B, h_kv, s_in_k, d_k]) -&gt; shape![B, G, h_kv, s_in_q, s_in_k] == shape![B, h_q, s_in, s_in]</code></li>
+<li>The einsum expression shows that <code>G</code> was broadcast from <code>K_rope</code>, and <code>d_k</code> was reduced.</li>
+</ul>
+</li>
+<li><strong>Normalize</strong>
+<ul>
+<li><code>scores = scores_before_normalize / sqrt(d_k)</code></li>
+<li>Division by <code>sqrt(d_k)</code> can be computed as multiplication by <code>1/sqrt(d_k)</code>. The value <code>1/sqrt(d_k)</code> is pre-computed, and the Vector Engine performs simple constant multiplication.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p><strong>2.2.4.2. Causal Mask Application</strong></p>
+<p>Causal masking prevents tokens from attending to future positions, preserving autoregressive semantics.
+In the prefill phase, <code>s_in</code> tokens are processed in parallel, but the <code>i</code>-th token must not reference tokens after position <code>i</code> to maintain the autoregressive model’s semantics.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>scores: shape![B, h_q, s_in, s_in]</code></li>
+<li><code>attention_mask: shape![s_in, s_in]</code></li>
+<li><code>attention_mask(i, j) = true if j &lt;= i, false if j &gt; i</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>scores_masked: shape![B, h_q, s_in, s_in]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>scores_masked(b, h, i, j) = scores(b, h, i, j) if j &lt;= i, -inf if j &gt; i</code></li>
+<li>In the Vector Engine, the <code>attention_mask</code> tensor is written to the branch log, then processed through branched operations.</li>
+</ul>
+</li>
+</ul>
+<p><strong>2.2.4.3. Softmax Application</strong></p>
+<p>Softmax normalizes attention scores into a probability distribution over key positions.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>scores_masked: shape![B, h_q, s_in, s_in]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>attn_weights: shape![B, h_q, s_in, s_in]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>attn_weights = softmax(scores_masked)</code></li>
+<li>Softmax computes the ratio at which each query should reference each token to combine values.</li>
+<li>Reduces the key-corresponding axis among the two <code>s_in</code> dimensions.</li>
+<li><code>softmax(x)_i = exp(x_i) / sum_j(exp(x_j))</code></li>
+<li>Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<p><strong>2.2.4.4. Weighted Sum (Attention Output)</strong></p>
+<p>Weighted sum computes the attention output by combining Value vectors according to attention weights.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>attn_weights: shape![B, h_q, s_in, s_in]</code></li>
+<li><code>V: shape![B, s_in, h_kv, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>attn_output: shape![B, h_q, s_in, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Reshape (noop)</strong>
+<ul>
+<li><code>attn_weights: shape![B, h_q, s_in, s_in] == shape![B, G, h_kv, s_in_q, s_in_kv]</code></li>
+<li><code>V: shape![B, s_in, h_kv, d_k] == shape![B, h_kv, s_in_kv, d_k]</code></li>
+</ul>
+</li>
+<li><strong>einsum</strong>
+<ul>
+<li><code>attn_output = einsum(attn_weights, V)</code></li>
+<li><code>(shape![B, G, h_kv, s_in_q, s_in_kv], shape![B, h_kv, s_in_kv, d_k]) -&gt; shape![B, G, h_kv, s_in_q, d_k] == shape![B, h_q, s_in, d_k]</code></li>
+<li>The einsum expression shows that <code>G</code> was broadcast from <code>V</code>, and <code>s_in_kv</code> was reduced.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h5 id="225-output-projection"><a class="header" href="#225-output-projection">2.2.5. Output Projection</a></h5>
+<p>Output projection combines the multi-head attention results into a single hidden state vector.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>attn_output: shape![B, h_q, s_in, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Weight</strong>
+<ul>
+<li><code>w_o: shape![h_q, d_k, D]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>attn_out: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><code>attn_out = einsum(attn_output, w_o)</code></li>
+<li><code>(shape![B, h_q, s_in, d_k], shape![h_q, d_k, D]) -&gt; shape![B, s_in, D]</code></li>
+</ul>
+</li>
+</ul>
+<h5 id="226-residual-connection"><a class="header" href="#226-residual-connection">2.2.6. Residual Connection</a></h5>
+<p>Residual connection adds the attention output to the layer input, improving gradient flow during training.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>x_prev: shape![B, s_in, D]</code> (layer input)</li>
+<li><code>attn_out: shape![B, s_in, D]</code> (attention output)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_attn: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_attn = x_prev + attn_out</code></li>
+<li>elementwise addition: Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h4 id="23-feed-forward-network-ffn"><a class="header" href="#23-feed-forward-network-ffn">2.3. Feed-Forward Network (FFN)</a></h4>
+<p>The Feed-Forward Network applies non-linear transformations to each token independently after attention.</p>
+<h5 id="231-post-attention-layer-normalization"><a class="header" href="#231-post-attention-layer-normalization">2.3.1. Post-Attention Layer Normalization</a></h5>
+<p>Post-attention normalization stabilizes activations before the FFN computation.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_attn: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_ffn_norm: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_ffn_norm = RMSNorm(x_attn)</code></li>
+<li>RMSNorm: Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h5 id="232-swiglu-ffn"><a class="header" href="#232-swiglu-ffn">2.3.2. SwiGLU FFN</a></h5>
+<p>SwiGLU (Swish-Gated Linear Unit) is Llama 3’s activation function, combining gating with the Swish non-linearity.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_ffn_norm: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Weights</strong>
+<ul>
+<li><code>w_gate: shape![D, F]</code> (gate projection)</li>
+<li><code>w_up: shape![D, F]</code> (up projection)</li>
+<li><code>w_down: shape![F, D]</code> (down projection)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>ffn_out: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Gate projection</strong>:
+<ul>
+<li><code>gate = einsum(x_ffn_norm, w_gate)</code></li>
+<li><code>(shape![B, s_in, D], shape![D, F]) -&gt; shape![B, s_in, F]</code></li>
+</ul>
+</li>
+<li><strong>Up projection</strong>:
+<ul>
+<li><code>up = einsum(x_ffn_norm, w_up)</code></li>
+<li><code>(shape![B, s_in, D], shape![D, F]) -&gt; shape![B, s_in, F]</code></li>
+</ul>
+</li>
+<li><strong>SwiGLU activation</strong>:
+<ul>
+<li><code>activated = SiLU(gate) * up</code></li>
+<li>SiLU (Swish): <code>SiLU(x) = x * sigmoid(x)</code></li>
+<li><code>*</code>: element-wise multiplication</li>
+<li>Processed by Vector Engine</li>
+</ul>
+</li>
+<li><strong>Down projection</strong>:
+<ul>
+<li><code>ffn_out = einsum(activated, w_down)</code></li>
+<li><code>(shape![B, s_in, F], shape![F, D]) -&gt; shape![B, s_in, D]</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h5 id="233-residual-connection"><a class="header" href="#233-residual-connection">2.3.3. Residual Connection</a></h5>
+<p>FFN residual connection adds the FFN output to the post-attention output.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>x_attn: shape![B, s_in, D]</code> (post-attention output)</li>
+<li><code>ffn_out: shape![B, s_in, D]</code> (FFN output)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_l: shape![B, s_in, D]</code> (final output of layer <code>l</code>)</li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_l = x_attn + ffn_out</code></li>
+<li>elementwise addition: Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-final-layer-normalization"><a class="header" href="#3-final-layer-normalization">3. Final Layer Normalization</a></h3>
+<p>Final layer normalization is applied after passing through all 80 transformer layers.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_L: shape![B, s_in, D]</code> (last layer output)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_final: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_final = RMSNorm(x_L)</code></li>
+<li>RMSNorm: Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h3 id="4-language-model-head-output-layer"><a class="header" href="#4-language-model-head-output-layer">4. Language Model Head (Output Layer)</a></h3>
+<p>The language model head converts the hidden state at the last token position into vocabulary logits for next-token prediction.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_final: shape![B, s_in, D]</code></li>
+</ul>
+</li>
+<li><strong>Weight</strong>
+<ul>
+<li><code>w_lm_head: shape![D, V]</code></li>
+<li>Typically <code>w_lm_head = w_emb.T</code> (weight tying)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>logits: shape![B, V]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Slice</strong>: In prefill phase, only the last token is used
+<ul>
+<li><code>x_last: shape![B, D] = x_final[:, -1, :]</code></li>
+<li>Extract only the hidden state of the last token to predict the next token</li>
+<li>Process the slice operation as a simple view operation depending on shape, or use parallel copy to directly read and move a portion of data.</li>
+</ul>
+</li>
+<li><strong>einsum</strong>: Logit computation for vocabulary
+<ul>
+<li><code>logits = einsum(x_last, w_lm_head)</code></li>
+<li><code>(shape![B, D], shape![D, V]) -&gt; shape![B, V]</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="5-sampling"><a class="header" href="#5-sampling">5. Sampling</a></h3>
+<p>Sampling converts logit values into a probability distribution and selects the next token.
+This process occurs on the Host, not the TCP.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>logits: shape![B, V]</code></li>
+<li><code>temperature: scalar</code> (sampling temperature parameter, typically 0.7~1.0)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>next_token: shape![B]</code> (next token index for each batch)</li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Temperature scaling</strong>:
+<ul>
+<li><code>logits_scaled = logits / temperature</code></li>
+<li>Higher temperature leads to more diverse token selection, lower temperature leads to more deterministic selection</li>
+<li>The value <code>1/temperature</code> is pre-computed, then processed as constant multiplication in Vector Engine</li>
+</ul>
+</li>
+<li><strong>Softmax</strong>:
+<ul>
+<li><code>probs: shape![B, V] = softmax(logits_scaled)</code></li>
+<li><code>softmax(x)_i = exp(x_i) / sum_j(exp(x_j))</code></li>
+<li>Apply softmax over the Vocabulary axis (<code>V</code>)</li>
+</ul>
+</li>
+<li><strong>Token sampling</strong>:
+<ul>
+<li>Sample the next token index from the probability distribution <code>probs</code></li>
+<li>Sampling strategies:
+<ul>
+<li>Greedy: <code>next_token = argmax_i(probs_i)</code></li>
+<li>Top-k sampling: Sample only from the top k tokens by probability</li>
+<li>Top-p (nucleus) sampling: Sample from the smallest token set whose cumulative probability exceeds p</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="decode-phase"><a class="header" href="#decode-phase">Decode Phase</a></h2>
+<p>The decode phase reuses the same operation sequence as prefill (embedding, transformer layers, LM head, sampling), but operates on a single token at a time, reusing cached KV pairs instead of recomputing them.
+The decode phase generates tokens one at a time autoregressively, continuing until an end token (EOS) is produced or the maximum length is reached.
+Unlike prefill, decode processes only one token per iteration.</p>
+<p>Three characteristics distinguish decode from prefill:</p>
+<ul>
+<li><strong>Single-token input</strong>: <code>s_in = 1</code> (only the most recent output token is used as query)</li>
+<li><strong>KV cache reuse</strong>: Previously computed Key and Value tensors are reused rather than recomputed</li>
+<li><strong>Autoregressive generation</strong>: Each token prediction references all previous tokens via the cache</li>
+</ul>
+<p>For each decoding step <code>s = s_prefill + 1, ..., s_max</code>:</p>
+<h3 id="1-embedding-lookup-1"><a class="header" href="#1-embedding-lookup-1">1. Embedding Lookup</a></h3>
+<p>Embedding lookup converts the previously generated token to its vector representation.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>input: shape![B, 1]</code></li>
+<li>Token index sampled in the previous step</li>
+</ul>
+</li>
+<li><strong>Weight</strong>
+<ul>
+<li><code>w_emb: shape![V, D]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_0: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_0 = gather(index: input, table: w_emb)</code></li>
+<li>Processed by TensorDMA</li>
+</ul>
+</li>
+</ul>
+<h3 id="2-transformer-layers-repeated-l-times-1"><a class="header" href="#2-transformer-layers-repeated-l-times-1">2. Transformer Layers (repeated L times)</a></h3>
+<p>Each transformer layer processes the single token through attention and FFN, reusing cached KV pairs.
+For each layer <code>l = 1, ..., L</code>, perform the following:</p>
+<h4 id="21-input-layer-normalization-1"><a class="header" href="#21-input-layer-normalization-1">2.1. Input Layer Normalization</a></h4>
+<p>Input layer normalization prepares the token for attention computation.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_prev: shape![B, 1, D]</code> (layer input from previous layer)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_norm: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_norm = RMSNorm(x_prev)</code></li>
+<li>Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h4 id="22-multi-head-grouped-query-attention-gqa-1"><a class="header" href="#22-multi-head-grouped-query-attention-gqa-1">2.2. Multi-Head Grouped Query Attention (GQA)</a></h4>
+<p>Attention in decode phase computes attention between the current token (query) and all cached tokens (keys/values).</p>
+<h5 id="221-qkv-projection-1"><a class="header" href="#221-qkv-projection-1">2.2.1. QKV Projection</a></h5>
+<p>QKV projection computes Query, Key, and Value for the current token only.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_norm: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Weights</strong>
+<ul>
+<li><code>w_q: shape![D, h_q, d_k]</code></li>
+<li><code>w_k: shape![D, h_kv, d_k]</code></li>
+<li><code>w_v: shape![D, h_kv, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Outputs</strong>
+<ul>
+<li><code>Q: shape![B, 1, h_q, d_k]</code></li>
+<li><code>K_new: shape![B, 1, h_kv, d_k]</code></li>
+<li><code>V_new: shape![B, 1, h_kv, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><code>Q = einsum(x_norm, w_q)</code></li>
+<li><code>K_new = einsum(x_norm, w_k)</code></li>
+<li><code>V_new = einsum(x_norm, w_v)</code></li>
+<li><code>(shape![B, 1, D], shape![D, h_q/kv, d_k]) -&gt; shape![B, 1, h_q/kv, d_k]</code></li>
+</ul>
+</li>
+</ul>
+<h5 id="222-rotary-position-embedding-rope-1"><a class="header" href="#222-rotary-position-embedding-rope-1">2.2.2. Rotary Position Embedding (RoPE)</a></h5>
+<p>RoPE applies positional encoding corresponding to the current sequence position.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>Q: shape![B, 1, h_q, d_k]</code></li>
+<li><code>K_new: shape![B, 1, h_kv, d_k]</code></li>
+</ul>
+</li>
+<li><strong>RoPE table</strong>
+<ul>
+<li><code>w_rope: shape![s_max, d_k_prime, 2, 2]</code></li>
+</ul>
+</li>
+<li><strong>Position</strong>
+<ul>
+<li><code>position: shape![1]</code></li>
+<li><code>position(0) = s</code> (total sequence length processed so far)</li>
+</ul>
+</li>
+<li><strong>Outputs</strong>
+<ul>
+<li><code>Q_rope: shape![B, h_q, 1, d_k]</code></li>
+<li><code>K_rope: shape![B, h_kv, 1, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>RoPE table lookup</strong>
+<ul>
+<li><code>t_rope: shape![1, d_k_prime, 2, 2] = gather(index: position, table: w_rope)</code></li>
+</ul>
+</li>
+<li><strong>Apply RoPE</strong>
+<ul>
+<li><strong>Reshape (noop)</strong>
+<ul>
+<li><code>Q: shape![B, 1, h_q, d_k] == shape![B, 1, h_q, d_k_prime, f]</code></li>
+<li><code>K_new: shape![B, 1, h_kv, d_k] == shape![B, 1, h_kv, d_k_prime, f]</code></li>
+<li><code>t_rope: shape![1, d_k_prime, 2, 2] == shape![1, d_k_prime, f, 2]</code></li>
+</ul>
+</li>
+<li><strong>einsum</strong>
+<ul>
+<li><code>Q_rope = einsum(Q, t_rope)</code>
+<ul>
+<li><code>(shape![B, 1, h_q, d_k_prime, f], shape![1, d_k_prime, f, 2]) -&gt; shape![B, h_q, 1, d_k_prime, 2] == shape![B, h_q, 1, d_k]</code></li>
+</ul>
+</li>
+<li><code>K_rope = einsum(K_new, t_rope)</code>
+<ul>
+<li><code>(shape![B, 1, h_kv, d_k_prime, f], shape![1, d_k_prime, f, 2]) -&gt; shape![B, h_kv, 1, d_k_prime, 2] == shape![B, h_kv, 1, d_k]</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h5 id="223-kv-cache-update"><a class="header" href="#223-kv-cache-update">2.2.3. KV Cache Update</a></h5>
+<p>KV cache update appends the new Key and Value to the existing cache for future token generation.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>kv_cache_l_K: shape![B, h_kv, s-1, d_k]</code> (existing cache)</li>
+<li><code>kv_cache_l_V: shape![B, h_kv, s-1, d_k]</code> (existing cache)</li>
+<li><code>K_rope: shape![B, h_kv, 1, d_k]</code> (new Key)</li>
+<li><code>V_new: shape![B, 1, h_kv, d_k]</code> (new Value)</li>
+</ul>
+<blockquote>
+<p><strong>TODO</strong> (youseok.yang): <code>V_new</code> has shape <code>[B, 1, h_kv, d_k]</code> but the cache expects <code>[B, h_kv, s, d_k]</code>. Either correct <code>V_new</code>’s shape to <code>[B, h_kv, 1, d_k]</code> (consistent with <code>K_rope</code> and the cache) or add an explicit reshape/transpose step before the cache update.</p>
+</blockquote>
+</li>
+<li><strong>Outputs</strong>
+<ul>
+<li><code>kv_cache_l_K: shape![B, h_kv, s, d_k]</code> (updated cache)</li>
+<li><code>kv_cache_l_V: shape![B, h_kv, s, d_k]</code> (updated cache)</li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Concatenate</strong>: Add new K, V to existing cache
+<ul>
+<li><code>kv_cache_l_K[s-1] = K_rope</code></li>
+<li><code>kv_cache_l_V[s-1] = V_new</code></li>
+<li>Processing differs depending on concat axis allocation.
+Data movement between slices: use RoutingEngine/parallel copy; data movement between elements: use parallel copy.</li>
+<li>Concat on HBM using DMA is also possible.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h5 id="224-grouped-query-attention-computation-1"><a class="header" href="#224-grouped-query-attention-computation-1">2.2.4. Grouped Query Attention Computation</a></h5>
+<p>Attention computation uses the current Query against the entire KV cache to determine which past tokens are relevant.</p>
+<p><strong>2.2.4.1. Attention Scores Computation</strong></p>
+<p>Attention scores measure similarity between the current Query and all cached Keys.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>Q_rope: shape![B, h_q, 1, d_k]</code></li>
+<li><code>kv_cache_l_K: shape![B, h_kv, s, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>scores: shape![B, h_q, 1, s]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><code>scores = (Q_rope @ kv_cache_l_K.T) / sqrt(d_k)</code></li>
+<li><strong>Reshape (noop)</strong>
+<ul>
+<li><code>Q_rope: shape![B, h_q, 1, d_k] == shape![B, G, h_kv, 1, d_k]</code></li>
+<li><code>kv_cache_l_K: shape![B, h_kv, s, d_k] == shape![B, h_kv, s, d_k]</code></li>
+</ul>
+</li>
+<li><strong>einsum</strong>
+<ul>
+<li><code>scores_before_normalize = einsum(Q_rope, kv_cache_l_K)</code></li>
+<li><code>(shape![B, G, h_kv, 1, d_k], shape![B, h_kv, s, d_k]) -&gt; shape![B, G, h_kv, 1, s] == shape![B, h_q, 1, s]</code></li>
+<li>The einsum expression shows that <code>G</code> was broadcast from <code>kv_cache_l_K</code>, and <code>d_k</code> was reduced.</li>
+</ul>
+</li>
+<li><strong>Normalize</strong>
+<ul>
+<li><code>scores = scores_before_normalize / sqrt(d_k)</code></li>
+<li>Processed as constant multiplication in Vector Engine</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p><strong>2.2.4.2. Softmax Application</strong></p>
+<p>Softmax converts scores to attention weights.
+Causal mask is unnecessary in decode because the current token only references past tokens.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>scores: shape![B, h_q, 1, s]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>attn_weights: shape![B, h_q, 1, s]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>attn_weights = softmax(scores)</code></li>
+<li>Softmax is applied over the last axis (<code>s</code>, i.e., all past tokens)</li>
+<li><code>softmax(x)_i = exp(x_i) / sum_j(exp(x_j))</code></li>
+<li>Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<p><strong>2.2.4.3. Weighted Sum (Attention Output)</strong></p>
+<p>Weighted sum combines cached Values according to attention weights to produce the attention output.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>attn_weights: shape![B, h_q, 1, s]</code></li>
+<li><code>kv_cache_l_V: shape![B, h_kv, s, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>attn_output: shape![B, h_q, 1, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Reshape (noop)</strong>
+<ul>
+<li><code>attn_weights: shape![B, h_q, 1, s] == shape![B, G, h_kv, 1, s]</code></li>
+<li><code>kv_cache_l_V: shape![B, h_kv, s, d_k] == shape![B, h_kv, s, d_k]</code></li>
+</ul>
+</li>
+<li><strong>einsum</strong>
+<ul>
+<li><code>attn_output = einsum(attn_weights, kv_cache_l_V)</code></li>
+<li><code>(shape![B, G, h_kv, 1, s], shape![B, h_kv, s, d_k]) -&gt; shape![B, G, h_kv, 1, d_k] == shape![B, h_q, 1, d_k]</code></li>
+<li>The einsum expression shows that <code>G</code> was broadcast from <code>kv_cache_l_V</code>, and <code>s</code> was reduced.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h5 id="225-output-projection-1"><a class="header" href="#225-output-projection-1">2.2.5. Output Projection</a></h5>
+<p>Output projection transforms the attention result back to the hidden dimension.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>attn_output: shape![B, h_q, 1, d_k]</code></li>
+</ul>
+</li>
+<li><strong>Weight</strong>
+<ul>
+<li><code>w_o: shape![h_q, d_k, D]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>attn_out: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><code>attn_out = einsum(attn_output, w_o)</code></li>
+<li><code>(shape![B, h_q, 1, d_k], shape![h_q, d_k, D]) -&gt; shape![B, 1, D]</code></li>
+</ul>
+</li>
+</ul>
+<h5 id="226-residual-connection-1"><a class="header" href="#226-residual-connection-1">2.2.6. Residual Connection</a></h5>
+<p>Residual connection combines attention output with layer input.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>x_prev: shape![B, 1, D]</code> (layer input)</li>
+<li><code>attn_out: shape![B, 1, D]</code> (attention output)</li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_attn: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_attn = x_prev + attn_out</code></li>
+<li>elementwise addition: Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h4 id="23-feed-forward-network-ffn-1"><a class="header" href="#23-feed-forward-network-ffn-1">2.3. Feed-Forward Network (FFN)</a></h4>
+<p>FFN in decode phase is identical to prefill, but processes only a single token (sequence length = 1).</p>
+<h5 id="231-post-attention-layer-normalization-1"><a class="header" href="#231-post-attention-layer-normalization-1">2.3.1. Post-Attention Layer Normalization</a></h5>
+<p>Post-attention normalization prepares the token for FFN processing.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_attn: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_ffn_norm: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_ffn_norm = RMSNorm(x_attn)</code></li>
+<li>Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h5 id="232-swiglu-ffn-1"><a class="header" href="#232-swiglu-ffn-1">2.3.2. SwiGLU FFN</a></h5>
+<p>SwiGLU applies the gated activation function with three projections.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_ffn_norm: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Weights</strong>
+<ul>
+<li><code>w_gate: shape![D, F]</code></li>
+<li><code>w_up: shape![D, F]</code></li>
+<li><code>w_down: shape![F, D]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>ffn_out: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Gate projection</strong>:
+<ul>
+<li><code>gate = einsum(x_ffn_norm, w_gate)</code></li>
+<li><code>(shape![B, 1, D], shape![D, F]) -&gt; shape![B, 1, F]</code></li>
+</ul>
+</li>
+<li><strong>Up projection</strong>:
+<ul>
+<li><code>up = einsum(x_ffn_norm, w_up)</code></li>
+<li><code>(shape![B, 1, D], shape![D, F]) -&gt; shape![B, 1, F]</code></li>
+</ul>
+</li>
+<li><strong>SwiGLU activation</strong>:
+<ul>
+<li><code>activated = SiLU(gate) * up</code></li>
+<li>Processed by Vector Engine</li>
+</ul>
+</li>
+<li><strong>Down projection</strong>:
+<ul>
+<li><code>ffn_out = einsum(activated, w_down)</code></li>
+<li><code>(shape![B, 1, F], shape![F, D]) -&gt; shape![B, 1, D]</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h5 id="233-residual-connection-1"><a class="header" href="#233-residual-connection-1">2.3.3. Residual Connection</a></h5>
+<p>FFN residual connection produces the final layer output.</p>
+<ul>
+<li><strong>Inputs</strong>
+<ul>
+<li><code>x_attn: shape![B, 1, D]</code></li>
+<li><code>ffn_out: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_l: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_l = x_attn + ffn_out</code></li>
+<li>elementwise addition: Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-final-layer-normalization-1"><a class="header" href="#3-final-layer-normalization-1">3. Final Layer Normalization</a></h3>
+<p>Final layer normalization prepares the output for the language model head.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_L: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>x_final: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Operation</strong>
+<ul>
+<li><code>x_final = RMSNorm(x_L)</code></li>
+<li>Processed by Vector Engine</li>
+</ul>
+</li>
+</ul>
+<h3 id="4-language-model-head"><a class="header" href="#4-language-model-head">4. Language Model Head</a></h3>
+<p>The language model head projects the hidden state to vocabulary logits.
+Unlike prefill, no slice operation is needed since there is only a single token.</p>
+<ul>
+<li><strong>Input</strong>
+<ul>
+<li><code>x_final: shape![B, 1, D]</code></li>
+</ul>
+</li>
+<li><strong>Weight</strong>
+<ul>
+<li><code>w_lm_head: shape![D, V]</code></li>
+</ul>
+</li>
+<li><strong>Output</strong>
+<ul>
+<li><code>logits: shape![B, V]</code></li>
+</ul>
+</li>
+<li><strong>Operations</strong>
+<ul>
+<li><strong>Reshape/Squeeze</strong>: Remove sequence dimension
+<ul>
+<li><code>x_squeezed: shape![B, D] = squeeze(x_final)</code></li>
+</ul>
+</li>
+<li><strong>einsum</strong>: Logit computation for vocabulary
+<ul>
+<li><code>logits = einsum(x_squeezed, w_lm_head)</code></li>
+<li><code>(shape![B, D], shape![D, V]) -&gt; shape![B, V]</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="5-sampling-1"><a class="header" href="#5-sampling-1">5. Sampling</a></h3>
+<p>Sampling is identical to <a href="#5-sampling">Prefill Sampling</a>: temperature scaling, softmax, and token selection, performed on the Host.</p>
+<h3 id="6-termination-conditions"><a class="header" href="#6-termination-conditions">6. Termination Conditions</a></h3>
+<p>Generation terminates when any of three conditions is met:</p>
+<ul>
+<li><strong>EOS token generated</strong>: Sampled token is the End-of-Sequence token</li>
+<li><strong>Maximum length reached</strong>: <code>s &gt;= s_max</code></li>
+<li><strong>User-defined termination conditions</strong>: When specific patterns or conditions are met</li>
+</ul>
+<p>If generation continues, update <code>s &lt;- s + 1</code> and return to the next decoding step.</p>
+<h2 id="prefill-vs-decode-phase-comparison"><a class="header" href="#prefill-vs-decode-phase-comparison">Prefill vs Decode Phase Comparison</a></h2>
+<p>The following table summarizes the key differences between prefill and decode phases:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Characteristic</th><th>Prefill Phase</th><th>Decode Phase</th></tr>
+</thead>
+<tbody>
+<tr><td>Input sequence length</td><td><code>s_in</code> (variable)</td><td>1 (fixed)</td></tr>
+<tr><td>Parallel processing</td><td><code>s_in</code> tokens processed in parallel</td><td>Only 1 token processed</td></tr>
+<tr><td>KV Cache</td><td>Create and store</td><td>Read and update</td></tr>
+<tr><td>Attention computation</td><td>Causal mask required</td><td>Causal mask not required</td></tr>
+<tr><td>Attention shape</td><td><code>shape![B, h_q, s_in, s_in]</code></td><td><code>shape![B, h_q, 1, s]</code></td></tr>
+<tr><td>Computation characteristics</td><td>Compute-bound (large-scale computation)</td><td>Memory-bound (KV cache access)</td></tr>
+<tr><td>Throughput</td><td>High (parallel processing)</td><td>Low (sequential processing)</td></tr>
+<tr><td>Latency</td><td>Relatively high</td><td>Low (per token)</td></tr>
+</tbody>
+</table>
+</div>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../kernel-examples/fetch-commit-engine.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../kernel-examples/mixture-of-experts.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../kernel-examples/fetch-commit-engine.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../kernel-examples/mixture-of-experts.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

@@ -1,0 +1,561 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Split Reduce - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="split-reduce"><a class="header" href="#split-reduce">Split Reduce</a></h1>
+<p>Split reduce handles reductions when a logical reduction axis cannot be mapped to a single continuous hardware dimension: the axis is split into multiple separate tensor instances that must be fetched independently using interleaved fetch and combined using Vector Engine binary operations.</p>
+<h2 id="when-to-use-split-reduce"><a class="header" href="#when-to-use-split-reduce">When to Use Split Reduce</a></h2>
+<p>Split reduce applies when:</p>
+<ol>
+<li><strong>The reduce axis exceeds single-tensor capacity</strong>: A reduction axis is too large to fit in VRF (8KB per slice) as a single tensor, requiring the logical axis to be split into multiple physical tensor instances.</li>
+<li><strong>Independent tensor instances exist</strong>: Multiple tensor instances hold different portions of the same logical reduction axis (e.g., from different model layers, experts, or temporal segments).</li>
+<li><strong>Avoiding cross-chip communication</strong>: Data resides on the same chip/cluster but in separate memory allocations, making interleaved fetch more efficient than DMA-based approaches.</li>
+</ol>
+<p>Split reduce sits between slice-level and chip-level reductions in TCP’s reduction hierarchy:</p>
+<ul>
+<li><strong>Packet reduce</strong>: Within a single packet (Reducer)</li>
+<li><strong>Time reduce</strong>: Across time dimension (Reducer)</li>
+<li><strong>Slice reduce</strong>: Across slices within a cluster (Inter-Slice Block)</li>
+<li><strong>Split reduce</strong>: Across multiple independent tensor instances, using <em>interleaved fetch</em> (alternating loads from separate tensor instances) combined with Vector Engine binary ops</li>
+<li><strong>Chip/Cluster reduce</strong>: Across chips or clusters (DMA + interleaved fetch + Vector Engine binary op)</li>
+</ul>
+<!-- > **TODO** (jeongmin.park): The key distinction is that split reduce operates on multiple tensor instances within the same memory hierarchy, while chip/cluster reduce operates on data distributed across physically separate processing units. -->
+<h2 id="implementation-interleaved-fetch"><a class="header" href="#implementation-interleaved-fetch">Implementation: Interleaved Fetch</a></h2>
+<p>Split reduce uses interleaved fetch to load multiple tensor instances alternately, creating a time-interleaved stream that the Vector Engine reduces. The fetch pattern introduces an interleave dimension <code>I</code> that indexes the separate tensor instances:</p>
+<pre><code class="language-rust ignore">// Two tensor instances to be reduced together
+let tensor_0: DmTensor&lt;bf16, m![1], m![1], m![1], m![A, B]&gt; = ...;
+let tensor_1: DmTensor&lt;bf16, m![1], m![1], m![1], m![A, B]&gt; = ...;
+
+// Interleaved fetch creates alternating time stream: I=2 dimension
+let interleaved: TuTensor&lt;bf16, m![1], m![1], m![1],
+    m![I: 2, A], m![B]
+&gt; = ctx.main.begin_interleaved().fetch(&amp;tensor_0, &amp;tensor_1);
+
+// Vector Engine reduction combines the I dimension
+let reduced: TuTensor&lt;bf16, m![1], m![1], m![1],
+    m![A], m![B]
+&gt; = interleaved.reduce_add(axis: I);</code></pre>
+<p>The interleaved fetch alternates between tensor instances in the time dimension: <code>time[0]</code> holds data from <code>tensor_0</code>, <code>time[1]</code> from <code>tensor_1</code>, <code>time[2]</code> from <code>tensor_0</code> again, and so on. The Vector Engine performs binary operations (add, max, min) across the interleave dimension to complete the reduction.</p>
+<h2 id="example-1-layer-normalization-split-reduction"><a class="header" href="#example-1-layer-normalization-split-reduction">Example 1: Layer Normalization Split Reduction</a></h2>
+<p>Layer normalization computes statistics (mean, variance) over the feature dimension. When the feature dimension is too large to fit in a single VRF allocation, it must be split into multiple chunks that are processed separately and then combined.</p>
+<p><strong>The Problem:</strong>
+Layer normalization requires computing the mean and variance of all features for each token. The formula is:</p>
+<pre><code class="language-text">output = (input - mean) / sqrt(variance + epsilon)
+</code></pre>
+<p>where mean and variance are computed over the entire <code>Hidden</code> dimension.</p>
+<p>When <code>Hidden</code> is very large (like 8192 elements), the tensor won’t fit in the 8KB VRF, so we cannot reduce it in a single operation.</p>
+<p><strong>Input:</strong>
+A 3D tensor representing transformer activations:</p>
+<ul>
+<li><strong>Shape</strong>: <code>[Batch=32, SeqLen=128, Hidden=8192]</code></li>
+<li><strong>Data type</strong>: <code>bf16</code> (2 bytes per element)</li>
+<li><strong>Total size</strong>: 32 × 128 × 8192 × 2 bytes = 64 MB</li>
+<li><strong>Per-token slice</strong>: For each of 4096 tokens (32 × 128), we have 8192 features = 16 KB per token</li>
+<li><strong>VRF constraint</strong>: Only 8KB per slice ≈ 4096 <code>bf16</code> elements</li>
+<li><strong>Problem</strong>: Cannot load all 8192 features for a token simultaneously</li>
+</ul>
+<p><strong>Solution Strategy:</strong>
+Split the <code>Hidden</code> dimension into two 4096-element chunks:</p>
+<ul>
+<li><strong>Chunk 0</strong>: <code>[Batch=32, SeqLen=128, Hidden_0=4096]</code> - first half of features</li>
+<li><strong>Chunk 1</strong>: <code>[Batch=32, SeqLen=128, Hidden_1=4096]</code> - second half of features</li>
+<li>Each chunk = 4096 elements × 2 bytes = 8KB, fits in VRF</li>
+</ul>
+<h3 id="step-by-step-execution"><a class="header" href="#step-by-step-execution">Step-by-Step Execution</a></h3>
+<h4 id="step-1-compute-partial-statistics"><a class="header" href="#step-1-compute-partial-statistics">Step 1: Compute Partial Statistics</a></h4>
+<p>First, compute statistics for each chunk independently:</p>
+<pre><code class="language-rust ignore">// Chunk 0: Hidden dimensions 0..4096
+let chunk_0: DmTensor&lt;bf16, m![1], m![1], m![1], m![Batch, SeqLen, Hidden_0: 4096]&gt; = ...;
+
+// Chunk 1: Hidden dimensions 4096..8192
+let chunk_1: DmTensor&lt;bf16, m![1], m![1], m![1], m![Batch, SeqLen, Hidden_1: 4096]&gt; = ...;
+
+// Compute sum for each chunk (using Reducer + Inter-Slice Block)
+let sum_0: DmTensor&lt;f32, m![1], m![1], m![1], m![Batch, SeqLen]&gt; = chunk_0.reduce_sum(axis: Hidden_0);
+let sum_1: DmTensor&lt;f32, m![1], m![1], m![1], m![Batch, SeqLen]&gt; = chunk_1.reduce_sum(axis: Hidden_1);</code></pre>
+<h4 id="step-2-interleaved-fetch-and-combine"><a class="header" href="#step-2-interleaved-fetch-and-combine">Step 2: Interleaved Fetch and Combine</a></h4>
+<p>Use split reduce to combine the partial sums:</p>
+<pre><code class="language-rust ignore">// Fetch both chunks in interleaved pattern
+let interleaved_sums: TuTensor&lt;f32, m![1], m![1], m![1],
+    m![I: 2, Batch, SeqLen], m![1]
+&gt; = ctx.main.begin_interleaved().fetch(&amp;sum_0, &amp;sum_1);
+
+// Vector Engine adds across I dimension to get total sum
+let total_sum: TuTensor&lt;f32, m![1], m![1], m![1],
+    m![Batch, SeqLen], m![1]
+&gt; = interleaved_sums.reduce_add(axis: I);
+
+// Compute mean: total_sum / Hidden
+let mean = total_sum * (1.0 / 8192.0);  // Vector Engine scalar multiply</code></pre>
+<h4 id="step-3-compute-variance"><a class="header" href="#step-3-compute-variance">Step 3: Compute Variance</a></h4>
+<p>Similarly, combine partial variance calculations:</p>
+<pre><code class="language-rust ignore">// Compute squared differences for each chunk
+let sq_diff_0 = (chunk_0 - mean).square().reduce_sum(axis: Hidden_0);
+let sq_diff_1 = (chunk_1 - mean).square().reduce_sum(axis: Hidden_1);
+
+// Split reduce to combine variance contributions
+let interleaved_vars: TuTensor&lt;f32, m![1], m![1], m![1],
+    m![I: 2, Batch, SeqLen], m![1]
+&gt; = ctx.main.begin_interleaved().fetch(&amp;sq_diff_0, &amp;sq_diff_1);
+
+let total_variance = interleaved_vars.reduce_add(axis: I);
+let std = total_variance.sqrt();</code></pre>
+<p><strong>Output:</strong></p>
+<p>The three steps produce the statistics needed for layer normalization:</p>
+<ul>
+<li><strong>Mean</strong>: <code>[Batch=32, SeqLen=128]</code> - one mean value per token, representing the average of all 8192 features</li>
+<li><strong>Standard deviation</strong>: <code>[Batch=32, SeqLen=128]</code> - one std value per token</li>
+<li><strong>Result</strong>: Use these statistics to normalize each token’s 8192 features:
+<pre><code class="language-text">normalized_chunk_0 = (chunk_0 - mean) / std
+normalized_chunk_1 = (chunk_1 - mean) / std
+</code></pre>
+</li>
+</ul>
+<p>Computing statistics in two separate chunks produces the same mathematical result as computing over all 8192 features at once:</p>
+<ul>
+<li><strong>Mathematically</strong>: <code>mean([a,b,c,d,e,f]) = (sum(a,b,c) + sum(d,e,f)) / 6</code></li>
+<li><strong>In practice</strong>: <code>mean([Hidden_0, Hidden_1]) = (sum(Hidden_0) + sum(Hidden_1)) / 8192</code></li>
+</ul>
+<p>Split reduce computes global statistics despite VRF capacity limits.</p>
+<h3 id="hardware-mapping"><a class="header" href="#hardware-mapping">Hardware Mapping</a></h3>
+<p>The split reduce operation maps to hardware as follows:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Operation</th><th>Hardware Component</th><th>Cycles</th></tr>
+</thead>
+<tbody>
+<tr><td>Fetch chunk_0</td><td>Fetch Engine</td><td>~1 cycle per 32-byte flit</td></tr>
+<tr><td>Fetch chunk_1</td><td>Fetch Engine (interleaved)</td><td>~1 cycle per 32-byte flit</td></tr>
+<tr><td>Interleave dimension creation</td><td>Fetch Sequencer</td><td>0 (structural transformation)</td></tr>
+<tr><td>Binary add across I</td><td>Vector Engine</td><td>1 cycle per packet</td></tr>
+</tbody>
+</table>
+</div>
+<!-- > **TODO** (jeongmin.park): The interleaved fetch effectively doubles the time dimension, inserting an `I=2` axis that represents which tensor instance each time step came from. The Vector Engine then performs a standard binary reduction across this axis. -->
+<h3 id="performance-analysis"><a class="header" href="#performance-analysis">Performance Analysis</a></h3>
+<p><strong>Total cycles for split reduce</strong>:</p>
+<ul>
+<li>Fetch both tensors: <code>2 * (Batch * SeqLen * ceil(Hidden / flit_elements))</code> cycles</li>
+<li>Vector Engine reduction: <code>(Batch * SeqLen)</code> cycles</li>
+<li>Total: Dominated by fetch time, ~8K cycles for this example</li>
+</ul>
+<p><strong>Bottleneck</strong>: Memory bandwidth for fetching both tensor instances sequentially.</p>
+<p><strong>Optimization</strong>: Restructure the computation to avoid splitting the reduction axis when possible. If the axis must be split, minimize the number of split instances.</p>
+<h2 id="example-2-batch-normalization-across-split-batches"><a class="header" href="#example-2-batch-normalization-across-split-batches">Example 2: Batch Normalization Across Split Batches</a></h2>
+<p>Batch normalization computes statistics across the batch dimension. When processing very large batches, the batch dimension may be split across multiple tensor allocations.</p>
+<h3 id="problem-setup"><a class="header" href="#problem-setup">Problem Setup</a></h3>
+<ul>
+<li><strong>Input</strong>: <code>[Batch_0 = 256, ...], [Batch_1 = 256, ...]</code> (two separate batch tensors)</li>
+<li><strong>Reduction goal</strong>: Compute mean and variance across all 512 examples</li>
+<li><strong>Constraint</strong>: Cannot allocate single tensor for 512 batches due to memory limits</li>
+</ul>
+<h3 id="execution-pattern"><a class="header" href="#execution-pattern">Execution Pattern</a></h3>
+<pre><code class="language-rust ignore">// Two batch allocations
+let batch_0: DmTensor&lt;bf16, m![1], m![1], m![1], m![Batch_0: 256, C, H, W]&gt; = ...;
+let batch_1: DmTensor&lt;bf16, m![1], m![1], m![1], m![Batch_1: 256, C, H, W]&gt; = ...;
+
+// Compute per-batch statistics (reduce over H, W)
+let batch_stats_0 = batch_0.reduce_mean(axis: [H, W]);  // [Batch_0=256, C]
+let batch_stats_1 = batch_1.reduce_mean(axis: [H, W]);  // [Batch_1=256, C]
+
+// Split reduce to combine batch statistics
+let interleaved: TuTensor&lt;f32, m![1], m![1], m![1],
+    m![I: 2, Batch: 256, C], m![1]
+&gt; = ctx.main.begin_interleaved().fetch(&amp;batch_stats_0, &amp;batch_stats_1);
+
+// Compute global statistics across all batches
+let global_mean = interleaved.reduce_mean(axis: I);  // Average the two batch means</code></pre>
+<p>This pattern extends naturally to more than two splits by increasing the interleave dimension: <code>I: 4</code> for four splits, etc.</p>
+<h2 id="example-3-mixture-of-experts-partial-reduction"><a class="header" href="#example-3-mixture-of-experts-partial-reduction">Example 3: Mixture of Experts Partial Reduction</a></h2>
+<!-- > **TODO** (jeongmin.park): In Mixture of Experts (MoE), multiple expert outputs must be combined with routing weights. When experts are processed in separate batches, split reduce can combine their contributions. -->
+<h3 id="problem-setup-1"><a class="header" href="#problem-setup-1">Problem Setup</a></h3>
+<ul>
+<li><strong>Expert outputs</strong>: Multiple tensors from different expert evaluations</li>
+<li><strong>Routing weights</strong>: Weights determining how much each expert contributes</li>
+<li><strong>Goal</strong>: Weighted sum across expert outputs</li>
+</ul>
+<h3 id="execution-pattern-1"><a class="header" href="#execution-pattern-1">Execution Pattern</a></h3>
+<pre><code class="language-rust ignore">// Expert outputs from separate evaluations (simplified: 2 experts)
+let expert_0_output: DmTensor&lt;bf16, m![1], m![1], m![1], m![Tokens, Hidden]&gt; = ...;
+let expert_1_output: DmTensor&lt;bf16, m![1], m![1], m![1], m![Tokens, Hidden]&gt; = ...;
+
+let routing_weights: [f32; 2] = [0.7, 0.3];  // Per-expert weights
+
+// Apply routing weights during fetch using zero-point arithmetic or scaling
+let weighted_0 = expert_0_output * routing_weights[0];
+let weighted_1 = expert_1_output * routing_weights[1];
+
+// Split reduce to combine weighted expert contributions
+let interleaved: TuTensor&lt;bf16, m![1], m![1], m![1],
+    m![I: 2, Tokens], m![Hidden]
+&gt; = ctx.main.begin_interleaved().fetch(&amp;weighted_0, &amp;weighted_1);
+
+let combined_output = interleaved.reduce_add(axis: I);</code></pre>
+<!-- > **TODO** (jeongmin.park): This pattern is particularly useful when experts are computed in separate kernel invocations or when expert outputs are stored in different memory regions for memory management reasons. -->
+<h2 id="example-4-temporal-reduction-across-windows"><a class="header" href="#example-4-temporal-reduction-across-windows">Example 4: Temporal Reduction Across Windows</a></h2>
+<!-- > **TODO** (jeongmin.park): When processing sequential data in chunks (e.g., for memory efficiency), split reduce can reduce statistics or features across temporal windows. -->
+<h3 id="problem-setup-2"><a class="header" href="#problem-setup-2">Problem Setup</a></h3>
+<ul>
+<li><strong>Input</strong>: Video frames or sequence tokens split into temporal chunks</li>
+<li><strong>Goal</strong>: Compute global statistics across all chunks</li>
+<li><strong>Constraint</strong>: Cannot load all chunks simultaneously due to memory limits</li>
+</ul>
+<h3 id="execution-pattern-2"><a class="header" href="#execution-pattern-2">Execution Pattern</a></h3>
+<pre><code class="language-rust ignore">// Temporal chunks
+let chunk_t0: DmTensor&lt;bf16, m![1], m![1], m![1], m![Time_0: 128, Features]&gt; = ...;
+let chunk_t1: DmTensor&lt;bf16, m![1], m![1], m![1], m![Time_1: 128, Features]&gt; = ...;
+let chunk_t2: DmTensor&lt;bf16, m![1], m![1], m![1], m![Time_2: 128, Features]&gt; = ...;
+let chunk_t3: DmTensor&lt;bf16, m![1], m![1], m![1], m![Time_3: 128, Features]&gt; = ...;
+
+// Compute per-chunk max (e.g., for max pooling over time)
+let max_t0 = chunk_t0.reduce_max(axis: Time_0);  // [Features]
+let max_t1 = chunk_t1.reduce_max(axis: Time_1);  // [Features]
+let max_t2 = chunk_t2.reduce_max(axis: Time_2);  // [Features]
+let max_t3 = chunk_t3.reduce_max(axis: Time_3);  // [Features]
+
+// Split reduce with I=4 to find global maximum
+let interleaved: TuTensor&lt;bf16, m![1], m![1], m![1],
+    m![I: 4], m![Features]
+&gt; = ctx.main.begin_interleaved().fetch(&amp;max_t0, &amp;max_t1, &amp;max_t2, &amp;max_t3);
+
+let global_max = interleaved.reduce_max(axis: I);</code></pre>
+<h2 id="comparison-with-other-reduction-methods"><a class="header" href="#comparison-with-other-reduction-methods">Comparison with Other Reduction Methods</a></h2>
+<p>The choice between split reduce and its alternatives depends on data location, tensor shape, and whether data can be merged into a single allocation.</p>
+<h3 id="split-reduce-vs-slice-reduce-inter-slice-block"><a class="header" href="#split-reduce-vs-slice-reduce-inter-slice-block">Split Reduce vs. Slice Reduce (Inter-Slice Block)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Aspect</th><th>Split Reduce</th><th>Slice Reduce (Inter-Slice Block)</th></tr>
+</thead>
+<tbody>
+<tr><td>Data layout</td><td>Multiple independent tensors</td><td>Single tensor across slices</td></tr>
+<tr><td>Fetch pattern</td><td>Interleaved fetch from multiple sources</td><td>Single contiguous fetch</td></tr>
+<tr><td>Reduction hardware</td><td>Vector Engine binary ops</td><td>Inter-Slice Block</td></tr>
+<tr><td>Typical cycles</td><td>~2x fetch time + cycles</td><td>~256 cycles (slice reduction)</td></tr>
+<tr><td>Use case</td><td>Data cannot fit in single tensor</td><td>Data distributed across hardware</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Prefer split reduce</strong>: Multiple tensor instances that cannot be merged into a single tensor due to memory allocation constraints, but all reside on the same chip/cluster.</p>
+<p><strong>Prefer slice reduce</strong>: Allocate a single tensor that spans slices, allowing the hardware to handle distribution automatically.</p>
+<h3 id="split-reduce-vs-chipcluster-reduce"><a class="header" href="#split-reduce-vs-chipcluster-reduce">Split Reduce vs. Chip/Cluster Reduce</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Aspect</th><th>Split Reduce</th><th>Chip/Cluster Reduce</th></tr>
+</thead>
+<tbody>
+<tr><td>Data location</td><td>Same chip/cluster</td><td>Across chips/clusters</td></tr>
+<tr><td>Communication</td><td>Local memory fetch</td><td>DMA over chip interconnect</td></tr>
+<tr><td>Overhead</td><td>Minimal (interleaved fetch)</td><td>Significant (DMA + synchronization)</td></tr>
+<tr><td>Bandwidth</td><td>SRAM bandwidth</td><td>Chip interconnect bandwidth</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Prefer split reduce</strong>: All data resides on the same chip, even if in separate allocations.</p>
+<p><strong>Prefer chip/cluster reduce</strong>: Data is distributed across physically separate processing units requiring cross-chip communication.</p>
+<h2 id="implementation-methods"><a class="header" href="#implementation-methods">Implementation Methods</a></h2>
+<p>The split reduce operation maps to the following hardware primitives:</p>
+<ul>
+<li><strong>Interleaved fetch</strong>: Fetch Engine with <code>begin_interleaved()</code> mode, creating the <code>I</code> interleave dimension</li>
+<li><strong>Reduction across I</strong>: Vector Engine binary operations (add, max, min) configured to reduce the interleave axis</li>
+<li><strong>Alternative for 2-way split</strong>: Can use binary operation directly without explicit interleave dimension</li>
+</ul>
+<h3 id="two-instance-optimization"><a class="header" href="#two-instance-optimization">Two-Instance Optimization</a></h3>
+<p>For the common case of splitting into exactly two instances, the Vector Engine can perform the reduction without creating an explicit interleave dimension:</p>
+<pre><code class="language-rust ignore">// Direct binary operation for 2-way split
+let sum_0: TuTensor&lt;f32, m![1], m![1], m![1], m![A], m![B]&gt; = ...;
+let sum_1: TuTensor&lt;f32, m![1], m![1], m![1], m![A], m![B]&gt; = ...;
+
+// Fetch both and add in one operation
+let total = sum_0.binary_add(sum_1);  // No interleave dimension needed</code></pre>
+<p>This optimization reduces overhead by combining fetch and reduction into a single pipelined operation.</p>
+<h2 id="performance-considerations"><a class="header" href="#performance-considerations">Performance Considerations</a></h2>
+<h3 id="cycle-analysis"><a class="header" href="#cycle-analysis">Cycle Analysis</a></h3>
+<p>Split reduce cycle count depends on three factors:</p>
+<ol>
+<li><strong>Fetch cycles</strong>: <code>N_splits * fetch_cycles_per_tensor</code></li>
+<li><strong>Vector Engine cycles</strong>: <code>Time_dim_size * cycles_per_packet</code> (typically 1 cycle per packet)</li>
+<li><strong>Pipeline overlap</strong>: Fetch and VE operations can overlap when possible</li>
+</ol>
+<p><strong>Total cycles</strong> ≈ <code>N_splits * fetch_cycles + max(0, VE_cycles - pipeline_overlap)</code></p>
+<h3 id="memory-bandwidth"><a class="header" href="#memory-bandwidth">Memory Bandwidth</a></h3>
+<p>Split reduce consumes memory bandwidth proportionally to the number of splits:</p>
+<ul>
+<li><strong>2-way split</strong>: 2x memory bandwidth vs. single tensor</li>
+<li><strong>4-way split</strong>: 4x memory bandwidth vs. single tensor</li>
+</ul>
+<p><strong>Optimization</strong>: Minimize the number of splits by maximizing individual tensor size within VRF capacity.</p>
+<h3 id="comparison-to-alternatives"><a class="header" href="#comparison-to-alternatives">Comparison to Alternatives</a></h3>
+<p>For a reduction requiring combining N tensor instances:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Cycles</th><th>Memory BW</th><th>Complexity</th></tr>
+</thead>
+<tbody>
+<tr><td>Split reduce (interleaved)</td><td>~N * fetch + VE</td><td>N * tensor_size</td><td>Low</td></tr>
+<tr><td>Sequential fetch + accumulate</td><td>~N * (fetch + VE)</td><td>N * tensor_size</td><td>Medium</td></tr>
+<tr><td>DMA to single buffer + reduce</td><td>DMA + single_reduce</td><td>N * tensor_size</td><td>High</td></tr>
+</tbody>
+</table>
+</div>
+<p>Split reduce with interleaved fetch provides the best balance of performance and implementation simplicity for same-chip reductions.</p>
+<h2 id="constraints-and-limitations"><a class="header" href="#constraints-and-limitations">Constraints and Limitations</a></h2>
+<h3 id="hardware-constraints"><a class="header" href="#hardware-constraints">Hardware Constraints</a></h3>
+<ul>
+<li><strong>Interleave dimension size</strong>: Limited by Fetch Engine capabilities</li>
+<li><strong>Tensor alignment</strong>: All tensor instances must have compatible shapes for interleaving</li>
+</ul>
+<!-- > **TODO** (jeongmin.park): Maximum interleave count supported by Fetch Engine capabilities. -->
+<ul>
+<li><strong>VRF capacity</strong>: After interleaving, the combined tensor must fit in VRF (8KB per slice)</li>
+</ul>
+<h3 id="when-split-reduce-is-not-optimal"><a class="header" href="#when-split-reduce-is-not-optimal">When Split Reduce Is Not Optimal</a></h3>
+<ol>
+<li><strong>Single tensor possible</strong>: Data fits in one tensor allocation, use slice reduce (Inter-Slice Block) instead</li>
+<li><strong>Cross-chip reduction needed</strong>: Data spans chips, use chip/cluster reduce with DMA</li>
+<li><strong>Very large split count</strong>: Beyond ~8 splits, consider alternative memory management strategies</li>
+</ol>
+<h3 id="best-practices"><a class="header" href="#best-practices">Best Practices</a></h3>
+<ol>
+<li><strong>Minimize splits</strong>: Design tensor allocations to minimize the number of splits required</li>
+<li><strong>Power-of-2 splits</strong>: Use 2, 4, or 8 splits when possible for optimal hardware utilization</li>
+<li><strong>Reuse reduction results</strong>: Cache split reduce results when the same combination is needed multiple times</li>
+<li><strong>Consider memory layout</strong>: Organize tensor allocations to enable efficient interleaved fetch patterns</li>
+</ol>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../kernel-examples/tiling.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../kernel-examples/chip-cluster-reduce.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../kernel-examples/tiling.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../kernel-examples/chip-cluster-reduce.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

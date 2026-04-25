@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["invalid_cluster_size","valid_cluster_size"],"struct":["InvalidClusterSize","ValidClusterSize"]};

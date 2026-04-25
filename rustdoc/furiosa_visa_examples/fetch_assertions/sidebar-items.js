@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["cluster_size","slice_size"],"struct":["A","B"]};

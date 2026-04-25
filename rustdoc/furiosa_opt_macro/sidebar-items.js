@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["device"],"derive":["DeviceSend"],"macro":["i","m"]};

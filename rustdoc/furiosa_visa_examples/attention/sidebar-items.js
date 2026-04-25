@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["compile_llama3_1_mlperf_latest_8pe_4chip_w8a16kv16_prefill_first_block_b1_s1024"],"struct":["CompileLlama31MlperfLatest8pe4chipW8a16kv16PrefillFirstBlockB1S1024","E","S","V","X","Y"]};

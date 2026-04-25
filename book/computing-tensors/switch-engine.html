@@ -1,0 +1,966 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Switch Engine - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="switch-engine"><a class="header" href="#switch-engine">Switch Engine</a></h1>
+<!-- > **TODO** (youseok.yang): Add hardware diagram showing the network topology upfront. -->
+<!-- > Slice-level operations (`switch()`, `reduce()`, etc.) use physical interconnect networks. -->
+<!-- > A visual diagram makes this immediately obvious — "slices talk through a network, not direct wires." -->
+<p>The Fetch Engine produces a <code>FetchTensor</code> where each slice holds its own portion of data.
+The Switch Engine then redistributes data across slices so each slice receives exactly what it needs for computation.
+Data flows through a ring network of 256 interconnected slices; each slice’s router decides per packet whether to output locally or forward to a neighbor.</p>
+<p>This data redistribution overlaps with computation, enabling the Contraction Engine to receive data in the exact pattern it needs while continuously executing operations.
+This page covers the interface, routing architecture (Forwarding, Broadcast01, Broadcast1, Transpose, InterTranspose, and Custom Topologies), hardware constraints, and performance characteristics.</p>
+<h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
+<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
+    FetchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet&gt;
+{
+    /// Performs switching operation to create a switched tensor.
+    ///
+    /// Applies switching network routing only. The packet passes through
+    /// unchanged — no padding, no reshaping. Use [`SwitchTensor::collect`]
+    /// afterwards to normalize the packet to flit-sized chunks.
+    #[primitive(FetchTensor::switch)]
+    pub fn switch&lt;Slice2: M, Time2: M&gt;(
+        self,
+        config: SwitchConfig,
+    ) -&gt; SwitchTensor&lt;'l, T, D, Chip, Cluster, Slice2, Time2, Packet&gt; {
+        verify_switch::&lt;Slice, Time, Slice2, Time2&gt;(&amp;config);
+        SwitchTensor::new(self.ctx, self.inner.transpose(true))
+    }
+
+    /// Skips the switching network and goes directly to collect.
+    ///
+    /// Slice and Time are preserved from fetch; only the packet is normalized
+    /// to flit-sized chunks.
+    #[primitive(FetchTensor::collect)]
+    pub fn collect&lt;Time2: M, Packet2: M&gt;(self) -&gt; CollectTensor&lt;'l, T, D, Chip, Cluster, Slice, Time2, Packet2&gt; {
+        verify_collect::&lt;D, Time, Packet, Time2, Packet2&gt;();
+        CollectTensor::new(self.ctx, self.inner.transpose(false))
+    }
+}</code></pre>
+<p>The transformation preserves the tensor’s mathematical representation while redistributing data across slices.
+The <code>Chip</code> and <code>Cluster</code> dimensions pass through unchanged; only <code>Slice</code> and <code>Time</code> are permuted.
+The packet passes through the switch engine unchanged.
+After switching, call <a href="./collect-engine.html"><code>collect()</code></a> to normalize the packet to 32-byte flits.</p>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<p>This section explains how routers make decisions to route data, then shows regular topologies with predictable data flow, and finally covers custom topologies that enable arbitrary patterns.
+The Switch Engine only supports specific slice and temporal dimension transformations determined by the switching topology.</p>
+<h3 id="router-decision-process"><a class="header" href="#router-decision-process">Router Decision Process</a></h3>
+<p>Understanding how routers make forwarding decisions is essential before exploring specific topologies.</p>
+<p>Each slice has a router that decides whether to send its input packet to an adjacent slice or to output.</p>
+<p>Each packet has a source slice number attached, and each slice configures a <em>snoop bitmap</em> (a bitmask specifying which source slices’ packets to accept and output) to control which data it receives.</p>
+<p>Each slice’s router can make the following three routing decisions:</p>
+<ol>
+<li><strong>Input routing</strong>: The router decides whether its input packet goes to output, rightward to the next slice, or leftward to the previous slice.</li>
+<li><strong>Right-neighbor routing</strong>: Data arriving from the right neighbor can be forwarded to output, rightward, or leftward.</li>
+<li><strong>Left-neighbor routing</strong>: Data arriving from the left neighbor can be forwarded to output, leftward, or rightward.</li>
+</ol>
+<p>Using these settings, data moving in a counter-clockwise ring pattern can be configured to reach the desired slice.</p>
+<p><strong>Common router configurations</strong> for counter-clockwise ring communication:</p>
+<ul>
+<li><strong>Root node</strong>: Outputs input data and data from the right slice, sends to right slice.</li>
+<li><strong>Middle node</strong>: Outputs data from the left slice, forwards to right.</li>
+<li><strong>Leaf node</strong>: Forwards input data to left, outputs data from the left slice.</li>
+</ul>
+<p>To understand how the switching mechanism routes data through the ring network, consider a minimal example with 2 slices and 2 input packets per slice.</p>
+<p>This example shows how data flows through the ring over time, with each slice deciding whether to output data locally or forward it to neighbors.</p>
+<p>Given:</p>
+<ul>
+<li><code>axes![A = 2, B = 2, C = 64]</code></li>
+<li><code>Slice: m![A]</code></li>
+<li><code>Time: m![B]</code></li>
+<li><code>Packet: m![C]</code></li>
+<li>Input packets per slice: <code>slice0 = [0, 1]</code>, <code>slice1 = [2, 3]</code></li>
+</ul>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>i(cycle)</th><th>slice#0</th><th>slice#1</th><th>Output Data</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>0: from input, to (output, right)</td><td></td><td><code>0: [0]</code><br><code>1: []</code></td></tr>
+<tr><td>1</td><td>1: from input, to (output, right)</td><td>0: from left, to output<br> 2: from input, to left</td><td><code>0: [0, 1]</code><br><code>1: [0]</code></td></tr>
+<tr><td>2</td><td>2: from right, to (output, right)</td><td>1: from left, to output<br> 3: from input, to left</td><td><code>0: [0, 1, 2]</code><br><code>1: [0, 1]</code></td></tr>
+<tr><td>3</td><td>3: from right, to (output, right)</td><td>2: from left, to output</td><td><code>0: [0, 1, 2, 3]</code><br><code>1: [0, 1, 2]</code></td></tr>
+<tr><td>4</td><td></td><td>3: from left, to output</td><td><code>0: [0, 1, 2, 3]</code><br><code>1: [0, 1, 2, 3]</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>As a result, a tensor with the following mapping expression is output:</p>
+<ul>
+<li><code>Slice: m![A / 2, 2]</code></li>
+<li><code>Time: m![B / 2, B % 2, A % 2]</code></li>
+<li><code>Packet: m![C]</code></li>
+</ul>
+<p>The hardware provides pre-defined regular topologies (like <code>Broadcast01</code> with <code>slice0 = 2</code>, <code>slice1 = 1</code>) that configure the routers to achieve such patterns efficiently.</p>
+<h3 id="forwarding"><a class="header" href="#forwarding">Forwarding</a></h3>
+<p>Forwarding passes data through the switching network unchanged, preserving the <code>Slice</code> and <code>Time</code> dimension mapping.
+Each slice’s router simply passes its input data directly to output; no inter-slice communication occurs.</p>
+<p>To use forwarding, skip the <code>.switch()</code> call entirely and invoke <a href="./collect-engine.html"><code>collect()</code></a> directly on the <code>FetchTensor</code>:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 256, B = 64, C = 32];
+
+fn forwarding&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, f32, m![1], m![1], m![A], m![B], m![C]&gt;,
+) -&gt; CollectTensor&lt;'l, T, f32, m![1], m![1], m![A], m![B], m![C]&gt; {
+    input.collect()
+}
+<span class="boring">}</span></code></pre>
+<p>The ring network operates at the following minimum cost when forwarding:</p>
+<p>$$
+\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
+$$</p>
+<p><code>ring_size</code> is 1 since no inter-slice communication is needed, making this the most efficient topology when no actual switching is required.</p>
+<h3 id="broadcast01"><a class="header" href="#broadcast01">Broadcast01</a></h3>
+<p>Broadcast01 replicates data across slices along two inner <code>Slice</code> sub-dimensions (called <code>slice0</code> and <code>slice1</code> in the layout diagram below), enabling parallel computation on the same data across multiple processing elements.</p>
+<p>This topology is essential for operations like matrix-vector multiplication where a vector needs to be broadcast to all rows of a matrix distributed across slices.</p>
+<p>This topology is parameterized by <code>slice1</code>, <code>slice0</code>, and <code>time0</code>.
+The compiler infers <code>slice2 = InSlice::SIZE / (slice1 * slice0)</code> and <code>time1 = InTime::SIZE / time0</code>.
+The following table shows the input axis structure (outermost to innermost, left to right):</p>
+<pre><code class="language-text">+--------------------------+---------------+
+|          Slice           |      Time     |
++--------+--------+--------+-------+-------+
+| slice2 | slice1 | slice0 | time1 | time0 |
++--------+--------+--------+-------+-------+
+</code></pre>
+<p>After switching, <code>slice1</code> and <code>slice0</code> move from <code>Slice</code> into <code>Time</code>, broadcasting those dimensions across the ring group while tiling <code>slice2</code>:</p>
+<pre><code class="language-text">+----------------------+---------------------------------+
+|        Slice         |              Time               |
++--------+------+------+-------+--------+-------+--------+
+| slice2 | tile | tile | time1 | slice1 | time0 | slice0 |
++--------+------+------+-------+--------+-------+--------+
+</code></pre>
+<p>Moving <code>slice1</code> and <code>slice0</code> from <code>Slice</code> to <code>Time</code> creates <code>time1 × time0</code> independent ring groups, each of size <code>slice1 × slice0</code>, where slices within each ring group exchange data to achieve the broadcast pattern.
+The broadcast dimensions (<code>slice1</code>, <code>slice0</code>) are placed at the innermost positions of the output <code>Time</code> dimension (just outside <code>Packet</code>).</p>
+<p>This broadcast topology takes data that was spatially distributed across slices (the <code>Slice</code> axis) and broadcasts it over time.
+Instead of different slices having different data, all slices in the same ring group receive the same data sequentially through time.</p>
+<h4 id="example"><a class="header" href="#example">Example</a></h4>
+<p>Consider the following configuration:</p>
+<ul>
+<li><code>axes![A = 256, B = 64, C = 63, D = 8]</code></li>
+<li><code>dtype = i8</code></li>
+<li><code>In</code>:
+<ul>
+<li><code>Chip: m![D / 2]</code></li>
+<li><code>Cluster: m![D % 2]</code></li>
+<li><code>Slice: m![A]</code></li>
+<li><code>Time: m![B]</code></li>
+<li><code>Packet: m![C # 64]</code></li>
+</ul>
+</li>
+<li><code>Out</code>:
+<ul>
+<li><code>Chip: m![D / 2]</code></li>
+<li><code>Cluster: m![D % 2]</code></li>
+<li><code>Slice: m![A / 4, 4]</code></li>
+<li><code>Time: m![B / 4, A / 2 % 2, B % 4, A % 2]</code></li>
+<li><code>Packet: m![C # 64]</code></li>
+</ul>
+</li>
+</ul>
+<p>This configuration sets <code>slice1 = 2</code>, <code>slice0 = 2</code>, <code>time0 = 4</code> in the <code>Broadcast01</code> topology.
+The compiler infers <code>slice2 = 256 / (2 * 2) = 64</code> and <code>time1 = 64 / 4 = 16</code>.
+Notice that <code>slice2 * slice1 * slice0 = 256 = Slice::SIZE</code>, and <code>time1 * time0 = 64 = (old)Time::SIZE</code>.</p>
+<p>The difference between the input and output mappings is that the <code>A % 4</code> axis moved from <code>Slice</code> to <code>Time</code>, while <code>slice2</code> is tiled.
+This divides the 256 slices into 16 groups of size <code>ring_size = slice0 * slice1 = 4</code>.
+The axis movement between <code>Slice</code> and <code>Time</code> enables this broadcast behavior: when an axis moves from <code>Slice</code> to <code>Time</code>, it creates dependencies where slices in a particular ring group receive data from the other slices in the same ring group.
+The <code>slice1</code> and <code>slice0</code> broadcast axes each move to <code>Time</code> as <code>A / 2 % 2</code> and <code>A % 2</code>, respectively.</p>
+<p>This particular configuration is equivalent to the following custom snoop bitmap, which maps the slice identified by the bitmap index to its corresponding ring group.
+The broadcast pattern is evident: rows 0-3 have identical entries as the slices they represent (<code>{0, 1, 2, 3}</code>) receive data from the same input slices (<code>{0, 1, 2, 3}</code>).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bitmap Index</th><th><code>(A / 4, A % 4)</code></th><th><code>A</code></th><th>Ring Group</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code>, <code>(0, 3)</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td></tr>
+<tr><td>1</td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code>, <code>(0, 3)</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td></tr>
+<tr><td>2</td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code>, <code>(0, 3)</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td></tr>
+<tr><td>3</td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code>, <code>(0, 3)</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td></tr>
+<tr><td>4</td><td><code>(1, 0)</code>, <code>(1, 1)</code>, <code>(1, 2)</code>, <code>(1, 3)</code></td><td><code>4</code>, <code>5</code>, <code>6</code>, <code>7</code></td><td><code>4</code>, <code>5</code>, <code>6</code>, <code>7</code></td></tr>
+<tr><td>…</td><td>…</td><td>…</td><td>…</td></tr>
+<tr><td>255</td><td><code>(63, 0)</code>, <code>(63, 1)</code>, <code>(63, 2)</code>, <code>(63, 3)</code></td><td><code>252</code>, <code>253</code>, <code>254</code>, <code>255</code></td><td><code>252</code>, <code>253</code>, <code>254</code>, <code>255</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>Since this matches exactly the pre-defined <code>Broadcast01</code> form, it is an input/output format that can be processed by the Switch Engine.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 256, B = 64, C = 63, D = 8, X = 4];
+
+fn broadcast01&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, f32, m![D / 2], m![D % 2], m![A], m![B], m![C # 64]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, f32, m![D / 2], m![D % 2], m![A / 4, X], m![B / 4, A / 2 % 2, B % 4, A % 2], m![C # 64]&gt; {
+    // X is a newly introduced axis for broadcast semantics.
+    // Input: each slice has its own portion of data (256 slices, 64 time steps, 64 byte packets)
+    // Output: all slices receive broadcast data from their 4-slice ring group
+    // Packet passes through unchanged; call .collect() afterwards to normalize to flits.
+    input.switch::&lt;m![A / 4, X], m![B / 4, A / 2 % 2, B % 4, A % 2]&gt;(
+        SwitchConfig::Broadcast01 {
+            slice1: 2,
+            slice0: 2,
+            time0: 4
+        }
+    )
+}
+<span class="boring">}</span></code></pre>
+<h4 id="cycle-estimation"><a class="header" href="#cycle-estimation">Cycle Estimation</a></h4>
+<p>The Switch Engine’s cycle estimation follows the formula:</p>
+<p>$$
+\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
+$$</p>
+<p>$$
+= (\texttt{slice0} \times \texttt{slice1}) \times \texttt{B::SIZE} \times \frac{\texttt{(C # 64)::SIZE}}{32}
+$$</p>
+<p>$$
+= (2 \times 2) \times 64 \times \frac{64}{32} = 512 \text{ cycles}
+$$</p>
+<h4 id="ring-structure"><a class="header" href="#ring-structure">Ring Structure</a></h4>
+<p>The <code>ring_size</code> of 4 means that inter-slice data movement occurs in groups of 4 slices, with data dependencies existing only within each ring.</p>
+<p>When we group all 256 slices into rings of size 4, we get 64 independent rings that operate in parallel.</p>
+<p>Within each ring, exchanging data takes time proportional to <code>ring_size</code>, and each packet represents the minimum unit of data exchange.</p>
+<p>Regular topologies can be expressed as tensor mapping expressions.
+For example, with:</p>
+<ul>
+<li><code>axes![A = 64, B = 64]</code></li>
+<li><code>Slice = m![A]</code></li>
+<li><code>Time = m![B / 2]</code></li>
+<li><code>Packet = m![B % 32]</code></li>
+</ul>
+<p>If configured with <code>Broadcast01</code> (<code>slice0 = 8</code>, <code>slice1 = 8</code>, <code>time0 = 2</code>), the tensor mapping expression corresponding to the output is:</p>
+<ul>
+<li><code>axes![A = 64, B = 64]</code></li>
+<li><code>Slice = m![A / 64, 64]</code></li>
+<li><code>Time = m![B / 4, A / 8 % 8, B / 2 % 2, A % 8]</code></li>
+<li><code>Packet = m![B % 32]</code></li>
+</ul>
+<h3 id="broadcast1"><a class="header" href="#broadcast1">Broadcast1</a></h3>
+<p>Broadcast1 replicates data across slices along <code>Slice</code> dimension 1, enabling parallel computation where a single dimension needs to be broadcast while preserving another dimension in the slice.
+This topology is simpler than Broadcast01 as it only broadcasts along one <code>Slice</code> dimension.</p>
+<p>This topology is parameterized by <code>slice1</code> and <code>slice0</code>.
+The compiler infers <code>slice2 = InSlice::SIZE / (slice1 * slice0)</code>.
+An input tensor structured as follows:</p>
+<pre><code class="language-text">+--------------------------+--------+
+|           Slice          |  Time  |
++--------+--------+--------+--------+
+| slice2 | slice1 | slice0 | time0  |
++--------+--------+--------+--------+
+</code></pre>
+<p>is transformed into the following output tensor, where only the <code>slice1</code> axis moves from <code>Slice</code> to <code>Time</code>, broadcasting this dimension across the slice’s ring group, while preserving <code>slice0</code> in <code>Slice</code> dimension and tiling <code>slice2</code>.</p>
+<pre><code class="language-text">+------------------------+----------------+
+|          Slice         |      Time      |
++--------+------+--------+-------+--------+
+| slice2 | tile | slice0 | time0 | slice1 |
++--------+------+--------+-------+--------+
+</code></pre>
+<h4 id="example-1"><a class="header" href="#example-1">Example</a></h4>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 256, B = 64, C = 63, X = 4];
+
+fn broadcast1&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1], m![A / 32, X, A % 8], m![B, A / 8 % 4], m![C # 64]&gt; {
+    // X is a newly introduced axis for broadcast semantics.
+    // Packet passes through unchanged; call .collect() afterwards to normalize to flits.
+    input.switch::&lt;m![A / 32, X, A % 8], m![B, A / 8 % 4]&gt;(
+        SwitchConfig::Broadcast1 {
+            slice1: 4,
+            slice0: 8,
+        }
+    )
+}
+<span class="boring">}</span></code></pre>
+<h3 id="transpose"><a class="header" href="#transpose">Transpose</a></h3>
+<p>Transpose permutes axes within the innermost part of the <code>Slice</code> dimension.
+This topology is parameterized by <code>slice1</code> and <code>slice0</code>.
+An input tensor with the slice dimension structured as <code>[slice2, slice1, slice0]</code> is transformed so that the output slice becomes <code>[slice2, slice0, slice1]</code>:</p>
+<pre><code class="language-text">+--------------------------+         +--------------------------+
+|           Slice          |         |           Slice          |
++--------+--------+--------+   --&gt;   +--------+--------+--------+
+| slice2 | slice1 | slice0 |         | slice2 | slice0 | slice1 |
++--------+--------+--------+         +--------+--------+--------+
+</code></pre>
+<h4 id="example-2"><a class="header" href="#example-2">Example</a></h4>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 256, B = 64, C = 63];
+
+// Transpose with slice1 = 32, slice0 = 2.
+// Input Slice:  m![A]: [slice2 = 4, slice1 = 32, slice0 = 2]
+// Output Slice: m![A / 64, A % 2, A / 2 % 32]
+fn transpose&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1], m![A / 64, A % 2, A / 2 % 32], m![B], m![C # 64]&gt; {
+    input.switch::&lt;m![A / 64, A % 2, A / 2 % 32], m![B]&gt;(SwitchConfig::Transpose {
+        slice1: 32,
+        slice0: 2,
+    })
+}
+<span class="boring">}</span></code></pre>
+<p>The output slice <code>m![A / 64, A % 2, A / 2 % 32]</code> decomposes the original axis <code>A</code> into three parts: <code>A / 64</code> extracts <code>slice2</code> (stride 64, size 4), <code>A % 2</code> extracts <code>slice0</code> (stride 1, size 2), and <code>A / 2 % 32</code> extracts <code>slice1</code> (stride 2, size 32).
+Compared to the input slice ordering (<code>[slice2, slice1, slice0]</code>), <code>slice1</code> and <code>slice0</code> are swapped.</p>
+<h3 id="intertranspose"><a class="header" href="#intertranspose">InterTranspose</a></h3>
+<p>While regular Transpose permutes axes within <code>Slice</code> only, InterTranspose swaps between the <code>Slice</code> and <code>Time</code> dimensions and transposes in the <code>Time</code> dimension.</p>
+<p>This topology is parameterized by <code>slice1</code> (the size of the dimension being swapped), <code>slice0</code>, and <code>time0</code>.
+The compiler derives <code>slice2</code> and <code>time2</code> from the input <code>Slice</code> and <code>Time</code> mappings.
+Since <code>time1</code> must have the same size as <code>slice1</code> for <code>OutSlice::SIZE</code> to be 256, this effectively swaps equally-sized chunks between the <code>Slice</code> and <code>Time</code> dimensions:</p>
+<pre><code class="language-text">Input:
++--------------------------+-----------------------+
+|           Slice          |         Time          |
++--------+--------+--------+-------+-------+-------+
+| slice2 | slice1 | slice0 | time2 | time1 | time0 |
++--------+--------+--------+-------+-------+-------+
+
+Output:
++--------------------------+------------------------+
+|          Slice           |         Time           |
++--------+--------+--------+-------+-------+--------+
+| slice2 | time1  | slice0 | time2 | time0 | slice1 |
++--------+--------+--------+-------+-------+--------+
+</code></pre>
+<p>The <code>slice2</code> and <code>slice0</code> axes remain unchanged in <code>Slice</code>, while <code>time1</code> in <code>Slice</code> comes from the <code>Time</code> axis.
+The output <code>Time</code> dimension contains <code>slice1</code> from the original <code>Slice</code> dimension.</p>
+<h4 id="example-3"><a class="header" href="#example-3">Example</a></h4>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 8, B = 32, C = 256];
+
+// InterTranspose with slice1 = 2, slice0 = 16, time0 = 2.
+// The compiler derives: slice2 = 8, time2 = 2.
+// Input Slice:  m![C] = [slice2 = 8, slice1 = 2, slice0 = 16]
+// Input Time:   m![A] = [time2 = 2, time1 = 2, time0 = 2]
+// Output Slice: m![C / 32, A / 2 % 2, C % 16]
+// Output Time:  m![A / 4, A % 2, C / 16 % 2]
+fn inter_transpose&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, i8, m![1], m![1], m![C], m![A], m![B # 32]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1], m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, C / 16 % 2], m![B # 32]&gt; {
+    input.switch::&lt;m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, C / 16 % 2]&gt;(
+        SwitchConfig::InterTranspose {
+            slice1: 2,
+            slice0: 16,
+            time0: 2,
+        })
+}
+<span class="boring">}</span></code></pre>
+<p>The output <code>Slice</code> (<code>m![C / 32, A / 2 % 2, C % 16]</code>) decomposes into:</p>
+<ol>
+<li><code>C / 32</code> extracts <code>slice2</code> (from input <code>Slice</code>)</li>
+<li><code>A / 2 % 2</code> extracts <code>time1</code> (from input <code>Time</code>)</li>
+<li><code>C % 16</code> extracts <code>slice0</code> (from input <code>Slice</code>)</li>
+</ol>
+<p>The output <code>Time</code> (<code>m![A / 4, A % 2, C / 16 % 2]</code>) contains:</p>
+<ol>
+<li><code>A / 4</code> extracts <code>time2</code> (from input <code>Time</code>)</li>
+<li><code>A % 2</code> extracts <code>time0</code> (from input <code>Time</code>)</li>
+<li><code>C / 16 % 2</code> extracts <code>slice1</code> (from input <code>Slice</code>)</li>
+</ol>
+<h3 id="custom-topologies"><a class="header" href="#custom-topologies">Custom Topologies</a></h3>
+<p>Regular topologies cover the most common data movement patterns efficiently, but some tensor operations require arbitrary permutations or partial axis extractions that don’t fit these predefined patterns.</p>
+<p>Custom topologies solve this problem by allowing you to program exactly which input slices map to which output slices using a bitmap, giving you complete flexibility for complex transformations.</p>
+<h4 id="configuration-overhead"><a class="header" href="#configuration-overhead">Configuration Overhead</a></h4>
+<p>The tradeoff for this flexibility is configuration overhead: using a custom topology requires preempting DMA and sub-context operations to write the bitmap to the hardware’s Special Function Registers (SFRs).</p>
+<p>This setup cost makes custom topologies most appropriate when the computation benefits outweigh the initialization overhead.</p>
+<h4 id="supported-transformation-patterns"><a class="header" href="#supported-transformation-patterns">Supported Transformation Patterns</a></h4>
+<p>Custom bitmaps support two key transformation patterns that regular topologies cannot express.</p>
+<p>First, they enable <strong>free transpose with broadcast</strong>, allowing arbitrary permutation and broadcast of partitioning axes—regular topologies only support specific forms like <code>Transpose</code> or <code>TransposedDim1Broadcast</code>, but custom bitmaps let you freely mix axes while broadcasting.</p>
+<p>Second, they support <strong>partial axis extraction</strong>, where only a portion of an axis moves to <code>Time</code> during broadcasting—regular topologies like <code>Broadcast01</code> always move the entire broadcast axis, but custom bitmaps can select subsets.</p>
+<h4 id="example-1-arbitrary-permutation"><a class="header" href="#example-1-arbitrary-permutation">Example 1: Arbitrary Permutation</a></h4>
+<p>This example demonstrates arbitrary slice dimension permutations that regular topologies cannot express, enabling flexible data reordering for specialized computation patterns.</p>
+<p>Arguments:</p>
+<ul>
+<li>1 cluster (256 slices): <code>Chip</code>/<code>Cluster</code> context applies to a single cluster.</li>
+<li><code>axes![A = 16, B = 16, C = 8, D = 8, E = 8]</code></li>
+<li><code>dtype = i8</code></li>
+<li><code>In</code>:
+<ul>
+<li><code>Slice: m![A, B]</code></li>
+<li><code>Time: m![C]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+<li><code>Out</code>:
+<ul>
+<li><code>Slice: m![B % 4, B / 4, A % 4, A / 4]</code></li>
+<li><code>Time: m![C]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+</ul>
+<p>The difference between <code>In</code> and <code>Out</code> is that permutation occurred in the slice shape.</p>
+<p>The form of permutation is <code>[0, 1, 2, 3]</code> to <code>[3, 2, 1, 0]</code>.</p>
+<p>There is no regular topology corresponding to such free permutation, but it is a form that can be simply expressed with custom bitmap.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bitmap Index</th><th><code>(B % 4, B / 4, A % 4, A / 4)</code></th><th><code>(A, B)</code></th><th>Ring Group</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>(0, 0, 0, 0)</code></td><td><code>(0, 0)</code></td><td><code>0</code></td></tr>
+<tr><td>1</td><td><code>(0, 0, 0, 1)</code></td><td><code>(4, 0)</code></td><td><code>64</code></td></tr>
+<tr><td>2</td><td><code>(0, 0, 0, 2)</code></td><td><code>(8, 0)</code></td><td><code>128</code></td></tr>
+<tr><td>3</td><td><code>(0, 0, 0, 3)</code></td><td><code>(12, 0)</code></td><td><code>192</code></td></tr>
+<tr><td>4</td><td><code>(0, 0, 1, 0)</code></td><td><code>(0, 1)</code></td><td><code>1</code></td></tr>
+<tr><td>5</td><td><code>(0, 0, 1, 1)</code></td><td><code>(4, 1)</code></td><td><code>65</code></td></tr>
+<tr><td>…</td><td>…</td><td>…</td><td>…</td></tr>
+<tr><td>255</td><td><code>(3, 3, 3, 3)</code></td><td><code>(15, 15)</code></td><td><code>255</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The cycle calculation follows the standard formula:</p>
+<p>$$
+\text{cycle} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}.
+$$</p>
+<p>$$
+= 256 \times \texttt{C::SIZE} \times \frac{\texttt{m![D, E]::SIZE}}{32} = 4096
+$$</p>
+<p>The ring size must be a power of 2, and in this case we need the maximum value of <code>256</code>, as this particular permutation creates dependencies across all slices with no repeating structure.
+For example, data from input slice <code>196</code> must reach output slice <code>3</code>, which means we need a ring large enough to cover all such cross-slice dependencies.</p>
+<p>This high cycle count reflects the cost of the arbitrary permutation—contrast this with regular topologies that achieve much lower cycle counts through structured parallelism.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 16, B = 16, C = 8, D = 8, E = 8];
+
+fn arbitrary_permutation&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1], m![B % 4, B / 4, A % 4, A / 4], m![C], m![D, E]&gt; {
+    input.switch::&lt;m![B % 4, B / 4, A % 4, A / 4], m![C]&gt;(
+        SwitchConfig::CustomBroadcast { ring_size: 256 }
+    )
+}
+<span class="boring">}</span></code></pre>
+<h4 id="example-2-multi-axis-broadcast"><a class="header" href="#example-2-multi-axis-broadcast">Example 2: Multi-Axis Broadcast</a></h4>
+<p>This example shows broadcasting across multiple non-contiguous axes within the <code>Slice</code> dimension, useful for complex tensor operations that require replication along several independent dimensions simultaneously.</p>
+<p>Arguments:</p>
+<ul>
+<li>1 cluster (256 slices): <code>Chip</code>/<code>Cluster</code> context applies to a single cluster.</li>
+<li><code>axes![A = 16, B = 16, C = 8, D = 8, E = 8]</code></li>
+<li><code>dtype = i8</code></li>
+<li><code>In</code>:
+<ul>
+<li><code>Slice: m![A, B]</code></li>
+<li><code>Time: m![C]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+<li><code>Out</code>:
+<ul>
+<li><code>Slice: m![A / 2, 2, B / 2, 2]</code></li>
+<li><code>Time: m![C, A % 2, B % 2]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+</ul>
+<p>The difference between <code>In</code> and <code>Out</code> is that the two axes <code>A % 2</code> and <code>B % 2</code> moved from <code>Slice</code> to <code>Time</code>, and broadcast occurred at the original position.</p>
+<p>Among regular topologies, <code>Dim0</code>/<code>Dim1Broadcast</code> supports a similar form, but cases where axes corresponding to <code>Slice</code> to <code>Time</code> are separated within the slice cannot be expressed.</p>
+<!-- > **TODO**: The sentence above is unclear. Rewrite to explain precisely what limitation of `Dim0`/`Dim1Broadcast` this example is demonstrating. -->
+<p>However, this is a form that can be simply expressed with custom bitmap.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bitmap Index</th><th><code>(A / 2, A % 2, B / 2, B % 2)</code></th><th><code>(A, B)</code></th><th>Ring Group</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>(0, 0, 0, 0)</code>, <code>(0, 0, 0, 1)</code>, <code>(0, 1, 0, 0)</code>, <code>(0, 1, 0, 1)</code></td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(1, 0)</code>, <code>(1, 1)</code></td><td><code>0</code>, <code>1</code>, <code>16</code>, <code>17</code></td></tr>
+<tr><td>1</td><td><code>(0, 0, 0, 0)</code>, <code>(0, 0, 0, 1)</code>, <code>(0, 1, 0, 0)</code>, <code>(0, 1, 0, 1)</code></td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(1, 0)</code>, <code>(1, 1)</code></td><td><code>0</code>, <code>1</code>, <code>16</code>, <code>17</code></td></tr>
+<tr><td>2</td><td><code>(0, 0, 1, 0)</code>, <code>(0, 0, 1, 1)</code>, <code>(0, 1, 1, 0)</code>, <code>(0, 1, 1, 1)</code></td><td><code>(0, 2)</code>, <code>(0, 3)</code>, <code>(1, 2)</code>, <code>(1, 3)</code></td><td><code>2</code>, <code>3</code>, <code>18</code>, <code>19</code></td></tr>
+<tr><td>3</td><td><code>(0, 0, 1, 0)</code>, <code>(0, 0, 1, 1)</code>, <code>(0, 1, 1, 0)</code>, <code>(0, 1, 1, 1)</code></td><td><code>(0, 2)</code>, <code>(0, 3)</code>, <code>(1, 2)</code>, <code>(1, 3)</code></td><td><code>2</code>, <code>3</code>, <code>18</code>, <code>19</code></td></tr>
+<tr><td>…</td><td>…</td><td>…</td><td>…</td></tr>
+<tr><td>255</td><td><code>(7, 0, 7, 0)</code>, <code>(7, 0, 7, 1)</code>, <code>(7, 1, 7, 0)</code>, <code>(7, 1, 7, 1)</code></td><td><code>(14, 14)</code>, <code>(14, 15)</code>, <code>(15, 14)</code>, <code>(15, 15)</code></td><td><code>238</code>, <code>239</code>, <code>254</code>, <code>255</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The cycle calculation gives us:</p>
+<p>$$
+\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
+$$</p>
+<p>$$
+= 32 \times 8 \times 2 = 512 \text{ cycles}
+$$</p>
+<p>The <code>ring_size</code> of <code>32</code> is smaller than the full 256 slices because the outermost <code>A / 2</code> part of the slice dimension doesn’t require data exchange—only the remaining 32 slices within each <code>A / 2</code> group need to exchange data with each other.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 2, Y = 2];
+
+fn multi_axis_broadcast&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1], m![A / 2, X, B / 2, Y], m![C, A % 2, B % 2], m![D, E]&gt; {
+    input.switch::&lt;m![A / 2, X, B / 2, Y], m![C, A % 2, B % 2]&gt;(
+        SwitchConfig::CustomBroadcast { ring_size: 32 }
+    )
+}
+<span class="boring">}</span></code></pre>
+<h4 id="understanding-the-bitmap-pattern"><a class="header" href="#understanding-the-bitmap-pattern">Understanding the Bitmap Pattern</a></h4>
+<p>Two key patterns appear in the bitmap that reveal how the transformation works.</p>
+<p>First, broadcast manifests as identical bitmaps: <code>bitmap[0]</code> and <code>bitmap[1]</code> are completely identical because output slices 0 and 1 both receive the same source data, implementing the broadcast operation.</p>
+<p>Second, the <code>Slice</code> to <code>Time</code> movement appears as one output slice receiving from multiple input slices: <code>bitmap[0] = {0, 1, 16, 17}</code> shows that output slice 0 collects data from four different input slices.</p>
+<h4 id="example-3-partial-axis-extraction-slicing"><a class="header" href="#example-3-partial-axis-extraction-slicing">Example 3: Partial Axis Extraction (Slicing)</a></h4>
+<p>This example demonstrates extracting only a subset of an axis during the <code>Slice</code> to <code>Time</code> transformation, enabling selective data distribution for operations that don’t require the full axis range.</p>
+<p>Arguments:</p>
+<ul>
+<li>1 cluster (256 slices): <code>Chip</code>/<code>Cluster</code> context applies to a single cluster.</li>
+<li><code>axes![A = 16, B = 16, C = 8, D = 8, E = 8]</code></li>
+<li><code>dtype = i8</code></li>
+<li><code>In</code>:
+<ul>
+<li><code>Slice: m![A, B]</code></li>
+<li><code>Time: m![C]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+<li><code>Out</code>:
+<ul>
+<li><code>Slice: m![A, B / 4, 4]</code></li>
+<li><code>Time: m![C, B % 4 = 3]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+</ul>
+<p>The difference between <code>In</code> and <code>Out</code> is that the <code>B % 4</code> axis moved from <code>Slice</code> to <code>Time</code>, and broadcast occurred at the original position.</p>
+<p>The somewhat unusual point is that <code>B % 4</code> did not move completely intact to <code>Time</code>, but was partially sliced (3 out of total 4).</p>
+<p>Among regular topologies, <code>Dim0</code>/<code>Dim1Broadcast</code> supports a similar form, but the form where axes corresponding to <code>Slice</code> to <code>Time</code> are sliced cannot be expressed.</p>
+<p>However, this is a form that can be simply expressed with a custom bitmap.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bitmap Index</th><th><code>(A, B / 4, B % 4 = 3)</code></th><th><code>(A, B)</code></th><th>Ring Group</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
+<tr><td>1</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
+<tr><td>2</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
+<tr><td>4</td><td><code>(0, 1, 0)</code>, <code>(0, 1, 1)</code>, <code>(0, 1, 2)</code></td><td><code>(0, 4)</code>, <code>(0, 5)</code>, <code>(0, 6)</code></td><td><code>4</code>, <code>5</code>, <code>6</code></td></tr>
+<tr><td>…</td><td>…</td><td>…</td><td>…</td></tr>
+<tr><td>255</td><td><code>(15, 3, 0)</code>, <code>(15, 3, 1)</code>, <code>(15, 3, 2)</code></td><td><code>(15, 12)</code>, <code>(15, 13)</code>, <code>(15, 14)</code></td><td><code>252</code>, <code>253</code>, <code>254</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The cycle calculation follows the formula:</p>
+<p>$$
+\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
+$$</p>
+<p>$$
+= 4 \times 8 \times 2 = 128 \text{ cycles}
+$$</p>
+<p>The small <code>ring_size</code> of <code>4</code> reflects that the <code>A, (B / 4)</code> outermost portion of the slice doesn’t exchange data. Only the innermost 4 slices within each group need to communicate.</p>
+<p>The bitmap reveals how partial axis extraction works: <code>bitmap[0] = {0, 1, 2}</code> shows that output slice 0 receives from only 3 input slices.</p>
+<p>If the bitmap were <code>{0, 1, 2, 3}</code>, it would represent receiving the entire <code>B</code> axis (all 4 values).</p>
+<p>By including only <code>{0, 1, 2}</code>, the bitmap implements slicing—extracting 3 out of 4 values from the <code>B</code> axis dimension.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 4];
+
+fn partial_axis_extraction&lt;'l, const T: Tu&gt;(
+    input: FetchTensor&lt;'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1], m![A, B / 4, X], m![C, B % 4 = 3], m![D, E]&gt; {
+    input.switch::&lt;m![A, B / 4, X], m![C, B % 4 = 3]&gt;(
+        SwitchConfig::CustomBroadcast { ring_size: 4 }
+    )
+}
+<span class="boring">}</span></code></pre>
+<h4 id="constraint-1-order-preservation"><a class="header" href="#constraint-1-order-preservation">Constraint 1: Order Preservation</a></h4>
+<p>Hardware limitations require that axes moving from <code>Slice</code> to <code>Time</code> must preserve their relative order from the input <code>Slice</code> dimension.</p>
+<p>This constraint exists because the routing network can efficiently forward data in the original axis order, but reordering axes during the transfer would require additional buffering that the hardware doesn’t provide.</p>
+<p>The following example shows an unsupported transformation that violates this constraint.</p>
+<p>Arguments:</p>
+<ul>
+<li>1 cluster (256 slices): <code>Chip</code>/<code>Cluster</code> context applies to a single cluster.</li>
+<li><code>axes![A = 16, B = 16, C = 8, D = 8, E = 8]</code></li>
+<li><code>dtype = i8</code></li>
+<li><code>In</code>:
+<ul>
+<li><code>Slice: m![A, B]</code></li>
+<li><code>Time: m![C]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+<li><code>Out</code>:
+<ul>
+<li><code>Slice: m![A, B / 4, 4]</code></li>
+<li><code>Time: m![C, B % 2, B / 2]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+</ul>
+<p>In this example, the <code>B % 2</code> and <code>B / 2</code> axes appear in reversed order compared to their arrangement in the input slice dimension.</p>
+<p>While the slice bitmap could theoretically represent this pattern, the hardware cannot execute it because it lacks the buffering needed to reorder axes during transfer.</p>
+<p>If the output slice were instead <code>m![A, B / 4, 4]</code> with time <code>m![C, B / 2, B % 2]</code> and packet <code>m![D, E]</code>, then the transformation would be valid.</p>
+<p>In this corrected version, the <code>B / 2, B % 2</code> axes maintain their original order from the input slice, satisfying the order preservation constraint.</p>
+<h4 id="constraint-2-innermost-time-position"><a class="header" href="#constraint-2-innermost-time-position">Constraint 2: Innermost Time Position</a></h4>
+<p>The hardware requires axes moving from <code>Slice</code> to <code>Time</code> to appear at the innermost positions of the output time dimension.</p>
+<p>Axes moving from <code>Slice</code> to <code>Time</code> are delivered last per packet, so they become the innermost <code>Time</code> dimensions in the output stream.</p>
+<p>The following example shows an unsupported transformation that violates this constraint.</p>
+<p>Arguments:</p>
+<ul>
+<li>1 cluster (256 slices): <code>Chip</code>/<code>Cluster</code> context applies to a single cluster.</li>
+<li><code>axes![A = 16, B = 16, C = 8, D = 8, E = 8]</code></li>
+<li><code>dtype = i8</code></li>
+<li><code>In</code>:
+<ul>
+<li><code>Slice: m![A, B]</code></li>
+<li><code>Time: m![C]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+<li><code>Out</code>:
+<ul>
+<li><code>Slice: m![A / 2, 2, B / 2, 2]</code></li>
+<li><code>Time: m![A % 2, C, B % 2]</code></li>
+<li><code>Packet: m![D, E]</code></li>
+</ul>
+</li>
+</ul>
+<p>In this example, the <code>A % 2</code> and <code>B % 2</code> axes that move from <code>Slice</code> to <code>Time</code> preserve their relative order correctly.</p>
+<p>However, the transformation is still invalid because these axes are not positioned at the innermost part of the output time dimension—the <code>C</code> axis appears between <code>A % 2</code> and <code>B % 2</code>, violating the innermost position requirement.</p>
+<p>Note that <code>Broadcast01</code> topology can sometimes work around this constraint using the <code>time0</code> parameter, which provides additional flexibility in axis positioning.</p>
+<p>Custom topologies lack this <code>time0</code> mechanism, so they must strictly place all <code>Slice</code> to <code>Time</code> axes at the innermost time positions.</p>
+<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
+<p>Understanding switching constraints prevents compilation errors and ensures correct data movement patterns.</p>
+<h3 id="why-switching-constraints-exist"><a class="header" href="#why-switching-constraints-exist">Why Switching Constraints Exist</a></h3>
+<p>The Switch Engine constraints reflect fundamental hardware design decisions about the ring network topology and router capabilities.</p>
+<p><strong>Ring network topology fundamentally limits flexibility.</strong>
+The hardware implements a physical ring connecting 256 slices in a fixed order.
+Data flows counter-clockwise through this ring, with each router deciding whether to output locally or forward to neighbors.
+This topology is highly efficient for regular patterns (like broadcasting) where all slices follow similar routing rules.
+However, it cannot efficiently express arbitrary permutations that would require complex routing tables or multiple ring passes.
+The hardware provides only 256 router configuration entries—one per slice—rather than a full crossbar switch that could connect any slice to any other.</p>
+<p><strong>Buffering constraints drive the order preservation rule.</strong>
+Each slice router has minimal buffering (essentially one packet), which enables high throughput but prevents reordering.
+When data arrives from the ring network, the router must immediately decide: output locally or forward?
+It cannot buffer multiple packets and reorder them.
+Therefore, axes moving from the <code>Slice</code> to <code>Time</code> dimension must maintain their original order—the hardware simply forwards data in arrival order without reordering capabilities.</p>
+<p><strong>Pipeline structure requires innermost time position.</strong>
+Data from other slices arrives last within each packet, so <code>Slice</code>-to-<code>Time</code> axes naturally become the innermost time dimensions.
+Placing these axes anywhere else would require the hardware to buffer and reorder complete time sequences, which would require prohibitive amounts of SRAM and complex control logic.</p>
+<h3 id="regular-topology-constraints"><a class="header" href="#regular-topology-constraints">Regular Topology Constraints</a></h3>
+<p>Regular topologies impose specific structural requirements:</p>
+<ul>
+<li>
+<p><strong>Topology pattern matching</strong>: Input/output mapping expressions must match the predefined topology pattern.
+Violating this causes a compilation error.
+Example: <code>Broadcast01</code> requires specific axis ordering (<code>slice2</code>, <code>slice1</code>, <code>slice0</code>, <code>time1</code>) that cannot be arbitrarily reordered.</p>
+</li>
+<li>
+<p><strong>Full cluster operation</strong>: <code>InSlice::SIZE</code> = <code>OutSlice::SIZE</code> = 256.
+Partial cluster operations are not supported; violating this causes a compilation error.</p>
+</li>
+</ul>
+<h3 id="custom-topology-constraints"><a class="header" href="#custom-topology-constraints">Custom Topology Constraints</a></h3>
+<p>Custom topologies provide flexibility but impose two critical constraints:</p>
+<p><strong>1. Order Preservation</strong>: Axes moving from <code>Slice</code> to <code>Time</code> must preserve their relative order from the input slice dimension (see <a href="#why-switching-constraints-exist">Buffering constraints</a> above).
+Violating this causes a compilation error or incorrect data routing.</p>
+<pre><code class="language-text">// Input:  Slice: m![A, B]
+// INVALID: B % 2 and B / 2 are reversed
+// Output: Time: m![C, B % 2, B / 2]
+// Valid:   Time: m![C, B / 2, B % 2]
+</code></pre>
+<p><strong>2. Innermost Time Position</strong>: Axes moving from <code>Slice</code> to <code>Time</code> must appear at the innermost positions of the output <code>Time</code> dimension (see <a href="#why-switching-constraints-exist">Pipeline structure</a> above).
+Violating this causes a compilation error or incorrect data ordering.</p>
+<pre><code class="language-text">// Input:  Slice: m![A, B]
+// INVALID: C appears between moved axes
+// Output: Time: m![A % 2, C, B % 2]
+// Valid:   Time: m![C, A % 2, B % 2]
+</code></pre>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>The <code>Broadcast01</code> topology can sometimes work around the innermost position constraint using the <code>time0</code> parameter. Custom topologies lack this mechanism and must strictly follow the constraint.</p>
+</blockquote>
+<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
+<p>The Switch Engine performance directly affects computation throughput since data redistribution overlaps with tensor operations.</p>
+<h3 id="cycle-estimation-1"><a class="header" href="#cycle-estimation-1">Cycle Estimation</a></h3>
+<p>Switching operations follow the formula:</p>
+<p>$$
+\text{cycle} = \text{ring_size} \times \text{input_time} \times \text{cycle_per_packet}
+$$</p>
+<p>Where:</p>
+<ul>
+<li><code>ring_size</code>: Number of slices in each independent ring (e.g., <code>slice0 × slice1</code> for <code>Broadcast01</code>)</li>
+<li><code>input_time</code>: Size of the input time dimension</li>
+<li><code>cycles_per_packet</code>: <code>packet_size / 32</code> (number of 32-byte flits per packet)</li>
+</ul>
+<p>For example, with <code>ring_size = 4</code>, <code>input_time = 64</code>, and 64-byte packets (2 flits):</p>
+<p>$$
+\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
+$$</p>
+<p>$$
+= 4 \times 64 \times 2 = 512 \text{ cycles}
+$$</p>
+<h3 id="parallelism-across-rings"><a class="header" href="#parallelism-across-rings">Parallelism Across Rings</a></h3>
+<p>When 256 slices are grouped into rings (e.g., 64 rings of size 4), all rings operate <strong>independently and in parallel</strong>.</p>
+<p>This parallelism is critical for high throughput: although each ring takes <code>ring_size × input_time × cycles_per_packet</code> cycles to complete, all rings finish simultaneously.</p>
+<h3 id="custom-topology-overhead"><a class="header" href="#custom-topology-overhead">Custom Topology Overhead</a></h3>
+<p>Custom topologies provide arbitrary permutation flexibility but incur <strong>configuration overhead</strong>:</p>
+<ul>
+<li>Requires preempting DMA and sub-context operations</li>
+<li>Must write the bitmap to Special Function Registers (SFRs)</li>
+<li>Setup cost makes custom topologies most appropriate when computation benefits outweigh initialization overhead</li>
+</ul>
+<h3 id="communication-cost"><a class="header" href="#communication-cost">Communication Cost</a></h3>
+<p>Communication cost in the ring network scales with ring size and data volume:</p>
+<ul>
+<li><strong>Regular topologies</strong>: Optimized for common patterns, minimal overhead</li>
+<li><strong>Custom topologies</strong>: Flexible but potentially higher setup cost</li>
+<li><strong>Ring topology characteristic</strong>: Data movement cost increases proportionally with ring size, unlike other dimensions where stride differences have minimal impact</li>
+</ul>
+<!-- > **TODO**: Communication cost specification needed. This is necessary for programming while being aware of HW's communication cost. It is also a main reason for distinguishing Tiles in GPUs. Clearly knowing that data movement characteristics differ is an important aspect in low level programming. -->
+<!-- > **Open Question**: How should communication cost be modeled in the tensor mapping expressions? For example, in the Head, whether the class-stride differs by 1 or 100, the cost of data movement is virtually the same. However, in Partitioning, since ring topology is used, the data movement cost tends to increase proportionally to the class-stride. This asymmetry needs to be captured in the cost model. -->
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../computing-tensors/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../computing-tensors/collect-engine.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../computing-tensors/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../computing-tensors/collect-engine.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

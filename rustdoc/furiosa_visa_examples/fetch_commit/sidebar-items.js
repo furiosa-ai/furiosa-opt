@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["fetch_commit_simple"],"struct":["A","B","FetchCommitSimple"]};

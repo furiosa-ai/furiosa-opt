@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["invalid_mapping","invalid_one_collect_flit_no_padding","invalid_one_collect_flit_no_padding_reversed","valid_one_collect_flit","valid_two_collect_flits"],"struct":["InvalidMapping","InvalidOneCollectFlitNoPadding","InvalidOneCollectFlitNoPaddingReversed","ValidOneCollectFlit","ValidTwoCollectFlits"]};

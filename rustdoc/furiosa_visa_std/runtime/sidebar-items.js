@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["kernel_path","launch"],"struct":["Buffer","Cpu","Kernel","Npu","NpuDesc"],"trait":["Backend","DeviceFn","TupleApply"]};

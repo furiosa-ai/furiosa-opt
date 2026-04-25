@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["invalid_mapping","invalid_row_mapping","invalid_row_not_divisible_by_time","valid_mapping","valid_unit_time_row"],"struct":["InvalidMapping","InvalidRowMapping","InvalidRowNotDivisibleByTime","ValidMapping","ValidUnitTimeRow"]};

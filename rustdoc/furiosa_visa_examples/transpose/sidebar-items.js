@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["transpose_simple"],"struct":["A","B","C","TransposeSimple"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["invalid_size_128","invalid_size_32","valid_size_64"],"struct":["InvalidSize128","InvalidSize32","ValidSize64"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["invalid_size_16","invalid_size_3","valid_size_1","valid_size_2","valid_size_4","valid_size_8"],"struct":["InvalidSize16","InvalidSize3","ValidSize1","ValidSize2","ValidSize4","ValidSize8"]};

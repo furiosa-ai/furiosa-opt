@@ -1,0 +1,561 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Reducer - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../../css/general-2459343d.css">
+        <link rel="stylesheet" href="../../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="reducer"><a class="header" href="#reducer">Reducer</a></h1>
+<p>The Reducer performs elementwise multiplication followed by reduce-add.
+Each slice’s Reducer contains 8 independent <em>Rows</em>, which are parallel MAC lanes that each process a different weight channel.
+It receives input data from the <a href="./stream-adapter.html">Stream Adapter</a> and weight data from the <a href="./trf-sequencer.html">TRF Sequencer</a>.</p>
+<h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
+<p>The Reducer is invoked via <code>.align()</code> followed by <code>.contract()</code> and <code>.accumulate()</code>:</p>
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>impl CollectTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet&gt; {
+    /// Aligns input stream and TRF to computation mapping.
+    pub fn align&lt;OutTime: M, OutPacket: M, Row: M, TrfElement: M&gt;(
+        self,
+        trf: &amp;TrfTensor&lt;D, Chip, Cluster, Slice, Row, TrfElement&gt;,
+    ) -&gt; AlignedPair&lt;'l, T, D, Chip, Cluster, Slice, Row, OutTime, OutPacket&gt;;
+}
+
+impl AlignedPair&lt;'l, T, D, Chip, Cluster, Slice, Row, Time, Packet&gt; {
+    /// Performs spatial reduction: elementwise multiplication followed by reduce-add
+    /// across the Packet dimension via the hardware reduction tree.
+    /// Data type is widened during contraction: i4/i8 -&gt; i32, f8/bf16 -&gt; f32.
+    pub fn contract&lt;OutPacket: M&gt;(
+        self,
+    ) -&gt; ContractionTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Row, Time, OutPacket&gt;;
+}
+
+impl ContractionTensor&lt;'l, T, D, Chip, Cluster, Slice, Row, Time, Packet&gt; {
+    /// Performs temporal accumulation: accumulates values over the Time dimension
+    /// and produces the final contraction output.
+    pub fn accumulate&lt;OutTime: M, OutPacket: M&gt;(
+        self, kind: AccumulationKind,
+    ) -&gt; AccumulationTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket&gt;;
+}</code></pre>
+<p>The Reducer computes the dot product of input stream \(X\) and TRF weights \(W\):</p>
+<p>$$\text{output}[i] = \sum_{j} X[i, j] \times W[i, j]$$</p>
+<p>The summation index \(j\) corresponds to axes removed during reduction:</p>
+<ul>
+<li><a href="#spatial-reduction"><strong>Spatial reduction</strong></a> removes axes from the <code>Packet</code> dimension via the hardware reduction tree</li>
+<li><a href="#temporal-reduction"><strong>Temporal reduction</strong></a> removes axes from the <code>Time</code> dimension via the accumulator buffer</li>
+</ul>
+<p>The output mapping is determined by which axes survive reduction: <code>OutPacket</code> contains <code>Packet</code> axes after spatial reduction, and <code>OutTime</code> contains <code>Time</code> axes after temporal reduction.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<h3 id="matrix-multiplication"><a class="header" href="#matrix-multiplication">Matrix Multiplication</a></h3>
+<p>Matrix multiplication with 8 Rows operating in parallel:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 32, B = 32, C = 8];
+
+fn matmul&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![A, B / 16], m![B % 16]&gt;,
+    trf: &amp;TrfTensor&lt;bf16, m![1], m![1], m![1], m![C], m![B]&gt;,
+) -&gt; AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![1], m![A], m![C]&gt; {
+    // Computation mapping: [
+    //   Time: [A = 32],
+    //   Row: [C = 8],
+    //   Packet: [B = 32] (32 bf16 elements = 64 bytes)
+    // ]
+    //
+    // Spatial reduction: tree depth 5 reduces 32 bf16 elements along B → f32
+    // Output (Interleaved): Time = [A], Packet = [C]
+    input.align::&lt;m![A], m![B], _, _&gt;(&amp;trf)
+         .contract::&lt;m![1]&gt;()
+         .accumulate::&lt;m![A], m![C]&gt;(AccumulationKind::Interleaved)
+}
+<span class="boring">}</span></code></pre>
+<p>At each Row, elementwise multiplication of <code>input * trf</code> occurs.
+With tree depth 5, reduce-add sums over the 32 <code>bf16</code> elements of <code>B</code>, producing one <code>f32</code> per <code>A</code> position.</p>
+<h3 id="full-tensor-reduction"><a class="header" href="#full-tensor-reduction">Full Tensor Reduction</a></h3>
+<p>This example demonstrates a complete reduce-add over a tensor <code>m![A]</code> with <code>m![A]::SIZE = 65536</code>, showing how spatial and temporal reduction combine with slice-level reduction.</p>
+<p><strong>Mapping:</strong></p>
+<ul>
+<li><code>Slice = m![A / 256]</code> (256 slices process in parallel)</li>
+<li><code>Time = m![A / 32 % 8]</code> (8 temporal iterations per slice)</li>
+<li><code>Packet = m![A % 32]</code> (32 elements reduced spatially)</li>
+</ul>
+<p><strong>Reduction breakdown:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stage</th><th>Axes Reduced</th><th>Mechanism</th><th>Cycles</th></tr>
+</thead>
+<tbody>
+<tr><td>Spatial</td><td><code>A % 32</code></td><td>Reducer tree (depth 5)</td><td>5</td></tr>
+<tr><td>Temporal</td><td><code>A / 32 % 8</code></td><td>Reducer accumulator (8 iterations)</td><td>8</td></tr>
+<tr><td>Slice-level</td><td><code>A / 256</code></td><td><a href="../vector-engine/inter-slice-block.html">Inter-Slice Block</a></td><td>256</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Analysis:</strong></p>
+<ul>
+<li>Each slice processes <code>A / 256</code> (256) elements</li>
+<li>Within a slice: <code>A % 32</code> elements are reduced spatially by the tree (5 cycles for <code>bf16</code>)</li>
+<li>The temporal axis <code>A / 32 % 8</code> means 8 flits arrive sequentially, accumulated by the buffer</li>
+<li>After in-slice reduction completes (~40 cycles), 256 partial results exist across slices</li>
+<li>The <a href="../vector-engine/inter-slice-block.html">Inter-Slice Block</a> reduces these 256 slice results (256 cycles)</li>
+<li><strong>Total: ~296 cycles</strong> for reducing 65536 elements to a single scalar</li>
+</ul>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<p>The Reducer consists of 8 independent Rows operating in parallel. Data flows to the Rows from two sources:</p>
+<ul>
+<li><strong>StreamUnit data</strong>: Broadcast to all Rows (same data to every row)</li>
+<li><strong>TRF data</strong>: Read in parallel from 8 independent Row spaces (TRF Row \(i\) feeds Row \(i\) directly)</li>
+</ul>
+<p>Each Row contains a reduction tree for <a href="#spatial-reduction">spatial reduction</a>, followed by a shared accumulator buffer for <a href="#temporal-reduction">temporal reduction</a>.</p>
+<p><img src="./contraction-engine.png" alt="Contraction Engine"></p>
+<p>The diagram shows data widths at different stages. The 320b/640b corresponds to 64/128 elements for <code>i4</code>/<code>i5</code>, 32/64 elements for <code>i8</code>/<code>f8</code>/<code>i9</code>, 16/32 elements for <code>bf16</code>, and 8/16 elements for <code>f32</code>/<code>i32</code>.</p>
+<h3 id="spatial-reduction"><a class="header" href="#spatial-reduction">Spatial Reduction</a></h3>
+<p>Each Row contains a reduction tree that sums products hierarchically.</p>
+<p><img src="./reduction-tree.png" alt="Reduction Tree"></p>
+<p>At depth 0, each Row multiplies the input stream from the <a href="./stream-adapter.html">Stream Adapter</a>, with the weight data from the <a href="./trf-sequencer.html">TRF Sequencer</a> (each 64 bytes wide).
+Each subsequent depth sums pairs of partial products, halving the element count from the previous depth.
+The tree depth varies by data type to provide sufficient depth for reducing the full data width:</p>
+<ul>
+<li><code>i4</code>: depth 7 (reduces 128 elements)</li>
+<li><code>i8</code>/<code>f8</code>: depth 6 (reduces 64 elements)</li>
+<li><code>bf16</code>: depth 5 (reduces 32 elements)</li>
+</ul>
+<p>The output data type is widened to accommodate larger result values from contraction.
+With <code>i8</code> input, <code>i8 * i8</code> multiplication occurs first, and up to 64 values can be summed across the 6-depth tree.
+Inputs <code>i4</code>/<code>i8</code> produce <code>i32</code> outputs, and inputs <code>f8</code>/<code>bf16</code> produce <code>f32</code> outputs.</p>
+<p>Given a computation mapping of <code>m![Row, Time, Packet]</code>, spatial reduction eliminates the innermost <code>m![Packet % 2^n]</code> axes (where <code>n</code> is the tree depth), producing an output mapping of <code>m![Row, Time, Packet / 2^n]</code>.</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>Spatial reduction in <code>addition</code> mode allows full 8-Row usage, but <code>max</code> mode only supports a single Row (Row 0).</p>
+</blockquote>
+<h3 id="resize"><a class="header" href="#resize">Resize</a></h3>
+<p>After spatial reduction, the output is resized to exactly 32 <code>i32</code>/<code>f32</code> elements per Row before being fed to the temporal accumulator.
+When the tree depth is 0 (no spatial reduction), the 32 outer elements are truncated.
+Otherwise, the spatial reduction output is padded or broadcast to fill the 32 columns of the temporal accumulator, depending on the output mode.</p>
+<p>The Reducer supports two output modes that determine how the resize is performed:</p>
+<ul>
+<li><strong>Sequential</strong>: Rows are sequentially ordered. The spatial reduction output is padded with zeros.</li>
+<li><strong>Interleaved</strong>: Rows are interleaved. The spatial reduction output is repeated across the 32 columns.</li>
+</ul>
+<p>The figure below illustrates the output of spatial reduction for various <code>i8</code> reduction depths.
+The left side shows Sequential mode adding zero-padding; the right shows Interleaved mode replicating the output to fill 32 element positions.</p>
+<p><img src="./sequential-interleaved-spatial-reduction.png" alt="Sequential and Interleaved Spatial Reduction Output"></p>
+<h3 id="temporal-reduction"><a class="header" href="#temporal-reduction">Temporal Reduction</a></h3>
+<p>After resizing, each Row feeds its output to a shared temporal accumulator.</p>
+<p>The temporal accumulator stores intermediate results in a buffer and accumulates values that arrive sequentially over time, enabling reduce operations even when the reduce axis is not contiguous in the innermost dimension.</p>
+<p>The buffer has 1024 slots total: 8 rows × 32 columns × 4 registers/column.</p>
+<p>Consider <code>axes![A = 2048, B = 8]</code> and a tensor with mapping <code>m![A, B]</code>, where we want to reduce along axis <code>B</code>.
+With mapping <code>Time = m![B / 4, A % 8]</code> and <code>Packet = m![B % 4]</code>, the spatial reduction stage outputs 16 flits (since <code>Time::SIZE = m![B / 4, A % 8]::SIZE = 2 * 8 = 16</code>).</p>
+<p>The accumulator uses 8 buffer slots (one per <code>A % 8</code> value) to accumulate across the <code>B / 4</code> (2) iterations:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>flit #</th><th><code>B / 4</code></th><th><code>A % 8</code></th><th>Buffer Slot</th><th>Operation</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>0</td><td>0</td><td>0</td><td>Store</td></tr>
+<tr><td>1</td><td>0</td><td>1</td><td>1</td><td>Store</td></tr>
+<tr><td>2</td><td>0</td><td>2</td><td>2</td><td>Store</td></tr>
+<tr><td>3</td><td>0</td><td>3</td><td>3</td><td>Store</td></tr>
+<tr><td>4</td><td>0</td><td>4</td><td>4</td><td>Store</td></tr>
+<tr><td>5</td><td>0</td><td>5</td><td>5</td><td>Store</td></tr>
+<tr><td>6</td><td>0</td><td>6</td><td>6</td><td>Store</td></tr>
+<tr><td>7</td><td>0</td><td>7</td><td>7</td><td>Store</td></tr>
+<tr><td>8</td><td>1</td><td>0</td><td>0</td><td>Accumulate with flit #0</td></tr>
+<tr><td>9</td><td>1</td><td>1</td><td>1</td><td>Accumulate with flit #1</td></tr>
+<tr><td>10</td><td>1</td><td>2</td><td>2</td><td>Accumulate with flit #2</td></tr>
+<tr><td>11</td><td>1</td><td>3</td><td>3</td><td>Accumulate with flit #3</td></tr>
+<tr><td>12</td><td>1</td><td>4</td><td>4</td><td>Accumulate with flit #4</td></tr>
+<tr><td>13</td><td>1</td><td>5</td><td>5</td><td>Accumulate with flit #5</td></tr>
+<tr><td>14</td><td>1</td><td>6</td><td>6</td><td>Accumulate with flit #6</td></tr>
+<tr><td>15</td><td>1</td><td>7</td><td>7</td><td>Accumulate with flit #7, then output</td></tr>
+</tbody>
+</table>
+</div>
+<p>The first 8 flits are stored in buffer slots 0-7. When flits 8-15 arrive, they accumulate with the stored values. After flit 15, the buffer contains the final reduced results and outputs them.</p>
+<p>For buffered reduction to work, the product of all axis sizes inner to the reduce axis must be at most 1024, in order to fit the accumulator buffer.</p>
+<p>The temporal accumulator supports two operation modes: <a href="#sequential-mode"><code>Sequential</code></a> and <a href="#interleaved-mode"><code>Interleaved</code></a>.</p>
+<p>Interleaved provides a greater buffer capacity of 128 for the axes inner to the reduce axis, compared to the Sequential 32-element capacity.
+However, Interleaved changes the output packet structure.
+Choose the mode based on buffer constraints and whether the desired output ordering matches downstream requirements.
+See <a href="#constraints">Constraints</a> for the full buffer capacity rules.</p>
+<h4 id="interleaved-mode"><a class="header" href="#interleaved-mode">Interleaved Mode</a></h4>
+<p>In Interleaved mode, the Reducer outputs data element-by-element across all Rows.
+The output bus carries one value from each of the 8 Rows, per beat.</p>
+<ul>
+<li><strong>Packet Slicing</strong>: In Interleaved mode, not all of <code>Packet</code> is fed to the accumulator. Since the reduction tree broadcasts \(m\) partial sums across all 32 column positions (via replication), only the first \(m\) columns get written to accumulator entries, slicing <code>Packet</code> from 32 down to \(m\).</li>
+</ul>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>User-specified slicing should only slice padded <code>Packet</code> axes.</p>
+</blockquote>
+<ul>
+<li>
+<p><strong>Column Interleaving</strong>: To achieve maximum accumulator utilization, all of the 32 accumulator columns are filled by interleaving \(\frac{32}{m}\) column groups over successive cycles. For \(m = 4\), the first cycle writes to columns 0–3, the next to columns 4–7, and so on, giving 8 interleave steps to fill all 32 columns.</p>
+</li>
+<li>
+<p><strong>Full Row Utilization</strong>: Additionally, all 8 accumulator rows are always active regardless of the actual input Row count: if <code>Row &lt; 8</code>, the data is padded to occupy all 8 Rows.</p>
+</li>
+<li>
+<p><strong>Output</strong>: <code>OutTime: m![Time', Packet / 2^n = m]</code>, <code>OutPacket: m![Row # 8]</code>.</p>
+<ul>
+<li><code>OutTime</code> preserves the order of <code>Time, Packet</code>, but with some axes from <code>Time</code> removed. The removed axes undergo reduce-add, yielding <code>Time'</code>.</li>
+<li><code>OutPacket</code> equals <code>Row</code> padded with dummies to align to 8, as all Rows are utilized.</li>
+</ul>
+</li>
+</ul>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p><code>Interleaved</code> mode has reduced accumulator utilization when <code>Row</code> &lt; 8: only <code>Row</code> out of 8 rows store meaningful data, while the output bus always sends all 8 Rows together.
+Effective accumulator capacity is <code>Row</code> × 32 × 4 instead of the full 8 × 32 × 4 = 1024 slots. This limitation is most severe at <code>Row = 1</code> (128 useful slots), but applies to <code>Row = 2</code> and <code>Row = 4</code> as well.</p>
+</blockquote>
+<h5 id="example"><a class="header" href="#example">Example</a></h5>
+<p>This example performs a contraction where <code>K</code> is partially reduced spatially (<code>K % 4</code> in <code>Packet</code>) and temporally (<code>K / 16</code> in <code>Time</code>), with <code>K % 16 / 4</code> surviving in the output:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![M = 4, N = 8, K = 64];
+
+fn interleaved&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![K / 16, M], m![K % 16]&gt;,
+    trf: &amp;TrfTensor&lt;bf16, m![1], m![1], m![1], m![N], m![K]&gt;,
+) -&gt; AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, K % 16 / 4], m![N]&gt; {
+    // Computation mapping:
+    //   Time: [K / 16, M], Row: [N], Packet: [K % 16]
+    //   16 bf16 elements per packet = 32 bytes
+    //
+    // Spatial: tree depth 2 reduces groups of 4 bf16 -&gt; 1 f32,
+    //          leaving K % 16 / 4 (4) columns
+    // Temporal: K / 16 (4) iterations accumulated in buffer
+    //
+    // Interleaved output:
+    //   m = 4 valid columns, 16 / 4 = 4 column groups interleaved
+    //   OutTime = [M, K % 16 / 4] (K / 16 reduced, surviving Packet appended)
+    //   OutPacket = [N] (Row, already 8)
+    input.align::&lt;m![K / 16, M], m![K % 16 # 32], _, _&gt;(&amp;trf)
+         .contract::&lt;m![K % 16 / 4]&gt;()
+         .accumulate::&lt;m![M, K % 16 / 4], m![N]&gt;(AccumulationKind::Interleaved)
+}
+<span class="boring">}</span></code></pre>
+<p>The axes inner to the reduce axis (<code>K / 16</code>) are <code>M</code> and <code>K % 16 / 4</code>, with a total size of <code>4 × 4 = 16</code>.
+This satisfies the <a href="#constraints">Interleaved buffer constraint</a> (≤ 128).</p>
+<h4 id="sequential-mode"><a class="header" href="#sequential-mode">Sequential Mode</a></h4>
+<p>In Sequential mode, the Reducer outputs the reduced data in each Row sequentially.
+The output bus carries up to 8 elements from <code>Packet</code>, per beat.</p>
+<ul>
+<li>
+<p><strong>Full Packet Utilization</strong>: In Sequential mode, all 32 columns of <code>Packet / 2^n</code> are fed to the accumulator. Unlike in Interleaved mode, no packet slicing occurs. Each cycle writes all 32 columns simultaneously, with zeros padding any unused positions.</p>
+</li>
+<li>
+<p><strong>Row Interleaving</strong>: To achieve maximum accumulator utilization, all 8 accumulator rows are filled by interleaving \(\frac{8}{\texttt{Row}}\) row groups over successive cycles. With <code>Row::SIZE = 4</code>, the first 4 rows of the temporal accumulator store rows 0–3, and, in the next cycle, the next 4 rows store in rows 4–7.</p>
+</li>
+<li>
+<p><strong>Output</strong>: <code>OutTime: m![Time', Row, Packet_outer]</code>, <code>OutPacket: m![Packet_inner]</code>.</p>
+<ul>
+<li><code>OutTime</code> preserves the order of <code>Time, Row</code>, but with some axes from <code>Time</code> removed. The removed axes undergo reduce-add, yielding <code>Time'</code>.</li>
+<li>Since the output bus is 8 elements-wide, only multiples of 8 elements (8, 16, 24, or 32) can be output. <code>Packet</code> is split accordingly: <code>Packet_outer = m![Packet / 2^n / 8]</code> (number of beats per row) and <code>Packet_inner = m![Packet / 2^n % 8]</code> (elements per beat).</li>
+</ul>
+</li>
+</ul>
+<h5 id="example-1"><a class="header" href="#example-1">Example</a></h5>
+<p>The same computation mapping as the <code>Interleaved</code> example above, but with <code>Sequential</code> output:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![M = 4, N = 8, K = 64];
+
+fn sequential&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![K / 16, M], m![K % 16]&gt;,
+    trf: &amp;TrfTensor&lt;bf16, m![1], m![1], m![1], m![N], m![K]&gt;,
+) -&gt; AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, N], m![K % 16 / 4 # 8]&gt; {
+    // Computation mapping:
+    //   Time: [K / 16, M], Row: [N], Packet: [K % 16]
+    //   16 bf16 elements per packet = 32 bytes
+    //
+    // Spatial: tree depth 2 reduces groups of 4 bf16 -&gt; 1 f32,
+    //          leaving K % 16 / 4 (4) columns
+    // Temporal: K / 16 (4) iterations accumulated in buffer
+    //
+    // Sequential output:
+    //   Packet'' = K % 16 / 4, padded to 8:
+    //     - Packet_outer = [1],
+    //     - Packet_inner = [K % 16 / 4 # 8]
+    //   OutTime = [M, N] (K / 16 reduced, Row appended)
+    //   OutPacket = [K % 16 / 4 # 8] (surviving Packet padded to 8)
+    input.align::&lt;m![K / 16, M], m![K % 16 # 32], _, _&gt;(&amp;trf)
+         .contract::&lt;m![K % 16 / 4]&gt;()
+         .accumulate::&lt;m![M, N], m![K % 16 / 4 # 8]&gt;(AccumulationKind::Sequential)
+}
+<span class="boring">}</span></code></pre>
+<p>The axes inner to the reduce axis (<code>K / 16</code>) are <code>M</code> and <code>N</code>, with a total size of <code>4 × 8 = 32</code>.
+This satisfies the <a href="#constraints">Sequential buffer constraint</a> (≤ 32).</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p><code>Sequential</code> mode has reduced accumulator utilization when <code>Packet</code> is spatially reduced: only <code>Packet / 2^n</code> out of 32 elements store meaningful data per Row.
+Effective accumulator capacity is 8 × 1 × 4 = 32 slots instead of the full 1024. This limitation applies whenever the non-padded portion of <code>Packet / 2^n</code> is fewer than 32 elements.</p>
+</blockquote>
+<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
+<ul>
+<li><strong>Row count:</strong> The hardware provides exactly 8 Rows. Operations can use 1, 2, 4, or 8 rows, but the <code>Row</code> dimension size must match one of these values.</li>
+<li><strong>Tree depth:</strong> Determines how many elements can be reduced spatially. Depth 7 for <code>i4</code> (128 elements), depth 6 for <code>i8</code>/<code>f8</code> (64 elements), depth 5 for <code>bf16</code> (32 elements). The input packet size must not exceed the maximum elements reducible at the given depth.</li>
+<li><strong>Spatial output limit:</strong> For a tree depth of 0 (no spatial reduction), the Reducer outputs at most 32 <code>i32</code>/<code>f32</code> elements. Configurations that would produce more than 32 output elements per cycle are invalid.</li>
+<li><strong>Data types:</strong> Input types must be <code>i4</code>, <code>i8</code>, <code>f8</code>, or <code>bf16</code>. Output types are automatically widened to <code>i32</code> (from <code>i4</code>/<code>i8</code>) or <code>f32</code> (from <code>f8</code>/<code>bf16</code>). The type widening is mandatory.</li>
+<li><strong>Reduce-max:</strong> Only supports using a single Row (Row 0), limiting reduce-max throughput to 1/8th of reduce-add capacity.</li>
+<li><strong>Buffer capacity:</strong> The accumulator has 1024 buffer slots (8 rows × 32 columns × 4 registers/column). The product of axes inner to the outermost reduce axis must fit within this capacity.
+<ul>
+<li><strong>Interleaved constraints:</strong> Requires axes inner to outermost reduce in <code>OutTime</code> to be at most 128. Full constraint: <code>align_up(Row, 8) * (axes inner to reduce)</code> ≤ 1024.</li>
+<li><strong>Interleaved utilization:</strong> When <code>Row</code> &lt; 8, effective capacity is reduced to <code>Row</code> × 32 × 4 slots, preventing full buffer utilization.</li>
+<li><strong>Sequential constraints:</strong> Requires axes inner to outermost reduce in <code>OutTime</code> to be at most 32. Full constraint: <code>align_up(reduced_packet.len(), 32) * (axes inner to reduce)</code> ≤ 1024.</li>
+<li><strong>Sequential utilization:</strong> When <code>Packet</code> is reduced, full buffer utilization cannot be achieved. For instance, when reducing <code>Packet</code> totally, only one column of each Row is used, wasting 31/32 of the buffer capacity.</li>
+</ul>
+</li>
+</ul>
+<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
+<ul>
+<li><strong>Spatial latency:</strong> Tree depth determines spatial reduction latency: <code>i4</code> depth 7 (128 elements in 7 cycles), <code>i8</code>/<code>f8</code> depth 6 (64 elements in 6 cycles), <code>bf16</code> depth 5 (32 elements in 5 cycles). Shallower trees complete faster, but larger data types require less depth due to narrower data paths.</li>
+<li><strong>Temporal latency:</strong> Each accumulation cycle processes one packet. For a reduction axis of size <code>N</code> in the time dimension, the accumulator requires approximately <code>N</code> cycles to complete the reduction.</li>
+<li><strong>Parallelism:</strong> Using all 8 Rows maximizes throughput. Each Row operates independently, so 8 rows achieve 8× parallelism compared to a single row.</li>
+<li><strong>Type widening:</strong> Output data types are widened to prevent overflow (<code>i4</code>/<code>i8</code> → <code>i32</code>, <code>f8/bf16</code> → <code>f32</code>). This widening is automatic and adds minimal latency, but downstream components must handle 32-bit data.</li>
+<li><strong>Reduce-max:</strong> Only supports single Row (Row 0) usage, limiting parallelism to 1/8th of reduce-add throughput.</li>
+<li><strong>Truncation:</strong> When tree depth is 0, the Reducer can output at most 32 elements spatially. Larger packets are truncated.</li>
+<li><strong>Pipeline integration:</strong> The Reducer sits between Stream Adapter/TRF Sequencer and Vector Engine, adding latency proportional to tree depth plus time dimension size.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../computing-tensors/contraction-engine/trf-sequencer.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../../computing-tensors/vector-engine/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../computing-tensors/contraction-engine/trf-sequencer.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../../computing-tensors/vector-engine/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../../mark-09e88c2c.min.js"></script>
+        <script src="../../searcher-c2a407aa.js"></script>
+
+        <script src="../../clipboard-1626706a.min.js"></script>
+        <script src="../../highlight-abc7f01d.js"></script>
+        <script src="../../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../../mermaid-eefea253.min.js"></script>
+        <script src="../../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

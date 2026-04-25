@@ -1,0 +1,840 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Valid Count Generator&#x27;s Implementation - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../../css/general-2459343d.css">
+        <link rel="stylesheet" href="../../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="valid-count-generators-implementation"><a class="header" href="#valid-count-generators-implementation">Valid Count Generator’s Implementation</a></h1>
+<p>This document describes what the Valid Count Generator (VCG) hardware can express, independent of mapping expressions or tensor shapes.
+VCG tags are consumed by the <a href="./intra-slice-reduce.html">Intra-Slice Reduce stage</a> to exclude padding from reductions.
+For how mapping expressions control VCG behavior (supported placements, constraints, and examples), see <a href="./vcg-interface.html">Valid Count Generator’s Interface</a>.</p>
+<h2 id="data-model"><a class="header" href="#data-model">Data Model</a></h2>
+<p>Data flows into the VectorEngine as a stream of <strong>flits</strong> (packets).
+Each flit contains 8 elements.
+The VCG operates at the VectorEngine’s input, tagging each 8-way flit with a valid count.
+The 4-way halving and its valid count derivation are described in <a href="#downstream-4-way-operations">Downstream: 4-Way Operations</a>.</p>
+<p>A flit is identified by two coordinates.
+A <strong>slice</strong> corresponds to the Slice dimension in the mapping; a <strong>time step</strong> indexes sequential flits within a slice.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Coordinate</th><th>Range</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>s</code> (slice number)</td><td><code>[0, num_slices)</code></td><td>Which slice processes this flit</td></tr>
+<tr><td><code>t</code> (time step)</td><td><code>[0, num_flits)</code></td><td>Sequential position within a slice</td></tr>
+</tbody>
+</table>
+</div>
+<p>The VCG assigns a <strong>valid count</strong> (abbreviated <code>vc</code> in formulas and diagrams) to each flit:</p>
+<p>$$\text{vc}(s, t) \in {0, 1, \ldots, 8}$$</p>
+<p>Element <code>p</code> (where <code>p</code> is in <code>[0, 8)</code>) within flit <code>(s, t)</code> is valid if and only if <code>p &lt; vc(s, t)</code>.
+Valid elements always form a <strong>contiguous prefix</strong>; this is a fundamental hardware constraint.
+The VCG cannot express “elements 0, 1, 3 are valid but 2 is not.”</p>
+<h2 id="valid-count-formula"><a class="header" href="#valid-count-formula">Valid Count Formula</a></h2>
+<p>The VCG computes <code>vc(s, t)</code> through a pipeline of stages:</p>
+<p>$$t \overset{\text{Sequencer}}{\longrightarrow} (c_0, c_1, \ldots, c_{k-1}) \overset{\text{Original Dims}}{\longrightarrow} \text{idx}(t) \overset{\text{Validity}}{\longrightarrow} \text{vc}(s, t)$$</p>
+<ol>
+<li><strong><a href="#sequencer">Sequencer</a></strong>: The flat time index <code>t</code> is decomposed into counter values \((c_0, c_1, \ldots, c_{k-1})\) via mixed-radix decomposition.</li>
+<li><strong><a href="#original-dimensions">Original Dimensions</a></strong>: Each counter is assigned to one of 4 dimensions (packet dim or gate dim 0-2). Per-dimension indices are computed as \(\text{idx}(t) = \sum_{i} c_i \cdot \sigma _ i\), where \(\sigma_i\) is the counter’s stride.</li>
+<li><strong><a href="#validity-decision">Validity Decision</a></strong>:
+<ul>
+<li><a href="#packet-dim-packet-level-valid-count">Packet Dim</a>: produces a packet-level valid count \(\text{packet_vc}(t) = \min(\text{stride}_p,; \max(0,; V_p - \text{idx}_p(t)))\).</li>
+<li><a href="#gate-dims-per-flit-binary-validity">Gate Dims</a>: each produces a binary gate \(\text{gate}_d(s, t) \in {0, 1}\) based on slice classification (below/boundary/above a threshold) and the per-dim index.</li>
+</ul>
+</li>
+</ol>
+<p>The final valid count combines these components:</p>
+<p>$$\text{vc}(s, t) = \text{packet_vc}(t) \times \text{gate}_0(s, t) \times \text{gate}_1(s, t) \times \text{gate}_2(s, t)$$</p>
+<pre><code class="language-text">vc(s,t) = packet_vc(t)  ×  gate_0(s,t)  ×  gate_1(s,t)  ×  gate_2(s,t)
+          ───────────      ───────────      ───────────      ───────────
+          packet dim       gate dim 0       gate dim 1       gate dim 2
+          (count 0-8)      (gate 0/1)       (gate 0/1)       (gate 0/1)
+</code></pre>
+<ul>
+<li>If <strong>all</strong> gates are open (= 1): the flit gets <code>packet_vc(t)</code> valid elements.</li>
+<li>If <strong>any</strong> gate is closed (= 0): <code>vc = 0</code> (entire flit is invalid, regardless of packet dim’s count).</li>
+</ul>
+<h2 id="vcg-configuration"><a class="header" href="#vcg-configuration">VCG Configuration</a></h2>
+<p>Configuration is organized around two concepts: <strong>counters</strong> (which drive the sequencer) and <strong>original dimensions</strong> (which decide validity).
+Counters produce a flit sequence; each dim uses its assigned counters to compute an index and decide validity.</p>
+<p>The VCG is configured via the following parameters (each is explained in detail in subsequent sections):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Scope</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Counter limits \(L_0 \ldots L_7\)</td><td>per counter (up to 8)</td><td>Sequencer counter limits</td></tr>
+<tr><td>Original dim assignment</td><td>per counter</td><td>Which dim (packet / gate 0-2) each counter belongs to</td></tr>
+<tr><td>stride \(\sigma_i\)</td><td>per counter</td><td>stride for index computation</td></tr>
+<tr><td>\(\text{mask}_{gd}\)</td><td>per gate dim</td><td>Slice-id bitmask</td></tr>
+<tr><td>\(\text{match}_{gd}\)</td><td>per gate dim</td><td>Threshold for slice classification</td></tr>
+<tr><td>\(V_p\) / \(V_{gd}\)</td><td>packet dim / per gate dim</td><td>Valid count / threshold</td></tr>
+<tr><td>\(P_{gd}\)</td><td>per gate dim</td><td>Standard (0) vs transposed (1)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Unassigned counters and disabled gate dims (\(\text{mask}_{gd} = 0, \text{match}_{gd} = 1\)) effectively pass through as “all valid.”</p>
+<h2 id="sequencer"><a class="header" href="#sequencer">Sequencer</a></h2>
+<p>The sequencer interprets the flat time index <code>t</code> as a multi-dimensional counter.</p>
+<h3 id="counter-structure"><a class="header" href="#counter-structure">Counter Structure</a></h3>
+<p>Up to 8 nested counters iterate to produce the flit sequence:</p>
+<p>$$t \to (c_0, c_1, \ldots, c_{k-1})$$</p>
+<p>where \(c_0\) is the fastest (innermost) and \(c_{k-1}\) is the slowest (outermost).</p>
+<p>Each counter \(c_i\) has a <strong>limit</strong> \(L_i\), cycling through \(0, 1, \ldots, L_i - 1\), and a <strong>stride</strong> \(\sigma_i\) that scales the counter’s contribution to the dimension index (see <a href="#original-dimensions">Original Dimensions</a>).
+The total number of flits per slice is \(L_0 \times L_1 \times \cdots \times L_{k-1}\).</p>
+<details>
+<summary>Example: 3 counters with limits [3, 2, 2]</summary>
+<p>This produces 3 * 2 * 2 = 12 flits per slice.
+The counters cycle as:</p>
+<pre><code class="language-text">t=0:  (c_0=0, c_1=0, c_2=0)
+t=1:  (c_0=1, c_1=0, c_2=0)
+t=2:  (c_0=2, c_1=0, c_2=0)
+t=3:  (c_0=0, c_1=1, c_2=0)   &lt;- c_0 wraps, c_1 increments
+t=4:  (c_0=1, c_1=1, c_2=0)
+t=5:  (c_0=2, c_1=1, c_2=0)
+t=6:  (c_0=0, c_1=0, c_2=1)   &lt;- c_1 wraps, c_2 increments
+t=7:  (c_0=1, c_1=0, c_2=1)
+t=8:  (c_0=2, c_1=0, c_2=1)
+t=9:  (c_0=0, c_1=1, c_2=1)
+t=10: (c_0=1, c_1=1, c_2=1)
+t=11: (c_0=2, c_1=1, c_2=1)
+</code></pre>
+<p><code>c_0</code> changes every flit, <code>c_1</code> every 3 flits, <code>c_2</code> every 6 flits, just like digits in a mixed-radix number.</p>
+</details>
+<p>The sequencer produces counter values; the next step is mapping them to <a href="#original-dimensions">original dimensions</a> and then to the <a href="#validity-decision">validity decision</a>.</p>
+<h3 id="original-dimensions"><a class="header" href="#original-dimensions">Original Dimensions</a></h3>
+<p>Each counter is assigned to one of 4 <strong>original dimensions</strong> (packet dim or gate dim 0-2), or left unassigned.</p>
+<p>Let \(D_d\) be the set of counters assigned to original dimension <code>d</code>.
+Each counter contributes to its assigned dimension’s index by multiplying its current value by its stride.
+The sum of all contributions gives the current position within that dimension’s data:</p>
+<p>$$\text{idx}_d(t) = \sum _ {i \in D_d} c_i(t) \cdot \sigma_i$$</p>
+<p>This index tracks the position within that dimension’s original data range.
+Multiple counters can be assigned to the same dim; their contributions are simply summed.</p>
+<details>
+<summary>Example: Counters mapped to original dimensions</summary>
+<p>Suppose 3 counters are configured as follows:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Counter</th><th>Limit</th><th>stride</th><th>Assigned to</th></tr>
+</thead>
+<tbody>
+<tr><td>c_0</td><td>3</td><td>8</td><td>packet dim (W axis)</td></tr>
+<tr><td>c_1</td><td>2</td><td>1</td><td>gate dim 0 (C axis)</td></tr>
+<tr><td>c_2</td><td>2</td><td>1</td><td>gate dim 1 (H axis)</td></tr>
+</tbody>
+</table>
+</div>
+<p>At time step t=4, which gives (c_0=1, c_1=1, c_2=0):</p>
+<ul>
+<li><code>idx_p = 1 * 8 = 8</code>, position 8 along W</li>
+<li><code>idx_g0 = 1 * 1 = 1</code>, position 1 along C</li>
+<li><code>idx_g1 = 0 * 1 = 0</code>, position 0 along H</li>
+</ul>
+<p>Each dim uses its index independently to decide validity.</p>
+</details>
+<h2 id="validity-decision"><a class="header" href="#validity-decision">Validity Decision</a></h2>
+<p>The following diagram shows the complete pipeline from time index to final valid count.
+Each stage is explained in the subsections below.</p>
+<pre><code class="language-text">t (flat time index)
+│
+├─ mixed-radix decomposition (see Sequencer above)
+▼
+(c_0, c_1, ..., c_{k-1})              ← counter values
+│
+├─ each counter assigned to a dim, multiplied by stride σ_i
+│  (see Original Dimensions above)
+▼
+idx_p(t), idx_g0(t), idx_g1(t), idx_g2(t)  ← per-dim indices
+│
+├─ packet dim: packet_vc = min(stride_p, max(0, V_p - idx_p))
+├─ gate dim 0: gate_0 = f(masked_id(s), idx_g0, match_g0, V_g0)
+├─ gate dim 1: gate_1 = f(masked_id(s), idx_g1, match_g1, V_g1)
+├─ gate dim 2: gate_2 = f(masked_id(s), idx_g2, match_g2, V_g2)
+│
+▼
+vc(s,t) = packet_vc(t) × gate_0(s,t) × gate_1(s,t) × gate_2(s,t)
+</code></pre>
+<p>Packet dim and gate dims make qualitatively different judgments:</p>
+<ul>
+<li><strong>Packet dim</strong> answers: “<strong>how many</strong> elements in this flit are valid?” (a count, 0-8)</li>
+<li><strong>Gate dims</strong> each answer: “is this flit valid <strong>at all</strong>?” (a binary gate, yes or no)</li>
+</ul>
+<p>Gate dims act as gates: only when all three report “valid” does packet dim’s count take effect.
+If any gate reports “invalid”, the entire flit gets valid count = 0.</p>
+<h3 id="packet-dim-packet-level-valid-count"><a class="header" href="#packet-dim-packet-level-valid-count">Packet Dim: Packet-Level Valid Count</a></h3>
+<p>Packet dim determines <strong>how many elements</strong> within a flit are valid.
+Two parameters control the computation:</p>
+<ul>
+<li>\(V_p\): the <strong>original valid count</strong> for packet dim (the unpadded size of the data along this dimension).</li>
+<li>\(\text{stride}_p\): the <strong>stride of the innermost counter assigned to packet dim</strong>, representing how many flit elements belong to the axis tracked by packet dim.</li>
+</ul>
+<p>The per-packet valid count is:</p>
+<p>$$\text{packet_vc}(t) = \min(\text{stride}_p, \max(0, V_p - \text{idx}_p(t)))$$</p>
+<pre><code class="language-text">packet_vc(t) = min( stride_p,         max(0, V_p - idx_p(t) ))
+                    ─────────              ─────────────────
+                    HW width cap           remaining valid data
+</code></pre>
+<p>When the axis fills all 8 flit positions, \(\text{stride}_p = 8\) and the formula is equivalent to \(\min(8, \ldots)\).
+When the axis occupies only \(k &lt; 8\) positions (with the remaining positions padded), \(\text{stride}_p = k\) caps the valid count so that only the axis’s portion of the flit is counted as valid.</p>
+<p><strong>Hardware constraints</strong>:</p>
+<ul>
+<li>The innermost Packet counter must always be assigned to packet dim.</li>
+<li>Other counters may also be assigned to packet dim (e.g., a Time counter for the same axis).</li>
+<li>When no axis is assigned to packet dim, <code>packet_vc</code> is always 8 (full flit) or 0 (empty flit), effectively making packet dim a binary gate like gate dims.</li>
+</ul>
+<p>As the sequencer advances, \(\text{idx}_p\) increases and <code>packet_vc</code> decreases.
+This produces a repeating <strong>sawtooth</strong> pattern:</p>
+<pre><code class="language-text">Example 1: V_p = 19, stride_p = 8, counter stride=8, limit=3  (axis fills full 8-way)
+
+flit 0: idx_p =  0 -&gt; packet_vc = min(8, 19 -  0) = 8  (full)
+flit 1: idx_p =  8 -&gt; packet_vc = min(8, 19 -  8) = 8  (full)
+flit 2: idx_p = 16 -&gt; packet_vc = min(8, 19 - 16) = 3  (partial)
+
+Example 2: V_p = 11, stride_p = 4, counter stride=4, limit=3  (axis fills 4 of 8 positions)
+
+flit 0: idx_p =  0 -&gt; packet_vc = min(4, 11 -  0) = 4  (full within stride)
+flit 1: idx_p =  4 -&gt; packet_vc = min(4, 11 -  4) = 4  (full within stride)
+flit 2: idx_p =  8 -&gt; packet_vc = min(4, 11 -  8) = 3  (partial)
+</code></pre>
+<p>In Example 2, positions 4-7 in each flit are padding and automatically excluded by the \(\text{stride}_p = 4\) cap.</p>
+<p><strong>Key property</strong>: <code>packet_vc</code> depends only on the sequencer state <code>t</code>, not on the slice <code>s</code>.
+All slices receive the same packet valid count for the same time step.</p>
+<details>
+<summary>Example: Why packet_vc is slice-independent</summary>
+<p>If \(V_p = 19\), \(\text{stride}_p = 8\), and the packet counter cycles [0, 8, 16], then:</p>
+<ul>
+<li>At t=2 (idx_p=16): packet_vc = 3 for <strong>every</strong> slice.</li>
+<li>Slice 0 gets vc=3, slice 5 gets vc=3, slice 15 gets vc=3, all the same.</li>
+</ul>
+<p>This is because packet dim’s formula \(\min(\text{stride}_p, V_p - \text{idx}_p)\) has no <code>s</code> term.
+Gate dims can still make certain slices’ final vc = 0 (by reporting invalid),
+but they cannot change the packet_vc value itself.</p>
+</details>
+<h3 id="gate-dims-per-flit-binary-validity"><a class="header" href="#gate-dims-per-flit-binary-validity">Gate Dims: Per-Flit Binary Validity</a></h3>
+<p>Gate dims 0, 1, 2 decide whether a <strong>flit as a whole</strong> is valid (1) or invalid (0), not a count.</p>
+<p>Each gate dim classifies slices into groups by extracting a subset of the slice-id bits (via a bitmask) and comparing the result against a threshold.
+The bitmask \(\text{mask}_{gd}\) selects which bits of the slice-id this gate dim tracks:</p>
+<p>$$\text{masked_id} (s) = s \mathbin{\&amp;} \text{mask}_{gd}$$</p>
+<pre><code class="language-text">Example: 16 slices (4-bit slice_id), mask_g0 = 0b1100
+
+slice_id (4 bits):   [ b3  b2  b1  b0 ]
+mask_g0 = 0b1100:    [  1   1   0   0 ]
+                      ─────────────────
+masked_id:           [ b3  b2   0   0 ]  → extracts the upper 2 bits
+</code></pre>
+<p>Slices fall into three groups based on comparing \(\text{masked_id}\) with \(\text{match}_{gd}\):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Group</th><th>Condition</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Below</strong></td><td>\(\text{masked_id}(s) &lt; \text{match}_{gd}\)</td><td>All time steps valid</td></tr>
+<tr><td><strong>Boundary</strong></td><td>\(\text{masked_id}(s) = \text{match}_{gd}\)</td><td>Valid when \(\text{idx}_{gd}(t) &lt; V_{gd}\)</td></tr>
+<tr><td><strong>Above</strong></td><td>\(\text{masked_id}(s) &gt; \text{match}_{gd}\)</td><td>Depends on mode (see below)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The \(P_{gd}\) flag selects between two modes that differ only in the “above” group:</p>
+<h4 id="standard-mode-p_gd--0"><a class="header" href="#standard-mode-p_gd--0">Standard mode (\(P_{gd} = 0\))</a></h4>
+<p>$$\text{gate}_d(s, t) = \begin{cases} 1 &amp; \text{masked_id}(s) &lt; \text{match}_{gd} \\ [\text{idx}_{gd}(t) &lt; V_{gd}] &amp; \text{masked_id}(s) = \text{match}_{gd} \\ 0 &amp; \text{masked_id}(s) &gt; \text{match}_{gd} \end{cases}$$</p>
+<p>Above-threshold slices are <strong>entirely invalid</strong>.
+This is the common case: the Slice factor is laid out in ascending order, so slices beyond the boundary contain no valid data.</p>
+<h4 id="transposed-mode-p_gd--1"><a class="header" href="#transposed-mode-p_gd--1">Transposed mode (\(P_{gd} = 1\))</a></h4>
+<p>$$\text{gate}_d(s, t) = \begin{cases} 1 &amp; \text{masked_id}(s) &lt; \text{match}_{gd} \\ [\text{idx}_{gd}(t) &lt; V_{gd}] &amp; \text{masked_id}(s) \ge \text{match}_{gd} \end{cases}$$</p>
+<p>Above-threshold slices get the <strong>same</strong> \(V_{gd}\) check as the boundary: they are not entirely invalid.
+This handles the transposed case where the slice ID encodes the <em>inner</em> index: slices beyond the boundary still contain valid data at early time steps (the outer index is small enough), and only run out of valid data at the same point as the boundary slice.</p>
+<p>To disable a gate dim (make it always valid), set \(\text{mask}_{gd} = 0, \text{match}_{gd} = 1\).
+Then \(\text{masked_id} = 0 &lt; 1\) for all slices, so every slice is in the “below” group.</p>
+<details>
+<summary>Example: Standard mode, H=5 split into Ho=4 (slice) × Hi=2 (time)</summary>
+<p>H=5 is split into <code>Ho × Hi = 4 × 2</code> (padded from 5 to 8).
+<code>Ho</code> is the Slice factor (encoded in slice-id bits), <code>Hi</code> is the Time factor (sequencer counter).
+Axis index = <code>Ho * 2 + Hi</code>. Valid when index &lt; 5.</p>
+<p>Gate dim 0 config: <code>mask=0b1100</code> (extracts 2 bits for Ho), <code>match=2</code>, <code>V_g0=1</code>, standard mode.</p>
+<p>16 slices, where <code>masked_id = (slice_id &amp; 0b1100) &gt;&gt; 2</code> gives Ho:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Ho</th><th>masked_id</th><th>Group</th><th>Hi=0</th><th>Hi=1</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>0</td><td>below (&lt; 2)</td><td>valid</td><td>valid</td></tr>
+<tr><td>1</td><td>1</td><td>below (&lt; 2)</td><td>valid</td><td>valid</td></tr>
+<tr><td>2</td><td>2</td><td>boundary (= 2)</td><td>valid (idx=0 &lt; 1)</td><td>invalid (idx=1 &gt;= 1)</td></tr>
+<tr><td>3</td><td>3</td><td>above (&gt; 2)</td><td>invalid</td><td>invalid</td></tr>
+</tbody>
+</table>
+</div>
+<p>Ho=0,1: both time steps valid (index 0-3, all &lt; 5).
+Ho=2: only first time step (index 4 &lt; 5), second invalid (index 5 &gt;= 5).
+Ho=3: fully invalid (index 6, 7 &gt;= 5).</p>
+</details>
+<details>
+<summary>Example: Transposed mode, H=5 split into Ho=4 (slice, inner) × Hi=2 (time, outer)</summary>
+<p>H=5 is split into <code>Ho × Hi = 4 × 2</code> (padded from 5 to 8), but transposed: Ho is the inner factor, Hi is the outer factor.
+Axis index = <code>Hi * 4 + Ho</code>. Valid when index &lt; 5.</p>
+<p>Gate dim 0 config: <code>match=1</code> (= 5 mod 4), <code>V_g0=1</code> (= floor(5/4)), transposed mode.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Ho</th><th>masked_id</th><th>Group</th><th>Hi=0</th><th>Hi=1</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>0</td><td>below (&lt; 1)</td><td>valid</td><td>valid</td></tr>
+<tr><td>1</td><td>1</td><td>boundary (= 1)</td><td>valid (idx=0 &lt; 1)</td><td>invalid (idx=1 &gt;= 1)</td></tr>
+<tr><td>2</td><td>2</td><td>above (&gt; 1)</td><td>valid (idx=0 &lt; 1)</td><td>invalid (idx=1 &gt;= 1)</td></tr>
+<tr><td>3</td><td>3</td><td>above (&gt; 1)</td><td>valid (idx=0 &lt; 1)</td><td>invalid (idx=1 &gt;= 1)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Verify: Ho=0, Hi=0: 0 &lt; 5, Hi=1: 4 &lt; 5, so 2 steps.
+Ho=1, Hi=0: 1 &lt; 5, Hi=1: 5 &gt;= 5, so 1 step.
+Ho=2, Hi=0: 2 &lt; 5, Hi=1: 6 &gt;= 5, so 1 step.
+Ho=3, Hi=0: 3 &lt; 5, Hi=1: 7 &gt;= 5, so 1 step.</p>
+<p>Key difference from standard: the “above” group (Ho=2,3) still gets V_g0=1 valid time steps, not zero.</p>
+</details>
+<details>
+<summary>Example: Full VCG computation for [H=5, C=5, W=19], step-by-step build-up</summary>
+<p>This example builds up from one axis to three, so each dimension’s contribution is clear.</p>
+<p>Original shape <code>[H, C, W] = [5, 5, 19]</code>.
+Each axis is split into a slice part (slice_id) and a time part (sequencer):</p>
+<pre><code class="language-text">H = 5  -&gt;  Ho(slice) * Hi(time) = 4 * 2    (padded from 5 to 8)
+C = 5  -&gt;  Co(slice) * Ci(time) = 4 * 2    (padded from 5 to 8)
+W = 19 -&gt;  Wi(packet)            = 3 * 8    (padded from 19 to 24)
+</code></pre>
+<h4 id="step-1-w19-only-packet-dim-no-gates"><a class="header" href="#step-1-w19-only-packet-dim-no-gates">Step 1: W=19 only (packet dim, no gates)</a></h4>
+<p>Ignore H and C for now. Disable gate dims 0 and 1.
+Every slice processes 3 flits (Wi limit=3), and packet dim produces the sawtooth:</p>
+<pre><code class="language-text">packet_vc:  8, 8, 3
+              ^     ^
+            full   19 - 16 = 3 (partial)
+</code></pre>
+<p>Since there are no gates, <strong>every slice gets this exact same pattern</strong>:</p>
+<pre><code class="language-text">All slices, all flits:
+flit 0: ████████  (vc=8)
+flit 1: ████████  (vc=8)
+flit 2: ███       (vc=3)
+</code></pre>
+<h4 id="step-2-add-c5-packet-dim--gate-dim-0"><a class="header" href="#step-2-add-c5-packet-dim--gate-dim-0">Step 2: Add C=5 (packet dim + gate dim 0)</a></h4>
+<p>Now enable the C-axis gate (gate dim 0).
+C=5 is split into Co(slice, 4 values) * Ci(time, limit 2).
+The C-gate uses: <code>mask=0b0011</code> (extracts Co from slice_id), <code>match=2</code>, <code>V_g0=1</code>, standard mode.</p>
+<p>Each slice now runs 6 flits: Ci (limit 2) * Wi (limit 3).
+The C-gate classifies slices by their Co value:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Co</th><th>Group</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>below (&lt; 2)</td><td>gate open: all 6 flits get packet dim’s pattern</td></tr>
+<tr><td>1</td><td>below (&lt; 2)</td><td>gate open: same</td></tr>
+<tr><td>2</td><td>boundary (= 2)</td><td>gate open for Ci=0, closed for Ci=1</td></tr>
+<tr><td>3</td><td>above (&gt; 2)</td><td>gate closed: all 6 flits get vc=0</td></tr>
+</tbody>
+</table>
+</div>
+<p>Result per slice (6 flits = 2 Ci groups * 3 Wi flits):</p>
+<pre><code class="language-text">Co=0:  [8,8,3, 8,8,3]    &lt;- both Ci steps valid
+Co=1:  [8,8,3, 8,8,3]    &lt;- same
+Co=2:  [8,8,3, 0,0,0]    &lt;- Ci=0 valid, Ci=1 gated off
+Co=3:  [0,0,0, 0,0,0]    &lt;- entirely gated off
+</code></pre>
+<p>Notice the gate’s effect: some slices go entirely to zero, and the boundary slice loses its second half.
+But within the valid flits, the <code>[8,8,3]</code> pattern from packet dim is unchanged.</p>
+<h4 id="step-3-add-h5-full-3-axis-packet-dim--gate-dim-0--gate-dim-1"><a class="header" href="#step-3-add-h5-full-3-axis-packet-dim--gate-dim-0--gate-dim-1">Step 3: Add H=5 (full 3-axis, packet dim + gate dim 0 + gate dim 1)</a></h4>
+<p>Now enable the H-axis gate (gate dim 1).
+H=5 is split into Ho(slice, 4 values) * Hi(time, limit 2).
+The H-gate uses: <code>mask=0b1100</code> (extracts Ho from slice_id), <code>match=0b1000</code>, <code>V_g1=1</code>, standard mode.</p>
+<p>Slice ID encodes both slice factors: <code>slice_id = Ho * 4 + Co</code>, giving 16 slices.
+Each slice now runs 12 flits: Hi (limit 2) * Ci (limit 2) * Wi (limit 3).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Dim</th><th>Axis</th><th>What it tracks</th><th>VCG config</th></tr>
+</thead>
+<tbody>
+<tr><td>packet</td><td>W=19</td><td>element count in packet</td><td>V_p=19, stride_p=8, counter stride=8, limit=3</td></tr>
+<tr><td>gate 0</td><td>C=5</td><td>gate: is Co within valid range?</td><td>mask=0b0011, match=2, V_g0=1, standard</td></tr>
+<tr><td>gate 1</td><td>H=5</td><td>gate: is Ho within valid range?</td><td>mask=0b1100, match=0b1000, V_g1=1, standard</td></tr>
+</tbody>
+</table>
+</div>
+<p>The H-gate classifies slices by Ho, same logic as C-gate by Co:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Ho</th><th>Group</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>below</td><td>H-gate open</td></tr>
+<tr><td>1</td><td>below</td><td>H-gate open</td></tr>
+<tr><td>2</td><td>boundary</td><td>H-gate open for Hi=0, closed for Hi=1</td></tr>
+<tr><td>3</td><td>above</td><td>H-gate closed</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <strong>final vc</strong> for each flit is <code>packet_vc(t) * C_gate(s,t) * H_gate(s,t)</code>.
+Both gates must be open for packet dim’s count to survive.</p>
+<p>The complete heatmap (16 slices * 12 flits).
+Columns are slices grouped by Ho; rows are flits grouped by (Hi, Ci).
+Right-side annotations show which gates are active for each row:</p>
+<pre><code class="language-text">                     Ho=0       |Ho=1       |Ho=2       |Ho=3
+                Co:  0  1  2  3 | 0  1  2  3| 0  1  2  3| 0  1  2  3
+  H-gate:            v  v  v  v | v  v  v  v| &gt;  &gt;  &gt;  &gt;| x  x  x  x
+  C-gate:            v  v  &gt;  x | v  v  &gt;  x| v  v  &gt;  x| v  v  &gt;  x
+--------------------------------------------------------------------------------
+ t= 0  Hi=0,Ci=0  W  8  8  8  0 | 8  8  8  0| 8  8  8  0| 0  0  0  0  H:v C:v
+ t= 1             |  8  8  8  0 | 8  8  8  0| 8  8  8  0| 0  0  0  0
+ t= 2             |  3  3  3  0 | 3  3  3  0| 3  3  3  0| 0  0  0  0
+                                |           |           |
+ t= 3  Hi=0,Ci=1  W  8  8  0  0 | 8  8  0  0| 8  8  0  0| 0  0  0  0  H:v C:&gt;
+ t= 4             |  8  8  0  0 | 8  8  0  0| 8  8  0  0| 0  0  0  0
+ t= 5             |  3  3  0  0 | 3  3  0  0| 3  3  0  0| 0  0  0  0
+                                |           |           |
+ t= 6  Hi=1,Ci=0  W  8  8  8  0 | 8  8  8  0| 0  0  0  0| 0  0  0  0  H:&gt; C:v
+ t= 7             |  8  8  8  0 | 8  8  8  0| 0  0  0  0| 0  0  0  0
+ t= 8             |  3  3  3  0 | 3  3  3  0| 0  0  0  0| 0  0  0  0
+                                |           |           |
+ t= 9  Hi=1,Ci=1  W  8  8  0  0 | 8  8  0  0| 0  0  0  0| 0  0  0  0  H:&gt; C:&gt;
+ t=10             |  8  8  0  0 | 8  8  0  0| 0  0  0  0| 0  0  0  0
+ t=11             |  3  3  0  0 | 3  3  0  0| 0  0  0  0| 0  0  0  0
+
+v = open (below threshold)   &gt; = boundary (partial)   x = closed (above)
+</code></pre>
+<p>Reading the patterns:</p>
+<ul>
+<li><strong>Ho=3 columns</strong> (rightmost 4): all 0. H-gate <code>x</code> (above threshold, always closed).</li>
+<li><strong>Co=3 columns</strong> (every 4th): all 0. C-gate <code>x</code>.</li>
+<li><strong>Co=2 columns</strong> (H:v C:<code>&gt;</code>): C-gate is boundary; only rows with Ci=0 pass. Compare Co=1 vs Co=2 to see the gate’s effect.</li>
+<li><strong>Ho=2 columns</strong> (H:<code>&gt;</code> C:v): H-gate is boundary; only rows with Hi=0 pass. Compare Ho=1 vs Ho=2.</li>
+<li><strong>Ho=2 * Co=2</strong> (both <code>&gt;</code>): only (Hi=0, Ci=0) rows pass, the intersection of both boundaries.</li>
+<li><strong>Within valid cells</strong>: the <code>[8, 8, 3]</code> sawtooth from packet dim always appears, the same regardless of slice.</li>
+</ul>
+</details>
+<h2 id="what-patterns-are-expressible"><a class="header" href="#what-patterns-are-expressible">What Patterns Are Expressible</a></h2>
+<p>The <a href="#valid-count-formula">valid count formula</a> is a product of four independent terms.
+This multiplicative structure determines which <code>vc(s, t)</code> functions the hardware can produce, and which it cannot.</p>
+<h3 id="why-limitations-arise"><a class="header" href="#why-limitations-arise">Why Limitations Arise</a></h3>
+<p>Each limitation traces back to a specific part of the formula.</p>
+<p><strong>Packet dim cannot see slice-id.</strong>
+The <a href="#packet-dim-packet-level-valid-count">packet dim formula</a> <code>packet_vc(t) = min(stride_p, max(0, V_p − idx_p(t)))</code> depends only on <code>t</code>.
+If two slices need different partial counts at the same time step, packet dim cannot produce both:</p>
+<pre><code class="language-text">Suppose we need:  vc(s=0, t=0) = 8,  vc(s=1, t=0) = 3
+                                       ───────────────
+                                       packet dim would need to output
+                                       both 8 and 3 at t=0, impossible
+</code></pre>
+<p><strong>Each gate classifies slices by a single threshold after masking.</strong>
+<a href="#gate-dims-per-flit-binary-validity">Gate dims</a> first apply a bitmask to the slice-id (<code>masked_id = slice_id &amp; mask</code>), then compare against one value <code>match</code>.
+This produces three contiguous groups: below, boundary, above.
+A gate <strong>cannot</strong> express “slices 0, 3, 7 are valid but 1, 2 are not”; it can represent only contiguous ranges of <code>masked_id</code>.
+The mask selects which bits of the slice-id to inspect, allowing one gate to track a specific axis even when the slice-id encodes multiple axes.</p>
+<p><strong>At most 4 independent checks.</strong>
+One packet count (packet dim) + three binary gates (gate dims) = 4 orthogonal dimensions total.</p>
+<h3 id="single-axis-scenarios"><a class="header" href="#single-axis-scenarios">Single-Axis Scenarios</a></h3>
+<p>A padded axis (original size <code>n</code>, padded to <code>n' &gt; n</code>) occupies some combination of <strong>Packet</strong> (<a href="#packet-dim-packet-level-valid-count">packet dim</a>), <strong>Time</strong> (<a href="#sequencer">sequencer</a>), and <strong>Slice</strong> (<a href="#gate-dims-per-flit-binary-validity">gate dims</a> via slice-id bits).</p>
+<h4 id="single-position-packet--time--slice"><a class="header" href="#single-position-packet--time--slice">Single-position: Packet / Time / Slice</a></h4>
+<p>When an axis occupies only one position, validity tracking is straightforward:</p>
+<ul>
+<li><strong>Packet only</strong> → packet dim handles the sawtooth (see <a href="#packet-dim-packet-level-valid-count">Packet Dim examples</a>).</li>
+<li><strong>Time only</strong> → <a href="#gate-dims-per-flit-binary-validity">gate dim</a> with <code>mask=0, match=0</code>: all slices are boundary, binary validity by time step.</li>
+<li><strong>Slice only</strong> → <a href="#gate-dims-per-flit-binary-validity">gate dim</a> with appropriate mask/match: all time steps within a valid slice pass, invalid slices are fully gated.</li>
+</ul>
+<p>All three are <strong>always supported</strong>.</p>
+<h4 id="slice--time"><a class="header" href="#slice--time">Slice + Time</a></h4>
+<p>One axis split between slice-id bits and sequencer counters.
+This is the VCG’s most important use case, and it is how <a href="#gate-dims-per-flit-binary-validity">gate dims</a> are typically used.</p>
+<p><strong>Standard</strong> (slice outer, time inner): axis index = <code>Ho × time_count + Hi</code>.</p>
+<details>
+<summary>Example: H=14, Ho=8 (slice) × Hi=3 (time), standard mode</summary>
+<p>Gate dim config: <code>match = ⌊14/3⌋ = 4</code>, <code>V = 14 mod 3 = 2</code>.</p>
+<pre><code class="language-text">Ho  masked_id  group       Hi=0         Hi=1         Hi=2
+──  ─────────  ─────────   ──────────   ──────────   ──────────
+0   0          below       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  always ✅
+1   1          below       always ✅     always ✅     always ✅
+2   2          below       always ✅     always ✅     always ✅
+3   3          below       always ✅     always ✅     always ✅
+4   4          boundary    idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
+5   5          above       ❌            ❌            ❌
+6   6          above       ❌            ❌            ❌
+7   7          above       ❌            ❌            ❌
+</code></pre>
+<p>Why “below” is genuinely all-valid: <code>Ho × 3 + Hi &lt; 4 × 3 = 12 ≤ 14</code> for all <code>Hi ∈ [0,3)</code>.
+Standard mode tolerates over-allocated <code>time_count</code>; the “below” interpretation remains correct.</p>
+</details>
+<p><strong>Transposed</strong> (time outer, slice inner): axis index = <code>Hi × slice_count + Ho</code>.</p>
+<details>
+<summary>Example: H=19, Ho=8 (slice, inner) × Hi=3 (time, outer), transposed mode</summary>
+<p>Gate dim config: <code>match = 19 mod 8 = 3</code>, <code>V = ⌊19/8⌋ = 2</code>, transposed mode.</p>
+<pre><code class="language-text">Ho  masked_id  group       Hi=0         Hi=1         Hi=2
+──  ─────────  ─────────   ──────────   ──────────   ──────────
+0   0          below       always ✅     always ✅     always ✅
+1   1          below       always ✅     always ✅     always ✅
+2   2          below       always ✅     always ✅     always ✅
+3   3          boundary    idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
+4   4          above       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
+5   5          above       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
+6   6          above       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
+7   7          above       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
+</code></pre>
+<p>Verify against real data (axis index = <code>Hi × 8 + Ho</code>, valid when &lt; 19):</p>
+<ul>
+<li>Ho=0, Hi=2: <code>2×8 + 0 = 16 &lt; 19</code> ✅; “below” gives all-valid = 3 steps, need <code>V+1 = 3</code> steps ✅</li>
+<li>Ho=3, Hi=2: <code>2×8 + 3 = 19 ≥ 19</code> ❌; boundary gives 2 steps ✅</li>
+<li>Ho=7, Hi=1: <code>1×8 + 7 = 15 &lt; 19</code> ✅; “above” gives V=2 steps, actual need is 2 steps ✅</li>
+</ul>
+<p><strong>Constraint</strong>: <code>time_count</code> must equal <code>⌈n / slice_count⌉</code> (= <code>V + 1</code>).
+The “below” group gets <code>time_count</code> valid steps from the HW “all-valid” interpretation.
+If <code>time_count &gt; V + 1</code>, the “below” group receives more valid steps than the data actually has.</p>
+</details>
+<h4 id="packet--time"><a class="header" href="#packet--time">Packet + Time</a></h4>
+<p>Both packet and time factors assigned to <strong>packet dim</strong>, with multiple counters contributing to <code>idx_p(t)</code> (see <a href="#original-dimensions">Original Dimensions</a>).</p>
+<details>
+<summary>Example: n=50, two counters on packet dim, contiguous (`stride_outer = 8 × 3 = 24`)</summary>
+<pre><code class="language-text">c_inner (limit=3, stride=8):  packet counter
+c_outer (limit=3, stride=24): time counter     (24 = 8 × 3 ✅ contiguous)
+
+idx_p = c_outer × 24 + c_inner × 8
+
+          c_inner=0    c_inner=1    c_inner=2
+          ─────────    ─────────    ─────────
+c_outer=0  idx_p=0→8   idx_p=8→8    idx_p=16→8
+c_outer=1  idx_p=24→8  idx_p=32→8   idx_p=40→8
+c_outer=2  idx_p=48→2  idx_p=56→0   idx_p=64→0
+                  ↑
+                  min(8, 50-48)=2
+</code></pre>
+<p>Packet dim handles both the within-flit and across-flit boundaries.</p>
+</details>
+<h4 id="slice--packet-not-supported"><a class="header" href="#slice--packet-not-supported">Slice + Packet: not supported</a></h4>
+<p>One axis split between <strong>slice</strong> (gate dim) and <strong>packet</strong> (packet dim).
+This directly violates the <strong>slice-independent packet count</strong> constraint (see <a href="#packet-dim-packet-level-valid-count">Packet Dim: Key property</a>).</p>
+<p><code>packet_vc(t)</code> depends only on <code>t</code>, but the boundary slice needs a different partial count than all-valid slices.
+The gate can multiply by 0 or 1, so it can fully close a flit but <strong>cannot change the partial count</strong>.</p>
+<details>
+<summary>Example: n=10, stride_p=8, slice_count=2</summary>
+<pre><code class="language-text">What we need:
+  Ho=0: elements 0-7,   all valid     →  vc = 8
+  Ho=1: elements 8-15,  first 2 valid →  vc = 2
+                                           ─
+                                           partial count, different from 8
+
+Attempt 1: set `V_p = 10`:
+  packet_vc = min(8, 10-0) = 8         for ALL slices
+  Ho=0:  vc = 8 × 1 = 8  ✅
+  Ho=1:  vc = 8 × 1 = 8  ❌  (need 2, not 8)
+         vc = 8 × 0 = 0  ❌  (gate can close to 0, not to 2)
+
+Attempt 2: set `V_p = 2`:
+  packet_vc = min(8, 2-0) = 2          for ALL slices
+  Ho=0:  vc = 2 × 1 = 2  ❌  (need 8, not 2)
+
+No single V_p works.  Packet dim produces one value; the gate can only multiply by 0 or 1.
+</code></pre>
+</details>
+<p><strong>Note on degenerate cases:</strong>
+When <code>n % stride_p = 0</code>, every packet is either fully valid or fully invalid, so packet dim produces no partial counts and a gate alone handles validity.
+This is effectively <strong>Slice only</strong>, not a true Slice + Packet scenario.
+Similarly, <code>n &lt;= stride_p</code> means a single flit covers the entire axis, reducing to <strong>Packet only</strong>.</p>
+<p>When the VCG cannot express the required pattern, <a href="./intra-slice-reduce.html#padding-strategy">Padding Strategy</a> alternatives are available.</p>
+<h4 id="slice--time--packet-not-supported"><a class="header" href="#slice--time--packet-not-supported">Slice + Time + Packet: not supported</a></h4>
+<p>The axis spans all three positions.
+The Slice + Packet conflict carries over: the boundary slice still needs a different partial count than all-valid slices, and <code>packet_vc(t)</code> still cannot vary by slice.</p>
+<p>The same degenerate exception applies: <code>n % stride_p = 0</code> eliminates partial counts, reducing to <strong>Slice + Time</strong> (packet dim unused).</p>
+<h3 id="multiple-axes"><a class="header" href="#multiple-axes">Multiple Axes</a></h3>
+<p>Each padded axis that needs validity tracking consumes one <a href="#original-dimensions">original dimension</a> slot:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Resource</th><th>Capacity</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><strong><a href="#packet-dim-packet-level-valid-count">Packet Dim</a></strong> (packet count)</td><td>1 slot</td><td>Innermost counter determines <code>stride_p</code></td></tr>
+<tr><td><strong><a href="#gate-dims-per-flit-binary-validity">Gate Dims</a></strong> (binary gates)</td><td>3 slots</td><td>One gate per padded axis</td></tr>
+<tr><td><strong>Unpadded axes</strong></td><td>free</td><td>No dim needed (<code>mask=0, match=1</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>When the packet axis is fully aligned (<code>n % stride_p = 0</code>), <code>packet_vc</code> is constant and packet dim is effectively unused, so it can be repurposed as a gate for another axis.</p>
+<h3 id="summary"><a class="header" href="#summary">Summary</a></h3>
+<p>A valid count function <code>vc(s, t)</code> is VCG-expressible only if:</p>
+<ol>
+<li><strong>Prefix property</strong>: Valid elements form a contiguous prefix <code>[0, vc)</code> within each flit.</li>
+<li><strong>Slice-independent packet count</strong>: <code>packet_vc(t)</code> must be the same across all slices at the same <code>t</code>.
+Slices can be gated to <code>vc = 0</code>, but cannot receive a different partial count.</li>
+<li><strong>Monotonic slice ordering</strong>: Each gate dim classifies slices by a single threshold on <code>masked_id</code>.</li>
+<li><strong>At most 4 orthogonal dimensions</strong>: 1 packet count + 3 binary gates.</li>
+</ol>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Placement</th><th>Dim</th><th>Supported?</th><th>Key constraint</th></tr>
+</thead>
+<tbody>
+<tr><td>Packet only</td><td>packet</td><td>✅</td><td>none</td></tr>
+<tr><td>Time only</td><td>gate</td><td>✅</td><td>none</td></tr>
+<tr><td>Slice only</td><td>gate</td><td>✅</td><td>none</td></tr>
+<tr><td>Slice + Time (standard)</td><td>gate</td><td>✅</td><td>none</td></tr>
+<tr><td>Slice + Time (transposed)</td><td>gate</td><td>✅</td><td><code>time_count = ⌈n / slice_count⌉</code></td></tr>
+<tr><td>Packet + Time</td><td>packet</td><td>✅</td><td>none</td></tr>
+<tr><td>Slice + Packet</td><td>packet + gate</td><td>❌</td><td><code>packet_vc(t)</code> cannot vary by slice</td></tr>
+<tr><td>Slice + Time + Packet</td><td>packet + gate</td><td>❌</td><td>same as Slice + Packet</td></tr>
+</tbody>
+</table>
+</div>
+<p>For mapping-level code examples of each placement, see <a href="./vcg-interface.html#examples">Examples</a>.
+For unsupported cases, see <a href="./intra-slice-reduce.html#padding-strategy">Padding Strategy</a>.</p>
+<h2 id="downstream-4-way-operations"><a class="header" href="#downstream-4-way-operations">Downstream: 4-Way Operations</a></h2>
+<p>VCG assigns valid counts per 8-way flit, but the VectorArithmeticUnit can operate on 4-way halves.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Operation</th><th>Input</th><th>Output</th><th>Valid Count Transformation</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>split_way4</strong></td><td>8-way flit (vc = v)</td><td>two 4-way flits</td><td><code>vc_low = min(v, 4)</code>, <code>vc_high = max(v - 4, 0)</code></td></tr>
+<tr><td><strong>trim_way4</strong></td><td>8-way flit (vc = v)</td><td>one 4-way flit</td><td><code>vc = v</code> (requires v &lt;= 4)</td></tr>
+<tr><td><strong>concat_way8</strong></td><td>two 4-way flits</td><td>8-way flit</td><td><code>vc = vc_low + vc_high</code></td></tr>
+<tr><td><strong>pad_way8</strong></td><td>4-way flit</td><td>8-way flit</td><td><code>vc</code> unchanged</td></tr>
+</tbody>
+</table>
+</div>
+<p>The prefix property is preserved through split and concat.
+For trim_way4, the constraint <code>v &lt;= 4</code> must be statically guaranteed by the mapping; if the upper 4 elements could be valid, trimming them would lose data.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../computing-tensors/vector-engine/vcg-interface.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../../computing-tensors/vector-engine/inter-slice-block.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../computing-tensors/vector-engine/vcg-interface.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../../computing-tensors/vector-engine/inter-slice-block.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../../mark-09e88c2c.min.js"></script>
+        <script src="../../searcher-c2a407aa.js"></script>
+
+        <script src="../../clipboard-1626706a.min.js"></script>
+        <script src="../../highlight-abc7f01d.js"></script>
+        <script src="../../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../../mermaid-eefea253.min.js"></script>
+        <script src="../../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

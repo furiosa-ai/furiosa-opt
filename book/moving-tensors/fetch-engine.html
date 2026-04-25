@@ -1,0 +1,831 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Fetch Engine - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e6f65180.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-3bdaffa5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="fetch-engine"><a class="header" href="#fetch-engine">Fetch Engine</a></h1>
+<p>The <a href="../computing-tensors/index.html">Tensor Unit</a> is a pipeline of engines (Switching, Collect, Contraction, Vector, Cast, Transpose, Commit) that processes tensor data.
+It cannot operate directly on tensors stored in DM: data must first be converted into a stream of fixed-size packets that flow through the compute pipeline.
+The Fetch Engine performs this conversion: it reads tensor data from DM and produces packet streams for the rest of the Tensor Unit.</p>
+<p>The Fetch Engine operates in two stages:</p>
+<ul>
+<li><strong><a href="#fetch-sequencer">Fetch Sequencer</a></strong>: Reads tensor data from DM using nested-loop configurations that define access patterns.</li>
+<li><strong><a href="#fetch-adapter">Fetch Adapter</a></strong>: Post-processes streams through masking, type conversion, and batching to produce computation-ready packets.</li>
+</ul>
+<p>Additional sections cover the <a href="#fetch-engine-and-switch-engine-interaction">interaction with the Switch Engine</a> and <a href="#performance">performance guidelines</a>.</p>
+<p>As a kernel writer, you control the <code>Time</code> and <code>Packet</code> type parameters of <code>.fetch()</code>, which determine packet size and iteration count.
+The compiler derives the sequencer loop configuration and stride calculation.
+For performance implications of <code>Packet</code> choices, see <a href="./memory-performance.html">Memory Performance</a>.</p>
+<!-- > **TODO** (jeongmin.park): 지금 API에 fetch adapter를 실행할 수 있는 방법이 있나요? -> masking, table indexing, type casting, zero point sub, batc -->
+<!-- hing 중에서, type casting/batching만 가능합니다. 나머지는 api 디자인이 필요합니다. -->
+<h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
+<p>The Fetch Engine implements a <a href="./index.html">logical tensor move</a> from DM to tensor streams:</p>
+<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
+    BeginTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet&gt;
+{
+    /// Performs fetch operation to create a fetched tensor.
+    #[primitive(BeginTensor::fetch)]
+    pub fn fetch&lt;D2: Scalar, Time2: M, Packet2: M&gt;(self) -&gt; FetchTensor&lt;'l, T, D2, Chip, Cluster, Slice, Time2, Packet2&gt;
+    where
+        D: FetchCast&lt;D2&gt;,
+    {
+        assert_eq!(Cluster::SIZE, 2, "Cluster size must be 2, got {}", Cluster::SIZE);
+        assert_eq!(Slice::SIZE, 256, "Slice size must be 256, got {}", Slice::SIZE);
+        let packet_bytes = D2::size_in_bytes_from_length(Packet2::SIZE);
+        assert_eq!(
+            packet_bytes % FETCH_ALIGN_BYTES,
+            0,
+            "Fetch output packet must be {FETCH_ALIGN_BYTES}-byte aligned, got {packet_bytes} bytes.",
+        );
+        FetchTensor::new(self.ctx, self.inner.map(|v| v.map(|v| v.cast())).transpose(true))
+    }
+}</code></pre>
+<p>The resulting <code>FetchTensor</code> represents a stream of packets flowing through the Tensor Unit pipeline.
+The mapping <code>[Chip, Cluster, Slice, Time, Packet]</code> distributes data across hardware and time.</p>
+<p><code>Time2</code> represents the temporal iteration mapping, while <code>Packet2</code> is the packet shape within each cycle.
+The output packet size must be 8-byte aligned (a multiple of the fetch sequencer’s read granularity).
+The output type <code>D2</code> supports type casting (such as <code>i8</code> to <code>i32</code>).</p>
+<p>Notice that <code>.fetch()</code> does not have an output parameter for <code>Slice</code>: each slice independently reads its own DM data, so the Slice mapping is inherited unchanged from the input <code>BeginTensor</code>.
+To redistribute data across slices, use the <a href="../computing-tensors/switch-engine.html">Switch Engine</a>.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<p>A matrix stored as 8-bit integers needs conversion to 32-bit integers for computation:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 512, B = 32];
+
+/// Fetches matrix data from DM, casting i8 to i32.
+fn fetch_matrix_example&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A, B]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i32, m![1], m![1], m![1], m![A], m![B]&gt; {
+    input.fetch()
+}
+<span class="boring">}</span></code></pre>
+<p>The input <code>BeginTensor</code> represents data in DM.
+The output <code>FetchTensor</code> represents a packet stream: 512 rows over time, each containing 32 <code>i32</code> (128 bytes).
+The compiler automatically configures the sequencer and adapter from the output type signature.
+For the <code>StreamTensor</code> type hierarchy across pipeline stages, see <a href="../mapping-tensors/memory-stream.html">Memory and Stream</a>.</p>
+<h2 id="fetch-sequencer"><a class="header" href="#fetch-sequencer">Fetch Sequencer</a></h2>
+<p>The Fetch Sequencer defines the memory access pattern: which addresses to read, in what order, and how to package the data into packets.
+Each slice executes its own sequencer independently, enabling parallel data movement.</p>
+<p>Sequencers typically use homogeneous configurations: each slice processes the same pattern on its local data partition.
+The hardware also supports heterogeneous configurations where different slices execute different access patterns simultaneously.</p>
+<h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
+<p>The sequencer has physical limits that must be respected:</p>
+<ul>
+<li><code>Chip::SIZE</code> \(=\) number of chips in the system.</li>
+<li><code>Cluster::SIZE</code> \(=\) 2 (clusters per chip).</li>
+<li><code>Slice::SIZE</code> \(=\) 256 (slices per cluster).</li>
+</ul>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>These exact-match constraints are a current limitation: the runtime operates at chip granularity (<code>#[device(chip = N)]</code>), so partial chip or cluster usage is not yet supported.
+Use the <code>#</code> padding operator (e.g., <code>m![1 # 2]</code> for a single logical cluster) to fill unused positions.
+This may be relaxed in future releases.</p>
+</blockquote>
+<ul>
+<li>Fetch addresses must be <code>1</code>-byte aligned (minimal constraint), but <code>8</code>-byte alignment is required for certain DMA operations.</li>
+<li>Depending on the context, the <code>fetch_size</code> is restricted to certain values:
+<ul>
+<li>The main-context supports a <code>fetch_size</code> of 1, 2, 4, 8, 16, or 32 bytes (see <a href="../computing-tensors/index.html#execution-contexts">main-context</a>).</li>
+<li>The sub-context supports a <code>fetch_size</code> of 4 bytes (when casting from <code>i4</code> to <code>i32</code>), or 8 bytes (otherwise) (see <a href="../computing-tensors/index.html#execution-contexts">sub-context</a>).</li>
+</ul>
+</li>
+<li><code>fetch_size</code> is determined as the largest supported divisor of <code>gcd(packet_size, contiguous_sram_access_size)</code>.
+<ul>
+<li><code>fetch_size</code> must divide <code>packet_size</code> because data fetched in a single memory read cannot be split across different packets.</li>
+<li><code>fetch_size</code> must divide <code>contiguous_sram_access_size</code> because a single memory fetch can only read physically contiguous data.</li>
+</ul>
+</li>
+</ul>
+<p>The <code>contiguous_sram_access_size</code> represents the total byte size of contiguous elements in memory that can be accessed without stride discontinuities. It is derived from the sequencer configuration by multiplying the sizes of consecutive physically contiguous entries, from the innermost to the outermost level. Two adjacent entries—an outer <code>(n1 : s1)</code> and an inner <code>(n2 : s2)</code>—are physically contiguous if <code>s1 == n2 * s2</code>.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![N = 4, C = 3, H = 4, W = 8];
+
+// Compiler-generated configuration: [
+//   N -&gt; 4 : 96,   (96 == 3 * 32,     contiguous)
+//   C -&gt; 3 : 32,   (32 == 4 * 8,      contiguous)
+//   H -&gt; 4 : 8,    (8  == 8 * 1,      contiguous)
+//   W -&gt; 8 : 1,    (packet dimension, contiguous)
+// ] : 8
+// contiguous_sram_access_size = 8 * 4 * 3 * 4 = 384
+fn fully_contiguous&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![N, C, H], m![W]&gt; {
+    input.fetch()
+}
+
+// Compiler-generated configuration: [
+//   C -&gt; 3 : 32,   (32 != 4 * 96,     NOT contiguous)
+//   N -&gt; 4 : 96,   (96 != 4 * 8,      NOT contiguous)
+//   H -&gt; 4 : 8,    (8  == 8 * 1,      contiguous)
+//   W -&gt; 8 : 1,    (packet dimension, contiguous)
+// ] : 8
+// contiguous_sram_access_size = 8 * 4 = 32
+fn three_axes_non_contiguous&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![C], m![N, H, W]&gt; {
+    input.fetch()
+}
+
+// Compiler-generated configuration: [
+//   N -&gt; 4 : 96,   (96 != 4 * 8,  NOT contiguous)
+//   H -&gt; 4 : 8,    (8  != 3 * 32, NOT contiguous)
+//   C -&gt; 3 : 32,   (32 != 8 * 1,  NOT contiguous)
+//   W -&gt; 8 : 1,    (packet dimension, contiguous)
+// ] : 8
+// contiguous_sram_access_size = 8
+fn four_axes_non_contiguous&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![N, H, C, W]&gt; {
+    input.fetch()
+}
+<span class="boring">}</span></code></pre>
+<p>For detailed information on how packet size interacts with memory access patterns and sequencer configuration, see the <a href="./sequencer.html#configuration">sequencer configuration</a>.</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>The optimal sequencer configuration is automatically generated by the compiler based on the output type of <code>fetch()</code>.
+Users <strong>do not</strong> directly specify sequencer configurations in Virtual ISA.
+Similarly, <code>fetch_size</code> and <code>contiguous_sram_access_size</code> are automatically derived by the compiler, and not directly specified by users.</p>
+</blockquote>
+<h3 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h3>
+<p>Different configurations can achieve the same tensor move with varying efficiency.
+Two key optimizations dramatically improve performance: padding packets to maximize bandwidth and interleaving tensors to combine operations.</p>
+<h4 id="padding-packets"><a class="header" href="#padding-packets">Padding Packets</a></h4>
+<p>Padding packets to full hardware bandwidth drastically reduces fetch cycles.
+The increased packet size allows the compiler to increase <code>fetch_size</code>, which reduces the number of fetch cycles needed to transfer the same amount of data.
+The following example demonstrates this effect:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 3, B = 5, C = 2];
+
+/// Smallest packet: only C dimension (2 bytes). Takes 15 cycles.
+fn fetch_packet_C&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, f8e4m3, m![1], m![1], m![1], m![1], m![A, B, C]&gt;,
+) -&gt; FetchTensor&lt;'l, T, f8e4m3, m![1], m![1], m![1], m![A, B], m![C]&gt; {
+    input.fetch()
+}
+
+/// Medium packet: B and C dimensions padded to 16 bytes. Takes 3 cycles.
+fn fetch_packet_BC&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, f8e4m3, m![1], m![1], m![1], m![1], m![A, B, C]&gt;,
+) -&gt; FetchTensor&lt;'l, T, f8e4m3, m![1], m![1], m![1], m![A], m![[B, C] # 16]&gt; {
+    input.fetch()
+}
+
+/// Largest packet: all dimensions padded to 32 bytes. Takes 1 cycle.
+fn fetch_packet_ABC&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, f8e4m3, m![1], m![1], m![1], m![1], m![A, B, C]&gt;,
+) -&gt; FetchTensor&lt;'l, T, f8e4m3, m![1], m![1], m![1], m![1], m![[A, B, C] # 32]&gt; {
+    input.fetch()
+}
+<span class="boring">}</span></code></pre>
+<p>Padding reads beyond the actual data, but this is safe because padding values do not affect computation.
+Note that different padding strategies produce different <code>FetchTensor</code> mappings, which may affect downstream components.</p>
+<h4 id="interleaving-tensors"><a class="header" href="#interleaving-tensors">Interleaving Tensors</a></h4>
+<p>Interleaving combines two tensors with identical mappings into a single sequencer operation, reducing overhead when both tensors are needed for the same computation.
+An explicit axis is introduced in the <code>Time</code> dimension to encode alternation between the two tensors.</p>
+<p>In the following example, the main context creates an interleaved tensor using <code>begin_interleaved()</code>.
+This introduces an axis <code>I = 2</code> in the <code>Time</code> dimension, which encodes alternation between the two tensors.
+The first temporal iteration fetches from <code>lhs</code>, the second iteration fetches from <code>rhs</code>,
+the third iteration fetches the next packet from <code>lhs</code>, and so on, continuing this alternating pattern.
+At most two tensors can be interleaved in a single fetch operation.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 512, B = 32, I = 2];
+
+/// Interleaves two input tensors into a single packet stream.
+/// Useful for operations like 'input1 + input2' in the Vector Engine.
+/// The interleaved BeginTensor is created via Tu.begin_interleaved().
+/// The `I = 2` axis in Time encodes alternation between the two tensors.
+fn fetch_interleaved&lt;'l&gt;(
+    ctx: &amp;'l mut Context,
+    lhs: &amp;'l DmTensor&lt;i8, m![1], m![1], m![1], m![A, B]&gt;,
+    rhs: &amp;'l DmTensor&lt;i8, m![1], m![1], m![1], m![A, B]&gt;,
+) -&gt; FetchTensor&lt;'l, { Tu::Main }, i8, m![1], m![1], m![1], m![A, I], m![B]&gt; {
+    ctx.main.begin_interleaved::&lt;I, _, _, _, _, _&gt;(lhs.view(), rhs.view()).fetch()
+}
+<span class="boring">}</span></code></pre>
+<h2 id="fetch-adapter"><a class="header" href="#fetch-adapter">Fetch Adapter</a></h2>
+<p>The Fetch Adapter transforms raw packet streams into computation-ready format through five stages: <a href="#masking">masking</a>, <a href="#table-indexing">table indexing</a>, <a href="#type-casting">type casting</a>, <a href="#zero-point-subtraction">zero-point subtraction</a>, and <a href="#batching">batching</a>.
+The <a href="../computing-tensors/index.html#execution-contexts">main-context</a> adapter supports all five stages, while <a href="../computing-tensors/index.html#execution-contexts">sub-context</a> adapters only support zero-point subtraction.</p>
+<!-- > **TODO**: Verify sub-context adapter capabilities — the Fetch Engine and Commit Engine pages disagree (Fetch Engine: zero-point subtraction only; Commit Engine: truncating and chunking only). -->
+<h3 id="sequencer-and-adapter-interaction"><a class="header" href="#sequencer-and-adapter-interaction">Sequencer and Adapter Interaction</a></h3>
+<p>The Fetch Sequencer operates with a fixed stream mapping: (<code>Slice</code>, <code>Time</code>) → <code>Packet</code>.
+It controls what memory addresses are read and how elements are packed.
+While structural transformations happen during memory access, element-wise transformations happen during adapter processing.
+To achieve a specific data layout, reshape the tensor before the sequencer reads it, then apply value-wise transformations in the adapter stage.</p>
+<!-- > **TODO** (pedro.lobo): The following example fails to convey the point above in a simple way. -->
+<p>For example, consider a tensor with <code>S = [8_a]</code>, <code>Element = a</code>, <code>Time = a ! 4</code>. Slicing can be expressed as <code>S = [4_a]</code>, <code>Element = a + 4</code>, <code>Time = a</code>. With offset consideration, <code>S = [8_a]</code>, <code>Element = a</code>, <code>Time = a @ 4</code> becomes <code>S = [8_a]</code>, <code>Element = 4 + a</code>, <code>Time = a</code>. In principle, if we reshape the tensor appropriately, all forms could be expressed this way, though the necessity of this specific approach warrants further investigation.</p>
+<h3 id="masking"><a class="header" href="#masking">Masking</a></h3>
+<p>The Tensor Unit requires data in power-of-two sizes for efficient processing, because its internal data paths operate on fixed-width units (32-byte flits containing 8 elements of 32-bit data).
+A 63-element axis must be padded to 64 elements.
+Without masking, the padded element might contain an arbitrary value that corrupts operations like <code>sum</code> or <code>max</code>.
+Masking forces padded elements to neutral values so they do not influence the result.</p>
+<p>For example, the Reducer sums elements along an axis.
+Summing 63 real elements plus 1 arbitrary padded value produces an incorrect result.
+Masking sets that padded element to zero.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 63];
+
+/// Fetches with automatic masking: pads 63 elements to 64, masking the padding.
+/// Hardware automatically masks the 64th element to zero
+/// so reduce operations compute correctly on 63 valid elements.
+fn fetch_with_masking&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A # 64]&gt; {
+    input.fetch()
+}
+<span class="boring">}</span></code></pre>
+<h4 id="masking-configuration"><a class="header" href="#masking-configuration">Masking Configuration</a></h4>
+<p>The Fetch Engine supports masking for innermost axes with padding on both sides, expressed as <code>(# n + A + # m)</code> where <code>n</code> is left padding, <code>A</code> is valid data, and <code>m</code> is right padding.
+The hardware provides three masking cases to handle different padding scenarios, each optimized for specific padding patterns and axis sizes.</p>
+<p>All masking configurations use three key parameters:</p>
+<ul>
+<li><strong><code>last_dim</code></strong>: Specifies the dimension index to apply masking to.</li>
+<li><strong><code>left_pad</code></strong>: Masks the first <code>left_pad</code> elements when the index of <code>last_dim</code> is 0.</li>
+<li><strong><code>last_dim_rightmost_valid_count[0]</code></strong>: Masks <code>dim0 - last_dim_rightmost_valid_count[0]</code> elements from the right when the <code>last_dim</code> index is the last. This value is limited to 0-255 for 4-bit types, 0-31 for <code>f32</code>, as the final packet size must not exceed 256 bytes.</li>
+</ul>
+<!-- > **TODO** (pedro.lobo): Revise masking examples, clean up images and make sure the given examples follow the ones given in the figure. -->
+<h5 id="example-padding-case-1"><a class="header" href="#example-padding-case-1">Example (Padding case 1)</a></h5>
+<p><img src="./fetch-engine-padding-1.png" alt="PADDING_1"></p>
+<ul>
+<li><code>axes![A = 32, B = 90]</code></li>
+<li><code>dtype = i8</code></li>
+<li><code>base_addr = 0</code></li>
+<li><code>Element = m![A, B # 96]</code></li>
+<li>Configuration: <code>last_dim = 1</code>, <code>lpad = 2</code>, <code>last_dim_rightmost_valid_count[0] = 4</code>, <code>pad_value = 0</code></li>
+<li>Stream mapping: <code>let B' = # 2 + B + # 4 in { Time: m![A, B' / 32], Packet: m![B' % 32] }</code></li>
+<li>Sequencer configuration: <code>[A = 32 : 96, B' / 32 = 3 : 32, B' % 32 = 32 : 1] : 32 @ base_addr = -2</code></li>
+<li>Packet size: <code>m![B' % 32]::SIZE = 32</code></li>
+<li>Cycles: <code>Time::SIZE = m![A, B' / 32]::SIZE = 32 * 3 = 96</code></li>
+<li>Result: The first 2 and last 4 values of <code>(# 2 + B + # 4)</code> are masked to <code>0</code>.</li>
+</ul>
+<h5 id="example-padding-case-2"><a class="header" href="#example-padding-case-2">Example (Padding case 2)</a></h5>
+<p>Case 2 handles the same masking as Case 1, but for non-contiguous padding regions that are split across the data.</p>
+<p><img src="./fetch-engine-padding-2.png" alt="PADDING_2"></p>
+<ul>
+<li><code>axes![A = 32, B = 90]</code></li>
+<li><code>dtype = i8</code></li>
+<li><code>base_addr = 0</code></li>
+<li><code>Element = m![A, B # 96]</code></li>
+<li>Configuration: <code>last_dim = 0</code>, <code>lpad = 2</code>, <code>last_dim_rightmost_valid_count[0] = 4</code>, <code>pad_value = 0</code></li>
+<li>Stream mapping: <code>let B' = # 2 + B + # 4 in { Time: m![B' / 32, A], Packet: m![B' % 32] }</code></li>
+<li>Sequencer configuration: <code>[B' / 32 = 3 : 32, A = 32 : 96, B' % 32 = 32 : 1] : 32 @ base_addr = -2</code></li>
+<li>Packet size: <code>m![B' % 32]::SIZE = 32</code></li>
+<li>Cycles: <code>Time::SIZE = m![A, B' / 32]::SIZE = 32 * 3 = 96</code></li>
+<li>Result: The first 2 and last 4 values of <code>(# 2 + B + # 4)</code> are masked to <code>0</code>.</li>
+</ul>
+<h5 id="example-padding-case-3"><a class="header" href="#example-padding-case-3">Example (Padding case 3)</a></h5>
+<p><img src="./fetch-engine-padding-3.png" alt="PADDING_3"></p>
+<p>Case 3 supports larger right padding values through per-index masking.
+Cases 1 and 2 limit right padding to 255 * 4-bit, but Case 3 removes this limitation:</p>
+<ul>
+<li>Each entry index <code>i</code> uses its own <code>last_dim_rightmost_valid_count[i]</code> value.</li>
+<li>Supports <code>last_dim_rightmost_valid_count[0..8]</code> when axis size is 8 or less.</li>
+</ul>
+<p>Consider the following:</p>
+<ul>
+<li><code>axes![A = 32, B = 97]</code></li>
+<li><code>dtype = f32</code></li>
+<li><code>base_addr = 0</code></li>
+<li><code>Element = m![A, B # 128]</code></li>
+<li>Stream mapping: <code>let B' = B + # 31 in { Time: m![A, B' / 16, 1], Packet: m![B' % 16] }</code></li>
+<li>Sequencer configuration: <code>[A = 32 : 128, B' / 16 = 8 : 16, 1 = 1 : 0, B' % 16 = 16 : 1] : 16 @ base_addr = -2</code></li>
+<li>Packet size: <code>m![B' % 16]::SIZE = 16</code></li>
+<li>Cycles: <code>Time::SIZE = m![A, B' / 32]::SIZE = 32 * 8 = 256</code></li>
+<li>Configuration: <code>last_dim_rightmost_valid_count_dim = 1</code>, <code>last_dim = 2</code>, <code>last_dim_rightmost_valid_count[0..8] = [16, 16, 16, 16, 16, 16, 1, 0]</code>, <code>pad_value = 0</code></li>
+<li>Result: Of <code>(B # 31)</code>, 97 elements are valid and 31 are masked as invalid.</li>
+</ul>
+<h3 id="table-indexing"><a class="header" href="#table-indexing">Table Indexing</a></h3>
+<p>Some operations cannot be efficiently implemented with standard arithmetic.
+Non-linear activation functions like Sigmoid and GeLU require expensive approximations, and certain quantization schemes use custom encoding tables.</p>
+<p>Table indexing provides hardware-accelerated lookup tables during the fetch stage.
+Each value is treated as an index into a pre-configured table, and the corresponding table entry is output instead.
+This enables:</p>
+<ul>
+<li><strong>Non-linear activations</strong>: Implement Sigmoid, GeLU, and other functions through pre-computed lookup tables.</li>
+<li><strong>Custom type casting</strong>: Translate specialized encodings like <code>MXFP4</code> to standard formats using conversion tables.</li>
+</ul>
+<!-- > **TODO** (pedro.lobo): Remove `ignore` from code block. There is currently no way to represent table indexing in the API. -->
+<pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 8];
+
+/// Fetches with table lookup: each input value indexes into a pre-configured table.
+/// Input [0, 1, 2, 3, 4, 5, 6, 7] with table[x] = 2*x
+/// Output [0, 2, 4, 6, 8, 10, 12, 14]
+fn fetch_with_table&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt;,
+    table: &amp;LookupTable&lt;i8, i8&gt;,
+) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt; {
+    input.fetch_with_table(table)
+}</code></pre>
+<!-- TODO: document how the lookup table is loaded into TCP hardware; clarify compilation path for the example above. -->
+<h4 id="performance"><a class="header" href="#performance">Performance</a></h4>
+<!-- > **TODO**: Explain performance regression caused by Table Indexing. There are scenarios where table indexing may introduce latency or throughput penalties that should be documented. -->
+<p>Table indexing can introduce performance overhead compared to direct memory fetches. Key considerations include:</p>
+<ul>
+<li>Additional latency for table lookup operations</li>
+<li>Potential bandwidth limitations when lookup tables are accessed</li>
+<li>Impact on pipeline throughput when table access becomes a bottleneck</li>
+</ul>
+<h3 id="type-casting"><a class="header" href="#type-casting">Type Casting</a></h3>
+<p>The Fetch Adapter converts element types as data streams from DM, enabling computation on data stored at lower precision than the compute pipeline requires.</p>
+<p>RNGD supports the following conversions:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Output</th></tr>
+</thead>
+<tbody>
+<tr><td><code>i4</code></td><td><code>i5</code>, <code>i32</code></td></tr>
+<tr><td><code>i8</code></td><td><code>i9</code>, <code>i32</code></td></tr>
+<tr><td><code>i16</code></td><td><code>i32</code></td></tr>
+<tr><td><code>f8e4m3</code></td><td><code>f32</code></td></tr>
+<tr><td><code>f8e5m2</code></td><td><code>f32</code></td></tr>
+<tr><td><code>bf16</code></td><td><code>f32</code></td></tr>
+<tr><td><code>f16</code></td><td><code>f32</code></td></tr>
+<tr><td><code>f32</code></td><td><code>bf16</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>RNGD-S supports the following additional type conversions:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Output</th></tr>
+</thead>
+<tbody>
+<tr><td><code>i4</code></td><td><code>i9</code></td></tr>
+<tr><td><code>i16</code></td><td><code>i9</code></td></tr>
+<tr><td><code>f8e4m3</code></td><td><code>bf16</code></td></tr>
+<tr><td><code>f8e5m2</code></td><td><code>bf16</code></td></tr>
+</tbody>
+</table>
+</div>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 8];
+
+/// Fetches with type casting: converts i8 storage to i32 for computation.
+/// Input:   i8 [0, 1, 2, 3, 4, 5, 6, 7]
+/// Output: i32 [0, 1, 2, 3, 4, 5, 6, 7]
+fn fetch_with_type_cast&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i32, m![1], m![1], m![1], m![1], m![A]&gt; {
+    input.fetch()
+}
+<span class="boring">}</span></code></pre>
+<h4 id="constraints-1"><a class="header" href="#constraints-1">Constraints</a></h4>
+<p>Type casting requires the data produced by a single fetch operation to not exceed 32 bytes.</p>
+<p>This constraint exists as Fetch Engine packets are forwarded through the <a href="../computing-tensors/switch-engine.html">Switch Engine</a> and <a href="../computing-tensors/collect-engine.html">Collect Engine</a>, which normalizes packets into flits (flow control units) for the Compute Engine.
+Each flit is 32 bytes (single-channel mode) or 64 bytes (dual-channel mode).</p>
+<p>The 32-byte limit avoids flit overflow.
+See <a href="#fetch-engine-and-switch-engine-interaction">Fetch Engine and Switch Engine Interaction</a> for more details.</p>
+<p>Consider the following examples:</p>
+<ul>
+<li>
+<p><strong>Valid</strong>: <code>i4</code> to <code>i32</code> conversion with a <code>fetch_size</code> of 4 bytes</p>
+<ul>
+<li>Fetches 4 bytes (8 elements of <code>i4</code>)</li>
+<li>Produces 32 bytes (8 elements of <code>i32</code>)</li>
+<li>Output size: 32 bytes ✓</li>
+</ul>
+</li>
+<li>
+<p><strong>Invalid</strong>: <code>i4</code> to <code>i32</code> conversion with a <code>fetch_size</code> of 8 bytes</p>
+<ul>
+<li>Fetches 8 bytes (16 elements of <code>i4</code>)</li>
+<li>Produces 64 bytes (16 elements of <code>i32</code>)</li>
+<li>Output size: 64 bytes ✗ (exceeds 32-byte limit)</li>
+</ul>
+</li>
+<li>
+<p><strong>Invalid</strong>: <code>i8</code> to <code>i32</code> conversion with a <code>fetch_size</code> of 16 bytes</p>
+<ul>
+<li>Fetches 16 bytes (16 elements of <code>i8</code>)</li>
+<li>Produces 64 bytes (16 elements of <code>i32</code>)</li>
+<li>Output size: 64 bytes ✗ (exceeds 32-byte limit)</li>
+</ul>
+</li>
+</ul>
+<p>This constraint affects the allowed <code>fetch_size</code> values in <a href="../computing-tensors/index.html#execution-contexts">sub-context</a> operations:</p>
+<ul>
+<li>When casting from <code>i4</code> to <code>i32</code>, <code>fetch_size</code> must be 4 bytes.</li>
+<li>For other conversions, <code>fetch_size</code> must be 8 bytes.</li>
+</ul>
+<h3 id="zero-point-subtraction"><a class="header" href="#zero-point-subtraction">Zero-Point Subtraction</a></h3>
+<p>Quantization schemes are either symmetric (centered around zero) or asymmetric (shifted by an offset called the zero-point).
+Asymmetric quantization represents data ranges more efficiently but requires subtracting the zero-point before computation.
+When converting from quantized integers to computation types, the hardware can simultaneously subtract this offset.</p>
+<!-- > **TODO** (pedro.lobo): Remove `ignore` from code block. There is currently no way to represent zero-point subtraction in the API. -->
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 8];
+
+/// Fetches with zero-point subtraction for asymmetric quantization.
+/// Input:   i8 [0, 1, 2, 3, 4, 5, 6, 7], with zero_point = 10
+/// Output: i32 [-10, -9, -8, -7, -6, -5, -4, -3]
+fn fetch_with_zero_point&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt;,
+    zero_point: i8,
+) -&gt; FetchTensor&lt;'l, T, i32, m![1], m![1], m![1], m![1], m![A]&gt; {
+    input.fetch_with_zero_point(zero_point)
+}</code></pre>
+<p>Interleaving fetches enable subtracting different zero points from each tensor.
+This is useful when combining tensors with different quantization parameters.</p>
+<!-- > **TODO** (pedro.lobo): Remove `ignore` from code block. There is currently no way to represent zero-point subtraction in the API. -->
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![A = 8, I = 2];
+
+/// Fetches interleaved tensors with different zero points per tensor.
+/// Input1: [0, 1, 2, 3, 4, 5, 6, 7], with zero_point = 100
+/// Input2: [0, 1, 2, 3, 4, 5, 6, 7], with zero_point = -100
+/// Output interleaved: [-100, -99, ..., 100, 101, ...]
+fn fetch_interleaved_with_zero_points&lt;'l, const T: Tu, const I: Ident&gt;(
+    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![I], m![A]&gt;,
+    zero_points: [i8; 2],
+) -&gt; FetchTensor&lt;'l, T, i32, m![1], m![1], m![1], m![I], m![A]&gt; {
+    input.fetch_with_zero_points(zero_points)
+}</code></pre>
+<h3 id="batching"><a class="header" href="#batching">Batching</a></h3>
+<p>Memory systems have a minimum efficient transfer size to make full use of each memory access.
+When a tensor’s natural packet size is smaller than this threshold, fetching each packet individually wastes bandwidth.
+Batching combines multiple small packets into a single larger transfer by grouping consecutive time steps: the <code>fetches_per_packet</code> value determines how many individual fetches are combined into one packet.
+With a <code>fetch_size</code> of 8 bytes and <code>fetches_per_packet</code> of 5, the adapter groups 5 fetches together to create a single 40-byte packet.</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>The <code>fetches_per_packet</code> value is derived by the compiler, from the output type of <code>fetch()</code>.
+Users <strong>do not</strong> directly specify <code>fetches_per_packet</code>.</p>
+</blockquote>
+<blockquote class="blockquote-tag blockquote-tag-tip">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
+<p>Prefer fetching large packets directly from DM using the Fetch Sequencer.
+Use Fetch Adapter batching only when large packets cannot be retrieved in one cycle due to memory layout constraints, such as a 24-byte packet spread across three non-contiguous 8-byte locations.</p>
+</blockquote>
+<p>The total number of cycles required to fetch the data is:
+$$
+\text{#cycles} = \texttt{Time:SIZE} \times \text{ceil}\left({\frac{\texttt{Packet::SIZE}}{\texttt{fetch_size}}}\right)
+$$</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_visa_std;
+</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>axes![N = 4, C = 3, H = 4, W = 8];
+
+/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
+/// contiguous_sram_access_size = m![N, C, H, W]::SIZE = 384
+/// packet_size = 8 bytes
+/// fetch_size = gcd(packet_size, contiguous_sram_access_size) = 8 bytes
+/// batching_factor (fetches_per_packet) = packet_size / fetch_size = 1
+/// #cycles = 48
+fn fetch_batch_1&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C, H], m![W]&gt; {
+    input.fetch()
+}
+
+/// Sequencer config: [N = 4 : 96, C = 3 : 32, H / 2 = 2 : 16, H % 2 = 2 : 8, W = 8 : 1].
+/// contiguous_sram_access_size = m![N, C, H / 2, H % 2, W]::SIZE = 384
+/// packet_size = 16 bytes
+/// fetch_size = gcd(packet_size, contiguous_sram_access_size) = 16 bytes
+/// batching_factor (fetches_per_packet) = packet_size / fetch_size = 1
+/// #cycles = 24
+fn fetch_batch_2&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C, H / 2], m![H % 2, W]&gt; {
+    input.fetch()
+}
+
+/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
+/// contiguous_sram_access_size = m![N, C, H, W]::SIZE = 384
+/// packet_size = 32 bytes
+/// fetch_size = gcd(packet_size, contiguous_sram_access_size) = 32 bytes
+/// batching_factor (fetches_per_packet) = packet_size / fetch_size = 32 / 32 = 1
+/// #cycles = 12
+fn fetch_batch_3&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C], m![H, W]&gt; {
+    input.fetch()
+}
+
+/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
+/// contiguous_sram_access_size = m![N, C, H, W]::SIZE = 384
+/// packet_size = 96 bytes
+/// fetch_size = gcd(packet_size, contiguous_sram_access_size) = 32 bytes
+///   fetch_size should be in {1, 2, 4, 8, 16, 32}
+/// batching_factor (fetches_per_packet) = packet_size / fetch_size = 96 / 32 = 3
+/// #cycles = 12
+fn fetch_batch_4&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N], m![C, H, W]&gt; {
+    input.fetch()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="constraints-2"><a class="header" href="#constraints-2">Constraints</a></h3>
+<ul>
+<li>The output packet size must be 8-byte aligned (a multiple of the fetch sequencer’s read granularity).</li>
+<li>The <code>Time</code> dimension size must be divisible by the batching factor.</li>
+<li>Type conversion is limited to specific type pairs (see <a href="#type-casting">Type Casting</a>).</li>
+<li>Zero-point values must fit within the target data type’s representable range.</li>
+<li>The underlying sequencer produces base packets of 1, 2, 4, 8, 16, or 32 bytes (see <a href="./sequencer.html#constraints">Sequencer Constraints</a>).</li>
+</ul>
+<h2 id="fetch-engine-and-switch-engine-interaction"><a class="header" href="#fetch-engine-and-switch-engine-interaction">Fetch Engine and Switch Engine Interaction</a></h2>
+<p>After batching, Fetch Engine packets are forwarded to the <a href="../computing-tensors/switch-engine.html">Switch Engine</a>, where data is routed through an interconnect network of slices.
+A network topology determines the distribution pattern of packets between slices.
+The packet passes through the Switch Engine unchanged.</p>
+<p>After switching, the <a href="../computing-tensors/collect-engine.html">Collect Engine</a> normalizes packets to 32-byte <em>flits</em> (flow control units used by all downstream engines).
+The Collect Engine pads packets that are not divisible by the flit size (32 bytes) with zeros.
+For example, for <code>fetch_size = 8</code> bytes and <code>fetches_per_packet = 5</code>, the Fetch Adapter batches 5 fetches together, producing a 40-byte packet.
+Since it is not 32-byte aligned, the Collect Engine adds 24 bytes of zero padding, producing a 64-byte packet (2 flits).</p>
+<p>The hardware operates over <strong>flits</strong> (flow control units), which are the physical unit of data transfer.
+The Tensor Unit has two Switch Engines (one for each context), each with a 32-byte data width.
+Throughput and flit size depend on the configured mode:</p>
+<ul>
+<li><strong>Single channel mode</strong>: A single flit has 32 bytes. Half of the available bandwidth is used.</li>
+<li><strong>Dual channel mode</strong>: The main and sub contexts are combined to produce 64-byte flits. Dual channel mode requires explicit configuration. The compiler does not generate it automatically.</li>
+</ul>
+<p>Forwarding 32-byte aligned packets from the Fetch Engine avoids wasted bandwidth in the Collect Engine.
+An unaligned packet requires padding: for example, for a 20-byte packet, \(\frac{32 - 20}{32} \approx 37.5\%\) of the flit payload is unused.</p>
+<blockquote class="blockquote-tag blockquote-tag-tip">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
+<p>Prefer 32-byte aligned packets over unaligned ones.</p>
+</blockquote>
+<h2 id="performance-1"><a class="header" href="#performance-1">Performance</a></h2>
+<h3 id="memory-bandwidth"><a class="header" href="#memory-bandwidth">Memory Bandwidth</a></h3>
+<p>Peak DM bandwidth is 256 B/cycle with proper DMN interleaving (see <a href="./memory-performance.html#optimizing-dma-performance">Memory Performance</a> for the interleaving technique).
+Contiguous accesses enable parallel bank access; distributing fetches across slices maximizes parallelism.
+See <a href="./memory-performance.html">Memory Performance</a> for optimization strategies.</p>
+<h3 id="adapter-overhead"><a class="header" href="#adapter-overhead">Adapter Overhead</a></h3>
+<p>Each adapter stage adds minimal latency: batching must accumulate <code>fetches_per_packet</code> packets, type conversion takes 1–2 cycles.</p>
+<h3 id="bank-starvation"><a class="header" href="#bank-starvation">Bank Starvation</a></h3>
+<p>The Fetch Engine shares DM bank access with Commit and DMA Engines.
+Fetch operations have higher priority than DMA, but consecutive accesses to the same bank (64+ accesses) can starve the DMA Engine.
+The compiler prevents this by avoiding concurrent scheduling of problematic patterns.
+See <a href="./memory-performance.html#bank-starvation-prevention-strategy">Bank Starvation</a> for details.</p>
+<h3 id="dual-channel-mode-benefits"><a class="header" href="#dual-channel-mode-benefits">Dual Channel Mode Benefits</a></h3>
+<p>When both main and sub contexts are available:</p>
+<ul>
+<li>Bandwidth doubles to 64 bytes per cycle</li>
+<li>Fetch cycles halve for large transfers</li>
+<li>Trade-off: sub-context unavailable for independent operations</li>
+</ul>
+<h3 id="packet-alignment"><a class="header" href="#packet-alignment">Packet Alignment</a></h3>
+<p>Prefer 32-byte aligned packets over unaligned ones.
+See <a href="#fetch-engine-and-switch-engine-interaction">Fetch Engine and Switch Engine Interaction</a> for more details.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../moving-tensors/sequencer.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../moving-tensors/commit-engine.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../moving-tensors/sequencer.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../moving-tensors/commit-engine.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

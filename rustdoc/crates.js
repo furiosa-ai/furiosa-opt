@@ -1,0 +1,2 @@
+window.ALL_CRATES = ["cargo_furiosa_opt","furiosa_mapping","furiosa_mapping_macro","furiosa_mapping_types","furiosa_opt_driver","furiosa_opt_macro","furiosa_visa_examples","furiosa_visa_std"];
+//{"start":21,"fragment_lengths":[19,18,24,24,21,20,24,19]}
