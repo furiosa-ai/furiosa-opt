@@ -21,7 +21,18 @@ furiosa-opt/
 
 ## Setup
 
-Install Rust nightly via [rustup](https://www.rust-lang.org/tools/install).
+`cargo-furiosa-opt` is a [rustc driver](https://rustc-dev-guide.rust-lang.org/rustc-driver/intro.html) and is ABI-locked to a specific rustc nightly. Install the matching toolchain (also pinned in [`rust-toolchain.toml`](rust-toolchain.toml)) and the binary via [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall):
+
+```bash
+rustup toolchain install nightly-2025-12-12
+cargo binstall cargo-furiosa-opt
+```
+
+Then invoke as a cargo subcommand (rustup sets `LD_LIBRARY_PATH` so the driver finds `librustc_driver-*.so`):
+
+```bash
+cargo furiosa-opt test --test mnist_tests
+```
 
 ## Build and Test
 
@@ -45,26 +56,18 @@ make mdbook-test      # test code blocks in mdbook
 
 ### `furiosa-rust-analyzer-proxy`
 
-![furiosa-rust-analyzer-proxy demo](assets/furiosa-rust-analyzer-proxy-demo.png)
-
-We also provides `furiosa-rust-analyzer-proxy` to improve your developer experience. It converts hard-to-read mappiing types like 
-`Pair<Stride<Symbol<K, _>, 8>, Modulo<Symbol<N, _>, 128>>` into a mapping expression `m![K / 8, N % 128]` for better readability.
-
-To use it, download the binary from [GitHub Releases](https://github.com/furiosa-ai/furiosa-opt/releases) (`furiosa-rust-analyzer-proxy-x86_64-unknown-linux-gnu`),
-then setup IDE to use proxy as a rust-analyzer.
-
-e.g. In VSCode, add the following to your `settings.json`:
+A rust-analyzer wrapper that rewrites mapping types like `Pair<Stride<Symbol<K, _>, 8>, Modulo<Symbol<N, _>, 128>>` into the more readable `m![K / 8, N % 128]`. Download the [release binary](https://github.com/furiosa-ai/furiosa-opt/releases) and point your IDE at it; e.g. in VSCode `settings.json`:
 
 ```jsonc
 {
   "rust-analyzer.server.path": "/usr/local/bin/furiosa-rust-analyzer-proxy",
-  // Optional; Recommended for better transformation
-  "rust-analyzer.inlayHints.maxLength": null
+  "rust-analyzer.inlayHints.maxLength": null  // recommended
 }
 ```
 
-By default, the proxy uses `rust-analyzer` found in `PATH` as the upstream server.
-To specify a custom `rust-analyzer` path, set the `FURIOSA_RUST_ANALYZER_PROXY_UPSTREAM` environment variable.
+The proxy delegates to `rust-analyzer` from `PATH` by default; override with `FURIOSA_RUST_ANALYZER_PROXY_UPSTREAM`.
+
+![furiosa-rust-analyzer-proxy demo](assets/furiosa-rust-analyzer-proxy-demo.png)
 
 ## License
 

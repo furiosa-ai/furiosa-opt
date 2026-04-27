@@ -359,6 +359,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "divisors_fixed"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f6cb45900ce66bd90f092a3bec7a5579ed5404654fa0016f5ea7e8aec4ae708"
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -422,6 +428,7 @@ name = "furiosa-mapping"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
+ "furiosa-mapping-impl",
  "furiosa-mapping-macro",
  "furiosa-mapping-types",
  "furiosa-opt-macro",
@@ -430,6 +437,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde_json",
+]
+
+[[package]]
+name = "furiosa-mapping-impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "divisors_fixed",
+ "furiosa-mapping-types",
+ "itertools 0.14.0",
 ]
 
 [[package]]

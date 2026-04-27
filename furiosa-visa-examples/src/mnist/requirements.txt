@@ -1,3 +1,4 @@
 torch
 torchvision
 safetensors
+# furiosa-torch is optional (--device npu); install from source, see README.md

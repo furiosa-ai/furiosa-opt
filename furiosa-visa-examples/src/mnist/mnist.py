@@ -24,17 +24,46 @@ TRANSFORM = transforms.Compose([
 ])
 
 
+KERNEL = DIR.parents[2] / "target" / "furiosa-opt" / "kernel" / "furiosa-visa-examples" / "mnist__forward.edf"
+
+
 class Model(nn.Module):
     """784 → 256 (ReLU) → 10. Must match VISA kernel in mod.rs."""
+    OP = "furiosa::mnist"
+    EDF = None
 
-    def __init__(self):
+    def __init__(self, device="cpu"):
         super().__init__()
         self.fc1 = nn.Linear(784, 256)
         self.fc2 = nn.Linear(256, 10)
+        if device == "npu":
+            from furiosa.torch._C import ir
+            from furiosa.torch import EdfModule, set_fusion
+            set_fusion(8)
+            Model.EDF = EdfModule(ir.Edf.deserialize(KERNEL.read_bytes()))
+            Model.EDF.to("furiosa:0")
 
     def forward(self, x):
-        return F.linear(F.relu(F.linear(x.view(-1, 784), self.fc1.weight, self.fc1.bias)),
-                        self.fc2.weight, self.fc2.bias)
+        return torch.ops.furiosa.mnist(
+            x, self.fc1.weight, self.fc1.bias, self.fc2.weight, self.fc2.bias,
+        )
+
+    @staticmethod
+    def cpu(x, w1, b1, w2, b2):
+        return F.linear(F.relu(F.linear(x.view(-1, 784), w1, b1)), w2, b2)
+
+    @staticmethod
+    def npu(x, w1, b1, w2, b2):
+        x_pad  = F.pad(x.view(-1, 784), (0, 16)).bfloat16().squeeze(0)
+        w1_pad = F.pad(w1, (0, 16)).bfloat16()
+        w2_pad = F.pad(w2, (0, 0, 0, 6)).bfloat16()
+        b2_pad = F.pad(b2, (0, 6)).bfloat16()
+        return Model.EDF(x_pad, w1_pad, b1.bfloat16(), w2_pad, b2_pad)[0][:10].float().unsqueeze(0)
+
+
+torch.library.define(Model.OP, "(Tensor x, Tensor w1, Tensor b1, Tensor w2, Tensor b2) -> Tensor")
+torch.library.impl(Model.OP, "CompositeImplicitAutograd")(Model.cpu)
+torch.library.impl(Model.OP, "PrivateUse1")(Model.npu)
 
 
 def mnist(train: bool):
@@ -110,18 +139,23 @@ def render(i, img, logits, lbl):
     return pred
 
 
-def infer(n=10):
+def infer(n=10, device="cpu"):
     tensors = load_file(str(OUT))
-    model = Model()
+    model = Model(device=device)
     model.fc1.weight.data = tensors["fc1.weight"].float()
     model.fc1.bias.data   = tensors["fc1.bias"].float()
     model.fc2.weight.data = tensors["fc2.weight"].float()
     model.fc2.bias.data   = tensors["fc2.bias"].float()
     model.eval()
 
+    if device == "npu":
+        model = model.to("furiosa:0")
+
     correct = 0
     for i in range(n):
         img = tensors[f"image_{i}"].float()
+        if device == "npu":
+            img = img.to("furiosa:0")
         lbl = tensors[f"label_{i}"].item()
         logits = model(img.unsqueeze(0))
         if render(i, img, logits, lbl) == lbl:
@@ -132,9 +166,10 @@ def infer(n=10):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("cmd", nargs="?", default="all", choices=["all", "infer"])
+    p.add_argument("--device", default="cpu", choices=["cpu", "npu"])
     args = p.parse_args()
 
     if args.cmd == "all":
         model = train()
         export(model)
-    infer()
+    infer(device=args.device)
