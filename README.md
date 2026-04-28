@@ -21,17 +21,30 @@ furiosa-opt/
 
 ## Setup
 
+### Prerequisites
+
+Ubuntu (jammy / noble / resolute):
+
+```bash
+sudo apt install libclang-dev gcc-aarch64-linux-gnu
+```
+
+- `libclang-dev` — `furiosa-visa-std/build.rs` runs `bindgen`, which loads `libclang.so`.
+- `gcc-aarch64-linux-gnu` — `aarch64-linux-gnu-{gcc,as,ld,objcopy}` are invoked when the compiler produces NPU device binaries (`*.bin`).
+
 `cargo-furiosa-opt` is a [rustc driver](https://rustc-dev-guide.rust-lang.org/rustc-driver/intro.html) and is ABI-locked to a specific rustc nightly. Install the matching toolchain (also pinned in [`rust-toolchain.toml`](rust-toolchain.toml)) and the binary via [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall):
 
 ```bash
 rustup toolchain install nightly-2025-12-12
+
+cargo install cargo-binstall
 cargo binstall cargo-furiosa-opt
 ```
 
-Then invoke as a cargo subcommand (rustup sets `LD_LIBRARY_PATH` so the driver finds `librustc_driver-*.so`):
+Run as a cargo subcommand:
 
 ```bash
-cargo furiosa-opt test --test mnist_tests
+cargo furiosa-opt test --test mnist_tests   # set FURIOSA_OPT_NPUS=<chip>[,<chip>...] to pick non-default chips
 ```
 
 ## Build and Test
@@ -56,12 +69,12 @@ make mdbook-test      # test code blocks in mdbook
 
 ### `furiosa-rust-analyzer-proxy`
 
-A rust-analyzer wrapper that rewrites mapping types like `Pair<Stride<Symbol<K, _>, 8>, Modulo<Symbol<N, _>, 128>>` into the more readable `m![K / 8, N % 128]`. Download the [release binary](https://github.com/furiosa-ai/furiosa-opt/releases) and point your IDE at it; e.g. in VSCode `settings.json`:
+A rust-analyzer wrapper that rewrites mapping types like `Pair<Stride<Symbol<K>, 8>, Modulo<Symbol<N>, 128>>` into the more readable `m![K / 8, N % 128]`. Download the [release binary](https://github.com/furiosa-ai/furiosa-opt/releases) and point your IDE at it; e.g. in VSCode `settings.json`:
 
 ```jsonc
 {
   "rust-analyzer.server.path": "/usr/local/bin/furiosa-rust-analyzer-proxy",
-  "rust-analyzer.inlayHints.maxLength": null  // recommended
+  "rust-analyzer.inlayHints.maxLength": null  // recommended to reduce '_' truncation
 }
 ```
 

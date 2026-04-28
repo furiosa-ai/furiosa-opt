@@ -2,8 +2,11 @@ fn main() {
     let target = std::env::var("TARGET").unwrap();
     let dir = format!("{}/vendor/{target}", env!("CARGO_MANIFEST_DIR"));
     let header = format!("{dir}/device_runtime.h");
+    let so = format!("{dir}/libdevice_runtime.so");
 
-    println!("cargo:rustc-env=DEVICE_RUNTIME_SO={dir}/libdevice_runtime.so");
+    println!("cargo:rerun-if-changed={header}");
+    println!("cargo:rerun-if-changed={so}");
+    println!("cargo:rustc-env=DEVICE_RUNTIME_SO={so}");
 
     bindgen::Builder::default()
         .header(header)

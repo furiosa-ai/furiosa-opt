@@ -13,19 +13,28 @@ fn main() {
     if is_public {
         std::fs::create_dir_all(impl_target_dir.join("release")).expect("failed to create impl target dir");
 
-        let url_output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg("curl -fsSL https://api.github.com/repos/furiosa-ai/furiosa-opt/releases/latest | jq -r '.assets[] | select(.name | contains(\"libfuriosa_mapping_impl\")) | .browser_download_url'")
+        let api = std::process::Command::new("curl")
+            .args([
+                "-fsSL",
+                "https://api.github.com/repos/furiosa-ai/furiosa-opt/releases/latest",
+            ])
             .output()
             .expect("failed to query GitHub releases");
-        assert!(url_output.status.success(), "failed to get release URL from GitHub");
-
-        let url = String::from_utf8(url_output.stdout).unwrap();
-        let url = url.trim();
-        assert!(
-            !url.is_empty(),
-            "could not find libfuriosa_mapping_impl asset in latest release"
-        );
+        assert!(api.status.success(), "failed to get release info from GitHub");
+        let body = String::from_utf8(api.stdout).unwrap();
+        let url = body
+            .split("\"browser_download_url\":")
+            .skip(1)
+            .map(|chunk| {
+                chunk
+                    .trim_start()
+                    .trim_start_matches('"')
+                    .split('"')
+                    .next()
+                    .unwrap_or("")
+            })
+            .find(|u| u.contains("libfuriosa_mapping_impl"))
+            .expect("could not find libfuriosa_mapping_impl asset in latest release");
 
         let status = std::process::Command::new("curl")
             .args(["-fsSL", url, "-o"])
