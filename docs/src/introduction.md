@@ -1,14 +1,14 @@
 # Introduction
 
-
 FuriosaAI's Tensor Contraction Processor (TCP) is a massively parallel AI accelerator targeting inference workloads.
-High-level frameworks such as PyTorch and XLA abstract away memory layouts and hardware scheduling, but give programmers no control over either.
-Low-level kernel APIs give fine-grained control, but require reasoning in bytes and hardware addresses rather than tensors.
-TCP's **Virtual Instruction Set Architecture (Virtual ISA)** bridges this gap: it lets programmers think in terms of tensors while directly managing memory allocation and tensor unit scheduling.
-This manual explains TCP programming through the Virtual ISA.
+Unlike high-level frameworks like PyTorch and XLA, which abstract away memory layouts and hardware scheduling, TCP exposes direct programmer control without requiring the byte-level reasoning of low-level kernel APIs.
 
-The manual walks through concrete examples, targeting two audiences: programmers writing Virtual ISA directly and compiler developers generating it.
-Basic Rust familiarity is assumed; see [the language manual](https://doc.rust-lang.org/book/) if needed.
+TCP's Virtual Instruction Set Architecture (Virtual ISA, or vISA) is the programming interface that exposes this control.
+It lets programmers reason in tensors while directly managing memory allocation and tensor unit scheduling.
+This manual introduces that interface, targeting two audiences: programmers writing vISA directly and compiler developers generating it.
+Both audiences assume basic Rust familiarity.
+See [the language manual](https://doc.rust-lang.org/book/) if needed.
+
 > [!WARNING]
 > **Alpha Test Build: Experimental Software**
 >
@@ -20,153 +20,144 @@ Basic Rust familiarity is assumed; see [the language manual](https://doc.rust-la
 
 ## Installation
 
-Install two dependencies:
+Install three pieces:
 
-- **Rust**: Follow the [official guide](https://doc.rust-lang.org/book/ch01-01-installation.html#installation).
-- **Furiosa SDK**: Follow the [SDK documentation](https://developer.furiosa.ai/latest/en/).
+1. **Rust toolchain (pinned)**: the Furiosa optimizer is a rustc driver, ABI-locked to a specific nightly.
+
+   ```bash
+   rustup toolchain install nightly-2026-05-01
+   ```
+
+   The same channel is pinned in [`rust-toolchain.toml`](https://github.com/furiosa-ai/furiosa-opt/blob/main/rust-toolchain.toml); cargo activates it automatically when you cd into a project that includes that file.
+
+2. **`cargo-furiosa-opt`**: the cargo subcommand that injects the right `--cfg backend="..."` and (for NPU) pre-compiles kernels.
+
+   ```bash
+   cargo install cargo-binstall
+   cargo binstall cargo-furiosa-opt
+   ```
+
+3. **Furiosa SDK + physical NPU** *(only for `--backend npu`)*: the NPU backend dispatches to real hardware via the SDK's kernel driver and PE runtime (`furiosa-driver-rngd`, `furiosa-smi`, etc.; see the [SDK documentation](https://developer.furiosa.ai/latest/en/)).
+
+   **The `simulation` and `typecheck` backends do not require the SDK.** They run host-side with no NPU dependency, so a customer who only intends to develop or evaluate kernels does not need to install the SDK at all.
+
+   There is **no on-host NPU simulator in the public SDK distribution today**. Without physical NPU access, use `--backend simulation` (host-side interpretation) or `--backend typecheck` (mapping/shape verification only).
 
 ## Your First Program
 
-Create a new project:
+Use [`cargo-generate`](https://cargo-generate.github.io/cargo-generate/) to scaffold a fresh project from the `base-template` starter, which ships with the five worked examples covered in the next chapter:
 
 ```bash
-cargo new --bin tcp-my-project
-cd tcp-my-project
-cargo add furiosa-visa-std tokio
+cargo install cargo-generate
+cargo generate furiosa-ai/furiosa-opt base-template
+cd base-template
 ```
 
-Add `rust-toolchain.toml`:
-```toml
-{{#include ../../rust-toolchain.toml}}
+### Layout
+
+```text
+base-template/
+├── Cargo.toml
+├── rust-toolchain.toml
+└── src/
+    ├── furiosa-opt.tag                       # marker the rustc plugin scans for; must sit at src/
+    ├── lib.rs                                # `pub mod kernel;`
+    ├── kernel/                               # every #[device] function lives here
+    │   ├── mod.rs                            # `pub mod {constant_add,...}_kernel;`
+    │   ├── constant_add_kernel.rs            # `#[device] fn constant_add_kernel(...)`
+    │   ├── elementwise_mul_kernel.rs
+    │   ├── dot_product_kernel.rs
+    │   ├── gemv_kernel.rs
+    │   └── gemm_kernel.rs
+    ├── constant_add.rs                       # `#[tokio::main]` host program; `launch(constant_add_kernel, ...)`
+    ├── elementwise_mul.rs
+    ├── dot_product.rs
+    ├── gemv.rs
+    └── gemm.rs
 ```
 
-Write `main.rs`:
+The five `#[device]` kernels all live under `src/kernel/` and are re-exported by `src/lib.rs`. Each `src/*.rs` (next to `lib.rs`) is registered as its own `[[bin]]` in `Cargo.toml`, with `path = "src/<name>.rs"` placing the binary's source directly under `src/` — the rustc plugin scans cargo targets rooted at `src/` and silently skips anything under `src/bin/`, `examples/`, or `tests/`, so the explicit `[[bin]]` paths in `Cargo.toml` are load-bearing. Each binary's `main()` only does `launch(kernel, ...)`; the value comparison against a host-side reference lives in a `#[cfg(test)] mod tests` block inside the same file.
 
-```rust
-# #![feature(register_tool)]
-# #![register_tool(tcp)]
-# extern crate furiosa_visa_std;
-# extern crate tokio;
-# extern crate rand;
-use rand::SeedableRng;
-use rand::rngs::SmallRng;
-use furiosa_visa_std::prelude::*;  // provided by the Furiosa SDK
-
-// Declare axis sizes
-axes![A = 8, B = 512];
-
-/// The main function running in host
-#[tokio::main]
-async fn main() {
-    // Acquire exclusive access to the TCP device
-    let mut ctx = Context::acquire();
-
-    // TCP has three memory levels:
-    // - Host: system memory
-    // - HBM (High-Bandwidth Memory): device's main memory
-    // - SRAM (on-chip scratchpad): the primary SRAM tier is called DM (Data Memory)
-    //
-    // Data flows: Host → HBM → DM → compute → DM → HBM → Host.
-    //
-    // Two DMA engines move data between these levels:
-    // - `ctx.pdma` (PCIe DMA): transfers between Host and HBM
-    // - `ctx.tdma` (Tensor DMA): transfers between HBM and DM
-
-    // Create tensor on host
-    // Tensors are parameterized by element type and mapping
-    // The mapping `m![A, B]` specifies `A` as the major axis and `B` as the minor axis
-    let mut rng = SmallRng::seed_from_u64(42);
-    let host: HostTensor<i8, m![A, B]> = HostTensor::rand(&mut rng);
-
-    // Transfer to device HBM using PCIe DMA engine
-    // HBM tensor has two dimensions: m![A] for chip and m![B] for intra-chip address
-    let hbm: HbmTensor<i8, m![A], m![B]> = host.to_hbm(&mut ctx.pdma, 0x1000).await;
-
-    // Launch kernel on device
-    // Host continues while kernel runs asynchronously, but the kernel synchronously occupies the device
-    launch(kernel, (&mut ctx, &hbm))
-    // Host waits for the asynchronous execution of the kernel to finish
-        .await;
-}
-
-#[device(chip = 1)] // Running on a single chip
-fn kernel(ctx: &mut Context, hbm: &HbmTensor<i8, m![A], m![B]>) {
-    // Move to DM (Data Memory) in on-chip SRAM using Tensor DMA engine
-    let dm = hbm.to_dm::<m![1], m![A], m![B]>(&mut ctx.tdma, 0);
-
-    // ... perform computations ...
-}
-```
-
-## Build and Test
-
-TCP supports two execution environments, ordered from fastest iteration to production use:
+### Run a worked example
 
 ```bash
-# 1. CPUs (standalone Rust)
-cargo build  # Add --release for optimized builds, same below
-cargo test
+# Host-side simulation (default; no NPU hardware required).
+cargo furiosa-opt run --release --bin gemm
 
-# 2. Real TCP devices
-cargo furiosa-opt build
-cargo furiosa-opt test
+# Mapping/shape verification only — kernel body runs against phantom (empty) tensors.
+cargo furiosa-opt --backend typecheck run --release --bin gemm
+
+# Real NPU dispatch (requires the SDK and a physical NPU; see Installation step 3).
+cargo furiosa-opt --backend npu run --release --bin gemm
 ```
+
+### Verify against the reference
+
+```bash
+# Full numeric comparison on simulated values.
+cargo furiosa-opt test --release --bin gemm
+
+# Under typecheck the comparison loop trivially passes: `actual` is the
+# phantom-empty Vec, so the per-element assertion has zero iterations.
+cargo furiosa-opt --backend typecheck test --release --bin gemm
+```
+
+Read the [Quick Start](./quick-start.md) chapter alongside the source. Add your own kernel by dropping a new file into `src/kernel/`, appending a `pub mod ...;` line to `src/kernel/mod.rs`, writing a host program under `src/`, and declaring a matching `[[bin]] path = "src/<name>.rs"` in `Cargo.toml`.
 
 ## Development Tools
 
-<!-- > **TODO**: This page needs a comprehensive rewrite to serve as a practical guide for the TCP Software Toolchain. -->
-<!-- > -->
-<!-- > **What to Cover:** -->
-<!-- > - Introduction to the TCP Software Toolchain (cargo tcp) and its purpose -->
-<!-- > - Each of the four main tools: Compiler, Interpreter, Language Server, and Schedule Viewer -->
-<!-- > - Command-line interface and available options for each tool -->
-<!-- > - Common workflows and usage patterns -->
-<!-- > -->
-<!-- > **Level of Detail:** -->
-<!-- > - Provide command-line examples at the abstraction level of `cargo tcp --help` -->
-<!-- > - Show real-world usage scenarios for each tool -->
-<!-- > - Include both basic and advanced usage examples -->
-<!-- > - Explain when and why to use each tool -->
-<!-- > -->
-<!-- > **Structure:** -->
-<!-- > 1. Brief overview of the toolchain (already exists) -->
-<!-- > 2. Individual sections for each tool with: -->
-<!-- >    - Purpose and use cases -->
-<!-- >    - Command syntax and key options -->
-<!-- >    - Practical examples -->
-<!-- >    - Integration with other tools in the workflow -->
-<!-- > 3. Common workflows section showing how tools work together -->
-<!-- > 4. Troubleshooting tips (optional) -->
-<!-- > -->
-<!-- > **Examples Needed:** -->
-<!-- > - Basic compilation: cargo tcp compile [options] -->
-<!-- > - Running interpreter with different flags -->
-<!-- > - Setting up language server in IDE -->
-<!-- > - Generating and viewing schedule visualizations -->
-<!-- > - End-to-end workflow from Virtual ISA to optimized execution -->
+The Furiosa IR Optimizer provides utilities for developing, testing, and optimizing vISA programs on TCP devices.
+It complements the [Furiosa SDK's compiler](https://developer.furiosa.ai/latest/en/overview/software_stack.html#furiosa-compiler) by giving developers fine-grained control over program behavior, whether the programmer writes vISA by hand or a compiler generates it.
 
-The TCP Software Toolchain (`cargo furiosa-opt`) provides utilities for developing, testing, and optimizing Virtual ISA programs on Furiosa chips.
-It complements the [Furiosa SDK's compiler](https://developer.furiosa.ai/latest/en/overview/software_stack.html#furiosa-compiler) by giving developers fine-grained control over program behavior, whether the programmer writes Virtual ISA by hand or a compiler generates it.
+### Backends
 
-The toolchain consists of four components:
+A vISA program is a Rust program that uses the `furiosa-opt-std` API. `cargo furiosa-opt` selects which backend evaluates the kernel by setting `--cfg backend="..."`:
 
-- **Compiler**: Translates Virtual ISA into executable code for the chip.
-- **Interpreter**: Executes Virtual ISA as native Rust programs for software simulation and debugging.
-- **Language Server**: Enables IDE features (autocompletion, diagnostics, navigation) via Rust's language server infrastructure.
-- **Schedule Viewer**: Visualizes the execution timeline to help identify performance bottlenecks.
+| Backend     | Default? | What runs                                   | Use when                                                                             |
+|-------------|----------|---------------------------------------------|--------------------------------------------------------------------------------------|
+| `typecheck` |          | Kernel body runs with phantom (empty) tensors | Catching mapping/shape errors fast (value computation skipped)                       |
+| `simulation`  | yes      | Full host-side interpretation               | Default for development; verifies numerical correctness                              |
+| `npu`       |          | Compiled EDF on hardware (or NVP simulator) | End-to-end including the hardware path                                               |
+
+```bash
+# Default: simulation backend, no NPU hardware needed.
+cargo furiosa-opt run --release
+
+# Fast mapping/shape verification (kernel body runs with phantom tensors).
+cargo furiosa-opt --backend typecheck run --release
+
+# Real NPU dispatch (requires the SDK and a physical NPU).
+cargo furiosa-opt --backend npu run --release
+```
+
+`cargo check` (under any backend) only runs the type checker; it does **not** execute kernel function bodies and therefore cannot reach mapping assertions like `Collect output packet must be exactly 32 bytes`. Use `--backend typecheck run` for that.
+
+`cargo furiosa-opt` forwards every cargo flag verbatim, so `cargo run`, `cargo test`, `cargo check`, and `cargo build` all have direct equivalents:
+
+```bash
+cargo furiosa-opt build              # cargo build with simulation backend
+cargo furiosa-opt --backend npu test # cargo test on real NPU
+```
+
+
+### Language Server
+
+`furiosa-rust-analyzer-proxy` is a proxy for `rust-analyzer` that provides standard Rust IDE features with enhanced support for mapping expressions.
+It keeps the usual `rust-analyzer` experience while simplifying verbose types like `Stride<Symbol<A>, 8>` into readable mapping expressions like `m![A / 8]`.
+
+For installation and configuration, see the [Language Server appendix](./appendix/language-server.md).
+
 
 ## Book Organization
 
-The rest of this book is organized in the following chapters:
+Each chapter builds on the previous: mapping and moving tensors establish the data model, computing tensors covers the pipeline engines, and scheduling and kernel examples show how to compose them into real programs.
 
-- **[Hello, TCP!](./hello-tcp.md)**: How TCP programming works, introduced through worked examples covering element-wise operations and tensor contractions.
+- **[Quick Start](./quick-start.md)**: How vISA programming works, introduced through worked examples covering element-wise operations and tensor contractions.
 - **[Mapping Tensors](./mapping-tensors/index.md)**: How logical tensors map to physical memory: axis layout, stride, padding, and tiling.
 - **[Moving Tensors](./moving-tensors/index.md)**: How data moves between memory tiers (HBM, DM) and the Tensor Unit via Fetch, Commit, and DMA engines.
-- **[Computing Tensors](./computing-tensors/index.md)**: How the Tensor Unit pipeline (Switching, Collect, Contraction, Vector, Cast, Transpose) transforms data each cycle.
-- **[Scheduling](./scheduling.md)**: How to control the order and concurrency of operations across contexts.
+- **[Computing Tensors](./computing-tensors/index.md)**: How the Tensor Unit pipeline (Switch, Collect, Contraction, Vector, Cast, Transpose) transforms data each cycle.
+- **[Scheduler](./scheduler.md)**: How to control the order and concurrency of operations across contexts.
 - **[Kernel Examples](./kernel-examples/index.md)**: End-to-end examples showing how mapping, movement, computation, and scheduling combine into real kernels.
-
-<!-- > **TODO**: Add an API reference chapter pointing to the generated rustdoc for `furiosa-visa-std`. -->
 
 ## License
 

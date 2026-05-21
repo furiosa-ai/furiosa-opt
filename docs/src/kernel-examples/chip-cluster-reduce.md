@@ -1,16 +1,37 @@
 # Chip/Cluster Reduce
 
-When a previous operation has already mapped the reduce axis to the `Chip` or `Cluster` dimension, chip/cluster reduce is needed to combine partial results across physically separate processing units.
-This section demonstrates how to perform those reduction operations when data is distributed across multiple chips or clusters.
+Chip/cluster reduce combines partial results that exist on separate processing units when a reduce axis spans the `Chip` or `Cluster` mapping dimension.
 
-<!-- > **TODO(youseok.yang)**: Slice/ChipShuffle operations do not yet have explicit Virtual ISA interfaces. -->
-<!-- > Once those interfaces are available, replace the conceptual data flow descriptions below with working kernel code, following the style of `fetch-commit-engine.md`. -->
-<!-- > Also fix the ReduceScatter example: Step 6 performs AllGather, turning the result into AllReduce and contradicting the stated Goal (`element: 1` per chip); either remove Step 6 or rename the example. -->
-
-When possible, assigning reduce axes to Slice/Element (reduced by Inter-Slice Block/Vector Engine) is preferred because it avoids cross-chip communication overhead.
 
 Two main operations implement chip/cluster reduce: AllReduce and ReduceScatter.
 Both combine Switch Engine operations (for data redistribution across slices within a cluster) with Vector Engine binary operations (for actual reduction computation).
+
+
+## Full Tensor Reduce within a Cluster
+
+Before crossing cluster or chip boundaries, the Contraction Engine and [Inter-Slice Reducer](../computing-tensors/vector-engine/inter-slice-reducer.md) can already fold a sizable tensor to a single scalar inside one cluster.
+A complete reduce-add over `m![A]` with `m![A]::SIZE = 65,536` stacks all three reduction stages (Packet, Time, and slice-level) to produce a single scalar in approximately 296 cycles.
+
+The mapping splits `A` across all three stages.
+
+- **`Slice = m![A / 256]`**: 256 slices process in parallel.
+- **`Time = m![A / 32 % 8]`**: 8 temporal iterations per slice.
+- **`Packet = m![A % 32]`**: 32 elements reduced spatially.
+
+The reduction breaks down as follows.
+
+| Stage | Axes Reduced | Mechanism | Cycles |
+|-------|--------------|-----------|--------|
+| Packet | `A % 32` | [Packet Reducer](../computing-tensors/contraction-engine/packet-reducer.md) tree (depth 5) | 5 |
+| Time | `A / 32 % 8` | [Time Reducer](../computing-tensors/contraction-engine/time-reducer.md) accumulator (8 iterations) | 8 |
+| Slice-level | `A / 256` | [Inter-Slice Reducer](../computing-tensors/vector-engine/inter-slice-reducer.md) | 256 |
+
+- Each slice processes `A / 256` (256) elements.
+- Within a slice, the tree reduces `A % 32` elements (5 cycles for `bf16`).
+- The temporal axis `A / 32 % 8` arrives as 8 flits accumulated by the buffer.
+- After in-slice reduction completes (~40 cycles), 256 partial results exist across slices.
+- The [Inter-Slice Reducer](../computing-tensors/vector-engine/inter-slice-reducer.md) reduces these 256 slice results (256 cycles).
+- **Total**: ~296 cycles for reducing 65,536 elements to a single scalar.
 
 
 ## `ReduceScatter`
@@ -21,7 +42,7 @@ This operation is useful when you need both reduction and result distribution in
 ### Example: 4-chip `ReduceScatter` with Add
 
 This example demonstrates how to perform reduction across chips when data is partitioned by one dimension (`A`) but needs to be reduced along a different dimension (`B`).
-The challenge is that each chip owns data for all `B` values of its assigned `A` value, but we need to sum across all `A` values for each `B`.
+Each chip owns data for all `B` values of its assigned `A` value, but the goal is to sum across all `A` values for each `B`.
 
 **Input:**
 A 2D tensor `[A=4, B=4]` with 16 total elements, distributed across 4 chips:
@@ -45,11 +66,10 @@ Reduce along the `A` axis (summing across chips) while keeping results distribut
 
 **Processing:**
 
-`Slice` (also called asymmetric slice) is a sub-context operation that extracts a subset of elements from specific chip positions (see [Implementation Methods](#implementation-methods-for-each-operation)).
-`ChipShuffle` is a DMA-based redistribution operation that moves data from one chip to another.
-
 The algorithm works through six stages: create four intermediate tensors using diagonal `Slice` + `ChipShuffle` patterns, add them to reduce the `A` axis, then broadcast results to all chips.
 The diagonal pattern ensures each chip receives the data it needs for its assigned `B` value.
+`Slice` (also called asymmetric slice) is a sub-context operation that extracts a subset of elements from specific chip positions (see [Implementation Methods](#implementation-methods-for-each-operation)).
+`ChipShuffle` is a DMA-based redistribution operation that moves data from one chip to another.
 
 #### Initial State
 
@@ -131,7 +151,6 @@ After this addition, each chip holds only one value because the A axis has been 
 
 #### Step 6: AllGather
 
-<!-- > **TODO(jeongmin.park)**: After Step 5, each chip already holds exactly 1 element (the correct ReduceScatter output, matching the Goal above which says `element: 1`). Step 6 (AllGather) broadcasts to all chips, producing `element: 4` — that is AllReduce, not ReduceScatter. Either remove Step 6 (to match the ReduceScatter definition/goal), or rename this example to AllReduce. -->
 
 This final step broadcasts the result so all chips hold the complete reduction output.
 Each chip gathers data from Chip 0 through Chip 3:
@@ -140,7 +159,6 @@ Each chip gathers data from Chip 0 through Chip 3:
 
 **Output:**
 
-<!-- > **TODO(jeongmin.park)**: The Goal above says `Out = {chip: 4, slice: 256, element: 1}` (each chip holds 1 element), but this says `element: 4` (each chip holds 4 elements). One of them is wrong. -->
 
 After all six steps complete, each chip holds a portion of the reduced result:
 - **Final distribution**: `Out = {chip: A, slice: 256, element: 4}`
@@ -174,7 +192,6 @@ Unlike `ReduceScatter`, `AllReduce` ensures every chip ends up with the complete
 
 ### Example: 4-chip `AllReduce` with Add
 
-This example demonstrates the most common collective operation in distributed deep learning: reducing values across all processors so every processor has the identical complete result.
 This is essential for operations like averaging gradients across data-parallel training workers.
 
 **Input:**
@@ -197,6 +214,7 @@ Reduce along the `A` axis and replicate the complete result to all chips:
 
 **Processing:**
 
+Unlike ReduceScatter, which uses diagonal Slice+ChipShuffle to route different data to each chip, AllReduce uses uniform ChipShuffle rotations so that every chip accumulates all inputs identically.
 The algorithm creates 4 versions of the input tensor through rotation, then adds them all together:
 1. Use 3 `ChipShuffle` operations on the original tensor `T0` to create 3 rotated versions (`T1`, `T2`, `T3`)
 2. Add all 4 tensors element-wise using Vector Engine
@@ -293,19 +311,29 @@ Key characteristics:
 
 The rotation-based algorithm shown here scales to any power-of-2 number of chips: for 8 chips, use 7 rotations; for 16 chips, use 15 rotations, etc.
 
+When possible, assigning reduce axes to `Slice` / `Element` (reduced by the Inter-Slice Reducer / Vector Engine) is preferred because it avoids cross-chip communication overhead.
 
 ## Implementation Methods for Each Operation
 
-Each operation in chip/cluster reduce maps to specific hardware primitives. Understanding these mappings helps predict performance and resource usage patterns.
+Understanding how each chip/cluster reduce operation maps to specific hardware primitives helps predict performance and resource usage patterns.
+Asymmetric Slice and Shuffle are used in ReduceScatter.
+Tensor Addition is used in both ReduceScatter and AllReduce.
 
 ### Asymmetric Slice
 
-Chip/cluster asymmetric slice operations extract a subset of data from specific positions in the chip or cluster dimension. The `ParallelCopy` operation implements this by running in the sub-context using the `stos` (Store to SRAM) command. This approach enables selective data extraction without full tensor movement, copying only the elements at positions specified by the slice indices. The sub-context execution ensures that slice operations can overlap with main-context computation, maintaining pipeline efficiency.
+Asymmetric slice is implemented via `ParallelCopy` in the sub-context using the `stos` (Store to SRAM) command.
+This approach enables selective data extraction without full tensor movement, copying only the elements at positions specified by the slice indices.
+The sub-context execution ensures that slice operations can overlap with main-context computation, maintaining pipeline efficiency.
 
 ### Shuffle
 
-Chip/cluster shuffle redistributes data across chips using DMA operations through HBM. The `DmaCommand` handles intra-chip shuffles by moving data between HBM regions associated with different chips, while `PCIeDmaCommand` extends this capability to inter-chip communication when needed. The HBM-to-HBM transfer pattern avoids unnecessary round-trips through chip-local memory, directly routing data to its destination. Shuffle operations are the primary cost factor in chip/cluster reduce because they involve cross-chip data movement over the interconnect fabric, typically requiring hundreds to thousands of cycles depending on data volume.
+Shuffle is implemented via `DmaCommand` for intra-chip moves (between HBM regions associated with different chips) and `PCIeDmaCommand` for inter-chip communication.
+The HBM-to-HBM transfer pattern avoids unnecessary round-trips through chip-local memory, directly routing data to its destination.
+Shuffle operations are the primary cost factor in chip/cluster reduce because they involve cross-chip data movement over the interconnect fabric, typically requiring hundreds to thousands of cycles depending on data volume.
 
 ### Tensor Addition
 
-Tensor addition combines multiple input tensors element-wise to perform the actual reduction computation. This operation runs in the main context using a two-stage approach: interleaved fetch brings data from multiple tensor instances into the pipeline, and the Vector Engine's binary add operation performs the element-wise summation. The interleaved fetch pattern enables the Vector Engine to process additions efficiently by presenting operands in alternating time steps, avoiding the need for separate accumulation buffers. This main-context execution provides maximum throughput for the arithmetic-intensive reduction phase after data has been properly arranged through slice and shuffle operations.
+Tensor addition combines multiple input tensors element-wise to perform the actual reduction computation.
+This operation runs in the main context using a two-stage approach: interleaved fetch brings data from multiple tensor instances into the pipeline, and the Vector Engine's binary add operation performs the element-wise summation.
+The interleaved fetch pattern enables the Vector Engine to process additions efficiently by presenting operands in alternating time steps, avoiding the need for separate accumulation buffers.
+This main-context execution provides maximum throughput for the arithmetic-intensive reduction phase after data has been properly arranged through slice and shuffle operations.

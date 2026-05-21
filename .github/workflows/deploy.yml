@@ -50,7 +50,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: nightly-2025-12-12
+          toolchain: nightly-2026-05-01
 
       - name: Generate Documentation
         run: |

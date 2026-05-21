@@ -7,8 +7,8 @@
 
 use abi_stable::std_types::{ROption, RResult, RSlice, RVec, Tuple2};
 use furiosa_mapping_types::{
-    Atom, Division, DivisionError, DivisionMode, DivisionSide, FMapping, Factor, Ident, Mapping, PaddingKind,
-    RSortedMap, Relaxed, Span, Strict, Term, TermBounds, TermPosition,
+    Atom, Division, DivisionError, DivisionSide, Extents, FMapping, Factor, Ident, Mapping, PaddingKind, RSortedMap,
+    Range, Residues, Slot, Term,
 };
 
 use crate::{Index, IndexValueError};
@@ -26,16 +26,14 @@ unsafe extern "C-unwind" {
     fn mapping_size(slf: &Mapping) -> usize;
     fn mapping_pair(slf: Mapping, other: Mapping) -> Mapping;
     fn mapping_pairs(ms: RVec<Mapping>) -> Mapping;
-    fn mapping_divide_span(slf: &Mapping, divisor: &Mapping, span: usize) -> RResult<Division<Span>, DivisionError>;
-    fn mapping_divide_relaxed(slf: &Mapping, divisor: &Mapping) -> Division<Relaxed>;
-    fn mapping_divide_strict(slf: &Mapping, divisor: &Mapping) -> Division<Strict>;
+    fn mapping_divide(slf: &Mapping, divisor: &Mapping) -> Division;
     fn mapping_factorize(slf: &Mapping) -> FMapping;
-    fn fmapping_from_axes(axes: RSlice<Term>) -> FMapping;
+    fn fmapping_from_axes(axes: RSlice<'_, Term>) -> FMapping;
     fn fmapping_pop(slf: &mut FMapping) -> ROption<Factor>;
     fn fmapping_into_inner(slf: FMapping) -> RVec<Factor>;
     fn fmapping_is_padding(slf: &FMapping) -> bool;
     fn fmapping_has_terms(slf: &FMapping) -> bool;
-    fn fmapping_terms_with_stride(slf: &FMapping) -> RVec<TermPosition>;
+    fn fmapping_padding_ranges(slf: &FMapping) -> RVec<Range>;
     fn fmapping_factors(slf: &FMapping) -> RSlice<'_, Factor>;
     fn fmapping_contains_ident(slf: &FMapping, ident: Ident) -> bool;
     fn fmapping_idents(slf: &FMapping) -> RVec<Ident>;
@@ -49,18 +47,19 @@ unsafe extern "C-unwind" {
     fn fmapping_is_resize_of(slf: &FMapping, original: &FMapping) -> bool;
     fn fmapping_padding(slf: FMapping, padding: usize, kind: PaddingKind) -> FMapping;
     fn fmapping_to_mapping(slf: &FMapping) -> Mapping;
-    fn fmapping_divide_span(slf: FMapping, divisor: FMapping, span: usize) -> RResult<Division<Span>, DivisionError>;
-    fn fmapping_divide_relaxed(slf: FMapping, divisor: FMapping) -> Division<Relaxed>;
-    fn fmapping_divide_strict(slf: FMapping, divisor: FMapping) -> Division<Strict>;
+    fn fmapping_divide(slf: FMapping, divisor: FMapping) -> Division;
     fn fmapping_normalize(slf: FMapping) -> FMapping;
     fn fmapping_remove_padding(slf: FMapping) -> FMapping;
     fn fmapping_split_at(slf: &FMapping, target: usize) -> Tuple2<FMapping, FMapping>;
     fn fmapping_pad(slf: FMapping, target: usize) -> FMapping;
-    fn division_exact_relaxed(slf: Division<Relaxed>) -> RResult<Division<Relaxed>, DivisionError>;
-    fn division_exact_strict(slf: Division<Strict>) -> RResult<Division<Strict>, DivisionError>;
-    fn division_exact_span(slf: Division<Span>) -> RResult<Division<Span>, DivisionError>;
-    fn division_strict_remainder(slf: &Division<Strict>, side: DivisionSide) -> FMapping;
-    fn division_strict_bounds(slf: &Division<Strict>) -> RVec<TermBounds>;
+    fn division_exact_checked(slf: Division) -> RResult<Division, DivisionError>;
+    fn division_extents(slf: &Division) -> RResult<Extents, DivisionError>;
+    fn division_relaxed_residues(slf: &Division) -> Residues;
+    fn division_tile_residues(slf: &Division, n: usize) -> RResult<Residues, DivisionError>;
+    fn division_remainder(slf: &Division, side: DivisionSide) -> RResult<FMapping, DivisionError>;
+    fn division_contiguous_tail(slf: &Division) -> RResult<usize, DivisionError>;
+    fn extents_contiguous_tail(slf: &Extents) -> usize;
+    fn extents_slots(slf: &Extents, side: DivisionSide) -> RVec<Slot>;
     fn index_new() -> Index;
     fn index_add(slf: &mut Index, other: Index);
     fn index_mark_invalid(slf: &mut Index);
@@ -81,12 +80,8 @@ pub trait MappingExt: Sized {
     fn pair(self, other: Mapping) -> Mapping;
     /// Pairs multiple mapping expressions and simplifies.
     fn pairs(ms: RVec<Mapping>) -> Mapping;
-    /// Divides the mapping expression by a single-term divisor with a span.
-    fn divide_span(&self, divisor: &Mapping, span: usize) -> RResult<Division<Span>, DivisionError>;
-    /// Divides the mapping expression without exposing analysis.
-    fn divide_relaxed(&self, divisor: &Mapping) -> Division<Relaxed>;
     /// Divides the mapping expression.
-    fn divide_strict(&self, divisor: &Mapping) -> Division<Strict>;
+    fn divide(&self, divisor: &Mapping) -> Division;
     /// Factorizes the mapping expression into factor representation.
     fn factorize(&self) -> FMapping;
 }
@@ -101,14 +96,8 @@ impl MappingExt for Mapping {
     fn pairs(ms: RVec<Mapping>) -> Mapping {
         unsafe { mapping_pairs(ms) }
     }
-    fn divide_span(&self, divisor: &Mapping, span: usize) -> RResult<Division<Span>, DivisionError> {
-        unsafe { mapping_divide_span(self, divisor, span) }
-    }
-    fn divide_relaxed(&self, divisor: &Mapping) -> Division<Relaxed> {
-        unsafe { mapping_divide_relaxed(self, divisor) }
-    }
-    fn divide_strict(&self, divisor: &Mapping) -> Division<Strict> {
-        unsafe { mapping_divide_strict(self, divisor) }
+    fn divide(&self, divisor: &Mapping) -> Division {
+        unsafe { mapping_divide(self, divisor) }
     }
     fn factorize(&self) -> FMapping {
         unsafe { mapping_factorize(self) }
@@ -122,7 +111,7 @@ pub trait FMappingExt: Sized {
     /// Creates a new empty factor mapping.
     fn new() -> Self;
     /// Creates a factor mapping from a slice of terms (axes).
-    fn from_axes(axes: RSlice<Term>) -> Self;
+    fn from_axes(axes: RSlice<'_, Term>) -> Self;
     /// Pops the outermost factor of the mapping expression.
     fn pop(&mut self) -> ROption<Factor>;
     /// Converts the factor mapping into a vector of factors.
@@ -131,8 +120,8 @@ pub trait FMappingExt: Sized {
     fn is_padding(&self) -> bool;
     /// Returns true if any factor is a Term (not Padding).
     fn has_terms(&self) -> bool;
-    /// Extracts each Term with its effective stride in this FMapping.
-    fn terms_with_stride(&self) -> RVec<TermPosition>;
+    /// Extracts each Top padding run with its effective stride.
+    fn padding_ranges(&self) -> RVec<Range>;
     /// Returns a reference to the factors (innermost first).
     fn factors(&self) -> RSlice<'_, Factor>;
     /// Returns true if any term in this FMapping contains the given ident.
@@ -157,12 +146,8 @@ pub trait FMappingExt: Sized {
     fn is_resize_of(&self, original: &FMapping) -> bool;
     /// Converts the factor mapping into a mapping expression.
     fn to_mapping(&self) -> Mapping;
-    /// Divides the factor mapping by a single-term divisor with a span.
-    fn divide_span(self, divisor: FMapping, span: usize) -> RResult<Division<Span>, DivisionError>;
-    /// Divides the factor mapping with read-accessible (Top) matched-hole padding.
-    fn divide_relaxed(self, divisor: FMapping) -> Division<Relaxed>;
-    /// Divides the factor mapping with analysis-capable (Bottom) matched-hole padding.
-    fn divide_strict(self, divisor: FMapping) -> Division<Strict>;
+    /// Divides the factor mapping.
+    fn divide(self, divisor: FMapping) -> Division;
     /// Normalizes the factor mapping via round-trip through `Mapping`.
     fn normalize(self) -> FMapping;
     /// Removes all right padding.
@@ -179,7 +164,7 @@ impl FMappingExt for FMapping {
     fn new() -> Self {
         FMapping::new()
     }
-    fn from_axes(axes: RSlice<Term>) -> Self {
+    fn from_axes(axes: RSlice<'_, Term>) -> Self {
         unsafe { fmapping_from_axes(axes) }
     }
     fn pop(&mut self) -> ROption<Factor> {
@@ -194,8 +179,8 @@ impl FMappingExt for FMapping {
     fn has_terms(&self) -> bool {
         unsafe { fmapping_has_terms(self) }
     }
-    fn terms_with_stride(&self) -> RVec<TermPosition> {
-        unsafe { fmapping_terms_with_stride(self) }
+    fn padding_ranges(&self) -> RVec<Range> {
+        unsafe { fmapping_padding_ranges(self) }
     }
     fn factors(&self) -> RSlice<'_, Factor> {
         unsafe { fmapping_factors(self) }
@@ -233,14 +218,8 @@ impl FMappingExt for FMapping {
     fn to_mapping(&self) -> Mapping {
         unsafe { fmapping_to_mapping(self) }
     }
-    fn divide_span(self, divisor: FMapping, span: usize) -> RResult<Division<Span>, DivisionError> {
-        unsafe { fmapping_divide_span(self, divisor, span) }
-    }
-    fn divide_relaxed(self, divisor: FMapping) -> Division<Relaxed> {
-        unsafe { fmapping_divide_relaxed(self, divisor) }
-    }
-    fn divide_strict(self, divisor: FMapping) -> Division<Strict> {
-        unsafe { fmapping_divide_strict(self, divisor) }
+    fn divide(self, divisor: FMapping) -> Division {
+        unsafe { fmapping_divide(self, divisor) }
     }
     fn normalize(self) -> FMapping {
         unsafe { fmapping_normalize(self) }
@@ -375,64 +354,73 @@ impl IndexExt for Index {
     }
 }
 
-// ── DivisionExt ───────────────────────────────────────────────────────────────
+// ── DivisionExt ────────────────────────────────────────────────────────────────
 
-/// Methods for [`Division<M>`].
-pub trait DivisionExt<Md: DivisionMode> {
+/// Methods for [`Division`].
+pub trait DivisionExt {
     /// Returns `Ok(self)` if all divisor terms were matched.
-    fn exact(self) -> RResult<Division<Md>, DivisionError>;
+    fn exact_checked(self) -> RResult<Division, DivisionError>;
+
+    /// Builds the structural [`Extents`] view.
+    fn extents(&self) -> RResult<Extents, DivisionError>;
+
+    /// Returns read-accessible residues with matched holes as Top padding.
+    fn relaxed_residues(&self) -> Residues;
+
+    /// Reinterprets the matched region as repetitions of an `n`-cell tile and
+    /// exposes one tile as a `Term { resize: n }` on the dividend residue.
+    fn tile_residues(&self, n: usize) -> RResult<Residues, DivisionError>;
+
+    /// Returns the side's mapping with matched terms removed.
+    fn remainder(&self, side: DivisionSide) -> RResult<FMapping, DivisionError>;
+
+    /// Returns the end position of the contiguous tail walked from stride 1.
+    fn contiguous_tail(&self) -> RResult<usize, DivisionError>;
 }
 
-impl DivisionExt<Relaxed> for Division<Relaxed> {
-    fn exact(self) -> RResult<Division<Relaxed>, DivisionError> {
-        unsafe { division_exact_relaxed(self) }
+impl DivisionExt for Division {
+    fn exact_checked(self) -> RResult<Division, DivisionError> {
+        unsafe { division_exact_checked(self) }
+    }
+
+    fn extents(&self) -> RResult<Extents, DivisionError> {
+        unsafe { division_extents(self) }
+    }
+
+    fn relaxed_residues(&self) -> Residues {
+        unsafe { division_relaxed_residues(self) }
+    }
+
+    fn tile_residues(&self, n: usize) -> RResult<Residues, DivisionError> {
+        unsafe { division_tile_residues(self, n) }
+    }
+
+    fn remainder(&self, side: DivisionSide) -> RResult<FMapping, DivisionError> {
+        unsafe { division_remainder(self, side) }
+    }
+
+    fn contiguous_tail(&self) -> RResult<usize, DivisionError> {
+        unsafe { division_contiguous_tail(self) }
     }
 }
 
-impl DivisionExt<Strict> for Division<Strict> {
-    fn exact(self) -> RResult<Division<Strict>, DivisionError> {
-        unsafe { division_exact_strict(self) }
-    }
+// ── ExtentsExt ────────────────────────────────────────────────────────────────
+
+/// Methods for [`Extents`].
+pub trait ExtentsExt {
+    /// Returns the end position of the contiguous tail walked from stride 1.
+    fn contiguous_tail(&self) -> usize;
+
+    /// Returns the side's classified factors in stride-ordered (outer → inner) sequence.
+    fn slots(&self, side: DivisionSide) -> RVec<Slot>;
 }
 
-impl DivisionExt<Span> for Division<Span> {
-    fn exact(self) -> RResult<Division<Span>, DivisionError> {
-        unsafe { division_exact_span(self) }
-    }
-}
-
-/// Methods specific to [`Division<Strict>`].
-pub trait StrictDivisionExt {
-    /// Returns the original mapping with matched terms removed.
-    fn remainder(&self, side: DivisionSide) -> FMapping;
-    /// Returns per-term padding bounds reconstructed from the strict residue.
-    fn bounds(&self) -> RVec<TermBounds>;
-}
-
-impl StrictDivisionExt for Division<Strict> {
-    fn remainder(&self, side: DivisionSide) -> FMapping {
-        unsafe { division_strict_remainder(self, side) }
+impl ExtentsExt for Extents {
+    fn contiguous_tail(&self) -> usize {
+        unsafe { extents_contiguous_tail(self) }
     }
 
-    /// Returns per-term padding bounds reconstructed from the strict residue.
-    ///
-    /// This reports the compact block bounds used by [`remainder`](Self::remainder).  For example, `m![A #
-    /// 16].divide_strict(m![A]).bounds()` reports dividend bounds `4..16` and divisor bounds `4..4` when `A = 4`.
-    ///
-    /// ```rust
-    /// use furiosa_mapping::*;
-    /// use furiosa_opt_macro::m;
-    ///
-    /// axes![A = 4];
-    /// let division = <m![A # 16]>::to_value()
-    ///     .factorize()
-    ///     .divide_strict(<m![A]>::to_value().factorize());
-    /// let [row]: [TermBounds; 1] = division.bounds().into_vec().try_into().unwrap();
-    ///
-    /// assert_eq!(row.dividend, BlockBounds { min: 4, max: 16 });
-    /// assert_eq!(row.divisor, BlockBounds { min: 4, max: 4 });
-    /// ```
-    fn bounds(&self) -> RVec<TermBounds> {
-        unsafe { division_strict_bounds(self) }
+    fn slots(&self, side: DivisionSide) -> RVec<Slot> {
+        unsafe { extents_slots(self, side) }
     }
 }

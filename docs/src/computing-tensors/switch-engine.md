@@ -1,172 +1,374 @@
 # Switch Engine
 
-<!-- > **TODO** (youseok.yang): Add hardware diagram showing the network topology upfront. -->
-<!-- > Slice-level operations (`switch()`, `reduce()`, etc.) use physical interconnect networks. -->
-<!-- > A visual diagram makes this immediately obvious — "slices talk through a network, not direct wires." -->
-
-The Fetch Engine produces a `FetchTensor` where each slice holds its own portion of data.
-The Switch Engine then redistributes data across slices so each slice receives exactly what it needs for computation.
-Data flows through a ring network of 256 interconnected slices; each slice's router decides per packet whether to output locally or forward to a neighbor.
-
-This data redistribution overlaps with computation, enabling the Contraction Engine to receive data in the exact pattern it needs while continuously executing operations.
-This page covers the interface, routing architecture (Forwarding, Broadcast01, Broadcast1, Transpose, InterTranspose, and Custom Topologies), hardware constraints, and performance characteristics.
+While every other Tensor Unit engine runs per-slice on its own DM partition, the Switch Engine moves data across slices through a 256-slice ring network: broadcasting one slice's value to a group, swapping values between slices, or permuting which slice holds which value.
 
 ## Interface
 
+`FetchTensor::switch()` produces a `SwitchTensor`, preserving `Chip`, `Cluster`, `Packet`, and the underlying data values.
+Only the `Slice` and `Time` mappings change to reflect the selected configuration.
+
 ```rust,ignore
-{{#include ../../../furiosa-visa-std/src/stream_tensor.rs:switch_impl}}
+{{#include ../../../furiosa-opt-std/src/engine/switch.rs:switch_impl}}
 ```
 
-The transformation preserves the tensor's mathematical representation while redistributing data across slices.
-The `Chip` and `Cluster` dimensions pass through unchanged; only `Slice` and `Time` are permuted.
-The packet passes through the switch engine unchanged.
-After switching, call [`collect()`](./collect-engine.md) to normalize the packet to 32-byte flits.
+The kernel writer picks `OutSlice`, `OutTime`, and a `SwitchConfig` argument that selects the configuration and its parameters.
+`SwitchConfig` is one of the predefined variants ([`Broadcast01`](#broadcast01), [`Broadcast1`](#broadcast1), [`Transpose`](#transpose), [`InterTranspose`](#intertranspose), [`TransposedBroadcast1`](#transposedbroadcast1)) for common patterns, or a [`CustomBroadcast`](#custom-configurations) for more general patterns.
+The numeric suffix in each variant name lists the slice sub-dimensions that move out of `Slice`.
+For example, `Broadcast01` broadcasts both `slice0` and `slice1`, while `Broadcast1` broadcasts only `slice1`.
 
-## Architecture
+The compiler verifies that `OutSlice` and `OutTime` match the configuration's required dimension structure (each per-config section below shows the required structure with input/output diagrams), and compilation fails when they do not.
+Every configuration also requires `InSlice::SIZE == OutSlice::SIZE`: the switch preserves the total slice count.
 
-This section explains how routers make decisions to route data, then shows regular topologies with predictable data flow, and finally covers custom topologies that enable arbitrary patterns.
-The Switch Engine only supports specific slice and temporal dimension transformations determined by the switching topology.
+## Regular Configurations
 
-### Router Decision Process
+Each regular configuration partitions the 256 slices on a chip into parallel **sub-rings** of `ring_size` slices each.
+`ring_size` is derived from the configuration's parameters (typically `slice1 × slice0`) and determines both the partitioning granularity and the cycle cost.
+See [Architecture](#architecture) below for the ring topology and per-router decision logic, and [Performance](#performance) for the cycle-factor breakdown.
 
-Understanding how routers make forwarding decisions is essential before exploring specific topologies.
+Regular configurations cover six common patterns.
+Arbitrary `Slice` sub-dimension permutations not expressible by one of these patterns require [`CustomBroadcast`](#custom-configurations) instead.
 
-Each slice has a router that decides whether to send its input packet to an adjacent slice or to output.
+Configurations that introduce broadcast axes (`X` or `Y` in `Broadcast01`, `Broadcast1`, `TransposedBroadcast1`) require those axes to be new: they must not already appear in input `Slice` or input `Time`.
 
-Each packet has a source slice number attached, and each slice configures a *snoop bitmap* (a bitmask specifying which source slices' packets to accept and output) to control which data it receives.
-
-Each slice's router can make the following three routing decisions:
-
-1. **Input routing**: The router decides whether its input packet goes to output, rightward to the next slice, or leftward to the previous slice.
-2. **Right-neighbor routing**: Data arriving from the right neighbor can be forwarded to output, rightward, or leftward.
-3. **Left-neighbor routing**: Data arriving from the left neighbor can be forwarded to output, leftward, or rightward.
-
-Using these settings, data moving in a counter-clockwise ring pattern can be configured to reach the desired slice.
-
-**Common router configurations** for counter-clockwise ring communication:
-
-- **Root node**: Outputs input data and data from the right slice, sends to right slice.
-- **Middle node**: Outputs data from the left slice, forwards to right.
-- **Leaf node**: Forwards input data to left, outputs data from the left slice.
-
-To understand how the switching mechanism routes data through the ring network, consider a minimal example with 2 slices and 2 input packets per slice.
-
-This example shows how data flows through the ring over time, with each slice deciding whether to output data locally or forward it to neighbors.
-
-Given:
-- `axes![A = 2, B = 2, C = 64]`
-- `Slice: m![A]`
-- `Time: m![B]`
-- `Packet: m![C]`
-- Input packets per slice: `slice0 = [0, 1]`, `slice1 = [2, 3]`
-
-| i(cycle) | slice#0                           | slice#1                                            | Output Data                            |
-| -------- | --------------------------------- | -------------------------------------------------- | -------------------------------------- |
-| 0        | 0: from input, to (output, right) |                                                    | `0: [0]`<br>`1: []`                    |
-| 1        | 1: from input, to (output, right) | 0: from left, to output<br> 2: from input, to left | `0: [0, 1]`<br>`1: [0]`                |
-| 2        | 2: from right, to (output, right) | 1: from left, to output<br> 3: from input, to left | `0: [0, 1, 2]`<br>`1: [0, 1]`          |
-| 3        | 3: from right, to (output, right) | 2: from left, to output                            | `0: [0, 1, 2, 3]`<br>`1: [0, 1, 2]`    |
-| 4        |                                   | 3: from left, to output                            | `0: [0, 1, 2, 3]`<br>`1: [0, 1, 2, 3]` |
-
-As a result, a tensor with the following mapping expression is output:
-- `Slice: m![A / 2, 2]`
-- `Time: m![B / 2, B % 2, A % 2]`
-- `Packet: m![C]`
-
-The hardware provides pre-defined regular topologies (like `Broadcast01` with `slice0 = 2`, `slice1 = 1`) that configure the routers to achieve such patterns efficiently.
+| Configuration | Use case | `ring_size` |
+|---|---|---|
+| [`Forwarding`](#forwarding) | pass each slice's data through unchanged (no inter-slice exchange) | `1` |
+| [`Broadcast01`](#broadcast01) | broadcast both inner `Slice` sub-dimensions (`slice1` and `slice0`) to every slice in a sub-ring | `slice1 × slice0` |
+| [`Broadcast1`](#broadcast1) | broadcast `slice1` while keeping `slice0` in `Slice` | `slice1 × slice0` |
+| [`Transpose`](#transpose) | swap `slice1` and `slice0` within `Slice` | `slice1 × slice0` |
+| [`InterTranspose`](#intertranspose) | swap a `Slice` sub-dimension (`slice1`) with a `Time` sub-dimension (`time1`) | `slice1 × slice0` |
+| [`TransposedBroadcast1`](#transposedbroadcast1) | broadcast `slice0` to `Time` while shifting `slice1` to innermost `Slice` (equivalent to `Transpose` then `Broadcast1`) | `slice1 × slice0` |
 
 ### Forwarding
 
-Forwarding passes data through the switching network unchanged, preserving the `Slice` and `Time` dimension mapping.
-Each slice's router simply passes its input data directly to output; no inter-slice communication occurs.
+`Forwarding` leaves the `Slice` and `Time` mappings unchanged: every router outputs its own slice's input directly, with no cross-slice movement.
 
-To use forwarding, skip the `.switch()` call entirely and invoke [`collect()`](./collect-engine.md) directly on the `FetchTensor`:
+`SwitchConfig` has no `Forwarding` variant.
+When no inter-slice exchange is needed, skip `.switch()` and call [`.collect()`](./collect-engine.md) directly on the `FetchTensor`.
 
 ```rust
 # #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
 axes![A = 256, B = 64, C = 32];
 
 fn forwarding<'l, const T: Tu>(
-    input: FetchTensor<'l, T, f32, m![1], m![1], m![A], m![B], m![C]>,
-) -> CollectTensor<'l, T, f32, m![1], m![1], m![A], m![B], m![C]> {
+    input: FetchTensor<'l, T, f32, m![1], m![1], m![A], m![B], m![C # 32]>,
+) -> CollectTensor<'l, T, f32, m![1], m![1], m![A], m![B], m![C # 32]> {
     input.collect()
 }
 ```
 
-The ring network operates at the following minimum cost when forwarding:
-
-$$
-\text{#cycles} = \text{ring\_size} \times \text{input\_time} \times \text{cycles\_per\_packet}
-$$
-
-`ring_size` is 1 since no inter-slice communication is needed, making this the most efficient topology when no actual switching is required.
-
 ### Broadcast01
 
-Broadcast01 replicates data across slices along two inner `Slice` sub-dimensions (called `slice0` and `slice1` in the layout diagram below), enabling parallel computation on the same data across multiple processing elements.
+`Broadcast01` broadcasts each slice's data to every slice in a sub-ring, moving both inner `Slice` sub-dimensions (`slice0` and `slice1`) into `Time`.
 
-This topology is essential for operations like matrix-vector multiplication where a vector needs to be broadcast to all rows of a matrix distributed across slices.
-
-This topology is parameterized by `slice1`, `slice0`, and `time0`.
-The compiler infers `slice2 = InSlice::SIZE / (slice1 * slice0)` and `time1 = InTime::SIZE / time0`.
-The following table shows the input axis structure (outermost to innermost, left to right):
+The input dimension structure (outermost to innermost, left to right):
 
 ```text
-+--------------------------+---------------+
-|          Slice           |      Time     |
-+--------+--------+--------+-------+-------+
-| slice2 | slice1 | slice0 | time1 | time0 |
-+--------+--------+--------+-------+-------+
+┌──────────────────────────┬───────────────┐
+│          Slice           │      Time     │
+├────────┬────────┬────────┼───────┬───────┤
+│ slice2 │ slice1 │ slice0 │ time1 │ time0 │
+└────────┴────────┴────────┴───────┴───────┘
 ```
 
-After switching, `slice1` and `slice0` move from `Slice` into `Time`, broadcasting those dimensions across the ring group while tiling `slice2`:
+After switching, `slice1` and `slice0` move from `Slice` into `Time` to broadcast across the sub-ring.
+Two new broadcast dimensions, labeled `X` and `Y`, fill their vacated `Slice` positions:
 
 ```text
-+----------------------+---------------------------------+
-|        Slice         |              Time               |
-+--------+------+------+-------+--------+-------+--------+
-| slice2 | tile | tile | time1 | slice1 | time0 | slice0 |
-+--------+------+------+-------+--------+-------+--------+
+┌──────────────────────┬─────────────────────────────────┐
+│        Slice         │              Time               │
+├────────┬──────┬──────┼───────┬────────┬───────┬────────┤
+│ slice2 │  X   │  Y   │ time1 │ slice1 │ time0 │ slice0 │
+└────────┴──────┴──────┴───────┴────────┴───────┴────────┘
 ```
 
-Moving `slice1` and `slice0` from `Slice` to `Time` creates `time1 × time0` independent ring groups, each of size `slice1 × slice0`, where slices within each ring group exchange data to achieve the broadcast pattern.
-The broadcast dimensions (`slice1`, `slice0`) are placed at the innermost positions of the output `Time` dimension (just outside `Packet`).
-
-This broadcast topology takes data that was spatially distributed across slices (the `Slice` axis) and broadcasts it over time.
-Instead of different slices having different data, all slices in the same ring group receive the same data sequentially through time.
+The sub-ring spans `ring_size = slice1 × slice0` slices, one for each `(slice1, slice0)` combination at fixed `slice2`.
+Every slice sends its packet around the sub-ring, and every slice receives all `ring_size` packets, so each output slice ends up holding the full broadcast group's data, indexed along the new `X` and `Y` axes in the output `Slice`.
 
 #### Example
 
-Consider the following configuration:
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![A = 256, B = 64, C = 63, D = 8, X = 2, Y = 2];
 
-- `axes![A = 256, B = 64, C = 63, D = 8]`
-- `dtype = i8`
-- `In`:
-  - `Chip: m![D / 2]`
-  - `Cluster: m![D % 2]`
-  - `Slice: m![A]`
-  - `Time: m![B]`
-  - `Packet: m![C # 64]`
-- `Out`:
-  - `Chip: m![D / 2]`
-  - `Cluster: m![D % 2]`
-  - `Slice: m![A / 4, 4]`
-  - `Time: m![B / 4, A / 2 % 2, B % 4, A % 2]`
-  - `Packet: m![C # 64]`
+fn broadcast01<'l, const T: Tu>(
+    input: FetchTensor<'l, T, f32, m![D / 2], m![D % 2], m![A], m![B], m![C # 64]>,
+) -> SwitchTensor<'l, T, f32, m![D / 2], m![D % 2], m![A / 4, X, Y], m![B / 4, A / 2 % 2, B % 4, A % 2], m![C # 64]> {
+    input.switch::<m![A / 4, X, Y], m![B / 4, A / 2 % 2, B % 4, A % 2]>(
+        SwitchConfig::Broadcast01 {
+            slice1: 2,
+            slice0: 2,
+            time0: 4
+        }
+    )
+}
+```
 
-This configuration sets `slice1 = 2`, `slice0 = 2`, `time0 = 4` in the `Broadcast01` topology.
-The compiler infers `slice2 = 256 / (2 * 2) = 64` and `time1 = 64 / 4 = 16`.
-Notice that `slice2 * slice1 * slice0 = 256 = Slice::SIZE`, and `time1 * time0 = 64 = (old)Time::SIZE`.
+With `slice1 = 2` (size of broadcast `X`), `slice0 = 2` (size of broadcast `Y`), and `time0 = 4`, the compiler derives `slice2 = 64`, `time1 = 16`, and `ring_size = 4` (64 sub-rings span 256 slices).
 
-The difference between the input and output mappings is that the `A % 4` axis moved from `Slice` to `Time`, while `slice2` is tiled.
-This divides the 256 slices into 16 groups of size `ring_size = slice0 * slice1 = 4`.
-The axis movement between `Slice` and `Time` enables this broadcast behavior: when an axis moves from `Slice` to `Time`, it creates dependencies where slices in a particular ring group receive data from the other slices in the same ring group.
-The `slice1` and `slice0` broadcast axes each move to `Time` as `A / 2 % 2` and `A % 2`, respectively.
+Sub-dimensions resolve to `slice2 = A / 4`, `slice1 = A / 2 % 2`, `slice0 = A % 2`, `time1 = B / 4`, `time0 = B % 4`, giving `OutSlice = m![A / 4, X, Y]` and `OutTime = m![B / 4, A / 2 % 2, B % 4, A % 2]`.
 
-This particular configuration is equivalent to the following custom snoop bitmap, which maps the slice identified by the bitmap index to its corresponding ring group.
-The broadcast pattern is evident: rows 0-3 have identical entries as the slices they represent (`{0, 1, 2, 3}`) receive data from the same input slices (`{0, 1, 2, 3}`).
+[Cycle estimate](#performance): `ring_size × Time::SIZE × flits_per_packet = 4 × 64 × 8 = 2048`, where `Time::SIZE = 64` and `flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 64 / 32 = 8`.
+
+### Broadcast1
+
+The input dimension structure (outermost to innermost, left to right):
+
+```text
+┌──────────────────────────┬────────┐
+│           Slice          │  Time  │
+├────────┬────────┬────────┼────────┤
+│ slice2 │ slice1 │ slice0 │ time0  │
+└────────┴────────┴────────┴────────┘
+```
+
+After switching, `slice1` moves from `Slice` into `Time` to broadcast across the sub-ring while `slice0` stays in `Slice`.
+A new broadcast dimension labeled `X` fills `slice1`'s vacated `Slice` position:
+
+```text
+┌────────────────────────┬────────────────┐
+│          Slice         │      Time      │
+├────────┬──────┬────────┼───────┬────────┤
+│ slice2 │  X   │ slice0 │ time0 │ slice1 │
+└────────┴──────┴────────┴───────┴────────┘
+```
+
+The sub-ring spans `ring_size = slice1 × slice0` slices, the same physical extent as `Broadcast01`'s.
+But broadcasting happens only along `slice1`: each output slice receives the `slice1` packets from sources at the same `slice0` position, sequenced along the innermost `Time`.
+The new `X` axis in the output `Slice` (sized `slice1`) replicates this collected data, while `slice0` itself is preserved at its original position.
+
+#### Example
+
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![A = 256, B = 64, C = 63, X = 4];
+
+fn broadcast1<'l, const T: Tu>(
+    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]>,
+) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 32, X, A % 8], m![B, A / 8 % 4], m![C # 64]> {
+    input.switch::<m![A / 32, X, A % 8], m![B, A / 8 % 4]>(
+        SwitchConfig::Broadcast1 {
+            slice1: 4,
+            slice0: 8,
+        }
+    )
+}
+```
+
+With `slice1 = 4` (size of broadcast `X`) and `slice0 = 8`, the compiler derives `slice2 = 8` and `ring_size = 32` (8 sub-rings span 256 slices).
+
+Sub-dimensions resolve to `slice2 = A / 32`, `slice1 = A / 8 % 4`, `slice0 = A % 8`, `time0 = B`, giving `OutSlice = m![A / 32, X, A % 8]` and `OutTime = m![B, A / 8 % 4]`.
+
+[Cycle estimate](#performance): `ring_size × Time::SIZE × flits_per_packet = 32 × 64 × 2 = 4096`, where `Time::SIZE = 64` and `flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 64 / 32 = 2`.
+
+### Transpose
+
+`Transpose` swaps `slice1` and `slice0` within the innermost part of `Slice`.
+
+The input and output `Slice` orderings:
+
+```text
+┌──────────────────────────┐         ┌──────────────────────────┐
+│           Slice          │         │           Slice          │
+├────────┬────────┬────────┤   ──►   ├────────┬────────┬────────┤
+│ slice2 │ slice1 │ slice0 │         │ slice2 │ slice0 │ slice1 │
+└────────┴────────┴────────┘         └────────┴────────┴────────┘
+```
+
+Each sub-ring spans `slice0 × slice1` slices and circulates data so every slice in the sub-ring ends up holding the value previously held by its swap partner.
+
+`Transpose` requires input `Time` and output `Time` to match (after normalization).
+
+#### Example
+
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![A = 256, B = 64, C = 63];
+
+fn transpose<'l, const T: Tu>(
+    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]>,
+) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 64, A % 2, A / 2 % 32], m![B], m![C # 64]> {
+    input.switch::<m![A / 64, A % 2, A / 2 % 32], m![B]>(SwitchConfig::Transpose {
+        slice1: 32,
+        slice0: 2,
+    })
+}
+```
+
+With `slice1 = 32` and `slice0 = 2`, the compiler derives `slice2 = 4` and `ring_size = 64` (4 sub-rings span 256 slices).
+
+Sub-dimensions resolve to `slice2 = A / 64`, `slice1 = A / 2 % 32`, `slice0 = A % 2`, `time0 = B`, giving `OutSlice = m![A / 64, A % 2, A / 2 % 32]` and `OutTime = m![B]` (slice0 and slice1 swap; `Time` is unchanged).
+
+[Cycle estimate](#performance): `ring_size × Time::SIZE × flits_per_packet = 64 × 64 × 2 = 8192`, where `Time::SIZE = 64` and `flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 64 / 32 = 2`.
+
+### InterTranspose
+
+`InterTranspose` swaps a dimension between `Slice` and `Time`: `slice1` moves into `Time` and `time1` moves into `Slice` (regular `Transpose` stays within `Slice`).
+
+The input dimension structure (outermost to innermost, left to right):
+
+```text
+┌──────────────────────────┬───────────────────────┐
+│           Slice          │         Time          │
+├────────┬────────┬────────┼───────┬───────┬───────┤
+│ slice2 │ slice1 │ slice0 │ time2 │ time1 │ time0 │
+└────────┴────────┴────────┴───────┴───────┴───────┘
+```
+
+After switching, `slice1` and `time1` swap positions across the `Slice`/`Time` boundary:
+
+```text
+┌─────────────────────────┬────────────────────────┐
+│          Slice          │          Time          │
+├────────┬───────┬────────┼───────┬───────┬────────┤
+│ slice2 │ time1 │ slice0 │ time2 │ time0 │ slice1 │
+└────────┴───────┴────────┴───────┴───────┴────────┘
+```
+
+Each sub-ring spans `slice1 × slice0` slices and circulates data over `time1` time steps so each slice's value previously indexed by `slice1` ends up indexed by `time1`, and vice versa.
+
+`InterTranspose` enforces three sizing constraints:
+
+- `InSlice` spans all 256 slices: `slice2 × slice1 × slice0 == 256`.
+- The swapped dimensions match in size: `time1.SIZE == slice1`.
+- `InTime::SIZE` is divisible by `slice1 × time0` so the `time2` decomposition is integral.
+
+#### Example
+
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![A = 256, B = 8, C = 32];
+
+fn inter_transpose<'l, const T: Tu>(
+    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 32]>,
+) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 32, B / 2 % 2, A % 16], m![B / 4, B % 2, A / 16 % 2], m![C # 32]> {
+    input.switch::<m![A / 32, B / 2 % 2, A % 16], m![B / 4, B % 2, A / 16 % 2]>(
+        SwitchConfig::InterTranspose {
+            slice1: 2,
+            slice0: 16,
+            time0: 2,
+        })
+}
+```
+
+With `slice1 = 2`, `slice0 = 16`, and `time0 = 2`, the compiler derives `slice2 = 8`, `time2 = 2`, and `ring_size = 32` (8 sub-rings span 256 slices).
+
+Sub-dimensions resolve to `slice2 = A / 32`, `slice1 = A / 16 % 2`, `slice0 = A % 16`, `time2 = B / 4`, `time1 = B / 2 % 2`, `time0 = B % 2`, giving `OutSlice = m![A / 32, B / 2 % 2, A % 16]` and `OutTime = m![B / 4, B % 2, A / 16 % 2]` (slice1 and time1 swap between `Slice` and `Time`).
+
+[Cycle estimate](#performance): `ring_size × Time::SIZE × flits_per_packet = 32 × 8 × 1 = 256`, where `Time::SIZE = 8` and `flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 32 / 32 = 1`.
+
+### TransposedBroadcast1
+
+`TransposedBroadcast1` broadcasts `slice0` to the innermost `Time` position and shifts `slice1` to the innermost `Slice` position, equivalent to applying `Transpose` followed by `Broadcast1`.
+An input tensor structured as:
+
+```text
+┌──────────────────────────┬────────┐
+│           Slice          │  Time  │
+├────────┬────────┬────────┼────────┤
+│ slice2 │ slice1 │ slice0 │ time0  │
+└────────┴────────┴────────┴────────┘
+```
+
+becomes the output below, where `slice0` moves to the innermost `Time` position to broadcast across the sub-ring, `slice1` shifts to the innermost `Slice` position, and a broadcast dimension fills `slice1`'s vacated middle slot:
+
+```text
+┌────────────────────────┬────────────────┐
+│          Slice         │      Time      │
+├────────┬──────┬────────┼───────┬────────┤
+│ slice2 │  Y   │ slice1 │ time0 │ slice0 │
+└────────┴──────┴────────┴───────┴────────┘
+```
+
+Each sub-ring spans `slice0 × slice1` slices and circulates data so every slice ends up with its swap partner's value, broadcast across the `slice0` positions at the innermost `Time` sub-dimension.
+
+#### Example
+
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![A = 256, B = 16, C = 32, Y = 8];
+
+fn transposed_broadcast1<'l, const T: Tu>(
+    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 32]>,
+) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 64, Y, A / 8 % 8], m![B, A % 8], m![C # 32]> {
+    input.switch::<m![A / 64, Y, A / 8 % 8], m![B, A % 8]>(
+        SwitchConfig::TransposedBroadcast1 {
+            slice1: 8,
+            slice0: 8,
+        }
+    )
+}
+```
+
+With `slice1 = 8` and `slice0 = 8` (size of broadcast `Y`), the compiler derives `slice2 = 4` and `ring_size = 64` (4 sub-rings span 256 slices).
+
+Sub-dimensions resolve to `slice2 = A / 64`, `slice1 = A / 8 % 8`, `slice0 = A % 8`, `time0 = B`, giving `OutSlice = m![A / 64, Y, A / 8 % 8]` and `OutTime = m![B, A % 8]`.
+
+[Cycle estimate](#performance): `ring_size × Time::SIZE × flits_per_packet = 64 × 16 × 1 = 1024`, where `Time::SIZE = 16` and `flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 32 / 32 = 1`.
+
+## Architecture
+
+To execute the configurations introduced above, the Switch Engine arranges all 256 slices on a chip into a single physical ring (one router per slice), partitioned into `256 / ring_size` parallel sub-rings of `ring_size` slices each (one such sub-ring is shown below).
+For regular configurations the compiler derives `ring_size` from the configuration's parameters (`slice1`, `slice0`, `time0`); for `CustomBroadcast` the kernel writer sets `ring_size` directly.
+
+```text
+   ┌────────────────────┐    ┌────────────────────┐    ┌────────────────────┐    ┌────────────────────┐
+   │      Router 0      │◀──▶│      Router 1      │◀──▶│        ...         │◀──▶│ Router ring_size-1 │
+   └────────────────────┘    └────────────────────┘    └────────────────────┘    └────────────────────┘
+             ▲                                                                                          ▲
+             └──────────────────────────────────────────────────────────────────────────────────────────┘
+                                            wrap-around (links are bidirectional)
+```
+
+The Switch Engine is configured by a *snoop bitmap*: 256 entries (one per slice), each naming the source slices whose data should arrive at that output slice.
+Regular configurations come with built-in bitmap generators.
+[`CustomBroadcast`](#custom-configurations) instead lets the compiler synthesize an arbitrary bitmap from the kernel writer's input/output mappings.
+
+
+Based on its bitmap entry, every router decides per incoming packet which combination of three actions to take:
+
+- **Output**: deliver the packet to the local slice's downstream pipeline, when the packet's source slice is selected for delivery here.
+- **Forward right**: pass the packet to the right neighbor's router.
+- **Forward left**: pass the packet to the left neighbor's router.
+
+In each sub-ring, the leftmost router sends its own data rightward, and the rightmost router sends its own data leftward.
+When `ring_size > 2`, the intermediate routers output incoming left-neighbor data and forward it rightward.
+Every router also outputs any data that arrives from a neighbor.
+
+The trace below illustrates per-router execution in one 2-slice sub-ring (`ring_size = 2`), running a 2-slice broadcast pattern.
+The remaining 127 sub-rings behave identically and are omitted.
+Each link has a 1-cycle traversal latency, so the leftmost router initiates at cycle 0 while the rightmost begins at cycle 1, once the first packet from its left neighbor arrives.
+With `axes![A = 256, B = 2, C = 32]`, `Slice = m![A]`, `Time = m![B]`, and `Packet = m![C]`, the shown sub-ring contains slices 0 and 1: the leftmost slice holds packets `[0, 1]` and the rightmost slice holds `[2, 3]`.
+Each cell reads as `<packet>: from <source>, to <action>`, where source is `input`/`left`/`right` and action is one or more of `output`/`right`/`left`.
+
+| cycle | Leftmost slice                    | Rightmost slice                                    | Output Data                                                 |
+| ----- | --------------------------------- | -------------------------------------------------- | ----------------------------------------------------------- |
+| 0     | 0: from input, to (output, right) |                                                    | `Leftmost: [0]`<br>`Rightmost: []`                          |
+| 1     | 1: from input, to (output, right) | 0: from left, to output<br> 2: from input, to left | `Leftmost: [0, 1]`<br>`Rightmost: [0]`                      |
+| 2     | 2: from right, to (output, right) | 1: from left, to output<br> 3: from input, to left | `Leftmost: [0, 1, 2]`<br>`Rightmost: [0, 1]`                |
+| 3     | 3: from right, to (output, right) | 2: from left, to output                            | `Leftmost: [0, 1, 2, 3]`<br>`Rightmost: [0, 1, 2]`          |
+| 4     |                                   | 3: from left, to output                            | `Leftmost: [0, 1, 2, 3]`<br>`Rightmost: [0, 1, 2, 3]`       |
+
+After the trace, both slices in the sub-ring hold all four packets, completing the broadcast.
+
+The bitmap encodes transformations through the shape of its entries:
+
+- **Broadcast shape**: multiple output slices receiving the same source data have identical bitmap entries.
+- **`Slice`-to-`Time` shape**: one output slice listing several source slices means that output collects data from all of them across consecutive time steps.
+
+For instance, the bitmap that reproduces the [`Broadcast01` example](#broadcast01) above looks like this:
 
 | Bitmap Index | `(A / 4, A % 4)`                           | `A`                        | Ring Group                 |
 | ------------ | ------------------------------------------ | -------------------------- | -------------------------- |
@@ -178,261 +380,77 @@ The broadcast pattern is evident: rows 0-3 have identical entries as the slices 
 | …            | …                                          | …                          | …                          |
 | 255          | `(63, 0)`, `(63, 1)`, `(63, 2)`, `(63, 3)` | `252`, `253`, `254`, `255` | `252`, `253`, `254`, `255` |
 
-Since this matches exactly the pre-defined `Broadcast01` form, it is an input/output format that can be processed by the Switch Engine.
+Rows 0-3 share identical entries because slices `{0, 1, 2, 3}` all receive data from input slices `{0, 1, 2, 3}` (the broadcast shape), and each row lists all four sources because `slice1` and `slice0` collapse from `Slice` into `Time` (the `Slice`-to-`Time` shape).
+This pattern repeats every 4 rows for the 64 sub-rings.
+`SwitchConfig::Broadcast01` generates this bitmap automatically.
+
+## Performance
+
+A switch operation takes roughly `ring_size × Time::SIZE × flits_per_packet` cycles.
+All sub-rings advance in parallel, so this per-ring cycle count is also the chip-wide latency.
+The three factors are:
+
+- `ring_size`: cycles for one flit to traverse one sub-ring.
+  A larger `ring_size` reaches more slices per ring at a higher per-ring cost, while a smaller `ring_size` partitions the cluster into more parallel rings at a lower per-ring cost.
+- `Time::SIZE`: number of time steps in the input tensor.
+  The sub-ring traversal repeats once per time step.
+- `flits_per_packet`: flits per packet, equal to size of `D[Packet::SIZE]` divided by 32 bytes.
+  The traversal also repeats once per flit of the packet.
+
+## Custom Configurations
+
+Custom configurations handle movement patterns no regular configuration expresses, such as arbitrary dimension permutations or partial dimension extractions.
+This flexibility comes with [configuration overhead](#configuration-overhead) and the [constraints](#constraints) listed at the end of the section.
+
+
+The `SwitchConfig::CustomBroadcast` variant carries a single field:
+
+```rust,ignore
+/// Routes data across slices using a custom snoop bitmap.
+/// The bitmap is computed by the compiler from the input shape and
+/// topology parameters.
+CustomBroadcast {
+    /// Ring group size for the custom routing.
+    ring_size: usize,
+},
+```
+
+Where regular configurations supply built-in generators for the snoop bitmap, `CustomBroadcast` lets the compiler synthesize the bitmap directly from the kernel writer's input/output mappings together with `ring_size`.
+
+### Supported Transformation Patterns
+
+Custom bitmaps cover two patterns regular configurations cannot:
+
+- **Free transpose with broadcast**: arbitrary permutation and broadcast of partitioning dimensions, beyond the fixed forms in `Transpose` or `TransposedBroadcast1`.
+- **Partial dimension extraction**: only a subset of a dimension's values moves to `Time` during broadcasting, whereas regular configurations like `Broadcast01` always move the whole dimension.
+
+The examples below illustrate these patterns.
+
+### Configuration Overhead
+
+Writing a custom snoop bitmap streams configuration data into the Switch Engine's Special Function Registers (SFRs), and this SFR write occupies both the DMA Engine and the sub-context for the duration.
+While the bitmap is loading, the DMA and sub contexts cannot run any other operation, so the cost manifests as reduced scheduling parallelism rather than a fixed-cycle stall.
+
+### Example 1: Arbitrary Permutation
+
+This example reverses the four innermost slice sub-dimensions (`A / 4, A % 4, B / 4, B % 4`) into `[3, 2, 1, 0]`, a pattern no regular configuration expresses.
 
 ```rust
 # #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
-axes![A = 256, B = 64, C = 63, D = 8, X = 4];
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![A = 16, B = 16, C = 8, D = 8, E = 8];
 
-fn broadcast01<'l, const T: Tu>(
-    input: FetchTensor<'l, T, f32, m![D / 2], m![D % 2], m![A], m![B], m![C # 64]>,
-) -> SwitchTensor<'l, T, f32, m![D / 2], m![D % 2], m![A / 4, X], m![B / 4, A / 2 % 2, B % 4, A % 2], m![C # 64]> {
-    // X is a newly introduced axis for broadcast semantics.
-    // Input: each slice has its own portion of data (256 slices, 64 time steps, 64 byte packets)
-    // Output: all slices receive broadcast data from their 4-slice ring group
-    // Packet passes through unchanged; call .collect() afterwards to normalize to flits.
-    input.switch::<m![A / 4, X], m![B / 4, A / 2 % 2, B % 4, A % 2]>(
-        SwitchConfig::Broadcast01 {
-            slice1: 2,
-            slice0: 2,
-            time0: 4
-        }
+fn arbitrary_permutation<'l, const T: Tu>(
+    input: FetchTensor<'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]>,
+) -> SwitchTensor<'l, T, f32, m![1], m![1], m![B % 4, B / 4, A % 4, A / 4], m![C], m![D, E]> {
+    input.switch::<m![B % 4, B / 4, A % 4, A / 4], m![C]>(
+        SwitchConfig::CustomBroadcast { ring_size: 256 }
     )
 }
 ```
 
-#### Cycle Estimation
-
-The Switch Engine's cycle estimation follows the formula:
-
-$$
-\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
-$$
-
-$$
-= (\texttt{slice0} \times \texttt{slice1}) \times \texttt{B::SIZE} \times \frac{\texttt{(C # 64)::SIZE}}{32}
-$$
-
-$$
-= (2 \times 2) \times 64 \times \frac{64}{32} = 512 \text{ cycles}
-$$
-
-#### Ring Structure
-
-The `ring_size` of 4 means that inter-slice data movement occurs in groups of 4 slices, with data dependencies existing only within each ring.
-
-When we group all 256 slices into rings of size 4, we get 64 independent rings that operate in parallel.
-
-Within each ring, exchanging data takes time proportional to `ring_size`, and each packet represents the minimum unit of data exchange.
-
-Regular topologies can be expressed as tensor mapping expressions.
-For example, with:
-- `axes![A = 64, B = 64]`
-- `Slice = m![A]`
-- `Time = m![B / 2]`
-- `Packet = m![B % 32]`
-
-If configured with `Broadcast01` (`slice0 = 8`, `slice1 = 8`, `time0 = 2`), the tensor mapping expression corresponding to the output is:
-
-- `axes![A = 64, B = 64]`
-- `Slice = m![A / 64, 64]`
-- `Time = m![B / 4, A / 8 % 8, B / 2 % 2, A % 8]`
-- `Packet = m![B % 32]`
-
-### Broadcast1
-
-Broadcast1 replicates data across slices along `Slice` dimension 1, enabling parallel computation where a single dimension needs to be broadcast while preserving another dimension in the slice.
-This topology is simpler than Broadcast01 as it only broadcasts along one `Slice` dimension.
-
-This topology is parameterized by `slice1` and `slice0`.
-The compiler infers `slice2 = InSlice::SIZE / (slice1 * slice0)`.
-An input tensor structured as follows:
-
-```text
-+--------------------------+--------+
-|           Slice          |  Time  |
-+--------+--------+--------+--------+
-| slice2 | slice1 | slice0 | time0  |
-+--------+--------+--------+--------+
-```
-
-is transformed into the following output tensor, where only the `slice1` axis moves from `Slice` to `Time`, broadcasting this dimension across the slice's ring group, while preserving `slice0` in `Slice` dimension and tiling `slice2`.
-
-```text
-+------------------------+----------------+
-|          Slice         |      Time      |
-+--------+------+--------+-------+--------+
-| slice2 | tile | slice0 | time0 | slice1 |
-+--------+------+--------+-------+--------+
-```
-
-#### Example
-
-```rust
-# #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
-axes![A = 256, B = 64, C = 63, X = 4];
-
-fn broadcast1<'l, const T: Tu>(
-    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]>,
-) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 32, X, A % 8], m![B, A / 8 % 4], m![C # 64]> {
-    // X is a newly introduced axis for broadcast semantics.
-    // Packet passes through unchanged; call .collect() afterwards to normalize to flits.
-    input.switch::<m![A / 32, X, A % 8], m![B, A / 8 % 4]>(
-        SwitchConfig::Broadcast1 {
-            slice1: 4,
-            slice0: 8,
-        }
-    )
-}
-```
-
-### Transpose
-
-Transpose permutes axes within the innermost part of the `Slice` dimension.
-This topology is parameterized by `slice1` and `slice0`.
-An input tensor with the slice dimension structured as `[slice2, slice1, slice0]` is transformed so that the output slice becomes `[slice2, slice0, slice1]`:
-
-```text
-+--------------------------+         +--------------------------+
-|           Slice          |         |           Slice          |
-+--------+--------+--------+   -->   +--------+--------+--------+
-| slice2 | slice1 | slice0 |         | slice2 | slice0 | slice1 |
-+--------+--------+--------+         +--------+--------+--------+
-```
-
-#### Example
-
-```rust
-# #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
-axes![A = 256, B = 64, C = 63];
-
-// Transpose with slice1 = 32, slice0 = 2.
-// Input Slice:  m![A]: [slice2 = 4, slice1 = 32, slice0 = 2]
-// Output Slice: m![A / 64, A % 2, A / 2 % 32]
-fn transpose<'l, const T: Tu>(
-    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]>,
-) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 64, A % 2, A / 2 % 32], m![B], m![C # 64]> {
-    input.switch::<m![A / 64, A % 2, A / 2 % 32], m![B]>(SwitchConfig::Transpose {
-        slice1: 32,
-        slice0: 2,
-    })
-}
-```
-
-The output slice `m![A / 64, A % 2, A / 2 % 32]` decomposes the original axis `A` into three parts: `A / 64` extracts `slice2` (stride 64, size 4), `A % 2` extracts `slice0` (stride 1, size 2), and `A / 2 % 32` extracts `slice1` (stride 2, size 32).
-Compared to the input slice ordering (`[slice2, slice1, slice0]`), `slice1` and `slice0` are swapped.
-
-### InterTranspose
-
-While regular Transpose permutes axes within `Slice` only, InterTranspose swaps between the `Slice` and `Time` dimensions and transposes in the `Time` dimension.
-
-This topology is parameterized by `slice1` (the size of the dimension being swapped), `slice0`, and `time0`.
-The compiler derives `slice2` and `time2` from the input `Slice` and `Time` mappings.
-Since `time1` must have the same size as `slice1` for `OutSlice::SIZE` to be 256, this effectively swaps equally-sized chunks between the `Slice` and `Time` dimensions:
-
-```text
-Input:
-+--------------------------+-----------------------+
-|           Slice          |         Time          |
-+--------+--------+--------+-------+-------+-------+
-| slice2 | slice1 | slice0 | time2 | time1 | time0 |
-+--------+--------+--------+-------+-------+-------+
-
-Output:
-+--------------------------+------------------------+
-|          Slice           |         Time           |
-+--------+--------+--------+-------+-------+--------+
-| slice2 | time1  | slice0 | time2 | time0 | slice1 |
-+--------+--------+--------+-------+-------+--------+
-```
-
-The `slice2` and `slice0` axes remain unchanged in `Slice`, while `time1` in `Slice` comes from the `Time` axis.
-The output `Time` dimension contains `slice1` from the original `Slice` dimension.
-
-#### Example
-
-```rust
-# #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
-axes![A = 8, B = 32, C = 256];
-
-// InterTranspose with slice1 = 2, slice0 = 16, time0 = 2.
-// The compiler derives: slice2 = 8, time2 = 2.
-// Input Slice:  m![C] = [slice2 = 8, slice1 = 2, slice0 = 16]
-// Input Time:   m![A] = [time2 = 2, time1 = 2, time0 = 2]
-// Output Slice: m![C / 32, A / 2 % 2, C % 16]
-// Output Time:  m![A / 4, A % 2, C / 16 % 2]
-fn inter_transpose<'l, const T: Tu>(
-    input: FetchTensor<'l, T, i8, m![1], m![1], m![C], m![A], m![B # 32]>,
-) -> SwitchTensor<'l, T, i8, m![1], m![1], m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, C / 16 % 2], m![B # 32]> {
-    input.switch::<m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, C / 16 % 2]>(
-        SwitchConfig::InterTranspose {
-            slice1: 2,
-            slice0: 16,
-            time0: 2,
-        })
-}
-```
-
-The output `Slice` (`m![C / 32, A / 2 % 2, C % 16]`) decomposes into:
-1. `C / 32` extracts `slice2` (from input `Slice`)
-2. `A / 2 % 2` extracts `time1` (from input `Time`)
-3. `C % 16` extracts `slice0` (from input `Slice`)
-
-The output `Time` (`m![A / 4, A % 2, C / 16 % 2]`) contains:
-1. `A / 4` extracts `time2` (from input `Time`)
-2. `A % 2` extracts `time0` (from input `Time`)
-3. `C / 16 % 2` extracts `slice1` (from input `Slice`)
-
-### Custom Topologies
-
-Regular topologies cover the most common data movement patterns efficiently, but some tensor operations require arbitrary permutations or partial axis extractions that don't fit these predefined patterns.
-
-Custom topologies solve this problem by allowing you to program exactly which input slices map to which output slices using a bitmap, giving you complete flexibility for complex transformations.
-
-#### Configuration Overhead
-
-The tradeoff for this flexibility is configuration overhead: using a custom topology requires preempting DMA and sub-context operations to write the bitmap to the hardware's Special Function Registers (SFRs).
-
-This setup cost makes custom topologies most appropriate when the computation benefits outweigh the initialization overhead.
-
-#### Supported Transformation Patterns
-
-Custom bitmaps support two key transformation patterns that regular topologies cannot express.
-
-First, they enable **free transpose with broadcast**, allowing arbitrary permutation and broadcast of partitioning axes—regular topologies only support specific forms like `Transpose` or `TransposedDim1Broadcast`, but custom bitmaps let you freely mix axes while broadcasting.
-
-Second, they support **partial axis extraction**, where only a portion of an axis moves to `Time` during broadcasting—regular topologies like `Broadcast01` always move the entire broadcast axis, but custom bitmaps can select subsets.
-
-#### Example 1: Arbitrary Permutation
-
-This example demonstrates arbitrary slice dimension permutations that regular topologies cannot express, enabling flexible data reordering for specialized computation patterns.
-
-Arguments:
-- 1 cluster (256 slices): `Chip`/`Cluster` context applies to a single cluster.
-- `axes![A = 16, B = 16, C = 8, D = 8, E = 8]`
-- `dtype = i8`
-- `In`:
-  - `Slice: m![A, B]`
-  - `Time: m![C]`
-  - `Packet: m![D, E]`
-- `Out`:
-  - `Slice: m![B % 4, B / 4, A % 4, A / 4]`
-  - `Time: m![C]`
-  - `Packet: m![D, E]`
-
-The difference between `In` and `Out` is that permutation occurred in the slice shape.
-
-The form of permutation is `[0, 1, 2, 3]` to `[3, 2, 1, 0]`.
-
-There is no regular topology corresponding to such free permutation, but it is a form that can be simply expressed with custom bitmap.
+The output `Slice = m![B % 4, B / 4, A % 4, A / 4]` permutes the input slice shape `[0, 1, 2, 3]` into `[3, 2, 1, 0]`, which no regular configuration covers but a custom bitmap does.
 
 | Bitmap Index | `(B % 4, B / 4, A % 4, A / 4)` | `(A, B)`   | Ring Group |
 | ------------ | ------------------------------ | ---------- | ---------- |
@@ -445,86 +463,22 @@ There is no regular topology corresponding to such free permutation, but it is a
 | …            | …                              | …          | …          |
 | 255          | `(3, 3, 3, 3)`                 | `(15, 15)` | `255`      |
 
-The cycle calculation follows the standard formula:
+Plugging into the [cycle formula](#performance), `cycles ≈ ring_size × Time::SIZE × flits_per_packet = 256 × 8 × 8 = 16384`:
 
-$$
-\text{cycle} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}.
-$$
+- `ring_size = 256`
+- `Time::SIZE = C::SIZE = 8`
+- `flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 64 / 32 = 8` (`Packet = m![D, E]`, `D::SIZE × E::SIZE = 64`)
 
-$$
-= 256 \times \texttt{C::SIZE} \times \frac{\texttt{m![D, E]::SIZE}}{32} = 4096
-$$
+The maximum `ring_size = 256` is necessary because the permutation creates dependencies across all slices with no repeating structure, so input and output slices can be arbitrarily far apart in the ring index, and any smaller sub-ring would fail to cover at least one such pair.
 
-The ring size must be a power of 2, and in this case we need the maximum value of `256`, as this particular permutation creates dependencies across all slices with no repeating structure.
-For example, data from input slice `196` must reach output slice `3`, which means we need a ring large enough to cover all such cross-slice dependencies.
+### Example 2: Multi-dimension Broadcast
 
-This high cycle count reflects the cost of the arbitrary permutation—contrast this with regular topologies that achieve much lower cycle counts through structured parallelism.
+Unlike Example 1's pure permutation, this example moves two non-contiguous dimensions (`A % 2` and `B % 2`) from `Slice` to `Time`, broadcasting at their original positions.
 
 ```rust
 # #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
-axes![A = 16, B = 16, C = 8, D = 8, E = 8];
-
-fn arbitrary_permutation<'l, const T: Tu>(
-    input: FetchTensor<'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]>,
-) -> SwitchTensor<'l, T, f32, m![1], m![1], m![B % 4, B / 4, A % 4, A / 4], m![C], m![D, E]> {
-    input.switch::<m![B % 4, B / 4, A % 4, A / 4], m![C]>(
-        SwitchConfig::CustomBroadcast { ring_size: 256 }
-    )
-}
-```
-
-#### Example 2: Multi-Axis Broadcast
-
-This example shows broadcasting across multiple non-contiguous axes within the `Slice` dimension, useful for complex tensor operations that require replication along several independent dimensions simultaneously.
-
-Arguments:
-- 1 cluster (256 slices): `Chip`/`Cluster` context applies to a single cluster.
-- `axes![A = 16, B = 16, C = 8, D = 8, E = 8]`
-- `dtype = i8`
-- `In`:
-  - `Slice: m![A, B]`
-  - `Time: m![C]`
-  - `Packet: m![D, E]`
-- `Out`:
-  - `Slice: m![A / 2, 2, B / 2, 2]`
-  - `Time: m![C, A % 2, B % 2]`
-  - `Packet: m![D, E]`
-
-The difference between `In` and `Out` is that the two axes `A % 2` and `B % 2` moved from `Slice` to `Time`, and broadcast occurred at the original position.
-
-Among regular topologies, `Dim0`/`Dim1Broadcast` supports a similar form, but cases where axes corresponding to `Slice` to `Time` are separated within the slice cannot be expressed.
-
-<!-- > **TODO**: The sentence above is unclear. Rewrite to explain precisely what limitation of `Dim0`/`Dim1Broadcast` this example is demonstrating. -->
-
-However, this is a form that can be simply expressed with custom bitmap.
-
-| Bitmap Index | `(A / 2, A % 2, B / 2, B % 2)`                                 | `(A, B)`                                       | Ring Group                 |
-| ------------ | -------------------------------------------------------------- | ---------------------------------------------- | -------------------------- |
-| 0            | `(0, 0, 0, 0)`, `(0, 0, 0, 1)`, `(0, 1, 0, 0)`, `(0, 1, 0, 1)` | `(0, 0)`, `(0, 1)`, `(1, 0)`, `(1, 1)`         | `0`, `1`, `16`, `17`       |
-| 1            | `(0, 0, 0, 0)`, `(0, 0, 0, 1)`, `(0, 1, 0, 0)`, `(0, 1, 0, 1)` | `(0, 0)`, `(0, 1)`, `(1, 0)`, `(1, 1)`         | `0`, `1`, `16`, `17`       |
-| 2            | `(0, 0, 1, 0)`, `(0, 0, 1, 1)`, `(0, 1, 1, 0)`, `(0, 1, 1, 1)` | `(0, 2)`, `(0, 3)`, `(1, 2)`, `(1, 3)`         | `2`, `3`, `18`, `19`       |
-| 3            | `(0, 0, 1, 0)`, `(0, 0, 1, 1)`, `(0, 1, 1, 0)`, `(0, 1, 1, 1)` | `(0, 2)`, `(0, 3)`, `(1, 2)`, `(1, 3)`         | `2`, `3`, `18`, `19`       |
-| …            | …                                                              | …                                              | …                          |
-| 255          | `(7, 0, 7, 0)`, `(7, 0, 7, 1)`, `(7, 1, 7, 0)`, `(7, 1, 7, 1)` | `(14, 14)`, `(14, 15)`, `(15, 14)`, `(15, 15)` | `238`, `239`, `254`, `255` |
-
-The cycle calculation gives us:
-
-$$
-\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
-$$
-
-$$
-= 32 \times 8 \times 2 = 512 \text{ cycles}
-$$
-
-The `ring_size` of `32` is smaller than the full 256 slices because the outermost `A / 2` part of the slice dimension doesn't require data exchange—only the remaining 32 slices within each `A / 2` group need to exchange data with each other.
-
-```rust
-# #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
 axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 2, Y = 2];
 
 fn multi_axis_broadcast<'l, const T: Tu>(
@@ -536,70 +490,33 @@ fn multi_axis_broadcast<'l, const T: Tu>(
 }
 ```
 
-#### Understanding the Bitmap Pattern
+The output moves `A % 2` and `B % 2` from `Slice` to `Time`, broadcasting at their original positions via the broadcast dimensions `X` and `Y`.
+`Broadcast01` supports a similar form but requires the broadcast dimensions (`slice0`, `slice1`) to be contiguous in the input slice, so it cannot express non-contiguous dimensions moving from `Slice` to `Time`.
+A custom bitmap expresses it instead.
 
-Two key patterns appear in the bitmap that reveal how the transformation works.
+| Bitmap Index | `(A / 2, A % 2, B / 2, B % 2)`                                 | `(A, B)`                                       | Ring Group                 |
+| ------------ | -------------------------------------------------------------- | ---------------------------------------------- | -------------------------- |
+| 0            | `(0, 0, 0, 0)`, `(0, 0, 0, 1)`, `(0, 1, 0, 0)`, `(0, 1, 0, 1)` | `(0, 0)`, `(0, 1)`, `(1, 0)`, `(1, 1)`         | `0`, `1`, `16`, `17`       |
+| 1            | `(0, 0, 0, 0)`, `(0, 0, 0, 1)`, `(0, 1, 0, 0)`, `(0, 1, 0, 1)` | `(0, 0)`, `(0, 1)`, `(1, 0)`, `(1, 1)`         | `0`, `1`, `16`, `17`       |
+| 2            | `(0, 0, 1, 0)`, `(0, 0, 1, 1)`, `(0, 1, 1, 0)`, `(0, 1, 1, 1)` | `(0, 2)`, `(0, 3)`, `(1, 2)`, `(1, 3)`         | `2`, `3`, `18`, `19`       |
+| 3            | `(0, 0, 1, 0)`, `(0, 0, 1, 1)`, `(0, 1, 1, 0)`, `(0, 1, 1, 1)` | `(0, 2)`, `(0, 3)`, `(1, 2)`, `(1, 3)`         | `2`, `3`, `18`, `19`       |
+| …            | …                                                              | …                                              | …                          |
+| 255          | `(7, 0, 7, 0)`, `(7, 0, 7, 1)`, `(7, 1, 7, 0)`, `(7, 1, 7, 1)` | `(14, 14)`, `(14, 15)`, `(15, 14)`, `(15, 15)` | `238`, `239`, `254`, `255` |
 
-First, broadcast manifests as identical bitmaps: `bitmap[0]` and `bitmap[1]` are completely identical because output slices 0 and 1 both receive the same source data, implementing the broadcast operation.
+Plugging into the [cycle formula](#performance), `cycles ≈ ring_size × Time::SIZE × flits_per_packet = 32 × 8 × 8 = 2048`:
 
-Second, the `Slice` to `Time` movement appears as one output slice receiving from multiple input slices: `bitmap[0] = {0, 1, 16, 17}` shows that output slice 0 collects data from four different input slices.
+- `ring_size = 32` (the outermost `A / 2` partition needs no inter-sub-ring exchange, so only the innermost 32 slices within each sub-ring communicate)
+- `Time::SIZE = 8`
+- `flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 64 / 32 = 8` (`Packet = m![D, E]`, `D::SIZE × E::SIZE = 64`)
 
-#### Example 3: Partial Axis Extraction (Slicing)
+### Example 3: Partial Axis Extraction (Slicing)
 
-This example demonstrates extracting only a subset of an axis during the `Slice` to `Time` transformation, enabling selective data distribution for operations that don't require the full axis range.
-
-Arguments:
-- 1 cluster (256 slices): `Chip`/`Cluster` context applies to a single cluster.
-- `axes![A = 16, B = 16, C = 8, D = 8, E = 8]`
-- `dtype = i8`
-- `In`:
-  - `Slice: m![A, B]`
-  - `Time: m![C]`
-  - `Packet: m![D, E]`
-- `Out`:
-  - `Slice: m![A, B / 4, 4]`
-  - `Time: m![C, B % 4 = 3]`
-  - `Packet: m![D, E]`
-
-The difference between `In` and `Out` is that the `B % 4` axis moved from `Slice` to `Time`, and broadcast occurred at the original position.
-
-The somewhat unusual point is that `B % 4` did not move completely intact to `Time`, but was partially sliced (3 out of total 4).
-
-Among regular topologies, `Dim0`/`Dim1Broadcast` supports a similar form, but the form where axes corresponding to `Slice` to `Time` are sliced cannot be expressed.
-
-However, this is a form that can be simply expressed with a custom bitmap.
-
-| Bitmap Index | `(A, B / 4, B % 4 = 3)`                  | `(A, B)`                           | Ring Group          |
-| ------------ | ---------------------------------------- | ---------------------------------- | ------------------- |
-| 0            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
-| 1            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
-| 2            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
-| 4            | `(0, 1, 0)`, `(0, 1, 1)`, `(0, 1, 2)`    | `(0, 4)`, `(0, 5)`, `(0, 6)`       | `4`, `5`, `6`       |
-| …            | …                                        | …                                  | …                   |
-| 255          | `(15, 3, 0)`, `(15, 3, 1)`, `(15, 3, 2)` | `(15, 12)`, `(15, 13)`, `(15, 14)` | `252`, `253`, `254` |
-
-The cycle calculation follows the formula:
-
-$$
-\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
-$$
-
-$$
-= 4 \times 8 \times 2 = 128 \text{ cycles}
-$$
-
-The small `ring_size` of `4` reflects that the `A, (B / 4)` outermost portion of the slice doesn't exchange data. Only the innermost 4 slices within each group need to communicate.
-
-The bitmap reveals how partial axis extraction works: `bitmap[0] = {0, 1, 2}` shows that output slice 0 receives from only 3 input slices.
-
-If the bitmap were `{0, 1, 2, 3}`, it would represent receiving the entire `B` axis (all 4 values).
-
-By including only `{0, 1, 2}`, the bitmap implements slicing—extracting 3 out of 4 values from the `B` axis dimension.
+Unlike Examples 1 and 2, which include every value of the moved dimensions, here only 3 of 4 values in `B % 4` move from `Slice` to `Time`.
 
 ```rust
 # #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
 axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 4];
 
 fn partial_axis_extraction<'l, const T: Tu>(
@@ -611,176 +528,75 @@ fn partial_axis_extraction<'l, const T: Tu>(
 }
 ```
 
-#### Constraint 1: Order Preservation
+The output moves `B % 4` from `Slice` to `Time` with broadcast at the original position, and the fourth value (`B % 4 = 3`) is discarded so only the first 3 are extracted.
+`Broadcast1` supports a similar form but always moves the entire dimension, so it cannot express a subset.
+A custom bitmap expresses it instead.
 
-Hardware limitations require that axes moving from `Slice` to `Time` must preserve their relative order from the input `Slice` dimension.
+| Bitmap Index | `(A, B / 4, B % 4 = 3)`                  | `(A, B)`                           | Ring Group          |
+| ------------ | ---------------------------------------- | ---------------------------------- | ------------------- |
+| 0            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
+| 1            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
+| 2            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
+| 3            | (unused, discarded by partial extraction) | (none)                            | (none)              |
+| 4            | `(0, 1, 0)`, `(0, 1, 1)`, `(0, 1, 2)`    | `(0, 4)`, `(0, 5)`, `(0, 6)`       | `4`, `5`, `6`       |
+| …            | …                                        | …                                  | …                   |
+| 255          | `(15, 3, 0)`, `(15, 3, 1)`, `(15, 3, 2)` | `(15, 12)`, `(15, 13)`, `(15, 14)` | `252`, `253`, `254` |
 
-This constraint exists because the routing network can efficiently forward data in the original axis order, but reordering axes during the transfer would require additional buffering that the hardware doesn't provide.
+Plugging into the [cycle formula](#performance), `cycles ≈ ring_size × Time::SIZE × flits_per_packet = 4 × 8 × 8 = 256`:
 
-The following example shows an unsupported transformation that violates this constraint.
+- `ring_size = 4` (the outer `A, B / 4` partition needs no inter-sub-ring exchange, so only the innermost 4 slices within each sub-ring communicate)
+- `Time::SIZE = 8`
+- `flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 64 / 32 = 8` (`Packet = m![D, E]`, `D::SIZE × E::SIZE = 64`)
 
-Arguments:
-- 1 cluster (256 slices): `Chip`/`Cluster` context applies to a single cluster.
-- `axes![A = 16, B = 16, C = 8, D = 8, E = 8]`
-- `dtype = i8`
-- `In`:
-  - `Slice: m![A, B]`
-  - `Time: m![C]`
-  - `Packet: m![D, E]`
-- `Out`:
-  - `Slice: m![A, B / 4, 4]`
-  - `Time: m![C, B % 2, B / 2]`
-  - `Packet: m![D, E]`
+The bitmap shows partial extraction directly: `bitmap[0] = {0, 1, 2}` means output slice 0 receives from only 3 input slices, whereas `{0, 1, 2, 3}` would receive the entire `B` axis (all 4 values).
 
-In this example, the `B % 2` and `B / 2` axes appear in reversed order compared to their arrangement in the input slice dimension.
+### Constraints
 
-While the slice bitmap could theoretically represent this pattern, the hardware cannot execute it because it lacks the buffering needed to reorder axes during transfer.
+Custom configurations come with six constraints that bound this flexibility.
 
-If the output slice were instead `m![A, B / 4, 4]` with time `m![C, B / 2, B % 2]` and packet `m![D, E]`, then the transformation would be valid.
+#### Broadcast axes must be new
 
-In this corrected version, the `B / 2, B % 2` axes maintain their original order from the input slice, satisfying the order preservation constraint.
+Same rule as the [Regular Configurations](#regular-configurations) intro: each broadcast axis introduced in the output `Slice` must not appear in the input `Slice` or input `Time`.
 
-#### Constraint 2: Innermost Time Position
+For instance, with `axes![A = 256, B = 64, C = 32]` and input `Slice = m![A], Time = m![B], Packet = m![C # 32]`, an output `Slice = m![A / 4, B / 32, A % 4]` violates this constraint because `B` already appears in the input `Time`.
 
-The hardware requires axes moving from `Slice` to `Time` to appear at the innermost positions of the output time dimension.
+#### Each broadcast axis used exactly once
 
-Axes moving from `Slice` to `Time` are delivered last per packet, so they become the innermost `Time` dimensions in the output stream.
+Each broadcast axis must appear exactly once in the output `Slice`.
+Repeating the same axis at two output positions has no defined meaning for the routing bitmap.
 
-The following example shows an unsupported transformation that violates this constraint.
+For instance, output `Slice = m![A / 4, X, X]` (where `X` is a new axis used twice) violates this constraint.
 
-Arguments:
-- 1 cluster (256 slices): `Chip`/`Cluster` context applies to a single cluster.
-- `axes![A = 16, B = 16, C = 8, D = 8, E = 8]`
-- `dtype = i8`
-- `In`:
-  - `Slice: m![A, B]`
-  - `Time: m![C]`
-  - `Packet: m![D, E]`
-- `Out`:
-  - `Slice: m![A / 2, 2, B / 2, 2]`
-  - `Time: m![A % 2, C, B % 2]`
-  - `Packet: m![D, E]`
+#### Broadcast axes must not be padded
 
-In this example, the `A % 2` and `B % 2` axes that move from `Slice` to `Time` preserve their relative order correctly.
+Broadcast axes in the output `Slice` must not carry padding (no `Axis # N` form).
+Padding on a broadcast axis would leave routing destinations undefined for the padded positions.
 
-However, the transformation is still invalid because these axes are not positioned at the innermost part of the output time dimension—the `C` axis appears between `A % 2` and `B % 2`, violating the innermost position requirement.
+For instance, output `Slice = m![A / 4, X # 4, Y]` violates this constraint because `X` is a broadcast axis with padding.
 
-Note that `Broadcast01` topology can sometimes work around this constraint using the `time0` parameter, which provides additional flexibility in axis positioning.
+#### Order preservation
 
-Custom topologies lack this `time0` mechanism, so they must strictly place all `Slice` to `Time` axes at the innermost time positions.
+Axes moving from `Slice` to `Time` must preserve their relative order from the input slice dimension, and the verifier in `SwitchConfig::CustomBroadcast` panics at kernel compile time when they do not.
+Each router has minimal buffering (one packet) and must immediately decide to output locally or forward, with no opportunity to buffer multiple packets and reorder them.
 
-## Constraints
+For instance, with `axes![A = 16, B = 16, C = 8, D = 8, E = 8]` and `dtype = i8`, mapping input `Slice = m![A, B], Time = m![C], Packet = m![D, E]` to output `Slice = m![A, B / 4, 4], Time = m![C, B % 2, B / 2], Packet = m![D, E]` violates this constraint.
+Here `B % 2` and `B / 2` appear in reversed order relative to their input slice arrangement.
+Output `Time = m![C, B / 2, B % 2]` would be valid, since `B / 2, B % 2` match the input order.
 
-Understanding switching constraints prevents compilation errors and ensures correct data movement patterns.
+#### Innermost time position
 
-### Why Switching Constraints Exist
+Axes moving from `Slice` to `Time` must occupy the innermost positions of the output `Time`.
+Data from other slices arrives last within each packet in the pipeline, so `Slice`-to-`Time` sub-dimensions naturally land at the innermost time dimensions.
+Placing them elsewhere would demand buffering and reordering full time sequences, which the hardware cannot do.
 
-The Switch Engine constraints reflect fundamental hardware design decisions about the ring network topology and router capabilities.
+For instance, with the same `axes!` and `dtype` as above, mapping input `Slice = m![A, B], Time = m![C], Packet = m![D, E]` to output `Slice = m![A / 2, 2, B / 2, 2], Time = m![A % 2, C, B % 2], Packet = m![D, E]` violates this constraint.
+Here `A % 2` and `B % 2` preserve their relative order correctly, but `C` sits between them.
 
-**Ring network topology fundamentally limits flexibility.**
-The hardware implements a physical ring connecting 256 slices in a fixed order.
-Data flows counter-clockwise through this ring, with each router deciding whether to output locally or forward to neighbors.
-This topology is highly efficient for regular patterns (like broadcasting) where all slices follow similar routing rules.
-However, it cannot efficiently express arbitrary permutations that would require complex routing tables or multiple ring passes.
-The hardware provides only 256 router configuration entries—one per slice—rather than a full crossbar switch that could connect any slice to any other.
+> [!NOTE]
+> `Broadcast01` works around this constraint via the `time0` parameter, but custom configurations lack that mechanism and must follow the constraint strictly.
 
-**Buffering constraints drive the order preservation rule.**
-Each slice router has minimal buffering (essentially one packet), which enables high throughput but prevents reordering.
-When data arrives from the ring network, the router must immediately decide: output locally or forward?
-It cannot buffer multiple packets and reorder them.
-Therefore, axes moving from the `Slice` to `Time` dimension must maintain their original order—the hardware simply forwards data in arrival order without reordering capabilities.
+#### Ring size
 
-**Pipeline structure requires innermost time position.**
-Data from other slices arrives last within each packet, so `Slice`-to-`Time` axes naturally become the innermost time dimensions.
-Placing these axes anywhere else would require the hardware to buffer and reorder complete time sequences, which would require prohibitive amounts of SRAM and complex control logic.
-
-### Regular Topology Constraints
-
-Regular topologies impose specific structural requirements:
-
-- **Topology pattern matching**: Input/output mapping expressions must match the predefined topology pattern.
-  Violating this causes a compilation error.
-  Example: `Broadcast01` requires specific axis ordering (`slice2`, `slice1`, `slice0`, `time1`) that cannot be arbitrarily reordered.
-
-- **Full cluster operation**: `InSlice::SIZE` = `OutSlice::SIZE` = 256.
-  Partial cluster operations are not supported; violating this causes a compilation error.
-
-### Custom Topology Constraints
-
-Custom topologies provide flexibility but impose two critical constraints:
-
-**1. Order Preservation**: Axes moving from `Slice` to `Time` must preserve their relative order from the input slice dimension (see [Buffering constraints](#why-switching-constraints-exist) above).
-Violating this causes a compilation error or incorrect data routing.
-
-```text
-// Input:  Slice: m![A, B]
-// INVALID: B % 2 and B / 2 are reversed
-// Output: Time: m![C, B % 2, B / 2]
-// Valid:   Time: m![C, B / 2, B % 2]
-```
-
-**2. Innermost Time Position**: Axes moving from `Slice` to `Time` must appear at the innermost positions of the output `Time` dimension (see [Pipeline structure](#why-switching-constraints-exist) above).
-Violating this causes a compilation error or incorrect data ordering.
-
-```text
-// Input:  Slice: m![A, B]
-// INVALID: C appears between moved axes
-// Output: Time: m![A % 2, C, B % 2]
-// Valid:   Time: m![C, A % 2, B % 2]
-```
-
-> [!Note]
-> The `Broadcast01` topology can sometimes work around the innermost position constraint using the `time0` parameter. Custom topologies lack this mechanism and must strictly follow the constraint.
-
-## Performance
-
-The Switch Engine performance directly affects computation throughput since data redistribution overlaps with tensor operations.
-
-### Cycle Estimation
-
-Switching operations follow the formula:
-
-$$
-\text{cycle} = \text{ring\_size} \times \text{input\_time} \times \text{cycle\_per\_packet}
-$$
-
-Where:
-- `ring_size`: Number of slices in each independent ring (e.g., `slice0 × slice1` for `Broadcast01`)
-- `input_time`: Size of the input time dimension
-- `cycles_per_packet`: `packet_size / 32` (number of 32-byte flits per packet)
-
-For example, with `ring_size = 4`, `input_time = 64`, and 64-byte packets (2 flits):
-
-$$
-\text{#cycles} = \text{ring_size} \times \text{input_time} \times \text{cycles_per_packet}
-$$
-
-$$
-= 4 \times 64 \times 2 = 512 \text{ cycles}
-$$
-
-### Parallelism Across Rings
-
-When 256 slices are grouped into rings (e.g., 64 rings of size 4), all rings operate **independently and in parallel**.
-
-This parallelism is critical for high throughput: although each ring takes `ring_size × input_time × cycles_per_packet` cycles to complete, all rings finish simultaneously.
-
-### Custom Topology Overhead
-
-Custom topologies provide arbitrary permutation flexibility but incur **configuration overhead**:
-- Requires preempting DMA and sub-context operations
-- Must write the bitmap to Special Function Registers (SFRs)
-- Setup cost makes custom topologies most appropriate when computation benefits outweigh initialization overhead
-
-### Communication Cost
-
-Communication cost in the ring network scales with ring size and data volume:
-- **Regular topologies**: Optimized for common patterns, minimal overhead
-- **Custom topologies**: Flexible but potentially higher setup cost
-- **Ring topology characteristic**: Data movement cost increases proportionally with ring size, unlike other dimensions where stride differences have minimal impact
-
-<!-- > **TODO**: Communication cost specification needed. This is necessary for programming while being aware of HW's communication cost. It is also a main reason for distinguishing Tiles in GPUs. Clearly knowing that data movement characteristics differ is an important aspect in low level programming. -->
-<!-- > **Open Question**: How should communication cost be modeled in the tensor mapping expressions? For example, in the Head, whether the class-stride differs by 1 or 100, the cost of data movement is virtually the same. However, in Partitioning, since ring topology is used, the data movement cost tends to increase proportionally to the class-stride. This asymmetry needs to be captured in the cost model. -->
-
-
+The `ring_size` parameter must be a power of 2.
+The compiler also derives the expected `ring_size` from the input/output mappings (the outermost non-direct-cast boundary) and rejects any user-supplied value that does not match.
 

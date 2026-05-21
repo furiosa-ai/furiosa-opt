@@ -1,16 +1,15 @@
 [package]
 name = "furiosa-mapping-types"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
+repository = "https://github.com/furiosa-ai/furiosa-opt"
+description = "Type-level definitions for the Furiosa NPU mapping DSL."
 
 [dependencies]
-abi_stable.workspace = true
-itertools.workspace = true
-lasso.workspace = true
-serde.workspace = true
-serde-lite.workspace = true
-furiosa-mapping-macro = { path = "../furiosa-mapping-macro" }
-
-[dev-dependencies]
-furiosa-opt-macro = { path = "../furiosa-opt-macro" }
+abi_stable = { workspace = true }
+furiosa-opt-macro = { path = "../furiosa-opt-macro", version = "0.2" }
+itertools = { workspace = true }
+lasso = { workspace = true }
+serde = { workspace = true }
+serde-lite = { workspace = true }

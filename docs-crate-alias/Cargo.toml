@@ -1,11 +1,11 @@
 [package]
 name = "docs-crate-alias"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
 
 [dependencies]
-rand.workspace = true
+rand = { workspace = true }
 
 [lints]
 workspace = true

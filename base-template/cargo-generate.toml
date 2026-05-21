@@ -1,0 +1,5 @@
+# Marks this directory as a cargo-generate template root so that
+# `cargo generate furiosa-ai/furiosa-opt base-template` resolves the
+# `base-template/` subfolder (per cargo-generate's multi-template
+# detection rule: any subfolder containing this file is a template root).
+[template]

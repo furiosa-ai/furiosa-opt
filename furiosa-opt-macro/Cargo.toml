@@ -1,14 +1,15 @@
 [package]
 name = "furiosa-opt-macro"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
+repository = "https://github.com/furiosa-ai/furiosa-opt"
+description = "Procedural macros for the Furiosa NPU optimizer toolchain."
 
 [lib]
 proc-macro = true
 
 [dependencies]
-furiosa-mapping = { path = "../furiosa-mapping" }
-proc-macro2.workspace = true
-quote.workspace = true
-syn.workspace = true
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }

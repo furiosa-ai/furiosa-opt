@@ -1,28 +1,30 @@
 # Split Reduce
 
-Split reduce handles reductions when a logical reduction axis cannot be mapped to a single continuous hardware dimension: the axis is split into multiple separate tensor instances that must be fetched independently using interleaved fetch and combined using Vector Engine binary operations.
+
+Split reduce handles reductions when a logical reduction axis cannot be mapped to a single continuous hardware dimension.
+The axis is split into multiple separate tensor instances that must be fetched independently and then combined.
+The fetch uses interleaved fetch and the combination uses Vector Engine binary operations.
 
 ## When to Use Split Reduce
 
 Split reduce applies when:
 
-1. **The reduce axis exceeds single-tensor capacity**: A reduction axis is too large to fit in VRF (8KB per slice) as a single tensor, requiring the logical axis to be split into multiple physical tensor instances.
-2. **Independent tensor instances exist**: Multiple tensor instances hold different portions of the same logical reduction axis (e.g., from different model layers, experts, or temporal segments).
-3. **Avoiding cross-chip communication**: Data resides on the same chip/cluster but in separate memory allocations, making interleaved fetch more efficient than DMA-based approaches.
+- **You need to split**: A reduction axis is too large to fit in VRF (8KB per slice) as a single tensor, requiring the logical axis to be split into multiple physical tensor instances.
+- **Data is already split**: Multiple tensor instances independently hold different portions of the same logical reduction axis (e.g., from different model layers, experts, or temporal segments).
+- **Avoiding cross-chip communication**: Data resides on the same chip/cluster but in separate memory allocations, making interleaved fetch more efficient than DMA-based approaches.
 
-Split reduce sits between slice-level and chip-level reductions in TCP's reduction hierarchy:
+As a multi-instance fetch-and-combine pattern, split reduce fits into TCP's reduction hierarchy between slice-level and chip-level reductions:
 
-- **Packet reduce**: Within a single packet (Reducer)
-- **Time reduce**: Across time dimension (Reducer)
-- **Slice reduce**: Across slices within a cluster (Inter-Slice Block)
+- **Packet reduce**: Within a single packet (Packet Reducer)
+- **Time reduce**: Across time dimension (Time Reducer)
+- **Slice reduce**: Across slices within a cluster (Inter-Slice Reducer)
 - **Split reduce**: Across multiple independent tensor instances, using *interleaved fetch* (alternating loads from separate tensor instances) combined with Vector Engine binary ops
 - **Chip/Cluster reduce**: Across chips or clusters (DMA + interleaved fetch + Vector Engine binary op)
 
-<!-- > **TODO** (jeongmin.park): The key distinction is that split reduce operates on multiple tensor instances within the same memory hierarchy, while chip/cluster reduce operates on data distributed across physically separate processing units. -->
 
 ## Implementation: Interleaved Fetch
 
-Split reduce uses interleaved fetch to load multiple tensor instances alternately, creating a time-interleaved stream that the Vector Engine reduces. The fetch pattern introduces an interleave dimension `I` that indexes the separate tensor instances:
+The fetch pattern introduces an interleave dimension `I` that indexes the separate tensor instances, creating a time-interleaved stream that the Vector Engine reduces:
 
 ```rust,ignore
 // Two tensor instances to be reduced together
@@ -44,31 +46,34 @@ The interleaved fetch alternates between tensor instances in the time dimension:
 
 ## Example 1: Layer Normalization Split Reduction
 
-Layer normalization computes statistics (mean, variance) over the feature dimension. When the feature dimension is too large to fit in a single VRF allocation, it must be split into multiple chunks that are processed separately and then combined.
+Layer normalization drives a split reduce when the Hidden dimension exceeds VRF capacity.
+The feature dimension must be split into multiple chunks that are processed separately and then combined.
+Layer normalization computes statistics (mean, variance) over the entire feature dimension, so the full Hidden axis must be reduced.
 
 **The Problem:**
-Layer normalization requires computing the mean and variance of all features for each token. The formula is:
+Layer normalization requires computing the mean and variance of all features for each token.
+The formula is:
 ```text
 output = (input - mean) / sqrt(variance + epsilon)
 ```
 where mean and variance are computed over the entire `Hidden` dimension.
 
-When `Hidden` is very large (like 8192 elements), the tensor won't fit in the 8KB VRF, so we cannot reduce it in a single operation.
+When `Hidden` is very large (like 8,192 elements), the tensor won't fit in the 8KB VRF, so we cannot reduce it in a single operation.
 
 **Input:**
 A 3D tensor representing transformer activations:
 - **Shape**: `[Batch=32, SeqLen=128, Hidden=8192]`
 - **Data type**: `bf16` (2 bytes per element)
 - **Total size**: 32 × 128 × 8192 × 2 bytes = 64 MB
-- **Per-token slice**: For each of 4096 tokens (32 × 128), we have 8192 features = 16 KB per token
-- **VRF constraint**: Only 8KB per slice ≈ 4096 `bf16` elements
-- **Problem**: Cannot load all 8192 features for a token simultaneously
+- **Per-token slice**: For each of 4,096 tokens (32 × 128), we have 8,192 features = 16 KB per token
+- **VRF constraint**: Only 8KB per slice ≈ 4,096 `bf16` elements
+- **Problem**: Cannot load all 8,192 features for a token simultaneously
 
 **Solution Strategy:**
-Split the `Hidden` dimension into two 4096-element chunks:
+Split the `Hidden` dimension into two 4,096-element chunks:
 - **Chunk 0**: `[Batch=32, SeqLen=128, Hidden_0=4096]` - first half of features
 - **Chunk 1**: `[Batch=32, SeqLen=128, Hidden_1=4096]` - second half of features
-- Each chunk = 4096 elements × 2 bytes = 8KB, fits in VRF
+- Each chunk = 4,096 elements × 2 bytes = 8KB, fits in VRF
 
 ### Step-by-Step Execution
 
@@ -83,7 +88,7 @@ let chunk_0: DmTensor<bf16, m![1], m![1], m![1], m![Batch, SeqLen, Hidden_0: 409
 // Chunk 1: Hidden dimensions 4096..8192
 let chunk_1: DmTensor<bf16, m![1], m![1], m![1], m![Batch, SeqLen, Hidden_1: 4096]> = ...;
 
-// Compute sum for each chunk (using Reducer + Inter-Slice Block)
+// Compute sum for each chunk (using Packet Reducer + Inter-Slice Reducer)
 let sum_0: DmTensor<f32, m![1], m![1], m![1], m![Batch, SeqLen]> = chunk_0.reduce_sum(axis: Hidden_0);
 let sum_1: DmTensor<f32, m![1], m![1], m![1], m![Batch, SeqLen]> = chunk_1.reduce_sum(axis: Hidden_1);
 ```
@@ -109,7 +114,7 @@ let mean = total_sum * (1.0 / 8192.0);  // Vector Engine scalar multiply
 
 #### Step 3: Compute Variance
 
-Similarly, combine partial variance calculations:
+Using the `mean` computed in Step 2, compute and combine partial variance calculations:
 
 ```rust,ignore
 // Compute squared differences for each chunk
@@ -128,15 +133,15 @@ let std = total_variance.sqrt();
 **Output:**
 
 The three steps produce the statistics needed for layer normalization:
-- **Mean**: `[Batch=32, SeqLen=128]` - one mean value per token, representing the average of all 8192 features
+- **Mean**: `[Batch=32, SeqLen=128]` - one mean value per token, representing the average of all 8,192 features
 - **Standard deviation**: `[Batch=32, SeqLen=128]` - one std value per token
-- **Result**: Use these statistics to normalize each token's 8192 features:
+- **Result**: Use these statistics to normalize each token's 8,192 features:
   ```text
   normalized_chunk_0 = (chunk_0 - mean) / std
   normalized_chunk_1 = (chunk_1 - mean) / std
   ```
 
-Computing statistics in two separate chunks produces the same mathematical result as computing over all 8192 features at once:
+Computing statistics in two separate chunks produces the same mathematical result as computing over all 8,192 features at once:
 - **Mathematically**: `mean([a,b,c,d,e,f]) = (sum(a,b,c) + sum(d,e,f)) / 6`
 - **In practice**: `mean([Hidden_0, Hidden_1]) = (sum(Hidden_0) + sum(Hidden_1)) / 8192`
 
@@ -153,7 +158,6 @@ The split reduce operation maps to hardware as follows:
 | Interleave dimension creation | Fetch Sequencer | 0 (structural transformation) |
 | Binary add across I | Vector Engine | 1 cycle per packet |
 
-<!-- > **TODO** (jeongmin.park): The interleaved fetch effectively doubles the time dimension, inserting an `I=2` axis that represents which tensor instance each time step came from. The Vector Engine then performs a standard binary reduction across this axis. -->
 
 ### Performance Analysis
 
@@ -168,7 +172,8 @@ The split reduce operation maps to hardware as follows:
 
 ## Example 2: Batch Normalization Across Split Batches
 
-Batch normalization computes statistics across the batch dimension. When processing very large batches, the batch dimension may be split across multiple tensor allocations.
+When the batch dimension is split across two independent allocations, split reduce combines the per-allocation statistics to produce global batch normalization results.
+Batch normalization computes statistics across the entire batch dimension, so all allocations must be reduced together.
 
 ### Problem Setup
 
@@ -200,7 +205,6 @@ This pattern extends naturally to more than two splits by increasing the interle
 
 ## Example 3: Mixture of Experts Partial Reduction
 
-<!-- > **TODO** (jeongmin.park): In Mixture of Experts (MoE), multiple expert outputs must be combined with routing weights. When experts are processed in separate batches, split reduce can combine their contributions. -->
 
 ### Problem Setup
 
@@ -229,11 +233,9 @@ let interleaved: TuTensor<bf16, m![1], m![1], m![1],
 let combined_output = interleaved.reduce_add(axis: I);
 ```
 
-<!-- > **TODO** (jeongmin.park): This pattern is particularly useful when experts are computed in separate kernel invocations or when expert outputs are stored in different memory regions for memory management reasons. -->
 
 ## Example 4: Temporal Reduction Across Windows
 
-<!-- > **TODO** (jeongmin.park): When processing sequential data in chunks (e.g., for memory efficiency), split reduce can reduce statistics or features across temporal windows. -->
 
 ### Problem Setup
 
@@ -266,16 +268,17 @@ let global_max = interleaved.reduce_max(axis: I);
 
 ## Comparison with Other Reduction Methods
 
-The choice between split reduce and its alternatives depends on data location, tensor shape, and whether data can be merged into a single allocation.
+Split reduce has two primary alternatives: slice reduce/Inter-Slice Reducer for same-tensor distributions, and chip/cluster reduce for cross-chip data.
+The choice among them depends on data location, tensor shape, and whether data can be merged into a single allocation.
 
-### Split Reduce vs. Slice Reduce (Inter-Slice Block)
+### Split Reduce vs. Slice Reduce (Inter-Slice Reducer)
 
-| Aspect | Split Reduce | Slice Reduce (Inter-Slice Block) |
+| Aspect | Split Reduce | Slice Reduce (Inter-Slice Reducer) |
 |--------|--------------|-------------------|
 | Data layout | Multiple independent tensors | Single tensor across slices |
 | Fetch pattern | Interleaved fetch from multiple sources | Single contiguous fetch |
-| Reduction hardware | Vector Engine binary ops | Inter-Slice Block |
-| Typical cycles | ~2x fetch time + cycles | ~256 cycles (slice reduction) |
+| Reduction hardware | Vector Engine binary ops | Inter-Slice Reducer |
+| Typical cycles | ~2× fetch time | ~256 cycles (slice reduction) |
 | Use case | Data cannot fit in single tensor | Data distributed across hardware |
 
 **Prefer split reduce**: Multiple tensor instances that cannot be merged into a single tensor due to memory allocation constraints, but all reside on the same chip/cluster.
@@ -322,11 +325,11 @@ This optimization reduces overhead by combining fetch and reduction into a singl
 
 ### Cycle Analysis
 
-Split reduce cycle count depends on three factors:
+Split reduce cycle count is dominated by fetch time, with Vector Engine cycles and pipeline overlap as secondary factors:
 
-1. **Fetch cycles**: `N_splits * fetch_cycles_per_tensor`
-2. **Vector Engine cycles**: `Time_dim_size * cycles_per_packet` (typically 1 cycle per packet)
-3. **Pipeline overlap**: Fetch and VE operations can overlap when possible
+- **Fetch cycles**: `N_splits * fetch_cycles_per_tensor`
+- **Vector Engine cycles**: `Time_dim_size * cycles_per_packet` (typically 1 cycle per packet)
+- **Pipeline overlap**: Fetch and VE operations can overlap when possible
 
 **Total cycles** ≈ `N_splits * fetch_cycles + max(0, VE_cycles - pipeline_overlap)`
 
@@ -357,20 +360,18 @@ Split reduce with interleaved fetch provides the best balance of performance and
 
 - **Interleave dimension size**: Limited by Fetch Engine capabilities
 - **Tensor alignment**: All tensor instances must have compatible shapes for interleaving
-
-<!-- > **TODO** (jeongmin.park): Maximum interleave count supported by Fetch Engine capabilities. -->
 - **VRF capacity**: After interleaving, the combined tensor must fit in VRF (8KB per slice)
+
 
 ### When Split Reduce Is Not Optimal
 
-1. **Single tensor possible**: Data fits in one tensor allocation, use slice reduce (Inter-Slice Block) instead
-2. **Cross-chip reduction needed**: Data spans chips, use chip/cluster reduce with DMA
-3. **Very large split count**: Beyond ~8 splits, consider alternative memory management strategies
+- **Single tensor possible**: Data fits in one tensor allocation, use slice reduce (Inter-Slice Reducer) instead
+- **Cross-chip reduction needed**: Data spans chips, use chip/cluster reduce with DMA
+- **Very large split count**: Beyond ~8 splits, consider alternative memory management strategies
 
 ### Best Practices
 
-1. **Minimize splits**: Design tensor allocations to minimize the number of splits required
-2. **Power-of-2 splits**: Use 2, 4, or 8 splits when possible for optimal hardware utilization
-3. **Reuse reduction results**: Cache split reduce results when the same combination is needed multiple times
-4. **Consider memory layout**: Organize tensor allocations to enable efficient interleaved fetch patterns
-
+- **Minimize splits**: Design tensor allocations to minimize the number of splits required
+- **Power-of-2 splits**: Use 2, 4, or 8 splits when possible for optimal hardware utilization
+- **Reuse reduction results**: Cache split reduce results when the same combination is needed multiple times
+- **Consider memory layout**: Organize tensor allocations to enable efficient interleaved fetch patterns

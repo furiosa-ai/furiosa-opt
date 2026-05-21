@@ -3,74 +3,25 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, Item, Type, parse_macro_input};
+use syn::{Data, DeriveInput, Fields, Item, Type, Variant, parse_macro_input, parse_quote};
 
-/// Macro for mapping expressions.
-///
-/// See the documentation for `furiosa-visa-std` crate for details.
-///
-/// # Examples
-///
-/// ```ignore
-/// use furiosa_visa_std::prelude::*;
-/// axes![A = 512, B = 4];
-/// type AB = m![A, B];
-/// assert_eq!(AB::SIZE, 2048);
-/// ```
-#[proc_macro]
-pub fn m(input: TokenStream) -> TokenStream {
-    let input: proc_macro2::TokenStream = input.into();
-    let lexer = furiosa_mapping::parser::Lexer::new(input, furiosa_mapping::parser::LexerMode::Mapping);
-    let parser = furiosa_mapping::parser::MappingParser::new();
-    let mapping = match parser.parse(lexer) {
-        Ok(mapping) => mapping,
-        Err(e) => {
-            let msg = format!("Parse error: {:?}", e);
-            return syn::Error::new(proc_macro2::Span::call_site(), msg)
-                .to_compile_error()
-                .into();
-        }
-    };
-    let expanded = mapping.expand();
-    quote! { #expanded }.into()
-}
+#[proc_macro_attribute]
+pub fn primitive(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr_str = attr.to_string().trim_matches('"').to_owned();
 
-/// Macro for index expressions.
-///
-/// See the documentation for `furiosa-visa-std` crate for details.
-///
-/// # Examples
-///
-/// ```ignore
-/// use furiosa_visa_std::prelude::*;
-/// axes![A = 512, B = 64];
-/// let idx = i![A / 32 = 8, B = 10];
-/// ```
-#[proc_macro]
-pub fn i(input: TokenStream) -> TokenStream {
-    let input: proc_macro2::TokenStream = input.into();
-    let lexer = furiosa_mapping::parser::Lexer::new(input, furiosa_mapping::parser::LexerMode::Index);
-    let parser = furiosa_mapping::parser::IndexParser::new();
-    let assignments = match parser.parse(lexer) {
-        Ok(assignments) => assignments,
-        Err(e) => {
-            let msg = format!("Parse error: {:?}", e);
-            return syn::Error::new(proc_macro2::Span::call_site(), msg)
-                .to_compile_error()
-                .into();
-        }
-    };
-
-    let expansions = assignments.iter().map(|assignment| assignment.expand());
-
-    quote! {
-        {
-            let mut index = ::furiosa_mapping::Index::new();
-            #(#expansions)*
-            index
+    let mut item = parse_macro_input!(item as Item);
+    if let Item::Enum(item_enum) = &mut item {
+        for Variant { ident, attrs, .. } in &mut item_enum.variants {
+            let variant_str = format!("{attr_str}::{ident}");
+            attrs.push(parse_quote!(#[furiosa_opt::primitive = #variant_str]));
         }
     }
-    .into()
+
+    let expanded = quote! {
+        #[furiosa_opt::primitive = #attr_str]
+        #item
+    };
+    expanded.into()
 }
 
 /// Derive macro for DeviceSend trait.
@@ -171,7 +122,7 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
     let vis = &func.vis;
     let name = &func.sig.ident;
     let name_str = name.to_string();
-    let hidden = syn::Ident::new(&format!("__tcp_{name}"), name.span());
+    let hidden = syn::Ident::new(&format!("__furiosa_opt_{name}"), name.span());
     let struct_name = syn::Ident::new(&to_camel(&name_str), name.span());
     let syn::Signature {
         inputs,
@@ -221,12 +172,12 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
         .filter(|(_, _, k)| *k == Kind::Tensor)
         .enumerate()
         .map(|(i, (name, ty, _))| {
-            let buf = syn::Ident::new(&format!("__tcp_{i}"), proc_macro2::Span::call_site());
+            let buf = syn::Ident::new(&format!("__furiosa_opt_{i}"), proc_macro2::Span::call_site());
             let is_ref = ty.to_string().starts_with('&');
             let conv = if is_ref {
-                quote! { let #buf: furiosa_visa_std::runtime::Buffer = (&*#name).into(); }
+                quote! { let #buf: furiosa_opt_std::runtime::npu::Buffer = (&*#name).into(); }
             } else {
-                quote! { let #buf: furiosa_visa_std::runtime::Buffer = (&(#name)).into(); }
+                quote! { let #buf: furiosa_opt_std::runtime::npu::Buffer = (&(#name)).into(); }
             };
             (buf, conv)
         })
@@ -234,12 +185,12 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let run_body = match output {
         syn::ReturnType::Type(_, ty) => quote! {
-            let __tcp_out = __tcp_kernel.alloc(<#ty>::size());
-            __tcp_kernel.run(&[#(#tensor_bufs),*], &[__tcp_out.clone()]).await;
-            __tcp_out.into()
+            let __furiosa_opt_out = __furiosa_opt_kernel.alloc(<#ty>::size());
+            __furiosa_opt_kernel.run(&[#(#tensor_bufs),*], &[__furiosa_opt_out.clone()]).await;
+            __furiosa_opt_out.into()
         },
         syn::ReturnType::Default => quote! {
-            __tcp_kernel.run(&[#(#tensor_bufs),*], &[]).await;
+            __furiosa_opt_kernel.run(&[#(#tensor_bufs),*], &[]).await;
         },
     };
 
@@ -271,16 +222,16 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let npu_body = quote! {
-        static __TCP_KERNEL: furiosa_visa_std::OnceCell<furiosa_visa_std::runtime::Kernel> =
-            furiosa_visa_std::OnceCell::const_new();
-        let __tcp_kernel = __TCP_KERNEL.get_or_init(|| async {
-            let __tcp_path = furiosa_visa_std::runtime::kernel_path(
+        static __FURIOSA_OPT_KERNEL: furiosa_opt_std::OnceCell<furiosa_opt_std::runtime::npu::Kernel> =
+            furiosa_opt_std::OnceCell::const_new();
+        let __furiosa_opt_kernel = __FURIOSA_OPT_KERNEL.get_or_init(|| async {
+            let __furiosa_opt_path = furiosa_opt_std::runtime::npu::kernel_path(
                 env!("FURIOSA_OPT_OUT_DIR"),
                 env!("CARGO_PKG_NAME"),
                 module_path!(),
                 #name_str,
             );
-            furiosa_visa_std::runtime::Kernel::load(&__tcp_path).await
+            furiosa_opt_std::runtime::npu::Kernel::load(&__furiosa_opt_path).await
         }).await;
         #(#tensor_stmts)*
         #run_body
@@ -288,7 +239,7 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
     let cpu_body = quote! { #hidden(#(#param_names),*) };
 
     quote! {
-        #[tcp::device = #attr_str]
+        #[furiosa_opt::device = #attr_str]
         // `#[allow]` (not `#[expect]`): the hidden fn may or may not trigger
         // each of these lints depending on how the user defined the device
         // function, and `#[expect]` fails when the lint doesn't fire.
@@ -304,13 +255,13 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[allow(non_upper_case_globals)]
         #vis const #name: #struct_name = #struct_name;
 
-        impl #generics furiosa_visa_std::runtime::DeviceFn<#tuple_type> for #struct_name {
+        impl #generics furiosa_opt_std::runtime::DeviceFn<#tuple_type> for #struct_name {
             type Output = #return_ty;
             fn execute(#body_destructure: #tuple_type) -> impl std::future::Future<Output = Self::Output> {
                 async move {
-                    #[cfg(furiosa_opt)]
+                    #[cfg(backend = "npu")]
                     { #npu_body }
-                    #[cfg(not(furiosa_opt))]
+                    #[cfg(not(backend = "npu"))]
                     { #cpu_body }
                 }
             }

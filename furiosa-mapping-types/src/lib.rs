@@ -1,7 +1,7 @@
 //! Mapping expressions.
 
 #![feature(register_tool)]
-#![register_tool(tcp)]
+#![register_tool(furiosa_opt)]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
 #![forbid(unused_must_use)]
@@ -13,12 +13,9 @@ use abi_stable::{
     StableAbi,
     std_types::{RBox, RResult, RVec},
 };
-use std::{
-    fmt::{self, Debug, Display, Formatter},
-    marker::PhantomData,
-};
+use std::fmt::{self, Display, Formatter};
 
-use furiosa_mapping_macro::primitive;
+use furiosa_opt_macro::primitive;
 use itertools::Itertools;
 
 /// Axis identifiers.
@@ -511,6 +508,11 @@ pub enum DivisionError {
     NoDivisorTerms,
     /// Divisor term cannot divide dividend.
     DivisorTermCannotDivide,
+    /// Extent analysis cannot be built because the underlying mapping cannot
+    /// be cleanly split at a matched-term boundary (e.g. dividing
+    /// `[A:9, B:7] # 64` by `[A]` leaves a `B` residue inside a composite atom
+    /// whose total size is not divisible by `A`).
+    ExtentsMisaligned,
 }
 
 /// Selects which side of a [`DivisionTerm`] to operate on.
@@ -569,56 +571,39 @@ pub struct TermBounds {
     pub divisor: BlockBounds,
 }
 
-/// Determines the padding kind used for matched-hole markers in division.
-pub trait DivisionMode {
-    /// The padding kind to use for matched-term holes.
-    const PADDING_KIND: PaddingKind;
-}
-
-/// Marker for analysis-capable division results.
-#[repr(C)]
-#[derive(StableAbi, Debug, Clone, Copy)]
-pub struct Strict;
-impl DivisionMode for Strict {
-    const PADDING_KIND: PaddingKind = PaddingKind::Bottom;
-}
-
-/// Marker for read-accessible division results.
-#[repr(C)]
-#[derive(StableAbi, Debug, Clone, Copy)]
-pub struct Relaxed;
-impl DivisionMode for Relaxed {
-    const PADDING_KIND: PaddingKind = PaddingKind::Top;
-}
-
-/// Marker for span-division results without padding analysis.
-#[repr(C)]
-#[derive(StableAbi, Debug, Clone, Copy)]
-pub struct Span;
-impl DivisionMode for Span {
-    const PADDING_KIND: PaddingKind = PaddingKind::Top;
+impl TermBounds {
+    /// Returns the bounds for the selected side.
+    pub fn bounds(&self, side: DivisionSide) -> BlockBounds {
+        match side {
+            DivisionSide::Dividend => self.dividend,
+            DivisionSide::Divisor => self.divisor,
+        }
+    }
 }
 
 /// Result of dividing two factor mappings.
 #[repr(C)]
-#[derive(StableAbi, Debug, Clone)]
-pub struct Division<M: DivisionMode> {
+#[derive(StableAbi, Debug, Clone, PartialEq, Eq, Default)]
+pub struct Division {
     /// Information about each matched divisor term.
     pub division_terms: RVec<DivisionTerm>,
     /// Original dividend before matching.
     pub dividend: FMapping,
-    /// Dividend residue. Strict results preserve Bottom padding;
-    /// relaxed results have all padding converted to Top.
+    /// Dividend residue. Internal encoding: matched-term positions appear as
+    /// `PaddingKind::Bottom` factors. Consume via `DivisionExt::{extents,
+    /// relaxed_residues, tile_residues, remainder}` rather than walking
+    /// directly.
     pub dividend_residue: FMapping,
     /// Original divisor before matching.
     pub divisor: FMapping,
-    /// Divisor residue. Strict results preserve Bottom padding;
-    /// relaxed results have all padding converted to Top.
+    /// Divisor residue. Internal encoding: matched-term positions appear as
+    /// `PaddingKind::Bottom` factors. Consume via `DivisionExt::{extents,
+    /// relaxed_residues, tile_residues, remainder}` rather than walking
+    /// directly.
     pub divisor_residue: FMapping,
-    _mode: PhantomData<M>,
 }
 
-impl<M: DivisionMode> Division<M> {
+impl Division {
     /// Creates a new division result.
     pub fn new(
         dividend: FMapping,
@@ -627,7 +612,7 @@ impl<M: DivisionMode> Division<M> {
         divisor: FMapping,
         divisor_residue: FMapping,
     ) -> Self {
-        division_terms.sort_by(|a, b| b.dividend_stride.cmp(&a.dividend_stride));
+        division_terms.sort_by_key(|b| std::cmp::Reverse(b.dividend_stride));
 
         Self {
             division_terms: division_terms.into(),
@@ -635,25 +620,6 @@ impl<M: DivisionMode> Division<M> {
             dividend_residue,
             divisor,
             divisor_residue,
-            _mode: PhantomData,
-        }
-    }
-
-    /// Returns the original dividend.
-    pub fn dividend(&self) -> &FMapping {
-        &self.dividend
-    }
-
-    /// Returns the original divisor.
-    pub fn divisor(&self) -> &FMapping {
-        &self.divisor
-    }
-
-    /// Returns the residue for the selected side.
-    pub fn residue(&self, side: DivisionSide) -> &FMapping {
-        match side {
-            DivisionSide::Dividend => &self.dividend_residue,
-            DivisionSide::Divisor => &self.divisor_residue,
         }
     }
 
@@ -671,9 +637,22 @@ impl<M: DivisionMode> Division<M> {
     }
 }
 
-/// A Term factor with its position (stride) in an FMapping.
+/// Reconstructed residue FMappings on both sides of a division.
 ///
-/// Returned by [`FMapping::terms_with_stride`].
+/// Returned by [`Division::relaxed_residues`] and [`Division::tile_residues`]
+/// (via `furiosa-mapping`'s `DivisionExt`). Matched-hole positions in the
+/// dividend and divisor are emitted as Top padding factors so the residues
+/// are read-accessible.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, PartialEq, Eq)]
+pub struct Residues {
+    /// Dividend with matched-term positions replaced by Top padding factors.
+    pub dividend_residue: FMapping,
+    /// Divisor with matched-term positions replaced by Top padding factors.
+    pub divisor_residue: FMapping,
+}
+
+/// A Term factor with its position (stride) in an FMapping.
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone, PartialEq, Eq)]
 pub struct TermPosition {
@@ -684,6 +663,86 @@ pub struct TermPosition {
     /// Effective stride of this term in the FMapping
     /// (product of all inner factors' sizes).
     pub stride: usize,
+}
+
+/// A half-open `[begin, end)` range in stride space.
+///
+/// Construction enforces the invariant `begin < end`; empty ranges are not
+/// representable and therefore do not need to be filtered downstream.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Range {
+    begin: usize,
+    end: usize,
+}
+
+impl Range {
+    /// Constructs a range. Panics if `begin >= end`.
+    pub fn new(begin: usize, end: usize) -> Self {
+        assert!(begin < end, "Range: begin ({begin}) must be less than end ({end})");
+        Self { begin, end }
+    }
+
+    /// Inclusive begin stride.
+    pub fn begin(&self) -> usize {
+        self.begin
+    }
+
+    /// Exclusive end stride.
+    pub fn end(&self) -> usize {
+        self.end
+    }
+}
+
+/// Side-local structure of a division: surviving unmatched terms and Top
+/// padding ranges, all with original (pre-removal) strides preserved.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, PartialEq, Eq, Default)]
+pub struct SideExtent {
+    /// Surviving (unmatched) terms with preserved original strides.
+    pub unmatched: RVec<TermPosition>,
+    /// Top padding ranges in stride space, sorted by start and non-overlapping.
+    pub padding_strides: RVec<Range>,
+}
+
+/// Structured extent information for a division.
+///
+/// Each side carries its surviving unmatched terms and padding ranges;
+/// the matched rows are shared across both sides (one row per matched term)
+/// and carry compact bounds for each side.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, PartialEq, Eq, Default)]
+pub struct Extents {
+    /// Matched rows with compact bounds.
+    pub matched: RVec<TermBounds>,
+    /// Dividend-side unmatched terms and padding.
+    pub dividend: SideExtent,
+    /// Divisor-side unmatched terms and padding.
+    pub divisor: SideExtent,
+}
+
+/// One factor in a stride-ordered traversal of a single side.
+///
+/// Returned by `Extents::slots` (see `furiosa-mapping`'s `ExtentsExt`).
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, PartialEq, Eq)]
+pub enum Slot {
+    /// A matched term with its compact bounds on both sides.
+    Matched(TermBounds),
+    /// A surviving (unmatched) term with its original stride.
+    Unmatched(TermPosition),
+    /// A Top padding range on this side.
+    Padding(Range),
+}
+
+impl Extents {
+    /// Returns the side-local extent for the selected side.
+    pub fn side(&self, side: DivisionSide) -> &SideExtent {
+        match side {
+            DivisionSide::Dividend => &self.dividend,
+            DivisionSide::Divisor => &self.divisor,
+        }
+    }
 }
 
 /// Index mapping for tensor operations.
@@ -720,18 +779,3 @@ impl Display for Index {
         }
     }
 }
-
-/// Mapping expression that describes memory layout and computes size for a given shape.
-#[primitive(mapping::M)]
-// ANCHOR: trait_m
-pub trait M: Debug + Clone {
-    /// The computed size for the given shape.
-    const SIZE: usize;
-
-    /// Converts the mapping expression type into a value.
-    fn to_value() -> Mapping;
-
-    /// Converts a buffer index to a tensor index, returning `None` if out-of-bounds.
-    fn map(i: usize) -> Option<Index>;
-}
-// ANCHOR_END: trait_m
