@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"attr":["primitive"]};
+window.SIDEBAR_ITEMS = {"macro":["axes","i","m"]};

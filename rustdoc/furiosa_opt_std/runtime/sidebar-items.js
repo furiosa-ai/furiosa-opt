@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["launch"],"mod":["npu"],"struct":["Emulation","Simulation","Typecheck"],"trait":["Backend","DeviceFn","TupleApply"],"type":["CurrentBackend"]};

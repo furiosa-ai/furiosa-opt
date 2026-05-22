@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-2459343d.css">
-        <link rel="stylesheet" href="../../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-3bdaffa5.js"></script>
+        <script src="../../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,331 +177,162 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="intra-slice-reduce"><a class="header" href="#intra-slice-reduce">Intra-Slice Reduce</a></h1>
-<p>The Intra-Slice Reduce is a reduction operation performed by the <code>IntraSliceReduce</code> stage within the <a href="./intra-slice-block.html">Intra-Slice Block</a>.
-At the hardware level, this corresponds to the reduction unit in the 4-way path.
-It reduces axes <strong>within a single slice</strong>, contrasting with the <a href="./inter-slice-block.html">Inter-Slice Block</a> which reduces <strong>across</strong> the 256 slices of a cluster (inter-slice reduce).
-This document covers the blocking-mode case where the accumulator result is not stored to an intermediate buffer.
-Non-blocking mode (where accumulator results are stored to an intermediate buffer) is not covered here.</p>
-<h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<pre><code class="language-rust ignore">impl&lt;
-    'l,
-    const T: Tu,
-    S,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Time: M,
-    Packet: M,
-    StashD: VeScalar,
-    Stash: TensorState&lt;StashD&gt;,
-    FS: stage::VeTensorContext,
-    const VE_ORDER: VeOrder,
-&gt; VectorTensor&lt;'l, T, S, i32, Chip, Cluster, Slice, Time, Packet, StashD, Stash, VE_ORDER, FS, { Way4 }&gt;
-where
-    S: stage::Stage + CanTransitionTo&lt;stage::IntraSliceReduce&gt;,
-{
-    /// Intra-slice reduce operation (i32).
-    #[primitive(VectorTensor::vector_intra_slice_reduce)]
-    pub fn vector_intra_slice_reduce&lt;Reduce: AxisName, OTime: M, OPacket: M&gt;(
-        mut self,
-        op: IntraSliceReduceOpI32,
-    ) -&gt; VectorIntraSliceReduceTensor&lt;
-        'l,
-        T,
-        i32,
-        Chip,
-        Cluster,
-        Slice,
-        OTime,
-        OPacket,
-        StashD,
-        Stash,
-        VE_ORDER,
-        stage::Standalone,
-        { Way4 },
-    &gt;
-
-impl&lt;
-    'l,
-    const T: Tu,
-    S,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Time: M,
-    Packet: M,
-    StashD: VeScalar,
-    Stash: TensorState&lt;StashD&gt;,
-    FS: stage::VeTensorContext,
-    const VE_ORDER: VeOrder,
-&gt; VectorTensor&lt;'l, T, S, f32, Chip, Cluster, Slice, Time, Packet, StashD, Stash, VE_ORDER, FS, { Way4 }&gt;
-where
-    S: stage::Stage + CanTransitionTo&lt;stage::IntraSliceReduce&gt;,
-{
-    /// Intra-slice reduce operation (f32).
-    #[primitive(VectorTensor::vector_intra_slice_reduce)]
-    pub fn vector_intra_slice_reduce&lt;Reduce: AxisName, OTime: M, OPacket: M&gt;(
-        mut self,
-        op: IntraSliceReduceOpF32,
-    ) -&gt; VectorIntraSliceReduceTensor&lt;
-        'l,
-        T,
-        f32,
-        Chip,
-        Cluster,
-        Slice,
-        OTime,
-        OPacket,
-        StashD,
-        Stash,
-        VE_ORDER,
-        stage::Standalone,
-        { Way4 },
-    &gt;</code></pre>
-<p>Parameters:</p>
-<ul>
-<li><strong><code>REDUCE_LABEL</code></strong>: Which axis to reduce, specified as an <code>Ident</code> value (e.g., <code>Ident::R</code>).
-Each <code>axes![]</code> declaration creates a named label (<code>Ident</code>); all factors derived from the same declaration share that label.
-All factors in Time and Packet carrying this label are eliminated by the reduction, so they must not appear in the output shape (<code>OTime</code>, <code>OPacket</code>).
-For example, if <code>R</code> is split as <code>R / 4</code> in Time and <code>R % 4</code> in Packet, specifying <code>REDUCE_LABEL = Ident::R</code> eliminates both.</li>
-<li><strong><code>op</code></strong>: The reduce operation (<code>IntraSliceReduceOpI32</code> for <code>i32</code>, <code>IntraSliceReduceOpF32</code> for <code>f32</code>).</li>
-<li><strong><code>OTime</code>, <code>OPacket</code></strong>: The output Time and Packet shape after reduction.
-These must be exactly the input Time and Packet with all <code>REDUCE_LABEL</code> factors removed.</li>
-</ul>
-<p>The <code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> dimensions pass through unchanged from input to output.</p>
-<h2 id="mechanism"><a class="header" href="#mechanism">Mechanism</a></h2>
-<h3 id="conceptual-operation"><a class="header" href="#conceptual-operation">Conceptual Operation</a></h3>
-<p>The <code>IntraSliceReduce</code> stage sits inside the Intra-Slice Block pipeline, after <code>Narrow</code> and before <code>Widen</code>.
-It accepts a 4-way input (after Buffering Split divides the 8-way flit), performs a 2-level tree reduce to produce a single value, and accumulates the result into an accumulator slot.</p>
-<pre><code class="language-text">4-way input from Narrow stage
-    ┌───┬───┬───┬───┐
-    │ a │ b │ c │ d │
-    └─┬─┴─┬─┴─┬─┴─┬─┘
-      │   │   │   │
-      └─┬─┘   └─┬─┘          Level 1: pairwise reduce
-    op(a,b)   op(c,d)
-        └───┬───┘             Level 2: pairwise reduce
-    op(op(a,b),op(c,d))
-            │
-            ▼
-     ┌─────────────┐
-     │ Accumulator │         Accumulate across time steps
-     │ (8 slots)   │
-     └─────────────┘
-</code></pre>
-<p>The accumulator holds partial results across multiple input flits, implementing temporal reduction over the Time axis.
-Up to 8 accumulator slots are available, each serving as a buffer that accumulates partial reduce results across time steps.</p>
-<p>Padding exclusion is handled by the <a href="./vcg-interface.html">Valid Count Generator (VCG)</a>, which tags each flit with the count of valid elements so the <code>IntraSliceReduce</code> stage can skip pad data.</p>
-<h3 id="architectural-parameters"><a class="header" href="#architectural-parameters">Architectural Parameters</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Parameter</th><th>Value</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td>Tree input width</td><td>4-way</td><td>Fixed; <code>Narrow</code> produces the 4-way input</td></tr>
-<tr><td>Tree depth</td><td>2</td><td>Two levels of pairwise reduction</td></tr>
-<tr><td>Accumulator slots</td><td>8</td><td>Independent reduction accumulators</td></tr>
-<tr><td>Accumulator type</td><td>Temporal</td><td>Accumulates across time steps within each slot</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="supported-operations"><a class="header" href="#supported-operations">Supported Operations</a></h3>
-<h4 id="integer-operations-intraslicereduceopi32"><a class="header" href="#integer-operations-intraslicereduceopi32">Integer Operations (<code>IntraSliceReduceOpI32</code>)</a></h4>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Operation</th><th>Description</th><th>Identity Element</th></tr>
-</thead>
-<tbody>
-<tr><td><code>AddSat</code></td><td>Saturating addition</td><td><code>0</code></td></tr>
-<tr><td><code>Max</code></td><td>Maximum value</td><td><code>i32::MIN</code></td></tr>
-<tr><td><code>Min</code></td><td>Minimum value</td><td><code>i32::MAX</code></td></tr>
-</tbody>
-</table>
-</div>
-<h4 id="floating-point-operations-intraslicereduceopf32"><a class="header" href="#floating-point-operations-intraslicereduceopf32">Floating-Point Operations (<code>IntraSliceReduceOpF32</code>)</a></h4>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Operation</th><th>Description</th><th>Identity Element</th></tr>
-</thead>
-<tbody>
-<tr><td><code>Add</code></td><td>Floating-point addition</td><td><code>0.0</code></td></tr>
-<tr><td><code>Max</code></td><td>Maximum value</td><td><code>f32::NEG_INFINITY</code></td></tr>
-<tr><td><code>Min</code></td><td>Minimum value</td><td><code>f32::INFINITY</code></td></tr>
-</tbody>
-</table>
-</div>
+<p>The <code>IntraSliceReduce</code> stage in the <a href="./intra-slice-chain.html">Intra-Slice Chain</a> reduces dimensions that live in the <code>Time</code> and <code>Packet</code> of each slice (<code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> pass through unchanged).
+The <a href="./inter-slice-reducer.html">Inter-Slice Reducer</a> covers the complementary case of reducing across the 256 slices of a cluster.</p>
+<p><a id="interface"></a></p>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<h3 id="reduce-in-time-i32-saturating-add"><a class="header" href="#reduce-in-time-i32-saturating-add">Reduce in Time (i32 Saturating Add)</a></h3>
-<p>R exists only in Time, accumulated across time steps.</p>
+<p>The reduce call’s key parameters are below.</p>
+<ul>
+<li><strong><code>REDUCE_LABEL</code></strong>: The axis to reduce.
+Reduction eliminates every factor in <code>Time</code> and <code>Packet</code> carrying this axis, so they must not appear in the output shape (<code>OutTime</code>, <code>OutPacket</code>).
+For example, if <code>R</code> is split as <code>R / 4</code> in <code>Time</code> and <code>R % 4</code> in <code>Packet</code>, specifying <code>REDUCE_LABEL = R</code> eliminates both.</li>
+<li><strong><code>op</code></strong>: The reduce operation. <code>IntraSliceReduceOpI32</code> provides <code>AddSat</code>, <code>Max</code>, <code>Min</code>; <code>IntraSliceReduceOpF32</code> provides <code>Add</code>, <code>Max</code>, <code>Min</code>.</li>
+<li><strong><code>OutTime</code>, <code>OutPacket</code></strong>: The output <code>Time</code> and <code>Packet</code> shape after reduction.
+These match the input <code>Time</code> and <code>Packet</code> with every <code>REDUCE_LABEL</code> factor removed.</li>
+</ul>
+<p>The examples below exercise each parameter combination.</p>
+<h3 id="reduction-in-time"><a class="header" href="#reduction-in-time">Reduction in <code>Time</code></a></h3>
+<p><code>R</code> exists only in <code>Time</code>, so the stage accumulates across time steps.
+It computes \(output[a] = \sum_{r \in R} input[a, r]\) with saturating addition.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">axes![A = 8, R = 16];
-</span>// Slice = m![A / 2], Time = m![R], Packet = m![A % 2 # 8] (8-way)
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, R = 16];
+
 // R in Time → temporal accumulation. Packet is non-reduce.
 fn reduce_time&lt;'l, const T: Tu&gt;(
     input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![A / 2], m![R], m![A % 2 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![A / 2], m![1], m![A % 2 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_trim_way4::&lt;m![A % 2 # 4]&gt;()       // 8-way → 4-way
+        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()       // 8-way → 4-way
+        // R eliminated from Time
         .vector_intra_slice_reduce::&lt;R, m![1], m![A % 2 # 4]&gt;(
             IntraSliceReduceOpI32::AddSat,
         )
-    // Output: Slice = m![A / 2], Time = m![1], Packet = m![A % 2 # 4]
-    // R eliminated from Time.
 }
 <span class="boring">}</span></code></pre>
-<h3 id="reduce-in-packet-only-f32-add"><a class="header" href="#reduce-in-packet-only-f32-add">Reduce in Packet Only (f32 Add)</a></h3>
-<p>R exists only in Packet, so the hardware performs a 4-way tree reduce within each flit with no temporal accumulation.</p>
+<h3 id="reduction-in-packet"><a class="header" href="#reduction-in-packet">Reduction in <code>Packet</code></a></h3>
+<p><code>R</code> exists only in <code>Packet</code>, so the hardware runs a 4-way tree reduce within each flit and skips temporal accumulation.
+It computes \(output[a] = \sum_{r \in R} input[a, r]\).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">axes![A = 8, R = 4];
-</span>// Slice = m![A / 2], Time = m![A % 2], Packet = m![R # 8] (8-way)
-// R in Packet → tree reduce within flit. VCG tags valid_count = |R|.
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, R = 4];
+
+// R in Packet → tree reduce within flit.
 fn reduce_packet&lt;'l, const T: Tu&gt;(
     input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![A / 2], m![A % 2], m![R # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![A / 2], m![A % 2], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_trim_way4::&lt;m![R]&gt;()             // 8-way → 4-way
+        .vector_narrow_trim::&lt;m![R]&gt;()             // 8-way → 4-way
+        // R eliminated from Packet
         .vector_intra_slice_reduce::&lt;R, m![A % 2], m![1 # 4]&gt;(
             IntraSliceReduceOpF32::Add,
         )
-    // Output: Slice = m![A / 2], Time = m![A % 2], Packet = m![1 # 4]
-    // R eliminated from Packet.
 }
 <span class="boring">}</span></code></pre>
-<h3 id="reduce-split-across-time-and-packet-f32-max"><a class="header" href="#reduce-split-across-time-and-packet-f32-max">Reduce Split Across Time and Packet (f32 Max)</a></h3>
-<p>R is split: <code>R % 4</code> in Packet is tree-reduced within each flit, then accumulated across <code>R / 4</code> time steps.</p>
+<h3 id="reduction-in-both"><a class="header" href="#reduction-in-both">Reduction in Both</a></h3>
+<p><code>R</code> splits across <code>Packet</code> and <code>Time</code>.
+<code>R % 4</code> in <code>Packet</code> tree-reduces within each flit, and <code>R / 4</code> in <code>Time</code> accumulates across time steps.
+It computes \(output[a] = \max_{r \in R} input[a, r]\).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">axes![A = 8, R = 16];
-</span>// Slice = m![A / 2], Time = m![R / 4], Packet = m![R % 4 # 8] (8-way)
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 256, R = 16];
+
 // R % 4 in Packet → spatial tree reduce
 // R / 4 in Time → temporal accumulation
 fn reduce_time_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![A / 2], m![R / 4], m![R % 4 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![A], m![R / 4], m![R % 4 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![A], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_trim_way4::&lt;m![R % 4]&gt;()            // 8-way → 4-way
+        .vector_narrow_trim::&lt;m![R % 4]&gt;()            // 8-way → 4-way
+        // R eliminated from both Time and Packet
         .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
             IntraSliceReduceOpF32::Max,
         )
-    // Output: Slice = m![A / 2], Time = m![1], Packet = m![1 # 4]
-    // Both R portions eliminated.
 }
 <span class="boring">}</span></code></pre>
-<h3 id="reduce-axis-spanning-slice-time-and-packet-i32-min"><a class="header" href="#reduce-axis-spanning-slice-time-and-packet-i32-min">Reduce Axis Spanning Slice, Time, and Packet (i32 Min)</a></h3>
-<p>R spans all three dimensions.
-The VCG handles per-slice valid count variation for boundary slices.</p>
+<h3 id="per-slice-reduction"><a class="header" href="#per-slice-reduction">Per-Slice Reduction</a></h3>
+<p><code>R</code> has portions in <code>Slice</code>, <code>Time</code>, and <code>Packet</code>, but the intra-slice reducer only collapses the <code>Time</code> and <code>Packet</code> portions, so the <code>Slice</code> portion of <code>R</code> stays in the output.
+Here <code>R = 13</code> is padded to 32 to fit the layout (<code>R # 32</code>), and <code>R</code> is then split across 4 slices (8 <code>R</code>-positions per slice).
+Only positions 0-12 hold real elements, so the slice straddling that boundary (positions 8-15: 5 real followed by 3 pad) is a boundary slice, and slices past it are fully padding.
+The <a href="#padding-strategy">VCG</a> drives the per-slice reduction count so each slice reduces only its real elements (see <a href="./vcg.html">Valid Count Generator</a> for the exact mapping).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">axes![R = 13];
-</span>// Slice = m![R # 32 / 8], Time = m![R # 32 / 4 % 2], Packet = m![R # 32 % 4 # 8] (8-way)
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![R = 13];
+
 // R split across all three: Slice (groups of 8), Time (pairs within group), Packet (4 elements).
-// Boundary slices may have fewer valid time steps, and the VCG handles this.
 fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
     input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![R # 32 / 8], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 32 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_trim_way4::&lt;m![R # 32 % 4]&gt;()       // 8-way → 4-way
+        .vector_narrow_trim::&lt;m![R # 32 % 4]&gt;()       // 8-way → 4-way
+        // R eliminated from Time and Packet (accumulated within each slice)
         .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
             IntraSliceReduceOpI32::Min,
         )
-    // Output: Slice = m![R # 32 / 8], Time = m![1], Packet = m![1 # 4]
-    // R eliminated from Time and Packet (accumulated within each slice).
 }
 <span class="boring">}</span></code></pre>
-<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
-<h3 id="accumulator-slot-limit"><a class="header" href="#accumulator-slot-limit">Accumulator Slot Limit</a></h3>
-<p>The <code>IntraSliceReduce</code> stage has 8 accumulator slots.
-Each non-reduce (NR) position inside the outermost reduce factor occupies a separate slot, so the product of inner NR axis sizes must be ≤ 8.</p>
-<p>Consider <code>Time = m![R / 2, A % 2, R % 2]</code> where <code>R</code> is the reduce label and <code>A</code> is non-reduce.
-The NR factor <code>A % 2</code> sits between the outer reduce <code>R / 2</code> and inner reduce <code>R % 2</code>.
-Each value of <code>A % 2</code> needs its own accumulator slot to maintain an independent reduction:</p>
-<pre><code class="language-text">Time = m![R / 2, A % 2, R % 2]
-        ~~~~~~  ~~~~~~  ~~~~~~
-        outer R   NR    inner R
-
-Flit sequence (R=4, A%2 has values 0,1):
-
-  flit #0: R/2=0, A%2=0, R%2=0  ──→ ┌─────────────────┐
-  flit #1: R/2=0, A%2=0, R%2=1  ──→ │ Slot 0 (A%2=0)  │  accumulates R for A%2=0
-  flit #4: R/2=1, A%2=0, R%2=0  ──→ │                 │
-  flit #5: R/2=1, A%2=0, R%2=1  ──→ └─────────────────┘
-
-  flit #2: R/2=0, A%2=1, R%2=0  ──→ ┌─────────────────┐
-  flit #3: R/2=0, A%2=1, R%2=1  ──→ │ Slot 1 (A%2=1)  │  accumulates R for A%2=1
-  flit #6: R/2=1, A%2=1, R%2=0  ──→ │                 │
-  flit #7: R/2=1, A%2=1, R%2=1  ──→ └─────────────────┘
-
-  2 NR positions → 2 slots used (≤ 8 ✓)
-</code></pre>
-<p>With multiple NR factors, slot usage multiplies:</p>
-<pre><code class="language-text">Valid:   Time = m![R, A % 2, B % 4]  →  2 × 4 = 8 slots  (≤ 8 ✓)
-Invalid: Time = m![R, A % 3, B % 4]  →  3 × 4 = 12 slots (&gt; 8 ✗)
-</code></pre>
-<p>If the NR product exceeds 8, the mapping must be restructured.</p>
-<h3 id="invalid-accumulator-slot-limit-exceeded-i32-addsat"><a class="header" href="#invalid-accumulator-slot-limit-exceeded-i32-addsat">Invalid: Accumulator Slot Limit Exceeded (i32 AddSat)</a></h3>
-<p>NR factors between reduce factors occupy accumulator slots.
-Here <code>A % 3</code> (3 values) and <code>B % 4</code> (4 values) sit inside the reduce axis, requiring 3 × 4 = 12 slots, exceeding the 8-slot limit.</p>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<p>The stage runs separate machinery for the <code>Time</code> and <code>Packet</code> axes.</p>
+<h3 id="reduction-in-time-1"><a class="header" href="#reduction-in-time-1">Reduction in <code>Time</code></a></h3>
+<p>The stage applies the <a href="../contraction-engine/time-reducer.html#constraints">temporal accumulator</a> model with slot capacity 8 (so <code>InnerTime::SIZE ≤ 8</code>).</p>
+<p>For <code>reduce_time</code> above, <code>Time = m![R]</code> and <code>OutTime = m![1]</code>, so <code>R</code> is the outermost reduce dimension and <code>InnerTime = m![1]</code> (<code>InnerTime::SIZE = 1</code>). A single slot accumulates all <code>R</code> values into the output.</p>
+<p>If <code>InnerTime::SIZE</code> exceeds 8, the API rejects the call. For example:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">axes![A = 6, B = 8, R = 16];
-</span>// Time = m![R, A % 3, B % 4] -&gt; NR product = 3 × 4 = 12 &gt; 8
-fn invalid_too_many_slots&lt;'l, const T: Tu&gt;(
+</span>fn invalid_too_many_slots&lt;'l, const T: Tu&gt;(
     input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![A / 3], m![R, A % 3, B % 4], m![B / 4 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![A / 3], m![A % 3, B % 4], m![B / 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_trim_way4::&lt;m![B / 4]&gt;()
+        .vector_narrow_trim::&lt;m![B / 4]&gt;()
+        // Time      = m![R, A % 3, B % 4]
+        // OutTime   = m![A % 3, B % 4]
+        // InnerTime = m![A % 3, B % 4], InnerTime::SIZE = 3 × 4 = 12 &gt; 8
         .vector_intra_slice_reduce::&lt;R, m![A % 3, B % 4], m![B / 4]&gt;(
             IntraSliceReduceOpI32::AddSat,
         )
     // Rejected: 12 accumulator slots required, but only 8 are available.
 }
 <span class="boring">}</span></code></pre>
-<h3 id="padding-strategy"><a class="header" href="#padding-strategy">Padding Strategy</a></h3>
-<p>When a reduce axis is padded to fit hardware dimensions, the padded positions contain arbitrary data that must be excluded from the reduction result.
-Three strategies are available:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Situation</th><th>Strategy</th></tr>
-</thead>
-<tbody>
-<tr><td>Mapping supported by VCG (see <a href="./vcg-interface.html">Valid Count Generator’s Interface</a>)</td><td>VCG (automatic, no extra setup)</td></tr>
-<tr><td>Unsupported VCG placement, simple reduce op (Add, Max, Min)</td><td>Identity-element padding via Fetch Engine’s <code>pad_value</code></td></tr>
-<tr><td>Unsupported VCG placement, composed op (e.g., <code>exp</code> + <code>Add</code>)</td><td>Restructure the mapping, or use other methods</td></tr>
-</tbody>
-</table>
-</div>
-<p><strong>1. VCG (Valid Count Generator).</strong>
-The <a href="./vcg-interface.html">VCG</a> tags each flit with a <code>valid_count</code> so the <code>IntraSliceReduce</code> stage excludes pad elements automatically.
-Not all axis placements across Slice, Time, and Packet are supported; see <a href="./vcg-interface.html">Valid Count Generator’s Interface</a> for details.</p>
-<p><strong>2. Identity-element padding.</strong>
-Fill pad positions with the identity element of the reduce operation before data reaches the <a href="./intra-slice-block.html">Intra-Slice Block</a>.
-The <a href="../../moving-tensors/fetch-engine.html">Fetch Engine’s padding adapter</a> can set a <code>pad_value</code> during fetch.</p>
+<h3 id="reduction-in-packet-1"><a class="header" href="#reduction-in-packet-1">Reduction in <code>Packet</code></a></h3>
+<p>The 4 Packet elements per flit pick one of two paths:</p>
+<ul>
+<li><code>OutPacket = Packet</code>: elements pass through unreduced. 4 outputs per cycle, each accumulated independently over <code>Time</code>.</li>
+<li><code>OutPacket = m![1 # 4]</code>: elements collapse to a single value via a 2-level tree <code>op(op(a, b), op(c, d))</code>. 1 output per cycle plus 3 padding positions.</li>
+</ul>
+<p><a id="padding-strategy"></a></p>
+<p>When a reduce axis is padded to fit hardware dimensions, the padded positions contain arbitrary data that the reduction must exclude.
+Two strategies handle padding exclusion.</p>
+<ul>
+<li>
+<p><strong>VCG (Valid Count Generator)</strong>: Preferred when its axis placement is supported.
+The compiler configures the VCG automatically from the mapping, and the VCG tags each flit with a <code>valid_count</code> so pad elements are excluded automatically.
+Not all axis placements across Slice, Time, and Packet are supported.
+See <a href="./vcg.html">Valid Count Generator</a> for details.</p>
+</li>
+<li>
+<p><strong>Identity-element padding</strong>: Fill pad positions with the identity element of the reduce operation before data reaches the <a href="./intra-slice-chain.html">Intra-Slice Chain</a>.
+The <a href="../../moving-tensors/fetch-engine.html#masking">Fetch Engine’s masking</a> writes the identity value into pad positions during fetch:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -514,29 +345,24 @@ The <a href="../../moving-tensors/fetch-engine.html">Fetch Engine’s padding ad
 </tbody>
 </table>
 </div>
-<p>This does not work when the reduce operation is <strong>composed</strong> with a preceding non-invertible transformation.
-For example, <code>exp(x) + exp(y) + ...</code> (sum of exponentials): there is no value <code>p</code> such that <code>exp(p) = 0</code> (the additive identity), so padding with any value produces an incorrect contribution.</p>
-<p><strong>3. Other methods.</strong>
-NAN masking via ExecutionId and per-slice SFR override (<code>stosfr</code>/<code>itosfr</code>) are additional options, but they are not covered in this page.</p>
+<p>This strategy applies only when no non-invertible transformation precedes the reduce operation.
+For example, with <code>exp(x) + exp(y) + ...</code> (sum of exponentials), no value <code>p</code> satisfies <code>exp(p) = 0</code> (the additive identity), so identity padding does not apply.</p>
+</li>
+</ul>
 <h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
-<h3 id="throughput"><a class="header" href="#throughput">Throughput</a></h3>
-<p>The 2-level tree reduce is fully pipelined within the Intra-Slice Block pipeline.
-Each input flit passes through the tree in one pipeline stage, adding no extra per-flit throughput cost.</p>
-<h3 id="latency"><a class="header" href="#latency">Latency</a></h3>
-<p>The reduce must accumulate all input flits for a reduction group before emitting the result.
-If the reduce axis spans <code>n</code> time steps, the first output flit is delayed by <code>n</code> flit cycles beyond the normal pipeline latency.
-In a multi-engine pipeline, this accumulation delay can stall downstream engines waiting for the first flit.</p>
-<p>This page covers blocking mode only. Non-blocking mode, ExecutionId-based NAN masking, and per-slice SFR override are outside its scope.</p>
+<p>Throughput stays at one flit per cycle since the tree reduce is fully pipelined within the Intra-Slice Chain, adding no extra per-flit cost.</p>
+<p>Latency adds a first-output delay of <code>n</code> flit cycles where <code>n</code> is the number of time steps in the reduce axis, because the stage must accumulate all input flits for a reduction group before emitting the result.
+In a multi-engine pipeline, this accumulation delay stalls downstream engines waiting for the first flit.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../../computing-tensors/vector-engine/intra-slice-block.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../../computing-tensors/vector-engine/intra-slice-chain.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../../computing-tensors/vector-engine/vcg-interface.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../../computing-tensors/vector-engine/vcg.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -546,11 +372,11 @@ In a multi-engine pipeline, this accumulation delay can stall downstream engines
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../../computing-tensors/vector-engine/intra-slice-block.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../../computing-tensors/vector-engine/intra-slice-chain.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../../computing-tensors/vector-engine/vcg-interface.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../../computing-tensors/vector-engine/vcg.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
@@ -572,11 +398,11 @@ In a multi-engine pipeline, this accumulation delay can stall downstream engines
 
         <script src="../../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../../mark-09e88c2c.min.js"></script>
-        <script src="../../searcher-c2a407aa.js"></script>
+        <script src="../../searcher-09f2665d.js"></script>
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-a0b12cfe.js"></script>
+        <script src="../../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"attr":["device"],"derive":["DeviceSend"],"macro":["i","m"]};
+window.SIDEBAR_ITEMS = {"attr":["device","primitive"],"derive":["DeviceSend"]};

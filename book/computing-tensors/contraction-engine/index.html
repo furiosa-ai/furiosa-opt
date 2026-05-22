@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-2459343d.css">
-        <link rel="stylesheet" href="../../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-3bdaffa5.js"></script>
+        <script src="../../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,161 +177,200 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="contraction-engine"><a class="header" href="#contraction-engine">Contraction Engine</a></h1>
-<!-- > **TODO** (youseok.yang): Add "Kernel Writer's View" section: -->
-<!-- > - Current examples show HW config details that users can't control — mark as "FYI: internal" -->
-<p>The Contraction Engine performs einsum operations — tensor contractions such as matrix multiplication, convolution, and attention — which are the dominant computations in deep learning workloads.</p>
-<p>The key mental model is <em>weight-stationary</em> execution: one operand (weights) is loaded into TRF (Tensor Register File) once and held fixed while the other streams through the pipeline, so maximizing TRF reuse minimizes memory traffic.
-As a kernel writer, you specify the einsum expression, input/output data types, and which tensor goes into the TRF as weights.
-The compiler maps this to the hardware components described below.</p>
-<p>The rest of this chapter explains how einsum operations decompose into hardware primitives across the Contraction Engine’s two components: <a href="./aligner.html">Aligner</a> (<a href="./stream-adapter.html">Stream Adapter</a> + <a href="./trf-sequencer.html">TRF Sequencer</a>) and <a href="./reducer.html">Reducer</a>.</p>
-<h2 id="einsum"><a class="header" href="#einsum">Einsum</a></h2>
-<p><strong>Einsum</strong> (Einstein summation) generalizes matrix multiplication to arbitrary tensors by specifying which dimensions to contract. For background, see <a href="https://rockt.ai/2018/04/30/einsum">Einsum Is All You Need</a>.</p>
-<pre><code class="language-text">// AB, BC -&gt; AC
-// AC[i, j] = sum(AB[i, k] * BC[k, j] for k in 0..B)
-</code></pre>
-<p>Every einsum decomposes into four fundamental steps:</p>
-<ol>
-<li><strong>Broadcast LHS</strong>: Expand tensor <code>T0: [A, B]</code> to <code>T0_prime: [A, B, C]</code></li>
-<li><strong>Broadcast RHS</strong>: Expand tensor <code>T1: [B, C]</code> to <code>T1_prime: [A, B, C]</code></li>
-<li><strong>Elementwise multiply</strong>: Compute <code>T2 = T0_prime * T1_prime</code></li>
-<li><strong>Reduce-add</strong>: Sum over contracted dimension <code>T3: [A, C]</code> where <code>T3[i, j] = sum(T2[i, k, j] for k in 0..B)</code></li>
-</ol>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<pre class="mermaid">flowchart TB
-    subgraph CE[Contraction]
-        direction LR
-        SA[Stream Adapter] --&gt; RD[Reducer]
-        TS[TRF Sequencer] --&gt; RD
+<p>The Contraction Engine performs binary tensor contractions such as matmul and convolution.
+Recall from <a href="../../quick-start.html">Quick Start</a>:</p>
+<ul>
+<li>A tensor contraction takes two input tensors and reduces along their shared (contracted) axes.
+Dot product, GEMV, and GEMM are the canonical examples.</li>
+<li>A contraction decomposes into three steps: Broadcast, Multiply, Reduce.</li>
+<li>One operand streams from the <a href="../collect-engine.html">Collect Engine</a>, and the other sits in the TRF (Tensor Register File).</li>
+<li>Contraction runs in the <a href="../../scheduling.html">main context</a>.
+TRF preparation runs in the sub context via <code>.to_trf()</code>.</li>
+</ul>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<p>Four pipeline stages factor the workload: one for Broadcast and Multiply, three for Reduce.
+Each stage handles its own non-overlapping dimension.</p>
+<pre class="mermaid">%%{init: {'flowchart': {'htmlLabels': true}, 'themeCSS': '.cluster-label .nodeLabel { font-size: 16px; font-weight: 600; }'}}%%
+flowchart TB
+    CO[Collect Engine] --&gt; SA
+    TRF[(TRF)] --&gt; TS
+
+    subgraph CE[Contraction Engine]
+        direction TB
+        subgraph BC[Outer]
+            direction LR
+            SA[Stream Adapter]
+            TS[TRF Sequencer]
+            MUL[Elementwise Multiply]
+            SA --&gt; MUL
+            TS --&gt; MUL
+        end
+        SC[Packet Reducer]
+        TR[Time Reducer]
+        RR[Lane Folder]
+        MUL --&gt; SC
+        SC --&gt; TR
+        TR --&gt; RR
     end
 
-    TRF[(TRF)] --&gt; TS
-    CO[Collect] --&gt; SA
-    RD --&gt; VE[Vector]
+    RR --&gt; VE[Vector Engine]
 
-    click SA "./stream-adapter.html" "Stream Adapter"
-    click TS "./trf-sequencer.html" "TRF Sequencer"
-    click RD "./reducer.html" "Reducer"
+    click SA "./outer.html#stream-adapter" "Stream Adapter"
+    click TS "./outer.html#trf-sequencer" "TRF Sequencer"
+    click SC "./packet-reducer.html" "Packet Reducer"
+    click TR "./time-reducer.html" "Time Reducer"
+    click RR "./lane-folder.html" "Lane Folder"
     click CO "../collect-engine.html" "Collect Engine"
+    click TRF "../register-files.html#tensor-register-file" "Tensor Register File"
     click VE "../vector-engine/index.html" "Vector Engine"
 </pre>
 
-<p>The einsum steps map to diagram components:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Einsum Step</th><th>Component</th></tr>
-</thead>
-<tbody>
-<tr><td>LHS broadcast</td><td><a href="../switch-engine.html">Switch Engine</a> → <a href="../collect-engine.html">Collect Engine</a> → <a href="./aligner.html">Aligner</a>: <a href="./stream-adapter.html">Stream Adapter</a></td></tr>
-<tr><td>RHS broadcast</td><td><a href="./aligner.html">Aligner</a>: <a href="./trf-sequencer.html">TRF Sequencer</a></td></tr>
-<tr><td>Elementwise multiply</td><td><a href="./reducer.html">Reducer</a></td></tr>
-<tr><td>Reduce-add</td><td><a href="./reducer.html">Reducer</a></td></tr>
-</tbody>
-</table>
-</div>
-<p>For reductions across slices or chips, the <a href="../vector-engine/index.html">Vector Engine</a> handles the final aggregation.</p>
-<p>The following sections present case studies showing how common operations map to the Contraction Engine.
-Each case study shows a compiler-generated configuration dump; for the format definition, see <a href="./aligner.html">Aligner</a> and <a href="./reducer.html">Reducer</a>.
-For a beginner-friendly introduction, see the <a href="./introduction_hello-contraction.html">Hello, Contraction! Tutorial</a>.</p>
-<h2 id="case-studies"><a class="header" href="#case-studies">Case Studies</a></h2>
-<h3 id="batched-matmul"><a class="header" href="#batched-matmul">Batched MatMul</a></h3>
-<p>This section demonstrates how batched matrix multiplication maps to the Contraction Engine using the einsum <code>VMK, VNK -&gt; VMN</code>, where <code>V</code> is the batch axis, <code>M</code> and <code>N</code> are the output axes, and <code>K</code> is the contraction axis.</p>
-<p>Choose a mapping based on which axis is largest: use K contraction when K is large (maximizes Reducer efficiency), V vectorized when the batch axis V is large (maximizes temporal parallelism), and N×M tiled when both output axes are large (distributes work across TRF rows and time).</p>
-<h3 id="k-contraction-by-reducer"><a class="header" href="#k-contraction-by-reducer"><code>K</code> contraction by Reducer</a></h3>
-<p>The <a href="./reducer.html">Reducer</a> can perform the <code>K</code>-axis contraction directly, placing <code>K</code> in the temporal dimension.
-The following dump shows the resulting input, TRF, computation, and accumulation mappings:</p>
-<pre><code class="language-text">// Configuration: input_type = bf16, trf_type = bf16, reduce_op = `Add`
-//        Input mapping: [ H: [V=32, M=32, K=32] ] (1)
-//          TRF mapping: [ Row: [N=8] | H: [V=5, N/8=3, K=32] ] (1)
-//  Computation mapping: [ H: [V=32, M=32] | Row: [N=8] | T: [K=32] ] (1)
-// Accumulation mapping: [ H: [V=32, M=32, N/8=3] | T: [N=8] ] (1)
-</code></pre>
-<h3 id="v---vectorized-mapping"><a class="header" href="#v---vectorized-mapping"><code>V</code> - vectorized mapping</a></h3>
-<p>The batch axis <code>V</code> can be placed in the temporal dimension for vectorized computation.
-The following dump shows how <code>V</code> moves into the temporal dimension while <code>M</code> and <code>K</code> remain in their respective positions:</p>
-<pre><code class="language-text">// Configuration: input_type = bf16, trf_type = bf16, reduce_op = `Add`
-//        Input mapping: [ H: [M=5, K=32, V=32] ] (1)
-//          TRF mapping: [ Row: [N=8] | H: [N/8=3, K=32, V=32] ] (1)
-//  Computation mapping: [ H: [M=5, N/8=3, K=32] | Row: [N=8] | T: [V=32] ] (1)
-// Accumulation mapping: [ H: [M=5, N=24] | T: [V=32] ] (1)
-</code></pre>
-<h3 id="n-x-m---tiled-mapping"><a class="header" href="#n-x-m---tiled-mapping"><code>N x M</code> - tiled mapping</a></h3>
-<p>Both output axes <code>N</code> and <code>M</code> can be tiled across the hardware for maximum parallelism.
-The following dump shows both output axes distributed across the TRF Row and temporal dimensions:</p>
-<pre><code class="language-text">// Configuration: input_type = bf16, trf_type = bf16, reduce_op = `Add`
-//        Input mapping: [ H: [V=5, K=32, M=32] ] (1)
-//          TRF mapping: [ Row: [N=8] | H: [V=5, N/8=3, K=32, M=32] ] (1)
-//  Computation mapping: [ H: [V=5, N/8=3, K=32] | Row: [N=8] | T: [M=32] ] (1)
-// Accumulation mapping: [ H: [V=5, N=24] | T: [M=32] ] (1)
-</code></pre>
-<p>Mixed configurations and constraints for these mappings are detailed in the <a href="./reducer.html">Reducer</a> section.</p>
-<h3 id="2d-convolution"><a class="header" href="#2d-convolution">2D Convolution</a></h3>
-<p>This section demonstrates 2D convolution mapping using the einsum <code>$(H + Fh)$(W + Fw)K, FhFwKC -&gt; HWC</code>, where <code>H</code> and <code>W</code> are spatial output axes, <code>C</code> is the output channel axis, and <code>Fh</code>, <code>Fw</code>, <code>K</code> are contraction axes (filter height, filter width, and input channels). Variations covered in the batched matmul section are omitted.</p>
-<h3 id="filter-stride-1"><a class="header" href="#filter-stride-1">Filter-Stride 1</a></h3>
-<p>For stride-1 convolution, the <a href="./stream-adapter.html">Stream Adapter</a> performs shift-reuse on the input to produce sliding windows. The <code>$(H+Fh)</code> sliding is done in the Fetch Engine before reaching the Stream Adapter, while the input <code>$(W+Fw)</code> undergoes shift-reuse in the Stream Adapter to produce <code>Fw, W</code> sliding in the computation. The example below uses shift-stride of 1 with two shifts:</p>
-<pre><code class="language-text">// Configuration: input_type = bf16, trf_type = bf16, reduce_op = `Add`
-//        Input mapping: [ H: [H=30, Fh=3, K=32, $(W=30 + Fw=3)=32] ] (1)
-//          TRF mapping: [ Row: [C=8] | H: [K=32, C=24, Fh=3, Fw=3] ] (1)
-//  Computation mapping: [ H: [H=30, C/8=3, Fh=3, K=32, Fw=3] | Row: [C=8] | T: [W=30+2#] ] (1)
-// Accumulation mapping: [ H: [H=30, C=32] | T: [W=30+2#] ] (1)
-</code></pre>
-<h3 id="filter-stride-2"><a class="header" href="#filter-stride-2">Filter-Stride 2</a></h3>
-<p>For stride-2 convolution, shift-reuse with 1 shift and shift-stride of 2 extracts strided windows.</p>
-<p>The transformation <code>$(W:2=15 + Fw=4)=32</code> produces <code>Fw/2=2, (W=15, Fw=2)</code>, conceptually extracting a size-2 axis with stride <code>:2</code> from a linear combination as an outer product: <code>$(W:2=15 + (Fw/2:2=2, Fw=2))=32</code> becomes <code>Fw/2=2, $(W:2=15, Fw=2)</code>.</p>
-<pre><code class="language-text">// Configuration: input_type = bf16, trf_type = bf16, reduce_op = `Add`
-//        Input mapping: [ H: [H=15, Fh=4, K=32, $(W:2=15 + Fw=4)=32] ] (1)
-//          TRF mapping: [ Row: [C=8] | H: [K=32, C=24, Fh=4, Fw=4] ] (1)
-//  Computation mapping: [ H: [H=15, C/8=3, Fh=4, K=32, Fw/2=2] | Row: [C=8] | T: [W=15+1#, Fw=2] ] (1)
-// Accumulation mapping: [ H: [H=15, C=32] | T: [W=15+1#] ] (1)
-</code></pre>
-<p>To fully utilize MACs, fill more flits in the shift buffer by increasing <code>feed_flits</code> from the default of 2 to 3. The transformation <code>$(W:2=16 + Fw=4)=34</code> then produces <code>Fw/2=2, (W=16, Fw=2)</code>:</p>
-<pre><code class="language-text">// Configuration: feed_flits = 3, input_type = bf16, trf_type = bf16, reduce_op = `Add`
-//        Input mapping: [ H: [H=16, Fh=4, K=32, $(W:2=16 + Fw=4)=34] ] (1)
-//          TRF mapping: [ Row: [C=8] | H: [K=32, C=24, Fh=4, Fw=4] ] (1)
-//  Computation mapping: [ H: [H=16, C/8=3, Fh=4, K=32, Fw/2=2] | Row: [C=8] | T: [W=16, Fw=2] ] (1)
-// Accumulation mapping: [ H: [H=16, C=32] | T: [W=16] ] (1)
-</code></pre>
-<h3 id="dilation-2"><a class="header" href="#dilation-2">Dilation 2</a></h3>
-<p>For dilation-2 convolution, shift-reuse with 2 shifts and shift-stride of 2 extracts dilated filter positions.</p>
-<p>The transformation <code>$(W=27 + Fw:2=3)=32</code> produces <code>Fw=3, W=27</code>, conceptually extracting a size-3 axis with stride <code>:2</code> from a linear combination as an outer product: <code>$(W=27 + Fw:2=3)=32</code> becomes <code>Fw=3, $(W=27)</code>.</p>
-<pre><code class="language-text">// Configuration: input_type = bf16, trf_type = bf16, reduce_op = `Add`
-//        Input mapping: [ H: [H=27, Fh=3, K=32, $(W=27 + Fw:2=3)=32] ] (1)
-//          TRF mapping: [ Row: [C=8] | H: [K=32, C=24, Fh=3, Fw=3] ] (1)
-//  Computation mapping: [ H: [H=27, C/8=3, Fh=3, K=32, Fw=3] | Row: [C=8] | T: [W=27+5#] ] (1)
-// Accumulation mapping: [ H: [H=27, C=32] | T: [W=27+5#] ] (1)
-</code></pre>
-<h3 id="filter-stride-2-dilation-2"><a class="header" href="#filter-stride-2-dilation-2">Filter-Stride 2, Dilation 2</a></h3>
-<p>Combining stride-2 and dilation-2 requires shift operations similar to dilation 2 alone.</p>
-<p>The transformation <code>$(W:2=14 + Fw:2=3)=31 + 1#</code> produces <code>Fw=3, W=14, 1+1#</code>, extracting a size-3 axis with stride <code>:2</code> from a linear combination as an outer product: <code>$(W:2=14 + Fw:2=3)=31</code> becomes <code>Fw=3, $(W:2=14)</code>.</p>
-<p>The notation <code>1z</code> is similar to <code>1#</code> (dummy padding) but filled with zeros instead of arbitrary values. The TRF must contain zero-padded dummies so that <code>1+1#</code> contracted with <code>1+1z</code> yields 1. Note that <code>1+1#</code> contracted with <code>1+1#</code> would yield <code>1#</code>.</p>
-<pre><code class="language-text">// Configuration: input_type = bf16, trf_type = bf16, reduce_op = `Add`
-//        Input mapping: [ H: [H=14, Fh=3, K=32, $(W:2=14 + Fw:2=3)=31+1#] ] (1)
-//          TRF mapping: [ Row: [C=8] | H: [K=32, C=24, Fh=3, Fw=3, 1+1z] ] (1)
-//  Computation mapping: [ H: [H=14, C/8=3, Fh=3, K=32, Fw=3] | Row: [C=8] | T: [W=14+2#, 1+1z] ] (1)
-// Accumulation mapping: [ H: [H=14, C=32] | T: [W=14+2#] ] (1)
-</code></pre>
-<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
-<p><strong>Mapping alignment</strong> <em>(compiler-enforced)</em>: The computation mapping from the Stream Adapter must exactly match the computation mapping from the TRF Sequencer. Misaligned mappings prevent the Reducer from operating correctly. The compiler ensures this alignment during code generation.</p>
-<p><strong>TRF capacity</strong> <em>(programmer responsibility)</em>: TRF storage limits constrain weight tensor size. Large weight tensors require tiling and multiple SRAM-to-TRF loads, adding overhead. The TRF Sequencer can broadcast weight data across time and head dimensions, enabling efficient reuse of loaded weights.</p>
-<p><strong>Row utilization</strong> <em>(programmer responsibility)</em>: The hardware provides 8 Rows. Operations should use all 8 Rows when possible to maximize throughput. Using fewer Rows (1, 2, 4) reduces parallelism and effective computational bandwidth.</p>
-<p><strong>Stream Adapter buffer limits</strong> <em>(compiler-enforced)</em>: The Stream Adapter has limited buffer capacity for shift operations and packet collection. Configurations exceeding these limits are invalid. See Stream Adapter documentation for specific capacity constraints.</p>
-<p><strong>Data type support</strong> <em>(compiler-enforced)</em>: Input data types are limited to i4, i8, f8, and bf16. Output types are widened automatically (i4/i8 → i32, f8/bf16 → f32). The Reducer does not support f32 input directly, though f32 can be processed in the Vector Engine after contraction.</p>
-<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
-<p>Contraction Engine performance depends on Row utilization, TRF reuse, and memory bandwidth:</p>
-<p><strong>Row parallelism</strong>: Using all 8 Rows achieves 8× parallelism. Configurations with fewer Rows proportionally reduce throughput. Configure tensor mappings to distribute work across all available Rows.</p>
-<p><strong>TRF reuse through broadcasting</strong>: Weight data loaded into TRF can be broadcast across time and head dimensions at no additional cost. Design tensor mappings to maximize weight reuse through broadcasting, minimizing SRAM-to-TRF transfers.</p>
-<p><strong>Pipeline latency</strong>: The Contraction Engine pipeline includes the Reducer (5-7 cycles for spatial reduction depending on data type, plus cycles proportional to time dimension size for temporal reduction). Total latency is the sum of these stages plus Stream Adapter/TRF Sequencer overhead.</p>
-<p><strong>Memory bandwidth bottlenecks</strong>: The Stream Adapter is limited by DM fetch bandwidth (256 B/cycle with proper interleaving). TRF bandwidth is typically not a bottleneck due to the broadcasting capability. Ensure fetch patterns interleave across DMNs and slices to maximize bandwidth utilization.</p>
+<ul>
+<li><strong><a href="./outer.html">Outer</a></strong> <em>(Broadcast and Multiply)</em>: broadcasts the two operands to a matching shape <code>[Chip, Cluster, Slice, Lane, Time, Packet]</code> and multiplies them elementwise into a single product tensor.
+<code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through. <code>Lane</code> indexes the spatial parallelism shared by the TRF and downstream reducers. <code>Time</code> and <code>Packet</code> together represent <a href="../../mapping-tensors/spatial-temporal-dimensions.html">packet streams</a>.
+Three sub-stages run in series: the Stream Adapter broadcasts the streaming operand, the TRF Sequencer broadcasts the TRF operand, and the Multiplier widens to the contraction output type (<code>i4</code>/<code>i8</code> -&gt; <code>i32</code>, <code>f8</code>/<code>bf16</code> -&gt; <code>f32</code>) and multiplies them elementwise.</li>
+<li><strong><a href="./packet-reducer.html">Packet Reducer</a></strong> <em>(Reduce within <code>Packet</code>)</em>: reduces along contracted axes mapped to <code>Packet</code> via a parallel tree, one tree per lane.</li>
+<li><strong><a href="./time-reducer.html">Time Reducer</a></strong> <em>(Reduce across <code>Time</code>)</em>: accumulates per-cycle results in the shared accumulator.</li>
+<li><strong><a href="./lane-folder.html">Lane Folder</a></strong> <em>(Fold <code>Lane</code>)</em>: emits the buffer to the output stream, absorbing <code>Lane</code> into either <code>OutPacket</code> or <code>OutTime</code> depending on the mode.
+For reductions across slices or chips, the <a href="../vector-engine/index.html">Vector Engine</a> handles the reduction downstream.</li>
+</ul>
+<p>The Outer stage caps <code>Lane ≤ 8</code> and <code>Packet ≤ 64 B</code> (on RNGD); see <a href="./packet-reducer.html">Packet Reducer</a> and <a href="./time-reducer.html">Time Reducer</a> for more details.</p>
+<p>For an end-to-end latency budget that stacks all four stages plus the Inter-Slice Reducer (e.g., 65,536 → 1 scalar in ~296 cycles), see <a href="../../kernel-examples/chip-cluster-reduce.html">Kernel Examples: Chip/Cluster Reduce</a>.</p>
+<h2 id="example-batched-matmul"><a class="header" href="#example-batched-matmul">Example: Batched MatMul</a></h2>
+<p><a href="../../quick-start.html">Quick Start</a> walks through dot product, GEMV, and GEMM.
+Batched matmul extends GEMM with a leading batch axis V: \(VMK, KN \rightarrow VMN\).
+For each of V independent (M × K) inputs and a shared (K × N) weight, the kernel produces the (M × N) product.</p>
+<p>The three variants below classify kernels by which axis sits in <code>Time</code>.
+The remaining axes are exploited as spatial parallelism.
+They share these axes:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![V = 32, M = 32, N = 8, K = 32];   // V batch, M×N output, K contraction
+<span class="boring">}</span></code></pre>
+<p>(See <a href="./2d-convolution.html">2D Convolution</a> for another example, which uses a separate set of Stream Adapter machinery.)</p>
+<h3 id="k-in-time"><a class="header" href="#k-in-time">K in Time</a></h3>
+<p>K (the contraction axis) sits in <code>Time</code>. M splits across <code>Cluster</code> and <code>Slice</code>, and V splits as well: <code>V % 16</code> joins <code>Slice</code> while <code>V / 16 = 2</code> joins <code>Time</code> alongside K (V × M = 1024 doesn’t fit the 512 spatial cells per chip on RNGD, so V’s outer chunk must iterate). <code>Packet</code> pads to <code>1 # 32</code> and the reduction proceeds sequentially across cycles instead of via the Packet Reducer’s spatial tree, so only 1 of 32 multipliers does useful work per cycle (1/32 MAC utilization for bf16). The result is a degenerate kernel, shown only as an educational baseline.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![V = 32, M = 32, N = 8, K = 32];   // V batch, M×N output, K contraction
+
+type Chip    = m![1];                   // single chip
+type Cluster = m![M / 16];              // outer M split across clusters (M / 16 = 2)
+type Slice   = m![M % 16, V % 16];      // inner M × inner V = 16 × 16 = 256 slices per cluster
+type Lane     = m![N];                   // N (output channels) partitions the 8 hardware lanes
+
+/// Batched matmul with K placed in Time.
+fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
+    // Streaming operand: V outer + K in Time, with a one-element Packet m![1].
+    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1]&gt;,
+    // TRF operand: N in Lane, K in Element. Stored into TRF by a prior .to_trf() call.
+    trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
+    // Output: one (M × N) f32 matrix per (slice, V-outer) pair.
+) -&gt; ContractTensor&lt;'l, T, f32, Chip, Cluster, Slice, m![V / 16], m![N]&gt; {
+    input
+         // Outer: Lane = m![N] (inferred from trf), OutTime = m![V / 16, K], OutPacket = m![1 # 32].
+         // input: 1 K-element broadcast across all N lanes.
+         // trf:   1 K-element per lane, advancing one K-step per cycle.
+         .contract_outer::&lt;m![V / 16, K], m![1 # 32], _, _&gt;(trf)
+         // Packet Reducer: OutPacket = m![1]. Nothing to reduce.
+         .contract_packet::&lt;m![1]&gt;()
+         // Time Reducer: OutTime = m![V / 16]. K iterates over Time and accumulates; V outer survives.
+         .contract_time::&lt;m![V / 16]&gt;()
+         // Lane Folder: Lane folds into OutPacket. Interleaved mode emits 8 lanes per cycle.
+         .contract_lane::&lt;m![V / 16], m![N]&gt;(LaneMode::Interleaved)
+}
+<span class="boring">}</span></code></pre>
+<p>To avoid this pathological case, keep K in <code>Packet</code> (parallel reduction via the Packet Reducer’s tree) and spread the surviving axes (V, M, N) across <code>Cluster</code>, <code>Slice</code>, and <code>Lane</code> to maximize spatial parallelism.
+The two strategies below apply this principle, each with one axis per class for simplicity; real kernels may split a single axis across multiple classes when sizes demand.</p>
+<h3 id="m-in-time"><a class="header" href="#m-in-time">M in Time</a></h3>
+<p>V (batch) distributes across <code>Cluster</code> and <code>Slice</code> (one batch element per slice). M in <code>Time</code>, K in <code>Packet</code>. This strategy is applicable when (1) the slice count covers the batch, (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>. When K is larger than <code>Packet</code>, split K across <code>Packet</code> (spatial) and <code>Time</code> (temporal). It maximizes MAC utilization across lanes.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![V = 32, M = 32, N = 8, K = 32];   // V batch, M×N output, K contraction
+
+type Chip    = m![1];                   // single chip
+type Cluster = m![V / 16];              // outer V split across clusters (V / 16 = 2)
+type Slice   = m![V % 16];              // inner V split across slices (V % 16 = 16 per cluster)
+type Lane     = m![N];                   // N (output channels) partitions the 8 hardware lanes (N = 8 fills the cap)
+
+/// Batched matmul: V slices × (M × K) · (K × N) → V × M × N.
+fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
+    // Streaming operand: M in Time, K in Packet.
+    // Element type can be i4, i8, f8, or bf16; integers widen to i32 output, floats to f32.
+    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![M], m![K]&gt;,
+    // TRF operand: N in Lane (one output channel per lane), K in Element.
+    // Stored into TRF by a prior .to_trf() call in the sub context.
+    trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
+    // Output: one (M × N) f32 matrix per slice.
+) -&gt; ContractTensor&lt;'l, T, f32, Chip, Cluster, Slice, m![M], m![N]&gt; {
+    input
+         // Outer: broadcast input and trf, multiply elementwise.
+         // Lane = m![N] (inferred from trf), OutTime = m![M], OutPacket = m![K].
+         // input: K elements broadcast across all N lanes.
+         // trf:   K elements per lane, broadcast across all M cycles.
+         .contract_outer::&lt;m![M], m![K], _, _&gt;(trf)
+         // Packet Reducer: OutPacket = m![1]. Sum K spatially via the reduction tree.
+         .contract_packet::&lt;m![1]&gt;()
+         // Time Reducer: OutTime = m![M]. Nothing to reduce.
+         .contract_time::&lt;m![M]&gt;()
+         // Lane Folder: Lane folds into OutPacket. Interleaved mode emits 8 lanes per cycle.
+         .contract_lane::&lt;m![M], m![N]&gt;(LaneMode::Interleaved)
+}
+<span class="boring">}</span></code></pre>
+<h3 id="v-in-time"><a class="header" href="#v-in-time">V in Time</a></h3>
+<p>V (batch) in <code>Time</code>, K in <code>Packet</code>. M splits across <code>Cluster</code> and <code>Slice</code>. This strategy is applicable when (1) the slice count covers M (<code>M / 16</code> in <code>Cluster</code>, <code>M % 16</code> in <code>Slice</code>), (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>. Useful when batch is the dominant axis (e.g., batched inference).</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![V = 32, M = 32, N = 8, K = 32];   // V batch, M×N output, K contraction
+
+type Chip    = m![1];                   // single chip
+type Cluster = m![M / 16];              // outer M split across clusters (M / 16 = 2)
+type Slice   = m![M % 16];              // inner M split across slices (M % 16 = 16 per cluster)
+type Lane     = m![N];                   // N (output channels) partitions the 8 hardware lanes
+
+/// Batched matmul with V (batch) placed in Time.
+fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
+    // Streaming operand: V in Time, K in Packet.
+    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![V], m![K]&gt;,
+    // TRF operand: N in Lane, K in Element. Stored into TRF by a prior .to_trf() call.
+    trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
+    // Output: one (V × N) f32 matrix per slice.
+) -&gt; ContractTensor&lt;'l, T, f32, Chip, Cluster, Slice, m![V], m![N]&gt; {
+    input
+         // Outer: Lane = m![N] (inferred from trf), OutTime = m![V], OutPacket = m![K].
+         // input: K elements broadcast across all N lanes.
+         // trf:   K elements per lane, broadcast across all V cycles.
+         .contract_outer::&lt;m![V], m![K], _, _&gt;(trf)
+         // Packet Reducer: OutPacket = m![1]. Sum K spatially via the reduction tree.
+         .contract_packet::&lt;m![1]&gt;()
+         // Time Reducer: OutTime = m![V]. Nothing to reduce.
+         .contract_time::&lt;m![V]&gt;()
+         // Lane Folder: Lane folds into OutPacket. Interleaved mode emits 8 lanes per cycle.
+         .contract_lane::&lt;m![V], m![N]&gt;(LaneMode::Interleaved)
+}
+<span class="boring">}</span></code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../../computing-tensors/collect-engine.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../../computing-tensors/register-files.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../../computing-tensors/contraction-engine/aligner.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../../computing-tensors/contraction-engine/outer.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -341,11 +380,11 @@ The following dump shows both output axes distributed across the TRF Row and tem
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../../computing-tensors/collect-engine.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../../computing-tensors/register-files.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../../computing-tensors/contraction-engine/aligner.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../../computing-tensors/contraction-engine/outer.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
@@ -367,11 +406,11 @@ The following dump shows both output axes distributed across the TRF Row and tem
 
         <script src="../../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../../mark-09e88c2c.min.js"></script>
-        <script src="../../searcher-c2a407aa.js"></script>
+        <script src="../../searcher-09f2665d.js"></script>
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-a0b12cfe.js"></script>
+        <script src="../../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

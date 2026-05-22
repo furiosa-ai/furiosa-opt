@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,168 +177,165 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="fetch-engine"><a class="header" href="#fetch-engine">Fetch Engine</a></h1>
-<p>The <a href="../computing-tensors/index.html">Tensor Unit</a> is a pipeline of engines (Switching, Collect, Contraction, Vector, Cast, Transpose, Commit) that processes tensor data.
-It cannot operate directly on tensors stored in DM: data must first be converted into a stream of fixed-size packets that flow through the compute pipeline.
-The Fetch Engine performs this conversion: it reads tensor data from DM and produces packet streams for the rest of the Tensor Unit.</p>
-<p>The Fetch Engine operates in two stages:</p>
+<p>The Fetch Engine reads DM tensors and produces packet streams for the Tensor Unit in two stages:</p>
 <ul>
-<li><strong><a href="#fetch-sequencer">Fetch Sequencer</a></strong>: Reads tensor data from DM using nested-loop configurations that define access patterns.</li>
-<li><strong><a href="#fetch-adapter">Fetch Adapter</a></strong>: Post-processes streams through masking, type conversion, and batching to produce computation-ready packets.</li>
+<li><strong><a href="#fetch-sequencer">Fetch Sequencer</a></strong>: A <a href="../mapping-tensors/tensor-semantics.html#mathematical-tensor-move">mathematical tensor move</a> that reads DM with per-slice sequencers and produces a packet stream.</li>
+<li><strong><a href="#fetch-adapter">Fetch Adapter</a></strong>: Applies optional element-wise transformations that may change the mathematical tensor.</li>
 </ul>
-<p>Additional sections cover the <a href="#fetch-engine-and-switch-engine-interaction">interaction with the Switch Engine</a> and <a href="#performance">performance guidelines</a>.</p>
-<p>As a kernel writer, you control the <code>Time</code> and <code>Packet</code> type parameters of <code>.fetch()</code>, which determine packet size and iteration count.
-The compiler derives the sequencer loop configuration and stride calculation.
-For performance implications of <code>Packet</code> choices, see <a href="./memory-performance.html">Memory Performance</a>.</p>
-<!-- > **TODO** (jeongmin.park): 지금 API에 fetch adapter를 실행할 수 있는 방법이 있나요? -> masking, table indexing, type casting, zero point sub, batc -->
-<!-- hing 중에서, type casting/batching만 가능합니다. 나머지는 api 디자인이 필요합니다. -->
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<p>The Fetch Engine implements a <a href="./index.html">logical tensor move</a> from DM to tensor streams:</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
-    BeginTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet&gt;
+<p><code>BeginTensor</code> represents a tensor resident in DM, at the entry of the Tensor Unit pipeline.
+Its <code>Time</code> is <code>m![1]</code> (no temporal iteration before the pipeline starts) and <code>Packet</code> is the element layout in DM.</p>
+<p><code>BeginTensor::fetch()</code> converts the input into a <code>FetchTensor</code> packet stream.
+The <code>assert_eq!</code> calls enforce hardware constraints on <code>Cluster::SIZE</code>, <code>Slice::SIZE</code>, and packet alignment (see <a href="#constraints">Constraints</a>).</p>
+<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyFetch, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
-    /// Performs fetch operation to create a fetched tensor.
-    #[primitive(BeginTensor::fetch)]
-    pub fn fetch&lt;D2: Scalar, Time2: M, Packet2: M&gt;(self) -&gt; FetchTensor&lt;'l, T, D2, Chip, Cluster, Slice, Time2, Packet2&gt;
+    /// Performs the fetch operation.
+    #[primitive(TuTensor::fetch)]
+    pub fn fetch&lt;D2: Scalar, Time2: M, Packet2: M&gt;(
+        self,
+    ) -&gt; FetchTensor&lt;'l, T, D2, Chip, Cluster, Slice, Time2, Packet2, B&gt;
     where
         D: FetchCast&lt;D2&gt;,
     {
-        assert_eq!(Cluster::SIZE, 2, "Cluster size must be 2, got {}", Cluster::SIZE);
-        assert_eq!(Slice::SIZE, 256, "Slice size must be 256, got {}", Slice::SIZE);
-        let packet_bytes = D2::size_in_bytes_from_length(Packet2::SIZE);
-        assert_eq!(
-            packet_bytes % FETCH_ALIGN_BYTES,
-            0,
-            "Fetch output packet must be {FETCH_ALIGN_BYTES}-byte aligned, got {packet_bytes} bytes.",
-        );
+        verify_fetch::&lt;D2, Cluster, Slice, Packet2&gt;();
         FetchTensor::new(self.ctx, self.inner.map(|v| v.map(|v| v.cast())).transpose(true))
     }
 }</code></pre>
-<p>The resulting <code>FetchTensor</code> represents a stream of packets flowing through the Tensor Unit pipeline.
-The mapping <code>[Chip, Cluster, Slice, Time, Packet]</code> distributes data across hardware and time.</p>
-<p><code>Time2</code> represents the temporal iteration mapping, while <code>Packet2</code> is the packet shape within each cycle.
-The output packet size must be 8-byte aligned (a multiple of the fetch sequencer’s read granularity).
-The output type <code>D2</code> supports type casting (such as <code>i8</code> to <code>i32</code>).</p>
-<p>Notice that <code>.fetch()</code> does not have an output parameter for <code>Slice</code>: each slice independently reads its own DM data, so the Slice mapping is inherited unchanged from the input <code>BeginTensor</code>.
-To redistribute data across slices, use the <a href="../computing-tensors/switch-engine.html">Switch Engine</a>.</p>
-<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<p>A matrix stored as 8-bit integers needs conversion to 32-bit integers for computation:</p>
+<p>As introduced in <a href="../mapping-tensors/index.html">Mapping Tensors</a>, the <code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, <code>Time</code>, <code>Packet</code> mapping distributes data across space and time.
+<code>.fetch()</code> preserves the <code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> dimensions unchanged from the input, because each slice independently reads its own DM partition.
+Later the <a href="../computing-tensors/switch-engine.html">Switch Engine</a> changes the <code>Slice</code> mapping by moving data across slices.</p>
+<p>The kernel writer chooses the output type parameters <code>D2</code>, <code>Time2</code>, and <code>Packet2</code> to configure both the Fetch Sequencer and the Fetch Adapter.
+The compiler derives all hardware settings from the output types.
+<code>D2</code> enables type casting such as <code>i8</code> to <code>i32</code>.
+<code>Time2</code> sets the number of time steps in the output stream.
+<code>Packet2</code> sets the element layout within each packet.
+For performance implications of <code>Packet2</code> choices, see <a href="#optimizations">Optimizations</a>.</p>
+<p>The following example fetches an <code>i8</code> matrix from DM, casting each element to <code>i32</code>.
+The output <code>FetchTensor</code> streams 512 time steps, each a 32-element <code>i32</code> packet (128 bytes).
+Here <code>D2 = i32</code>, <code>Time2 = m![A]</code>, and <code>Packet2 = m![B]</code>.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span>axes![A = 512, B = 32];
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![CH = 4, CL = 2, S = 256, A = 512, B = 32];
 
-/// Fetches matrix data from DM, casting i8 to i32.
 fn fetch_matrix_example&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A, B]&gt;,
-) -&gt; FetchTensor&lt;'l, T, i32, m![1], m![1], m![1], m![A], m![B]&gt; {
+    input: BeginTensor&lt;'l, T, i8, m![CH], m![CL], m![S], m![1], m![A, B]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i32, m![CH], m![CL], m![S], m![A], m![B]&gt; {
     input.fetch()
 }
 <span class="boring">}</span></code></pre>
-<p>The input <code>BeginTensor</code> represents data in DM.
-The output <code>FetchTensor</code> represents a packet stream: 512 rows over time, each containing 32 <code>i32</code> (128 bytes).
-The compiler automatically configures the sequencer and adapter from the output type signature.
-For the <code>StreamTensor</code> type hierarchy across pipeline stages, see <a href="../mapping-tensors/memory-stream.html">Memory and Stream</a>.</p>
 <h2 id="fetch-sequencer"><a class="header" href="#fetch-sequencer">Fetch Sequencer</a></h2>
-<p>The Fetch Sequencer defines the memory access pattern: which addresses to read, in what order, and how to package the data into packets.
-Each slice executes its own sequencer independently, enabling parallel data movement.</p>
-<p>Sequencers typically use homogeneous configurations: each slice processes the same pattern on its local data partition.
-The hardware also supports heterogeneous configurations where different slices execute different access patterns simultaneously.</p>
+<p><code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> are the hardware spatial parallelism dimensions.
+A Fetch Sequencer runs independently in every slice, each operating on its own local DM partition.
+The example in <a href="#interface">Interface</a> expresses this: <code>Chip = m![CH]</code>, <code>Cluster = m![CL]</code>, and <code>Slice = m![S]</code> (with <code>CH = 4</code>, <code>CL = 2</code>, <code>S = 256</code>) reflect a 4-chip RNGD system with 2 clusters per chip and 256 slices per cluster (2,048 slices total), each running the same sequencer pattern on its own <code>A×B</code> sub-tensor.</p>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
-<p>The sequencer has physical limits that must be respected:</p>
 <ul>
-<li><code>Chip::SIZE</code> \(=\) number of chips in the system.</li>
-<li><code>Cluster::SIZE</code> \(=\) 2 (clusters per chip).</li>
-<li><code>Slice::SIZE</code> \(=\) 256 (slices per cluster).</li>
+<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="./sequencer.html#architecture">Sequencer</a>).</li>
 </ul>
-<blockquote class="blockquote-tag blockquote-tag-note">
-<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
-<p>These exact-match constraints are a current limitation: the runtime operates at chip granularity (<code>#[device(chip = N)]</code>), so partial chip or cluster usage is not yet supported.
-Use the <code>#</code> padding operator (e.g., <code>m![1 # 2]</code> for a single logical cluster) to fill unused positions.
-This may be relaxed in future releases.</p>
-</blockquote>
-<ul>
-<li>Fetch addresses must be <code>1</code>-byte aligned (minimal constraint), but <code>8</code>-byte alignment is required for certain DMA operations.</li>
-<li>Depending on the context, the <code>fetch_size</code> is restricted to certain values:
-<ul>
-<li>The main-context supports a <code>fetch_size</code> of 1, 2, 4, 8, 16, or 32 bytes (see <a href="../computing-tensors/index.html#execution-contexts">main-context</a>).</li>
-<li>The sub-context supports a <code>fetch_size</code> of 4 bytes (when casting from <code>i4</code> to <code>i32</code>), or 8 bytes (otherwise) (see <a href="../computing-tensors/index.html#execution-contexts">sub-context</a>).</li>
-</ul>
-</li>
-<li><code>fetch_size</code> is determined as the largest supported divisor of <code>gcd(packet_size, contiguous_sram_access_size)</code>.
-<ul>
-<li><code>fetch_size</code> must divide <code>packet_size</code> because data fetched in a single memory read cannot be split across different packets.</li>
-<li><code>fetch_size</code> must divide <code>contiguous_sram_access_size</code> because a single memory fetch can only read physically contiguous data.</li>
-</ul>
-</li>
-</ul>
-<p>The <code>contiguous_sram_access_size</code> represents the total byte size of contiguous elements in memory that can be accessed without stride discontinuities. It is derived from the sequencer configuration by multiplying the sizes of consecutive physically contiguous entries, from the innermost to the outermost level. Two adjacent entries—an outer <code>(n1 : s1)</code> and an inner <code>(n2 : s2)</code>—are physically contiguous if <code>s1 == n2 * s2</code>.</p>
+<h3 id="multi-read-packet"><a class="header" href="#multi-read-packet">Multi-Read Packet</a></h3>
+<p>Preparing a packet may require multiple hardware reads because packet axes may not be contiguous in DM, and the hardware reads at most 32 bytes at once.
+In the <a href="../computing-tensors/index.html#scheduling-execution-contexts">main-context</a>, <code>read_size</code> is the largest divisor of the sequencer’s <code>access_size</code> (see <a href="./sequencer.html#access-size">Sequencer Architecture</a> for <code>access_size</code>) such that <code>D[read_size]</code> is 1, 2, 4, 8, 16, or 32 bytes.
+In the <a href="../computing-tensors/index.html#scheduling-execution-contexts">sub-context</a>, <code>read_size</code> is fixed at 8 bytes.
+The compiler derives <code>read_size</code> from the input and output type of <code>fetch()</code> and users do not set it directly.
+Multi-read occurs whenever <code>Packet::SIZE &gt; read_size</code>.
+For example, a 24-byte packet in the main-context forces <code>read_size = 8</code> and 3 reads per packet.
+The total cycle count is <code>Time::SIZE * (Packet::SIZE / read_size)</code>.</p>
+<p>The following examples fetch the same <code>i4</code> tensor of shape <code>m![N, C, H, W]</code> (with <code>N=4, C=3, H=4, W=8</code>) using four different <code>Packet2</code> choices.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![N = 4, C = 3, H = 4, W = 8];
 
-// Compiler-generated configuration: [
-//   N -&gt; 4 : 96,   (96 == 3 * 32,     contiguous)
-//   C -&gt; 3 : 32,   (32 == 4 * 8,      contiguous)
-//   H -&gt; 4 : 8,    (8  == 8 * 1,      contiguous)
-//   W -&gt; 8 : 1,    (packet dimension, contiguous)
-// ] : 8
-// contiguous_sram_access_size = 8 * 4 * 3 * 4 = 384
-fn fully_contiguous&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
-) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![N, C, H], m![W]&gt; {
+/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
+/// access_size = 8; read_size = 8 (4 bytes); reads per packet = 1; cycles = 48
+fn fetch_batch_1&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C, H], m![W]&gt; {
     input.fetch()
 }
 
-// Compiler-generated configuration: [
-//   C -&gt; 3 : 32,   (32 != 4 * 96,     NOT contiguous)
-//   N -&gt; 4 : 96,   (96 != 4 * 8,      NOT contiguous)
-//   H -&gt; 4 : 8,    (8  == 8 * 1,      contiguous)
-//   W -&gt; 8 : 1,    (packet dimension, contiguous)
-// ] : 8
-// contiguous_sram_access_size = 8 * 4 = 32
-fn three_axes_non_contiguous&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
-) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![C], m![N, H, W]&gt; {
+/// Sequencer config: [N = 4 : 96, C = 3 : 32, H / 2 = 2 : 16, H % 2 = 2 : 8, W = 8 : 1].
+/// access_size = 16; read_size = 16 (8 bytes); reads per packet = 1; cycles = 24
+fn fetch_batch_2&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C, H / 2], m![H % 2, W]&gt; {
     input.fetch()
 }
 
-// Compiler-generated configuration: [
-//   N -&gt; 4 : 96,   (96 != 4 * 8,  NOT contiguous)
-//   H -&gt; 4 : 8,    (8  != 3 * 32, NOT contiguous)
-//   C -&gt; 3 : 32,   (32 != 8 * 1,  NOT contiguous)
-//   W -&gt; 8 : 1,    (packet dimension, contiguous)
-// ] : 8
-// contiguous_sram_access_size = 8
-fn four_axes_non_contiguous&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
-) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![N, H, C, W]&gt; {
+/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
+/// access_size = 32; read_size = 32 (16 bytes); reads per packet = 1; cycles = 12
+fn fetch_batch_3&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C], m![H, W]&gt; {
+    input.fetch()
+}
+
+/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
+/// access_size = 96; read_size = 32 (16 bytes); reads per packet = 3; cycles = 12
+fn fetch_batch_4&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
+) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N], m![C, H, W]&gt; {
     input.fetch()
 }
 <span class="boring">}</span></code></pre>
-<p>For detailed information on how packet size interacts with memory access patterns and sequencer configuration, see the <a href="./sequencer.html#configuration">sequencer configuration</a>.</p>
-<blockquote class="blockquote-tag blockquote-tag-note">
-<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
-<p>The optimal sequencer configuration is automatically generated by the compiler based on the output type of <code>fetch()</code>.
-Users <strong>do not</strong> directly specify sequencer configurations in Virtual ISA.
-Similarly, <code>fetch_size</code> and <code>contiguous_sram_access_size</code> are automatically derived by the compiler, and not directly specified by users.</p>
-</blockquote>
-<h3 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h3>
-<p>Different configurations can achieve the same tensor move with varying efficiency.
-Two key optimizations dramatically improve performance: padding packets to maximize bandwidth and interleaving tensors to combine operations.</p>
-<h4 id="padding-packets"><a class="header" href="#padding-packets">Padding Packets</a></h4>
-<p>Padding packets to full hardware bandwidth drastically reduces fetch cycles.
-The increased packet size allows the compiler to increase <code>fetch_size</code>, which reduces the number of fetch cycles needed to transfer the same amount of data.
-The following example demonstrates this effect:</p>
+<h3 id="interleaving"><a class="header" href="#interleaving">Interleaving</a></h3>
+<p>Interleaving combines two tensors with identical mappings into a single sequencer operation, reducing overhead when both tensors are needed for the same computation.
+An explicit <code>Time</code> axis encodes alternation between the two tensors.</p>
+<p>In the following example, the main-context creates an interleaved tensor using <code>begin_interleaved()</code>.
+The first temporal iteration fetches from <code>lhs</code>, the second from <code>rhs</code>, the third from <code>lhs</code> again, and so on.
+At most two tensors can be interleaved in a single fetch operation.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 32, I = 2];
+
+/// Interleaves two input tensors into a single packet stream.
+/// Useful for operations like 'input1 + input2' in the Vector Engine.
+/// The interleaved BeginTensor is created via Tu.begin_interleaved().
+/// The `I = 2` axis in Time encodes alternation between the two tensors.
+fn fetch_interleaved&lt;'l&gt;(
+    ctx: &amp;'l mut Context,
+    lhs: &amp;'l DmTensor&lt;i8, m![1], m![1], m![1], m![A, B]&gt;,
+    rhs: &amp;'l DmTensor&lt;i8, m![1], m![1], m![1], m![A, B]&gt;,
+) -&gt; FetchTensor&lt;'l, { Tu::Main }, i8, m![1], m![1], m![1], m![A, I], m![B]&gt; {
+    ctx.main.begin_interleaved::&lt;I, _, _, _, _, _&gt;(lhs.view(), rhs.view()).fetch()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h3>
+<p>Three factors determine Fetch Sequencer throughput.</p>
+<ul>
+<li>
+<p><strong>Input bandwidth</strong>: <code>read_size</code> is limited by axis contiguity in DM and packet size.
+Non-adjacent axes reduce <code>access_size</code> and therefore <code>read_size</code> (see <a href="./sequencer.html#non-contiguous-packets">Non-Contiguous Packets</a>).
+A packet smaller than the contiguous run also limits <code>read_size</code>.
+Padding to a larger power-of-two raises it (see <a href="#example-packet-padding">Packet padding</a>).</p>
+<p>Furthermore, access patterns that hit the same bank 64 or more times consecutively starve the lower-priority <a href="./commit-engine.html">Commit Engine</a> and <a href="./dma-engine.html">DMA Engine</a> and can cause catastrophic NoC timeouts.</p>
+<p>See <a href="./memory-performance.html">Memory Performance</a> for details.</p>
+</li>
+<li>
+<p><strong>Output bandwidth</strong>: the downstream <a href="../computing-tensors/collect-engine.html">Collect Engine</a> converts Fetch’s packets to 32-byte <em>flits</em>, so packet sizes that don’t align to 32 bytes waste bandwidth.
+A 20-byte packet fills one flit with 12 bytes of zero-padding, wasting <code>12 / 32 = 37.5%</code>.
+A 40-byte packet spans two flits (64 bytes total) and zero-pads the final 24 bytes of the second flit, wasting <code>24 / 64 = 37.5%</code>.</p>
+</li>
+<li>
+<p><strong>Spatial parallelism</strong>: Distributing fetches across slices maximizes throughput.</p>
+</li>
+</ul>
+<h4 id="example-packet-padding"><a class="header" href="#example-packet-padding">Example: Packet padding</a></h4>
+<p>Padding <code>Packet2</code> to a larger power-of-two element count can increase <code>read_size</code>.
+The three examples below fetch the same 30-byte tensor in 15, 3, and 1 cycles by growing the packet from 2 to 16 to 32 bytes:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 3, B = 5, C = 2];
 
 /// Smallest packet: only C dimension (2 bytes). Takes 15 cycles.
@@ -362,81 +359,43 @@ fn fetch_packet_ABC&lt;'l, const T: Tu&gt;(
     input.fetch()
 }
 <span class="boring">}</span></code></pre>
-<p>Padding reads beyond the actual data, but this is safe because padding values do not affect computation.
-Note that different padding strategies produce different <code>FetchTensor</code> mappings, which may affect downstream components.</p>
-<h4 id="interleaving-tensors"><a class="header" href="#interleaving-tensors">Interleaving Tensors</a></h4>
-<p>Interleaving combines two tensors with identical mappings into a single sequencer operation, reducing overhead when both tensors are needed for the same computation.
-An explicit axis is introduced in the <code>Time</code> dimension to encode alternation between the two tensors.</p>
-<p>In the following example, the main context creates an interleaved tensor using <code>begin_interleaved()</code>.
-This introduces an axis <code>I = 2</code> in the <code>Time</code> dimension, which encodes alternation between the two tensors.
-The first temporal iteration fetches from <code>lhs</code>, the second iteration fetches from <code>rhs</code>,
-the third iteration fetches the next packet from <code>lhs</code>, and so on, continuing this alternating pattern.
-At most two tensors can be interleaved in a single fetch operation.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span>axes![A = 512, B = 32, I = 2];
-
-/// Interleaves two input tensors into a single packet stream.
-/// Useful for operations like 'input1 + input2' in the Vector Engine.
-/// The interleaved BeginTensor is created via Tu.begin_interleaved().
-/// The `I = 2` axis in Time encodes alternation between the two tensors.
-fn fetch_interleaved&lt;'l&gt;(
-    ctx: &amp;'l mut Context,
-    lhs: &amp;'l DmTensor&lt;i8, m![1], m![1], m![1], m![A, B]&gt;,
-    rhs: &amp;'l DmTensor&lt;i8, m![1], m![1], m![1], m![A, B]&gt;,
-) -&gt; FetchTensor&lt;'l, { Tu::Main }, i8, m![1], m![1], m![1], m![A, I], m![B]&gt; {
-    ctx.main.begin_interleaved::&lt;I, _, _, _, _, _&gt;(lhs.view(), rhs.view()).fetch()
-}
-<span class="boring">}</span></code></pre>
+<p>In these examples, padding reads beyond the actual data, but this is safe because padding values do not affect computation.
+Different padding strategies produce different <code>FetchTensor</code> mappings, which may affect downstream components.</p>
 <h2 id="fetch-adapter"><a class="header" href="#fetch-adapter">Fetch Adapter</a></h2>
-<p>The Fetch Adapter transforms raw packet streams into computation-ready format through five stages: <a href="#masking">masking</a>, <a href="#table-indexing">table indexing</a>, <a href="#type-casting">type casting</a>, <a href="#zero-point-subtraction">zero-point subtraction</a>, and <a href="#batching">batching</a>.
-The <a href="../computing-tensors/index.html#execution-contexts">main-context</a> adapter supports all five stages, while <a href="../computing-tensors/index.html#execution-contexts">sub-context</a> adapters only support zero-point subtraction.</p>
-<!-- > **TODO**: Verify sub-context adapter capabilities — the Fetch Engine and Commit Engine pages disagree (Fetch Engine: zero-point subtraction only; Commit Engine: truncating and chunking only). -->
-<h3 id="sequencer-and-adapter-interaction"><a class="header" href="#sequencer-and-adapter-interaction">Sequencer and Adapter Interaction</a></h3>
-<p>The Fetch Sequencer operates with a fixed stream mapping: (<code>Slice</code>, <code>Time</code>) → <code>Packet</code>.
-It controls what memory addresses are read and how elements are packed.
-While structural transformations happen during memory access, element-wise transformations happen during adapter processing.
-To achieve a specific data layout, reshape the tensor before the sequencer reads it, then apply value-wise transformations in the adapter stage.</p>
-<!-- > **TODO** (pedro.lobo): The following example fails to convey the point above in a simple way. -->
-<p>For example, consider a tensor with <code>S = [8_a]</code>, <code>Element = a</code>, <code>Time = a ! 4</code>. Slicing can be expressed as <code>S = [4_a]</code>, <code>Element = a + 4</code>, <code>Time = a</code>. With offset consideration, <code>S = [8_a]</code>, <code>Element = a</code>, <code>Time = a @ 4</code> becomes <code>S = [8_a]</code>, <code>Element = 4 + a</code>, <code>Time = a</code>. In principle, if we reshape the tensor appropriately, all forms could be expressed this way, though the necessity of this specific approach warrants further investigation.</p>
+<p>The Fetch Adapter applies element-wise transformations to sequencer packets through four stages: <a href="#masking">masking</a>, <a href="#table-indexing">table indexing</a>, <a href="#type-casting">type casting</a>, and <a href="#zero-point-subtraction">zero-point subtraction</a>.
+The <a href="../computing-tensors/index.html#scheduling-execution-contexts">main-context</a> adapter supports all four stages, while <a href="../computing-tensors/index.html#scheduling-execution-contexts">sub-context</a> adapters only support zero-point subtraction.</p>
 <h3 id="masking"><a class="header" href="#masking">Masking</a></h3>
-<p>The Tensor Unit requires data in power-of-two sizes for efficient processing, because its internal data paths operate on fixed-width units (32-byte flits containing 8 elements of 32-bit data).
-A 63-element axis must be padded to 64 elements.
-Without masking, the padded element might contain an arbitrary value that corrupts operations like <code>sum</code> or <code>max</code>.
-Masking forces padded elements to neutral values so they do not influence the result.</p>
-<p>For example, the Reducer sums elements along an axis.
-Summing 63 real elements plus 1 arbitrary padded value produces an incorrect result.
-Masking sets that padded element to zero.</p>
+<p>Masking overwrites padded elements with a neutral value so they do not influence downstream operations.
+Padding is necessary because the Tensor Unit’s internal data paths operate on fixed-width units (32-byte flits of 8 elements at 32 bits each), so any axis whose size is not a multiple of the flit width must be rounded up (for example, a 63-element axis is rounded up to 64).
+Without masking the padded slots hold arbitrary values, which corrupts reductions like <code>sum</code> or <code>max</code>.
+For instance, the Packet Reducer sums along an axis, and the padded slots must be zero for a <code>sum</code> to be correct over the valid range.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 63];
 
-/// Fetches with automatic masking: pads 63 elements to 64, masking the padding.
-/// Hardware automatically masks the 64th element to zero
-/// so reduce operations compute correctly on 63 valid elements.
+/// Pads 63 elements to 64 and masks the 64th to zero,
+/// so reductions compute correctly over the 63 valid elements.
 fn fetch_with_masking&lt;'l, const T: Tu&gt;(
     input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt;,
 ) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A # 64]&gt; {
     input.fetch()
 }
 <span class="boring">}</span></code></pre>
-<h4 id="masking-configuration"><a class="header" href="#masking-configuration">Masking Configuration</a></h4>
-<p>The Fetch Engine supports masking for innermost axes with padding on both sides, expressed as <code>(# n + A + # m)</code> where <code>n</code> is left padding, <code>A</code> is valid data, and <code>m</code> is right padding.
-The hardware provides three masking cases to handle different padding scenarios, each optimized for specific padding patterns and axis sizes.</p>
-<p>All masking configurations use three key parameters:</p>
+<h4 id="masking-configuration"><a class="header" href="#masking-configuration">Masking configuration</a></h4>
+<p>The Fetch Engine masks innermost axes padded on both sides, written <code>(# n + A + # m)</code> where <code>n</code> is left padding, <code>A</code> is valid data, and <code>m</code> is right padding.
+The hardware exposes three cases covering different padding shapes, all configured through the same three parameters:</p>
 <ul>
-<li><strong><code>last_dim</code></strong>: Specifies the dimension index to apply masking to.</li>
-<li><strong><code>left_pad</code></strong>: Masks the first <code>left_pad</code> elements when the index of <code>last_dim</code> is 0.</li>
-<li><strong><code>last_dim_rightmost_valid_count[0]</code></strong>: Masks <code>dim0 - last_dim_rightmost_valid_count[0]</code> elements from the right when the <code>last_dim</code> index is the last. This value is limited to 0-255 for 4-bit types, 0-31 for <code>f32</code>, as the final packet size must not exceed 256 bytes.</li>
+<li><strong><code>last_dim</code></strong>: dimension index that masking applies to.
+Index 0 is the innermost dimension.</li>
+<li><strong><code>left_pad</code></strong>: zeroes the first <code>left_pad</code> elements when <code>last_dim</code> points to the innermost dimension (index 0).</li>
+<li><strong><code>last_dim_rightmost_valid_count[0]</code></strong>: zeroes <code>dim0 - last_dim_rightmost_valid_count[0]</code> elements from the right when <code>last_dim</code> is the outermost active dimension.
+Capped at 0-255 for 4-bit types and 0-31 for <code>f32</code>, because the final packet must stay within 256 bytes.</li>
 </ul>
-<!-- > **TODO** (pedro.lobo): Revise masking examples, clean up images and make sure the given examples follow the ones given in the figure. -->
-<h5 id="example-padding-case-1"><a class="header" href="#example-padding-case-1">Example (Padding case 1)</a></h5>
+<h5 id="example-padding-case-1"><a class="header" href="#example-padding-case-1">Example (padding case 1)</a></h5>
+<p>Case 1 is the basic shape: one contiguous left pad and one contiguous right pad along the innermost axis.</p>
 <p><img src="./fetch-engine-padding-1.png" alt="PADDING_1"></p>
 <ul>
 <li><code>axes![A = 32, B = 90]</code></li>
@@ -450,8 +409,8 @@ The hardware provides three masking cases to handle different padding scenarios,
 <li>Cycles: <code>Time::SIZE = m![A, B' / 32]::SIZE = 32 * 3 = 96</code></li>
 <li>Result: The first 2 and last 4 values of <code>(# 2 + B + # 4)</code> are masked to <code>0</code>.</li>
 </ul>
-<h5 id="example-padding-case-2"><a class="header" href="#example-padding-case-2">Example (Padding case 2)</a></h5>
-<p>Case 2 handles the same masking as Case 1, but for non-contiguous padding regions that are split across the data.</p>
+<h5 id="example-padding-case-2"><a class="header" href="#example-padding-case-2">Example (padding case 2)</a></h5>
+<p>Case 2 applies the same masking as Case 1, but the padded regions are split rather than contiguous.</p>
 <p><img src="./fetch-engine-padding-2.png" alt="PADDING_2"></p>
 <ul>
 <li><code>axes![A = 32, B = 90]</code></li>
@@ -465,15 +424,10 @@ The hardware provides three masking cases to handle different padding scenarios,
 <li>Cycles: <code>Time::SIZE = m![A, B' / 32]::SIZE = 32 * 3 = 96</code></li>
 <li>Result: The first 2 and last 4 values of <code>(# 2 + B + # 4)</code> are masked to <code>0</code>.</li>
 </ul>
-<h5 id="example-padding-case-3"><a class="header" href="#example-padding-case-3">Example (Padding case 3)</a></h5>
+<h5 id="example-padding-case-3"><a class="header" href="#example-padding-case-3">Example (padding case 3)</a></h5>
+<p>Case 3 lifts the right-padding limit from Cases 1 and 2 (255 * 4-bit) by giving each entry index <code>i</code> its own <code>last_dim_rightmost_valid_count[i]</code>.
+It supports <code>last_dim_rightmost_valid_count[0..8]</code> when the axis size is 8 or less.</p>
 <p><img src="./fetch-engine-padding-3.png" alt="PADDING_3"></p>
-<p>Case 3 supports larger right padding values through per-index masking.
-Cases 1 and 2 limit right padding to 255 * 4-bit, but Case 3 removes this limitation:</p>
-<ul>
-<li>Each entry index <code>i</code> uses its own <code>last_dim_rightmost_valid_count[i]</code> value.</li>
-<li>Supports <code>last_dim_rightmost_valid_count[0..8]</code> when axis size is 8 or less.</li>
-</ul>
-<p>Consider the following:</p>
 <ul>
 <li><code>axes![A = 32, B = 97]</code></li>
 <li><code>dtype = f32</code></li>
@@ -487,19 +441,17 @@ Cases 1 and 2 limit right padding to 255 * 4-bit, but Case 3 removes this limita
 <li>Result: Of <code>(B # 31)</code>, 97 elements are valid and 31 are masked as invalid.</li>
 </ul>
 <h3 id="table-indexing"><a class="header" href="#table-indexing">Table Indexing</a></h3>
-<p>Some operations cannot be efficiently implemented with standard arithmetic.
-Non-linear activation functions like Sigmoid and GeLU require expensive approximations, and certain quantization schemes use custom encoding tables.</p>
 <p>Table indexing provides hardware-accelerated lookup tables during the fetch stage.
 Each value is treated as an index into a pre-configured table, and the corresponding table entry is output instead.
+This is useful for operations that cannot be efficiently implemented with standard arithmetic, such as non-linear activation functions like Sigmoid and GeLU, or quantization schemes that use custom encoding tables.
 This enables:</p>
 <ul>
-<li><strong>Non-linear activations</strong>: Implement Sigmoid, GeLU, and other functions through pre-computed lookup tables.</li>
-<li><strong>Custom type casting</strong>: Translate specialized encodings like <code>MXFP4</code> to standard formats using conversion tables.</li>
+<li><strong>Non-linear activations</strong>: Implements Sigmoid, GeLU, and other functions through pre-computed lookup tables.</li>
+<li><strong>Custom type casting</strong>: Translates specialized encodings like <code>MXFP4</code> to standard formats using conversion tables.</li>
 </ul>
-<!-- > **TODO** (pedro.lobo): Remove `ignore` from code block. There is currently no way to represent table indexing in the API. -->
 <pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8];
 
 /// Fetches with table lookup: each input value indexes into a pre-configured table.
@@ -511,17 +463,9 @@ fn fetch_with_table&lt;'l, const T: Tu&gt;(
 ) -&gt; FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt; {
     input.fetch_with_table(table)
 }</code></pre>
-<!-- TODO: document how the lookup table is loaded into TCP hardware; clarify compilation path for the example above. -->
-<h4 id="performance"><a class="header" href="#performance">Performance</a></h4>
-<!-- > **TODO**: Explain performance regression caused by Table Indexing. There are scenarios where table indexing may introduce latency or throughput penalties that should be documented. -->
-<p>Table indexing can introduce performance overhead compared to direct memory fetches. Key considerations include:</p>
-<ul>
-<li>Additional latency for table lookup operations</li>
-<li>Potential bandwidth limitations when lookup tables are accessed</li>
-<li>Impact on pipeline throughput when table access becomes a bottleneck</li>
-</ul>
 <h3 id="type-casting"><a class="header" href="#type-casting">Type Casting</a></h3>
-<p>The Fetch Adapter converts element types as data streams from DM, enabling computation on data stored at lower precision than the compute pipeline requires.</p>
+<p>The Fetch Adapter converts element types while streaming data from DM, enabling computation on data stored at lower precision than the compute pipeline requires.
+Type casting adds 1–2 cycles of latency.</p>
 <p>RNGD supports the following conversions:</p>
 <div class="table-wrapper">
 <table>
@@ -557,8 +501,8 @@ fn fetch_with_table&lt;'l, const T: Tu&gt;(
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8];
 
 /// Fetches with type casting: converts i8 storage to i32 for computation.
@@ -570,51 +514,27 @@ fn fetch_with_type_cast&lt;'l, const T: Tu&gt;(
     input.fetch()
 }
 <span class="boring">}</span></code></pre>
-<h4 id="constraints-1"><a class="header" href="#constraints-1">Constraints</a></h4>
-<p>Type casting requires the data produced by a single fetch operation to not exceed 32 bytes.</p>
-<p>This constraint exists as Fetch Engine packets are forwarded through the <a href="../computing-tensors/switch-engine.html">Switch Engine</a> and <a href="../computing-tensors/collect-engine.html">Collect Engine</a>, which normalizes packets into flits (flow control units) for the Compute Engine.
-Each flit is 32 bytes (single-channel mode) or 64 bytes (dual-channel mode).</p>
-<p>The 32-byte limit avoids flit overflow.
-See <a href="#fetch-engine-and-switch-engine-interaction">Fetch Engine and Switch Engine Interaction</a> for more details.</p>
-<p>Consider the following examples:</p>
+<p>Type casting adds an additional limit on <code>read_size</code>: the cast output per fetch must fit in a single 32-byte flit (see <a href="../computing-tensors/collect-engine.html">Collect Engine</a>).</p>
 <ul>
-<li>
-<p><strong>Valid</strong>: <code>i4</code> to <code>i32</code> conversion with a <code>fetch_size</code> of 4 bytes</p>
+<li><strong>Valid</strong>:
 <ul>
-<li>Fetches 4 bytes (8 elements of <code>i4</code>)</li>
-<li>Produces 32 bytes (8 elements of <code>i32</code>)</li>
-<li>Output size: 32 bytes ✓</li>
+<li><code>i4</code>→<code>i32</code>, <code>read_size = 8 (4 bytes)</code>: produces 8 × 4 = 32 B</li>
+<li><code>i8</code>→<code>i32</code>, <code>read_size = 8 (8 bytes)</code>: produces 8 × 4 = 32 B</li>
 </ul>
 </li>
-<li>
-<p><strong>Invalid</strong>: <code>i4</code> to <code>i32</code> conversion with a <code>fetch_size</code> of 8 bytes</p>
+<li><strong>Invalid</strong>:
 <ul>
-<li>Fetches 8 bytes (16 elements of <code>i4</code>)</li>
-<li>Produces 64 bytes (16 elements of <code>i32</code>)</li>
-<li>Output size: 64 bytes ✗ (exceeds 32-byte limit)</li>
+<li><code>i4</code>→<code>i32</code>, <code>read_size = 16 (8 bytes)</code>: produces 16 × 4 = 64 B</li>
+<li><code>i8</code>→<code>i32</code>, <code>read_size = 16 (16 bytes)</code>: produces 16 × 4 = 64 B</li>
 </ul>
 </li>
-<li>
-<p><strong>Invalid</strong>: <code>i8</code> to <code>i32</code> conversion with a <code>fetch_size</code> of 16 bytes</p>
-<ul>
-<li>Fetches 16 bytes (16 elements of <code>i8</code>)</li>
-<li>Produces 64 bytes (16 elements of <code>i32</code>)</li>
-<li>Output size: 64 bytes ✗ (exceeds 32-byte limit)</li>
-</ul>
-</li>
-</ul>
-<p>This constraint affects the allowed <code>fetch_size</code> values in <a href="../computing-tensors/index.html#execution-contexts">sub-context</a> operations:</p>
-<ul>
-<li>When casting from <code>i4</code> to <code>i32</code>, <code>fetch_size</code> must be 4 bytes.</li>
-<li>For other conversions, <code>fetch_size</code> must be 8 bytes.</li>
 </ul>
 <h3 id="zero-point-subtraction"><a class="header" href="#zero-point-subtraction">Zero-Point Subtraction</a></h3>
-<p>Quantization schemes are either symmetric (centered around zero) or asymmetric (shifted by an offset called the zero-point).
-Asymmetric quantization represents data ranges more efficiently but requires subtracting the zero-point before computation.
-When converting from quantized integers to computation types, the hardware can simultaneously subtract this offset.</p>
-<!-- > **TODO** (pedro.lobo): Remove `ignore` from code block. There is currently no way to represent zero-point subtraction in the API. -->
-<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+<p>When converting from quantized integers to computation types, the hardware can simultaneously subtract a zero-point offset.
+This is useful for asymmetric quantization, which represents data ranges more efficiently than symmetric quantization but requires subtracting the zero-point before computation.
+The zero-point value must fit within the input quantized type’s representable range (for example, an <code>i8</code> zero-point lies in <code>-128..=127</code>).</p>
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8];
 
 /// Fetches with zero-point subtraction for asymmetric quantization.
@@ -628,9 +548,8 @@ fn fetch_with_zero_point&lt;'l, const T: Tu&gt;(
 }</code></pre>
 <p>Interleaving fetches enable subtracting different zero points from each tensor.
 This is useful when combining tensors with different quantization parameters.</p>
-<!-- > **TODO** (pedro.lobo): Remove `ignore` from code block. There is currently no way to represent zero-point subtraction in the API. -->
-<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, I = 2];
 
 /// Fetches interleaved tensors with different zero points per tensor.
@@ -643,132 +562,6 @@ fn fetch_interleaved_with_zero_points&lt;'l, const T: Tu, const I: Ident&gt;(
 ) -&gt; FetchTensor&lt;'l, T, i32, m![1], m![1], m![1], m![I], m![A]&gt; {
     input.fetch_with_zero_points(zero_points)
 }</code></pre>
-<h3 id="batching"><a class="header" href="#batching">Batching</a></h3>
-<p>Memory systems have a minimum efficient transfer size to make full use of each memory access.
-When a tensor’s natural packet size is smaller than this threshold, fetching each packet individually wastes bandwidth.
-Batching combines multiple small packets into a single larger transfer by grouping consecutive time steps: the <code>fetches_per_packet</code> value determines how many individual fetches are combined into one packet.
-With a <code>fetch_size</code> of 8 bytes and <code>fetches_per_packet</code> of 5, the adapter groups 5 fetches together to create a single 40-byte packet.</p>
-<blockquote class="blockquote-tag blockquote-tag-note">
-<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
-<p>The <code>fetches_per_packet</code> value is derived by the compiler, from the output type of <code>fetch()</code>.
-Users <strong>do not</strong> directly specify <code>fetches_per_packet</code>.</p>
-</blockquote>
-<blockquote class="blockquote-tag blockquote-tag-tip">
-<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
-<p>Prefer fetching large packets directly from DM using the Fetch Sequencer.
-Use Fetch Adapter batching only when large packets cannot be retrieved in one cycle due to memory layout constraints, such as a 24-byte packet spread across three non-contiguous 8-byte locations.</p>
-</blockquote>
-<p>The total number of cycles required to fetch the data is:
-$$
-\text{#cycles} = \texttt{Time:SIZE} \times \text{ceil}\left({\frac{\texttt{Packet::SIZE}}{\texttt{fetch_size}}}\right)
-$$</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span>axes![N = 4, C = 3, H = 4, W = 8];
-
-/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
-/// contiguous_sram_access_size = m![N, C, H, W]::SIZE = 384
-/// packet_size = 8 bytes
-/// fetch_size = gcd(packet_size, contiguous_sram_access_size) = 8 bytes
-/// batching_factor (fetches_per_packet) = packet_size / fetch_size = 1
-/// #cycles = 48
-fn fetch_batch_1&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
-) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C, H], m![W]&gt; {
-    input.fetch()
-}
-
-/// Sequencer config: [N = 4 : 96, C = 3 : 32, H / 2 = 2 : 16, H % 2 = 2 : 8, W = 8 : 1].
-/// contiguous_sram_access_size = m![N, C, H / 2, H % 2, W]::SIZE = 384
-/// packet_size = 16 bytes
-/// fetch_size = gcd(packet_size, contiguous_sram_access_size) = 16 bytes
-/// batching_factor (fetches_per_packet) = packet_size / fetch_size = 1
-/// #cycles = 24
-fn fetch_batch_2&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
-) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C, H / 2], m![H % 2, W]&gt; {
-    input.fetch()
-}
-
-/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
-/// contiguous_sram_access_size = m![N, C, H, W]::SIZE = 384
-/// packet_size = 32 bytes
-/// fetch_size = gcd(packet_size, contiguous_sram_access_size) = 32 bytes
-/// batching_factor (fetches_per_packet) = packet_size / fetch_size = 32 / 32 = 1
-/// #cycles = 12
-fn fetch_batch_3&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
-) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N, C], m![H, W]&gt; {
-    input.fetch()
-}
-
-/// Sequencer config: [N = 4 : 96, C = 3 : 32, H = 4 : 8, W = 8 : 1].
-/// contiguous_sram_access_size = m![N, C, H, W]::SIZE = 384
-/// packet_size = 96 bytes
-/// fetch_size = gcd(packet_size, contiguous_sram_access_size) = 32 bytes
-///   fetch_size should be in {1, 2, 4, 8, 16, 32}
-/// batching_factor (fetches_per_packet) = packet_size / fetch_size = 96 / 32 = 3
-/// #cycles = 12
-fn fetch_batch_4&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i4, m![1], m![1], m![1], m![1], m![N, C, H, W]&gt;,
-) -&gt; FetchTensor&lt;'l, T, i4, m![1], m![1], m![1], m![N], m![C, H, W]&gt; {
-    input.fetch()
-}
-<span class="boring">}</span></code></pre>
-<h3 id="constraints-2"><a class="header" href="#constraints-2">Constraints</a></h3>
-<ul>
-<li>The output packet size must be 8-byte aligned (a multiple of the fetch sequencer’s read granularity).</li>
-<li>The <code>Time</code> dimension size must be divisible by the batching factor.</li>
-<li>Type conversion is limited to specific type pairs (see <a href="#type-casting">Type Casting</a>).</li>
-<li>Zero-point values must fit within the target data type’s representable range.</li>
-<li>The underlying sequencer produces base packets of 1, 2, 4, 8, 16, or 32 bytes (see <a href="./sequencer.html#constraints">Sequencer Constraints</a>).</li>
-</ul>
-<h2 id="fetch-engine-and-switch-engine-interaction"><a class="header" href="#fetch-engine-and-switch-engine-interaction">Fetch Engine and Switch Engine Interaction</a></h2>
-<p>After batching, Fetch Engine packets are forwarded to the <a href="../computing-tensors/switch-engine.html">Switch Engine</a>, where data is routed through an interconnect network of slices.
-A network topology determines the distribution pattern of packets between slices.
-The packet passes through the Switch Engine unchanged.</p>
-<p>After switching, the <a href="../computing-tensors/collect-engine.html">Collect Engine</a> normalizes packets to 32-byte <em>flits</em> (flow control units used by all downstream engines).
-The Collect Engine pads packets that are not divisible by the flit size (32 bytes) with zeros.
-For example, for <code>fetch_size = 8</code> bytes and <code>fetches_per_packet = 5</code>, the Fetch Adapter batches 5 fetches together, producing a 40-byte packet.
-Since it is not 32-byte aligned, the Collect Engine adds 24 bytes of zero padding, producing a 64-byte packet (2 flits).</p>
-<p>The hardware operates over <strong>flits</strong> (flow control units), which are the physical unit of data transfer.
-The Tensor Unit has two Switch Engines (one for each context), each with a 32-byte data width.
-Throughput and flit size depend on the configured mode:</p>
-<ul>
-<li><strong>Single channel mode</strong>: A single flit has 32 bytes. Half of the available bandwidth is used.</li>
-<li><strong>Dual channel mode</strong>: The main and sub contexts are combined to produce 64-byte flits. Dual channel mode requires explicit configuration. The compiler does not generate it automatically.</li>
-</ul>
-<p>Forwarding 32-byte aligned packets from the Fetch Engine avoids wasted bandwidth in the Collect Engine.
-An unaligned packet requires padding: for example, for a 20-byte packet, \(\frac{32 - 20}{32} \approx 37.5\%\) of the flit payload is unused.</p>
-<blockquote class="blockquote-tag blockquote-tag-tip">
-<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
-<p>Prefer 32-byte aligned packets over unaligned ones.</p>
-</blockquote>
-<h2 id="performance-1"><a class="header" href="#performance-1">Performance</a></h2>
-<h3 id="memory-bandwidth"><a class="header" href="#memory-bandwidth">Memory Bandwidth</a></h3>
-<p>Peak DM bandwidth is 256 B/cycle with proper DMN interleaving (see <a href="./memory-performance.html#optimizing-dma-performance">Memory Performance</a> for the interleaving technique).
-Contiguous accesses enable parallel bank access; distributing fetches across slices maximizes parallelism.
-See <a href="./memory-performance.html">Memory Performance</a> for optimization strategies.</p>
-<h3 id="adapter-overhead"><a class="header" href="#adapter-overhead">Adapter Overhead</a></h3>
-<p>Each adapter stage adds minimal latency: batching must accumulate <code>fetches_per_packet</code> packets, type conversion takes 1–2 cycles.</p>
-<h3 id="bank-starvation"><a class="header" href="#bank-starvation">Bank Starvation</a></h3>
-<p>The Fetch Engine shares DM bank access with Commit and DMA Engines.
-Fetch operations have higher priority than DMA, but consecutive accesses to the same bank (64+ accesses) can starve the DMA Engine.
-The compiler prevents this by avoiding concurrent scheduling of problematic patterns.
-See <a href="./memory-performance.html#bank-starvation-prevention-strategy">Bank Starvation</a> for details.</p>
-<h3 id="dual-channel-mode-benefits"><a class="header" href="#dual-channel-mode-benefits">Dual Channel Mode Benefits</a></h3>
-<p>When both main and sub contexts are available:</p>
-<ul>
-<li>Bandwidth doubles to 64 bytes per cycle</li>
-<li>Fetch cycles halve for large transfers</li>
-<li>Trade-off: sub-context unavailable for independent operations</li>
-</ul>
-<h3 id="packet-alignment"><a class="header" href="#packet-alignment">Packet Alignment</a></h3>
-<p>Prefer 32-byte aligned packets over unaligned ones.
-See <a href="#fetch-engine-and-switch-engine-interaction">Fetch Engine and Switch Engine Interaction</a> for more details.</p>
 
                     </main>
 
@@ -814,11 +607,11 @@ See <a href="#fetch-engine-and-switch-engine-interaction">Fetch Engine and Switc
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

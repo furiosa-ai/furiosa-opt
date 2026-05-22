@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,31 +177,50 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="collect-engine"><a class="header" href="#collect-engine">Collect Engine</a></h1>
-<p>The Collect Engine normalizes packets to exactly one <em>flit</em> (a 32-byte flow control unit that all downstream engines operate on). It follows the Switch Engine in the pipeline, or the Fetch Engine directly when forwarding is implied.</p>
-<!-- > **TODO** (jeongmin.park): This page covers packet normalization and pipeline position only. TRF and VRF loading via `.to_trf()` and `.to_vrf()` also happen at the Collect Engine and are not yet documented here. -->
+<p>All downstream engines (<a href="./contraction-engine/index.html">Contraction Engine</a>, <a href="./vector-engine/index.html">Vector Engine</a>, <a href="./cast-engine.html">Cast Engine</a>, <a href="./transpose-engine.html">Transpose Engine</a>, and <a href="../moving-tensors/commit-engine.html">Commit Engine</a>) consume exactly 32-byte <em>flits</em>.
+The Collect Engine normalizes arbitrary-sized packets to one flit in two steps:</p>
+<ol>
+<li><strong>Pad</strong> the input packet up to the next 32-byte boundary.
+Skipped if the packet is already 32-byte aligned.</li>
+<li><strong>Split</strong> at the flit boundary: the inner 32 bytes become <code>Packet2</code>, and the outer flit count is absorbed into <code>Time2</code>.
+Skipped if the packet is already 32 bytes.</li>
+</ol>
+<p>The resulting <code>CollectTensor</code> either flows down the pipeline to a downstream engine or is stored in the <a href="./register-files.html">Register Files</a>.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
-    SwitchTensor&lt;'l, { T }, D, Chip, Cluster, Slice, Time, Packet&gt;
+<p><code>SwitchTensor</code> and <code>FetchTensor</code> both expose <code>.collect()</code> with the same semantics.
+The <code>FetchTensor</code> entry point bypasses the Switch Engine when no slice distribution is needed.</p>
+<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyCollect, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Normalizes packet to exactly 32 bytes (one flit).
     ///
-    /// Pads to flit-aligned boundary, then splits: inner 32 bytes become Packet2,
-    /// outer flit portion is absorbed into Time2.
-    /// For packets already ≤ 32 bytes, only padding is added.
-    #[primitive(SwitchTensor::collect)]
-    pub fn collect&lt;Time2: M, Packet2: M&gt;(self) -&gt; CollectTensor&lt;'l, T, D, Chip, Cluster, Slice, Time2, Packet2&gt; {
+    /// Pads to flit-aligned boundary, then splits: inner 32 bytes become
+    /// `Packet2`, outer flit portion is absorbed into `Time2`. For packets
+    /// already ≤ 32 bytes, only padding is added.
+    #[primitive(TuTensor::collect)]
+    pub fn collect&lt;Time2: M, Packet2: M&gt;(self) -&gt; CollectTensor&lt;'l, T, D, Chip, Cluster, Slice, Time2, Packet2, B&gt; {
         verify_collect::&lt;D, Time, Packet, Time2, Packet2&gt;();
         CollectTensor::new(self.ctx, self.inner.transpose(false))
     }
 }</code></pre>
-<h2 id="packet-normalization"><a class="header" href="#packet-normalization">Packet Normalization</a></h2>
-<p>The <code>collect()</code> method transforms an arbitrary-sized packet into exactly one flit (32 bytes):</p>
-<ol>
-<li><strong>Pad</strong> the input packet to the nearest 32-byte boundary (if not already aligned). Skipped if the packet is already 32-byte aligned.</li>
-<li><strong>Split</strong> at the flit boundary: the inner 32 bytes become <code>Packet2</code>, and the outer flit count is absorbed into <code>Time2</code>. Skipped if the padded packet is at most 32 bytes (i.e., fits in one flit).</li>
-</ol>
-<h3 id="packet--32-bytes-identity"><a class="header" href="#packet--32-bytes-identity">Packet = 32 bytes (identity)</a></h3>
-<p><code>i8</code>, <code>B = 32</code>: packet = 32 elements × 1 byte = 32 bytes = one flit. Nothing changes.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<h3 id="single-flit-packet"><a class="header" href="#single-flit-packet">Single-Flit Packet</a></h3>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 8, B = 32];
+
+fn collect_identity&lt;'l, const T: Tu&gt;(
+    input: SwitchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B]&gt;,
+) -&gt; CollectTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B # 32]&gt; {
+    // B=32 elements × 1 byte (i8) = 32 bytes = one flit.
+    // Time and Packet pass through unchanged.
+    input.collect()
+}
+<span class="boring">}</span></code></pre>
+<p>When the input packet is already exactly 32 bytes, <code>collect</code> passes it through unchanged (<code>B = 32</code> elements × 1 byte for <code>i8</code> = 32 bytes).</p>
 <pre><code class="language-text">Before:   Time = m![A]
           Packet = m![B]
           ┌──────────────────────────┐
@@ -214,8 +233,24 @@ After:    Time = m![A]
           │          B # 32          │  32 bytes
           └──────────────────────────┘
 </code></pre>
-<h3 id="packet--32-bytes-pad-to-one-flit"><a class="header" href="#packet--32-bytes-pad-to-one-flit">Packet &lt; 32 bytes (pad to one flit)</a></h3>
-<p><code>i8</code>, <code>B = 16</code>: packet = 16 elements × 1 byte = 16 bytes. Padded to 32 bytes.</p>
+<h3 id="sub-flit-packet"><a class="header" href="#sub-flit-packet">Sub-Flit Packet</a></h3>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 8, B = 16];
+
+fn collect_padding&lt;'l, const T: Tu&gt;(
+    input: SwitchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B]&gt;,
+) -&gt; CollectTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B # 32]&gt; {
+    // B=16 elements × 1 byte = 16 bytes &lt; 32 bytes.
+    // Padded to 32 bytes: Packet2 = m![B # 32].
+    // Time unchanged since it fits in one flit.
+    input.collect()
+}
+<span class="boring">}</span></code></pre>
+<p>When the input packet is smaller than 32 bytes, <code>collect</code> pads to 32 bytes (<code>B = 16</code> elements × 1 byte for <code>i8</code> = 16 bytes).</p>
 <pre><code class="language-text">Before:   Time = m![A]
           Packet = m![B]
           ┌────────────┐
@@ -228,82 +263,12 @@ After:    Time = m![A]
           │     B      │     pad     │  32 bytes
           └────────────┴─────────────┘
 </code></pre>
-<h3 id="packet--32-bytes-split-into-flits"><a class="header" href="#packet--32-bytes-split-into-flits">Packet &gt; 32 bytes (split into flits)</a></h3>
-<p><code>bf16</code>, <code>B = 32</code>: packet = 32 elements × 2 bytes = 64 bytes = 2 flits.
-The outer flit count (2) is absorbed into Time.</p>
-<pre><code class="language-text">Before:   Time = m![A]
-          Packet = m![B]
-          ┌──────────────────────────┬──────────────────────────┐
-          │       B/16 == 0          │       B/16 == 1          │  64 bytes
-          └──────────────────────────┴──────────────────────────┘
-                  32 bytes                    32 bytes
-
-After:    Time = m![A, B/16]
-          Packet = m![B % 16]
-          ┌──────────────────────────┐
-          │         B % 16           │  32 bytes  × B/16 time steps
-          └──────────────────────────┘
-</code></pre>
-<p>Each flit is delivered in a separate time step, so Time grows from <code>m![A]</code> to <code>m![A, B/16]</code>.</p>
-<h2 id="pipeline-position"><a class="header" href="#pipeline-position">Pipeline Position</a></h2>
-<p>The collect step is mandatory in the Tensor Unit pipeline: all downstream engines (Contraction, TRF/VRF load, etc.) require exactly-32-byte flits, so every execution must pass through <code>fetch → [switch →] collect</code> to normalize packets before proceeding.</p>
-<p>When no slice redistribution is needed, call <code>FetchTensor::collect()</code> directly — no <code>.switch()</code> call is required:</p>
+<h3 id="multi-flit-packet"><a class="header" href="#multi-flit-packet">Multi-Flit Packet</a></h3>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span>axes![A = 8, B = 64];
-
-fn direct_collect&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B]&gt;,
-) -&gt; CollectTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A, B / 32], m![B % 32]&gt; {
-    input.collect()
-}
-<span class="boring">}</span></code></pre>
-<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<h3 id="single-flit-packet-identity"><a class="header" href="#single-flit-packet-identity">Single-flit packet (identity)</a></h3>
-<p>When the input packet is already exactly 32 bytes, collect passes it through unchanged.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span>axes![A = 8, B = 32];
-
-fn collect_identity&lt;'l, const T: Tu&gt;(
-    input: SwitchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B # 32]&gt;,
-) -&gt; CollectTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B # 32]&gt; {
-    // B=32 elements × 1 byte (i8) = 32 bytes = one flit.
-    // Time and Packet pass through unchanged.
-    input.collect()
-}
-<span class="boring">}</span></code></pre>
-<h3 id="sub-flit-packet-padding-added"><a class="header" href="#sub-flit-packet-padding-added">Sub-flit packet (padding added)</a></h3>
-<p>When the input packet is smaller than 32 bytes, collect pads to 32 bytes.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span>axes![A = 8, B = 16];
-
-fn collect_padding&lt;'l, const T: Tu&gt;(
-    input: SwitchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B]&gt;,
-) -&gt; CollectTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B # 32]&gt; {
-    // B=16 elements × 1 byte = 16 bytes &lt; 32 bytes.
-    // Padded to 32 bytes: Packet2 = m![B # 32].
-    // Time unchanged since it fits in one flit.
-    input.collect()
-}
-<span class="boring">}</span></code></pre>
-<h3 id="multi-flit-packet-outer-absorbed-into-time"><a class="header" href="#multi-flit-packet-outer-absorbed-into-time">Multi-flit packet (outer absorbed into Time)</a></h3>
-<p>When the input packet exceeds 32 bytes, collect splits into flits and absorbs the outer portion into Time.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, B = 32];
 
 fn collect_multi_flit&lt;'l, const T: Tu&gt;(
@@ -315,6 +280,103 @@ fn collect_multi_flit&lt;'l, const T: Tu&gt;(
     input.collect()
 }
 <span class="boring">}</span></code></pre>
+<p>When the input packet exceeds 32 bytes, <code>collect</code> splits into flits and absorbs the outer flit count into Time (<code>B = 32</code> elements × 2 bytes for <code>bf16</code> = 64 bytes, so <code>B / 16 = 2</code> flits).</p>
+<pre><code class="language-text">Before:   Time = m![A]
+          Packet = m![B]
+          ┌──────────────────────────┬──────────────────────────┐
+          │       B / 16 == 0        │       B / 16 == 1        │  64 bytes
+          └──────────────────────────┴──────────────────────────┘
+                    32 bytes                   32 bytes
+
+After:    Time = m![A, B / 16]
+          Packet = m![B % 16]
+          ┌──────────────────────────┐
+          │          B % 16          │  32 bytes  × B/16 time steps
+          └──────────────────────────┘
+</code></pre>
+<h3 id="multi-flit-packet-with-padding"><a class="header" href="#multi-flit-packet-with-padding">Multi-Flit Packet With Padding</a></h3>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 8, B = 51];
+
+fn collect_multi_flit_padded&lt;'l, const T: Tu&gt;(
+    input: SwitchTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A], m![B]&gt;,
+) -&gt; CollectTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A, B # 64 / 32], m![B # 64 % 32]&gt; {
+    // B is not 32-byte aligned; first pad B to a multiple of 32 bytes.
+    // B # 64=64 elements × 1 byte (i8) = 64 bytes = 2 flits.
+    // Inner 32 elements = 32 bytes → Packet2 = m![B # 64 % 32].
+    // Outer 2 flits → absorbed into Time2 = m![A, B # 64 / 32].
+    input.collect()
+}
+<span class="boring">}</span></code></pre>
+<p>When the input packet is not aligned to 32 bytes, it is first padded (<code>B = 51</code> elements × 1 byte for <code>i8</code> = 51 bytes, padded to 64).
+Then, <code>collect</code> splits into flits and absorbs the outer flit count (<code>B # 64 / 32 = 2</code>) into Time.</p>
+<pre><code class="language-text">Before:   Time = m![A]
+          Packet = m![B]
+          ┌──────────────────────────┬───────────────┐
+          │       B / 32 == 0        │  B / 32 == 1  │  51 bytes
+          └──────────────────────────┴───────────────┘
+                    32 bytes             19 bytes
+
+Padded:   Time = m![A]
+          Packet = m![B # 64]
+          ┌──────────────────────────┬───────────────┬──────────┐
+          │       B / 32 == 0        │  B / 32 == 1  │   pad    │  64 bytes
+          └──────────────────────────┴───────────────┴──────────┘
+                    32 bytes                   32 bytes
+
+After:    Time = m![A, B # 64 / 32]
+          Packet = m![B # 64 % 32]
+          ┌──────────────────────────┐
+          │       B # 64 % 32        │  32 bytes  × B # 64 / 32 time steps
+          └──────────────────────────┘
+</code></pre>
+<h2 id="register-file-loading"><a class="header" href="#register-file-loading">Register File Loading</a></h2>
+<p>After normalization, store the <code>CollectTensor</code> into the Tensor Register File via <a href="#to-trf"><code>.to_trf()</code></a> or the Vector Register File via <a href="#to-vrf"><code>.to_vrf()</code></a>.
+The “To TRF” / “To VRF” subsections below describe the store mechanism (<code>time_inner</code> derivation, <code>[time_inner, Packet]</code> sequenced into <code>Element</code>).</p>
+<h3 id="to-trf"><a class="header" href="#to-trf">To TRF</a></h3>
+<p><code>.to_trf::&lt;Row, Element&gt;(address)</code> partitions the TRF along its row dimension.
+The kernel writer chooses <code>Row</code> (the row layout in the TRF, with <code>Row::SIZE</code> in {1, 2, 4, 8}) and <code>Element</code> (the per-row element layout).
+The compiler then finds a <code>time_inner</code> such that <code>Time</code> decomposes into <code>[Row, time_inner]</code> and <code>[time_inner, Packet]</code> is sequenced into <code>Element</code>, so each row of the TRF is filled by <code>time_inner</code> consecutive flits.</p>
+<p><code>address</code> is a <code>TrfAddress</code> that selects the TRF region:</p>
+<ul>
+<li><code>Full</code>: the entire TRF.</li>
+<li><code>FirstHalf</code> / <code>SecondHalf</code>: the TRF split into two halves, allowing two tensors to occupy it independently.</li>
+</ul>
+<p>The compiler bounds the resulting tensor’s total byte size by the chosen region’s capacity.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![B = 64];
+
+fn load_trf&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt;,
+) -&gt; TrfTensor&lt;i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; {
+    input.to_trf(TrfAddress::Full)
+}
+<span class="boring">}</span></code></pre>
+<h3 id="to-vrf"><a class="header" href="#to-vrf">To VRF</a></h3>
+<p><code>.to_vrf::&lt;Element&gt;(address)</code> stores the flits into the VRF at a raw <code>Address</code> (no bounded-region selection).
+The kernel writer chooses <code>Element</code>, the destination element layout in the VRF.
+Unlike <code>.to_trf</code> (which accepts any <code>Scalar</code> element type), <code>.to_vrf</code> requires a <code>VeScalar</code> element type (i.e., <code>i32</code> or <code>f32</code>) because the Vector Engine downstream consumes these types only.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![B = 64];
+
+fn load_vrf&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt;,
+) -&gt; VrfTensor&lt;i32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
+    input.to_vrf(0)
+}
+<span class="boring">}</span></code></pre>
 
                     </main>
 
@@ -324,7 +386,7 @@ fn collect_multi_flit&lt;'l, const T: Tu&gt;(
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../computing-tensors/contraction-engine/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../computing-tensors/register-files.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -338,7 +400,7 @@ fn collect_multi_flit&lt;'l, const T: Tu&gt;(
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../computing-tensors/contraction-engine/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../computing-tensors/register-files.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
@@ -360,11 +422,11 @@ fn collect_multi_flit&lt;'l, const T: Tu&gt;(
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

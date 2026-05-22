@@ -1,9 +1,9 @@
 (function() {
-    var implementors = Object.fromEntries([["furiosa_mapping",[]],["furiosa_visa_std",[]]]);
+    const implementors = Object.fromEntries([["furiosa_mapping",[]],["furiosa_opt_std",[]]]);
     if (window.register_implementors) {
         window.register_implementors(implementors);
     } else {
         window.pending_implementors = implementors;
     }
 })()
-//{"start":57,"fragment_lengths":[22,24]}
+//{"start":59,"fragment_lengths":[22,23]}

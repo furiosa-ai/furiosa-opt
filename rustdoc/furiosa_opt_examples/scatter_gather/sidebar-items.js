@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["gather_minimal","scatter_minimal"],"struct":["C","D","GatherMinimal","K","ScatterMinimal"]};

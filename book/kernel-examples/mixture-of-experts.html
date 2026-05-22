@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,13 +177,13 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="mixture-of-experts"><a class="header" href="#mixture-of-experts">Mixture of Experts</a></h1>
-<!-- > **TODO(youseok.yang)**: The Gating/Router (Section 1), Sparse Expert Computation (Section 3), Combine (Section 4), and Blockwise Execution (Section 3.3–3.6) sections are written in algorithmic prose with no Virtual ISA code. -->
-<!-- > Add kernel code for at least one complete execution cycle — for example, the sparse MLP step (Section 3.5) showing how a block of tokens is fed through one expert's up/down projection using the Contraction Engine. -->
-<p>Mixture of Experts (MoE) scales model capacity by routing each token to only K of E experts rather than all of them; this sparse activation allows many parameters while keeping inference cost manageable.
+<p>Mixture of Experts (MoE) scales model capacity by routing each token to only <code>K</code> of <code>E</code> total experts (where <code>K</code> and <code>E</code> are model parameters defined below) rather than all of them.
+This sparse activation allows many parameters while keeping inference cost manageable.
 This example shows how to implement MoE on TCP hardware, focusing on two key challenges: replacing control-flow-based TopK routing with branchless matrix operations, and executing sparse expert computations blockwise.</p>
 <h2 id="background-basic-ffn"><a class="header" href="#background-basic-ffn">Background: Basic FFN</a></h2>
-<p>To understand MoE, first consider the basic FFN (Feed-Forward Network) in transformer blocks.
-The following describes FFN with only up/down projection, without gate projection:</p>
+<p>Readers familiar with FFNs and MoE can skip to <a href="#moe-implementation-on-tcp">MoE Implementation on TCP</a>.</p>
+<p>A basic FFN consists of two linear projections (up and down) that together map <code>T × D → T × F → T × D</code>.
+The following describes this simplified FFN (up/down projection only, without gate projection) as the baseline that MoE replaces:</p>
 <ul>
 <li><strong>Input</strong>
 <ul>
@@ -246,8 +246,8 @@ To avoid this, MoE uses a router to select only the <code>Top-K</code> most suit
 </li>
 </ul>
 <h2 id="moe-processing-steps"><a class="header" href="#moe-processing-steps">MoE Processing Steps</a></h2>
-<p>MoE processing consists of three main stages: routing (selecting which experts to use), sparse expert computation (applying the selected experts), and combining (merging expert outputs with routing weights).</p>
-<h3 id="1-gating-router--top-k-selection"><a class="header" href="#1-gating-router--top-k-selection">1. Gating (Router) &amp; Top-K Selection</a></h3>
+<p>MoE processing consists of four steps: gating (computing per-expert scores), Top-K selection (choosing the <code>K</code> best experts per token), sparse expert computation (applying the selected experts), and combining (merging expert outputs with routing weights).</p>
+<h3 id="1-gating-router"><a class="header" href="#1-gating-router">1. Gating (Router)</a></h3>
 <p>The router calculates a score for each expert for every token, determining which experts should process each token:</p>
 <ul>
 <li><strong>Input</strong>
@@ -274,7 +274,7 @@ To avoid this, MoE uses a router to select only the <code>Top-K</code> most suit
 </li>
 </ul>
 <h3 id="2-top-k-selection"><a class="header" href="#2-top-k-selection">2. <code>Top-K</code> Selection</a></h3>
-<p>This step selects the <code>Top-K</code> Experts based on router scores and calculates the weight for each selected Expert:</p>
+<p>This step selects the <code>Top-K</code> Experts based on the router scores from Step 1 and calculates the weight for each selected Expert:</p>
 <ul>
 <li><strong>Input</strong>
 <ul>
@@ -372,20 +372,19 @@ A total of <code>T * K</code> Expert calls occur, but each Expert only computes 
 </ul>
 <p>The result is that each token receives the weighted average output of its selected <code>K</code> Experts.</p>
 <h2 id="moe-implementation-on-tcp"><a class="header" href="#moe-implementation-on-tcp">MoE Implementation on TCP</a></h2>
-<p>Implementing MoE efficiently on TCP requires bridging the gap between the model’s logical structure and hardware constraints.
-This section describes the techniques needed to achieve high performance.</p>
+<p>The TCP implementation of MoE uses two hardware-specific techniques: branchless TopK via the Vector Engine’s bit manipulation and filter operations, and blockwise execution via static-shape scatter/gather patterns.</p>
 <h3 id="1-overview-and-design-philosophy"><a class="header" href="#1-overview-and-design-philosophy">1. Overview and Design Philosophy</a></h3>
 <h4 id="11-bridging-logical-and-physical-execution"><a class="header" href="#11-bridging-logical-and-physical-execution">1.1. Bridging Logical and Physical Execution</a></h4>
-<p>Two fundamental challenges arise when implementing MoE on TCP:</p>
+<p>The two fundamental challenges when implementing MoE on TCP are:</p>
 <ul>
-<li><strong>Challenge 1: Conflict between control flow and parallel structure</strong>
+<li><strong>Challenge 1</strong>: Conflict between control flow and parallel structure
 <ul>
 <li>Problem: General <code>Top-K</code> algorithms use branch statements where the execution path varies depending on data values.
 Such branch statements cause performance degradation in SIMT-based accelerators that process thousands of elements with a single instruction.</li>
 <li>Solution: Completely removing control flow and using Branchless <code>Top-K</code> technique with matrix operations and bit manipulation is essential.</li>
 </ul>
 </li>
-<li><strong>Challenge 2: Gap between logical Routing and physical execution</strong>
+<li><strong>Challenge 2</strong>: Gap between logical Routing and physical execution
 <ul>
 <li>Problem: Logically, MoE is a process where each token finds the Expert that suits it (Token-centric).
 However, if implemented as is, memory access becomes irregular and the number of tokens to process per Expert changes dynamically, reducing TCP compiler efficiency.</li>
@@ -404,8 +403,8 @@ However, if implemented as is, memory access becomes irregular and the number of
 <p>Branchless <code>TopK</code> replaces control-flow-based sorting with pure matrix operations.
 This approach consists of three stages: bit packing to combine score and index, parallel ranking to determine order, and filtering to extract the top <code>K</code> results.</p>
 <h4 id="21-bit-packing-combining-score-and-index"><a class="header" href="#21-bit-packing-combining-score-and-index">2.1. Bit Packing (Combining Score and Index)</a></h4>
-<p>The Vector Engine pipeline operates on all 256 slices in lockstep, so any operation whose address or control path depends on runtime data values must be replaced with a fixed sequence of matrix operations.
-Bit packing bundles score and index into a single value so the Expert ID is preserved when scores are reordered during sorting:</p>
+<p>Bit packing bundles score and index into a single value so the Expert ID is preserved when scores are reordered during sorting.
+The TCP Vector Engine executes a fixed instruction sequence across all 256 slices simultaneously, so any operation whose address or control path depends on runtime data values must be rewritten as a fixed sequence of matrix operations:</p>
 <ul>
 <li><strong>Inputs</strong>
 <ul>
@@ -459,7 +458,7 @@ This enables accurate Top-K selection with only integer comparators.</li>
 </ul>
 <h4 id="22-parallel-ranking-all-to-all-comparison"><a class="header" href="#22-parallel-ranking-all-to-all-comparison">2.2. Parallel Ranking (All-to-All Comparison)</a></h4>
 <p>Parallel ranking determines the order of all experts simultaneously instead of sequential sorting.
-Although this requires <code>E x E</code> comparisons, TCP efficiency remains high because only matrix operations are used without control flow:</p>
+This approach requires <code>E x E</code> comparisons, but TCP efficiency remains high because only matrix operations without control flow are used:</p>
 <ul>
 <li><strong>Input</strong>
 <ul>
@@ -539,7 +538,8 @@ Compare magnitude relationships for all Expert pairs <code>(i, j)</code>.</li>
 </li>
 <li><strong>Softmax Normalization</strong>
 <ul>
-<li>Softmax is applied to the extracted <code>Top-K</code> Scores to calculate final weights. This is used in the Combine stage later.</li>
+<li>Softmax is applied to the extracted <code>Top-K</code> Scores to calculate final weights.
+This is used in the Combine stage later.</li>
 <li><code>routing_weights[t, k] = exp(TopK_Scores[t, k]) / sum(exp(TopK_Scores[t, j]) for j in 0..K)</code></li>
 </ul>
 </li>
@@ -547,7 +547,7 @@ Compare magnitude relationships for all Expert pairs <code>(i, j)</code>.</li>
 </li>
 </ul>
 <h3 id="3-blockwise-execution"><a class="header" href="#3-blockwise-execution">3. Blockwise Execution</a></h3>
-<p>Blockwise execution physically rearranges data based on <code>Top-K</code> routing decisions while satisfying TCP’s static shape constraints. This section describes how to handle dynamic token-to-expert assignments efficiently.</p>
+<p>Blockwise execution physically rearranges data based on <code>Top-K</code> routing decisions while satisfying TCP’s static shape constraints.</p>
 <h4 id="31-problem-dynamic-shape--memory-explosion"><a class="header" href="#31-problem-dynamic-shape--memory-explosion">3.1. Problem: Dynamic Shape &amp; Memory Explosion</a></h4>
 <p>The core challenge is that the number of tokens <code>L_e</code> assigned per Expert varies dynamically depending on the input.
 In the worst case, if all tokens are concentrated on a specific Expert, <code>L_e ~ T</code>.</p>
@@ -557,8 +557,8 @@ In the worst case, if all tokens are concentrated on a specific Expert, <code>L_
 <li><strong>Blockwise Solution</strong>: Instead of variable length <code>L_e</code>, manage data in fixed-size <code>Block</code> (<code>B</code>) units to optimize memory usage to approximately <code>T x K</code> level.</li>
 </ul>
 <h4 id="32-grid-size-calculation"><a class="header" href="#32-grid-size-calculation">3.2. Grid Size Calculation</a></h4>
-<p>Grid size determines how many blocks are needed to process all tokens.
-Tokens for the same Expert are grouped into blocks of <code>B</code> tokens, enabling blockwise computation with a single expert loaded.</p>
+<p>Tokens for the same Expert are grouped into blocks of <code>B</code> tokens, enabling blockwise computation with a single expert loaded.
+Grid size (the total number of blocks across all experts) determines how many blocks are needed to process all tokens.</p>
 <p>The total number of blocks needed (<code>Grid Size</code>, <code>G</code>) is calculated as the sum of blocks required per expert:</p>
 <ul>
 <li>Number of blocks allocated to Expert <code>e</code>
@@ -572,8 +572,8 @@ Tokens for the same Expert are grouped into blocks of <code>B</code> tokens, ena
 <p>The compiler calculates the worst-case <code>G</code> value and allocates memory space.
 At runtime, sparse operations skip execution for empty Grids.</p>
 <p>In the worst case where all Experts include a grid containing only one token, <code>(T*K - E) / B + E</code> Grids are required.</p>
-<h4 id="33-index-generation-cumsum-based-address-calculation"><a class="header" href="#33-index-generation-cumsum-based-address-calculation">3.3. Index Generation (<code>Cumsum</code>-based Address Calculation)</a></h4>
-<p>Index generation computes the destination address for each token using <code>cumsum</code>-based parallel address calculation.
+<h4 id="33-index-and-expert-id-generation-cumsum-based-address-calculation"><a class="header" href="#33-index-and-expert-id-generation-cumsum-based-address-calculation">3.3. Index and Expert ID Generation (<code>Cumsum</code>-based Address Calculation)</a></h4>
+<p>Each token’s destination block address (<code>Scatter_Idx</code>) and the expert assignment per block (<code>Expert_IDs</code>) are computed in parallel using cumsum over the token-to-expert assignment masks.
 (<code>Cumsum</code> is implemented in the Vector Engine using branch logging; see <a href="#4-cumsum-implementation-on-npu">Section 4</a> for the hardware implementation.)
 This approach avoids loops and enables efficient parallel execution:</p>
 <ul>
@@ -592,22 +592,19 @@ This approach avoids loops and enables efficient parallel execution:</p>
 </li>
 <li><strong>Operations</strong>
 <ul>
-<li>
-<p><strong>Mask Generation (One-Hot)</strong></p>
+<li><strong>Mask Generation (One-Hot)</strong>
 <ul>
 <li>Convert indices to computable mask form.</li>
 <li><code>Expert_Mask: T x K x E = one_hot(TopK_Indices, depth=E)</code></li>
 </ul>
 </li>
-<li>
-<p><strong>Histogram</strong></p>
+<li><strong>Histogram</strong>
 <ul>
 <li>Sum the masks to count the number of tokens allocated per Expert.</li>
 <li><code>Count: E = reduce_sum(Expert_Mask, axis: (T, K))</code></li>
 </ul>
 </li>
-<li>
-<p><strong>Block calculation</strong></p>
+<li><strong>Block calculation</strong>
 <ul>
 <li>Calculate the number of Blocks needed for each Expert.
 <ul>
@@ -616,15 +613,13 @@ This approach avoids loops and enables efficient parallel execution:</p>
 </li>
 </ul>
 </li>
-<li>
-<p><strong>Global offset Calculation</strong></p>
+<li><strong>Global offset Calculation</strong>
 <ul>
 <li>Through Cumsum, obtain the Block Start Index where each Expert starts in the entire Grid (<code>G</code>).</li>
 <li><code>Global_Offset: E = cumsum(Num_Blocks) - Num_Blocks</code></li>
 </ul>
 </li>
-<li>
-<p><strong>Local Offset Calculation</strong></p>
+<li><strong>Local Offset Calculation</strong>
 <ul>
 <li>Using Mask and Cumsum, calculate what position each token is in the Expert’s queue.</li>
 <li><code>Cumsum_Mask: T x K x E = cumsum(Expert_Mask, axis: (T, K))</code></li>
@@ -632,8 +627,7 @@ This approach avoids loops and enables efficient parallel execution:</p>
 <li><code>Local_Offset: T x K = Token_Rank - 1</code></li>
 </ul>
 </li>
-<li>
-<p><strong>Expert ID expansion</strong></p>
+<li><strong>Expert ID expansion</strong>
 <ul>
 <li><code>Diff: E x G = Num_Blocks - Block_Range</code></li>
 <li><code>Grid: E x G</code>
@@ -658,8 +652,7 @@ This approach avoids loops and enables efficient parallel execution:</p>
 </li>
 </ul>
 </li>
-<li>
-<p><strong>Address Synthesis</strong></p>
+<li><strong>Address Synthesis</strong>
 <ul>
 <li><code>Scatter_Idx = (Global_Offset * B) + Local_Offset</code></li>
 <li>Calculate which block and which position within the block each of the <code>T</code> tokens corresponds to. <code>Scatter_Idx in [0, G * B)</code></li>
@@ -761,11 +754,10 @@ This is the final step that produces the MoE layer output:</p>
 </li>
 </ul>
 <h3 id="4-cumsum-implementation-on-tcp"><a class="header" href="#4-cumsum-implementation-on-tcp">4. <code>Cumsum</code> Implementation on TCP</a></h3>
-<p><code>Cumsum</code> is a key primitive used in index generation.
-On TCP, it is implemented in Vector Engine using the following approach:</p>
+<p>On TCP, cumsum is implemented in the Vector Engine using branch logging:</p>
 <ol>
-<li>Create a static branch logger: For the axis (of size n) over which the sum is computed,</li>
-</ol>
+<li>
+<p>Create a static branch logger: For the axis (of size n) over which the sum is computed,</p>
 <pre><code class="language-rust ignore">branch(i) = if i == 0 {
     0
 } else if i &lt; n - 1 {
@@ -773,11 +765,13 @@ On TCP, it is implemented in Vector Engine using the following approach:</p>
 } else {
     2  // i == n - 1
 }</code></pre>
-<ol start="2">
-<li>Configure the Vector Engine as follows:</li>
-</ol>
+</li>
+<li>
+<p>Configure the Vector Engine as follows:</p>
 <pre><code class="language-rust ignore">add %mainstream, OperandRead(branch = 1, 2)
 WriteOperand(branch = 0, 1)</code></pre>
+</li>
+</ol>
 
                     </main>
 
@@ -787,6 +781,9 @@ WriteOperand(branch = 0, 1)</code></pre>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
+                            <a rel="next prefetch" href="../appendix/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -798,6 +795,9 @@ WriteOperand(branch = 0, 1)</code></pre>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
+                    <a rel="next prefetch" href="../appendix/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
             </nav>
 
         </div>
@@ -817,11 +817,11 @@ WriteOperand(branch = 0, 1)</code></pre>
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

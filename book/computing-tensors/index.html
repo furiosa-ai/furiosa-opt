@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,11 +177,13 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="computing-tensors"><a class="header" href="#computing-tensors">Computing Tensors</a></h1>
-<!-- > **TODO** (youseok.yang): -->
-<!-- > 1. **Show dimension flow through pipeline**: How `[Chip, Cluster, Slice, Time, Packet]` transforms at each stage -->
-<p>The Tensor Unit transforms data through a pipeline of eight specialized engines.
-Data flows from DM, through the engine pipeline, and back to DM.
-After the Collect Engine normalizes packets to <strong>flits</strong> (32-byte flow control units), all downstream engines — Contraction, Vector, Cast, Transpose, and Commit — operate on flits. (See <a href="./collect-engine.html">Collect Engine</a> for the normalization details.)</p>
+<h2 id="tensor-unit"><a class="header" href="#tensor-unit">Tensor Unit</a></h2>
+<p>The Tensor Unit is the on-chip compute pipeline.
+It reads tensor data from DM, transforms it through eight engines, and writes results back to DM.</p>
+<p>Each tensor flows through the pipeline as a stream of packets, one packet per cycle.
+The engines consume and produce these streams, reshaping the per-cycle layout and the iteration order along the way.
+The Collect Engine normalizes incoming packets to 32-byte <em>flits</em>.
+Every downstream engine (<a href="./contraction-engine/index.html">Contraction</a>, <a href="./vector-engine/index.html">Vector</a>, <a href="./cast-engine.html">Cast</a>, <a href="./transpose-engine.html">Transpose</a>, <a href="../moving-tensors/commit-engine.html">Commit</a>) operates on these flits.</p>
 <pre class="mermaid">flowchart TB
     subgraph SRAM
         DM[(DM)] &amp; TRF[(TRF)] &amp; VRF[(VRF)]
@@ -207,9 +209,6 @@ After the Collect Engine normalizes packets to <strong>flits</strong> (32-byte f
     click CM "../moving-tensors/commit-engine.html" "Commit Engine"
 </pre>
 
-<p>Two register files serve distinct roles: TRF (Tensor Register File; see <a href="../hello-tcp.html">hello-tcp memory overview</a>) holds weights for the Contraction Engine (load once, reuse across many cycles), while VRF (Vector Register File) holds operands for the Vector Engine.
-The Collect Engine loads data into TRF via <code>.to_trf()</code> and VRF via <code>.to_vrf()</code>.</p>
-<p>Fetch and Commit are part of the Tensor Unit pipeline but interface directly with DM; see <a href="../moving-tensors/index.html">Moving Tensors</a>.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -217,9 +216,9 @@ The Collect Engine loads data into TRF via <code>.to_trf()</code> and VRF via <c
 </thead>
 <tbody>
 <tr><td><a href="../moving-tensors/fetch-engine.html">Fetch</a></td><td>Load data from DM into the pipeline</td><td>Packet must be 8-byte aligned; <code>Slice</code> is unchanged</td></tr>
-<tr><td><a href="./switch-engine.html">Switching</a></td><td>Redistribute data across slices</td><td>Ring network topology; <code>Slice</code> can change</td></tr>
+<tr><td><a href="./switch-engine.html">Switching</a></td><td>Move data across slices</td><td>Ring network, <code>Slice</code> can change</td></tr>
 <tr><td><a href="./collect-engine.html">Collect</a></td><td>Normalize packets to 32-byte flits</td><td>Output = exactly one flit</td></tr>
-<tr><td><a href="./contraction-engine/index.html">Contraction</a></td><td>Einsum: matmul, convolution, attention</td><td>Weight-stationary via TRF</td></tr>
+<tr><td><a href="./contraction-engine/index.html">Contraction</a></td><td>Einsum: matmul, convolution, attention</td><td>One operand resident in TRF; the other streams</td></tr>
 <tr><td><a href="./vector-engine/index.html">Vector</a></td><td>Elementwise, binary, reduce operations</td><td>Only i32/f32 input</td></tr>
 <tr><td><a href="./cast-engine.html">Cast</a></td><td>Precision lowering with batching</td><td>Output = exactly one flit</td></tr>
 <tr><td><a href="./transpose-engine.html">Transpose</a></td><td>Reorder elements within a flit</td><td>Within-flit only</td></tr>
@@ -227,25 +226,33 @@ The Collect Engine loads data into TRF via <code>.to_trf()</code> and VRF via <c
 </tbody>
 </table>
 </div>
-<p>As a kernel writer, you specify data types, tensor mapping expressions, and computations in einsum form.
-The compiler translates these into per-engine hardware configurations.</p>
-<h2 id="execution-contexts"><a class="header" href="#execution-contexts">Execution Contexts</a></h2>
-<p>Two execution contexts enable <em>double-buffering</em> (preparing the next operand batch while the current one is being computed) to hide memory latency:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Context</th><th>Compute Engines</th><th>Fetch/Commit</th><th>Typical Use</th></tr>
-</thead>
-<tbody>
-<tr><td>Main</td><td>Exclusive access</td><td>Dedicated units</td><td>Computation</td></tr>
-<tr><td>Sub</td><td>Idle only</td><td>Lower bandwidth</td><td>Prefetching to TRF/VRF</td></tr>
-</tbody>
-</table>
-</div>
-<p>While the main context computes, the sub context prefetches the next operand batch into TRF/VRF.
-When the sub context is unused, the main and sub Switch Engine channels combine into <em>dual channel mode</em> (see <a href="./switch-engine.html">Switch Engine</a>), doubling bandwidth.
-See <a href="./scheduling.html">Scheduling</a> for how the scheduler coordinates the two contexts and the DMA Engine.</p>
-<p>The following sections cover each engine in detail.</p>
+<p>Each tensor stream inside the Tensor Unit carries five dimensions, <code>[Chip, Cluster, Slice, Time, Packet]</code>, that split into two groups.
+<code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> are spatial dimensions: each slice runs its own pipeline instance, with slices grouped by cluster and clusters grouped by chip.
+<code>Time</code> and <code>Packet</code> describe the per-slice stream (see <a href="../mapping-tensors/spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> for the definitions).
+The engines above reshape <code>Time</code> / <code>Packet</code> along the pipeline.
+The spatial dimensions are preserved by every engine except two: <a href="./switch-engine.html">Switch</a> changes <code>Slice</code> by moving data across slices, and <a href="./vector-engine/index.html">Vector</a>’s <a href="./vector-engine/inter-slice-reducer.html">inter-slice reducer</a> collapses <code>Slice</code> by aggregating across the 256 slices in a cluster.</p>
+<p>The Contraction and Vector Engines each take one operand from the pipeline stream and the other operand from a dedicated per-slice register file.
+TRF (Tensor Register File) feeds the Contraction Engine, and VRF (Vector Register File) feeds the Vector Engine.
+The Collect Engine writes into TRF via <code>.to_trf()</code> and into VRF via <code>.to_vrf()</code>.
+For an end-to-end example using both files, see <a href="../quick-start.html">Quick Start</a>.</p>
+<p>Fetch reads from DM and Commit writes back to DM.
+Their detailed sequencer behavior is documented in <a href="../moving-tensors/index.html">Moving Tensors</a> rather than here.</p>
+<h2 id="scheduling-execution-contexts"><a class="header" href="#scheduling-execution-contexts">Scheduling Execution Contexts</a></h2>
+<p>The <a href="../scheduler.html">Scheduler</a> treats each <em>execution context</em> as an independent stream of operations.
+The hardware exposes three:</p>
+<ul>
+<li><strong>Main</strong> drives the Tensor Unit pipeline for the kernel’s primary computation.</li>
+<li><strong>Sub</strong> drives a subset of the same pipeline, typically prefetching operands into TRF / VRF while main computes.</li>
+<li><strong>DMA</strong> drives the DMA Engine alone, external to the Tensor Unit (HBM ↔ DM, HBM ↔ SPM, DM ↔ SPM).</li>
+</ul>
+<p>The main context can drive every Tensor Unit engine.
+The sub context drops the Contraction Engine and a handful of other features; everything else carries over from main.</p>
+<p>Operations serialize within a single context but run in parallel across different contexts.
+For example, sub prefetches the next operand batch into TRF / VRF while main computes the current one (<em>double-buffering</em>), and the DMA Engine moves bulk data between HBM and DM / SPM independently of either Tensor Unit context (<em>overlap</em>).</p>
+<p>Some Tensor Unit engines form a single unit of scheduling that can be driven by only one context at a time.
+For example, the Vector Engine and the Cast Engine form one such unit of scheduling.
+So when sub is running Vector Engine work, main runs its type casting through <a href="../moving-tensors/commit-engine.html#type-casting">Commit Engine type casting</a> instead of the Cast Engine, to avoid serializing with sub.</p>
+<p>The scheduler may also assign a Tensor Unit operation to the DMA context defensively when its DM access pattern would otherwise risk a hardware-level memory conflict (see <a href="../moving-tensors/memory-performance.html">Memory Performance</a> for the rules that trigger this).</p>
 
                     </main>
 
@@ -291,11 +298,11 @@ See <a href="./scheduling.html">Scheduling</a> for how the scheduler coordinates
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

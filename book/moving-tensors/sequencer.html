@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,63 +177,57 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="sequencer"><a class="header" href="#sequencer">Sequencer</a></h1>
-<p>The Fetch and Commit Engines use sequencers to address DM; this page explains how sequencers work, including their configuration constraints and the failure cases that arise when those constraints are exceeded.
-Sequencers convert between tensors in memory and <em>packet</em> streams: reading converts a memory buffer into a stream of packets, and writing performs the reverse.
-Each packet is a fixed-size chunk delivered each clock cycle; its size is set by the <code>Packet</code> mapping dimension.
-The DMA Engine chains a read and a write sequencer to move data between HBM/SPM and DM without intermediate buffers.</p>
-<p>As a kernel writer, you control the <code>Time</code> and <code>Packet</code> type parameters, which determine iteration count and packet size; the compiler derives the register configuration and strides.
-For performance implications of <code>Packet</code> choices, see <a href="./memory-performance.html">Memory Performance</a>.</p>
+<p>A sequencer reads a memory buffer as a packet stream and writes a packet stream back to memory.
+The Fetch and Commit Engines each use one sequencer to address DM.
+The DMA Engine chains a read sequencer and a write sequencer to move data among DM, SPM, and HBM without intermediate buffers.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<p>To explain sequencer concepts, we use simplified types that capture the essential structure.
-The actual API is introduced in later sections.
-The <code>read</code> and <code>write</code> methods preserve tensor values while transforming between memory layout and stream format.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span>/// A tensor in a linear buffer with mapping `Buf`.
-struct BufTensor&lt;D: Scalar, Buf: M&gt; {
-    /* ... */
-<span class="boring">  _marker: PhantomData&lt;(D, Buf)&gt;,
-</span>}
+<p><code>BufTensor</code> and <code>StreamTensor</code> are pedagogical pseudo types that capture the buffer-stream pattern in isolation, so this page can explain sequencer mechanics without dragging in each engine’s full type machinery.
+The real engine APIs use different types (<code>DmTensor</code>, <code>HbmTensor</code>, <code>TuTensor</code>, …), but every concrete pair maps onto the same <code>BufTensor</code> → <code>StreamTensor</code> shape illustrated below.</p>
+<p><code>BufTensor</code> holds data in some memory mapping <code>Buf</code>, and any concrete buffer tensor (DM, SPM, HBM) plays this role.</p>
+<pre><code class="language-rust ignore">/// A generic buffer-backed tensor.
+/// Anything that holds data in a memory `Buf` and can be streamed in or out.
+#[derive(Debug)]
+pub struct BufTensor&lt;D: Scalar, Buf: M&gt; {
+    inner: Tensor&lt;D, Buf&gt;,
+}</code></pre>
+<p><code>StreamTensor</code> is a tensor in flight.
+The lifetime <code>'l</code> ties the stream to its source buffer so a stream cannot outlive its data.
+<code>Time</code> is the temporal mapping (iteration over time) and <code>Packet</code> is the spatial mapping (contents of a single packet).</p>
+<pre><code class="language-rust ignore">/// A streaming view of a tensor in flight.
+/// `Packet` is the per-cycle shape and `Time` is the multi-cycle shape.
+#[derive(Debug)]
+pub struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt; {
+    inner: Tensor&lt;D, Pair&lt;Time, Packet&gt;&gt;,
+    _marker: PhantomData&lt;&amp;'l ()&gt;,
+}</code></pre>
+<p><code>read</code> converts a <code>BufTensor</code> into a <code>StreamTensor</code> and <code>write</code> reverses it, both preserving values.
+Each engine’s full API adds spatial dimensions (<code>Chip</code>, <code>Cluster</code>, <code>Slice</code>) on top, covered in the engine-specific pages.</p>
+<pre><code class="language-rust ignore">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
+    /// Reads a stream from this buffer with the supplied `Time` and `Packet` mapping.
+    /// `(Time, Packet)` may be a broadcast of `Buf` (matches Fetch / Switch / DMA-read behavior).
+    pub fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; {
+        StreamTensor {
+            inner: self.inner.transpose(true),
+            _marker: PhantomData,
+        }
+    }
 
-/// A tensor in motion.
-/// - `'l`: Lifetime tied to the source buffer, ensuring the stream cannot outlive its data.
-/// - `Time`: Temporal mapping (iteration over time).
-/// - `Packet`: Spatial mapping (contents of a single packet).
-struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt; {
-    /* ... */
-<span class="boring">  _marker: PhantomData&lt;&amp;'l (D, Time, Packet)&gt;,
-</span>}
-
-impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-    /// Reads a tensor from a linear buffer into a stream.
-    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; {
-        // hardware implementation
-<span class="boring">      unimplemented!()
-</span>    }
-
-    /// Writes a stream of packets back into a linear buffer.
-    fn write&lt;'l, Time: M, Packet: M&gt;(&amp;mut self, stream: StreamTensor&lt;'l, D, Time, Packet&gt;) {
-        // hardware implementation
-<span class="boring">      unimplemented!()
-</span>    }
-}
-<span class="boring">}</span></code></pre>
+    /// Writes a stream back into this buffer.
+    /// Broadcast is rejected: each `Buf` slot must have exactly one source position in `(Time, Packet)` (matches Commit behavior).
+    pub fn write&lt;'l, Time: M, Packet: M&gt;(&amp;mut self, stream: StreamTensor&lt;'l, D, Time, Packet&gt;) {
+        self.inner = stream.inner.transpose(false);
+    }
+}</code></pre>
+<p>For any <code>BufTensor</code>, many valid <code>Time</code> and <code>Packet</code> combinations exist, each producing a different <code>StreamTensor</code>.
+Among valid choices, larger <code>Packet</code> sizes improve bandwidth utilization, and <a href="./memory-performance.html">Memory Performance</a> covers the trade-offs in detail.</p>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<p>(The <a href="#configuration">Configuration</a> section below explains how the compiler derives these configurations from tensor mappings.)</p>
+<p>The following examples show common read and write patterns using the core API above.
+<a href="#architecture">Architecture</a> below explains how the compiler derives each pattern’s hardware configuration.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">    fn write&lt;'l, Time: M, Packet: M&gt;(&amp;mut self, stream: StreamTensor&lt;'l, D, Time, Packet&gt;) { let _ = stream; }
-</span><span class="boring">}
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span>axes![A = 8, B = 512, N = 4, C = 3, H = 8, W = 8, T = 4, P = 4];
 
 /// Strided access: read 8×512 tensor as 128 packets of 32 elements.
@@ -287,7 +281,7 @@ fn tiling_write(
     buf.write(stream)
 }
 
-/// Broadcasting read: replicate elements using stride 0.
+/// Broadcasting read: replicate elements absent from `Buf`.
 /// Time = m![T, A] broadcasts T temporally (same data repeated T times).
 /// Packet = m![P] broadcasts P spatially (same element fills packet).
 fn broadcasting_read&lt;'l&gt;(
@@ -304,15 +298,15 @@ fn broadcasting_write(
     buf.write(stream)
 }
 <span class="boring">}</span></code></pre>
-<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
-<p>The compiler translates input and output tensor mappings into nested-loop configurations that the sequencer hardware executes.
-Each configuration has the form <code>[size_0 : stride_0, size_1 : stride_1, ...] : packet_size</code>, where each entry’s subscript corresponds to its position in the loop nest (0 = outermost), represented by the following Rust type:</p>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<p>Each sequencer call is compiled from its input and output tensor mappings into a nested-loop configuration that the sequencer hardware executes.
+Each configuration takes the form <code>[size_0 : stride_0, size_1 : stride_1, ...] : packet_size</code>, where subscript 0 is the outermost loop:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>struct Config {
     /// Each entry defines a nested loop level.
     entries: Vec&lt;Entry&gt;,
-    /// Number of elements per hardware fetch.
+    /// Number of elements per packet.
     packet_size: usize,
 }
 
@@ -324,20 +318,48 @@ struct Entry {
 }
 <span class="boring">}</span></code></pre>
 <p>Each entry encodes one dimension of tensor traversal.
-The <code>size</code> field determines how many times this loop iterates, while the <code>stride</code> field determines the memory offset between consecutive iterations.
-Together, entries form nested loops that traverse memory.</p>
-<h3 id="example-n-c-h-w--w-h-c-n"><a class="header" href="#example-n-c-h-w--w-h-c-n">Example: <code>[N, C, H, W]</code> ↔ <code>[W, H, C, N]</code></a></h3>
+The <code>size</code> field determines how many times this loop iterates, while the <code>stride</code> field determines the memory offset between consecutive iterations.</p>
+<h3 id="access-size"><a class="header" href="#access-size">Access Size</a></h3>
+<p><code>access_size = gcd(Packet::SIZE, contiguous_run)</code> is the number of elements per hardware access.</p>
+<p>Here, <code>contiguous_run</code> is the element count of the innermost physically contiguous run of <code>Config</code> entries.
+A larger <code>access_size</code> means fewer accesses per packet.
+The following shows how <code>access_size</code> is computed from a <code>Config</code>:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">    fn write&lt;'l, Time: M, Packet: M&gt;(&amp;mut self, stream: StreamTensor&lt;'l, D, Time, Packet&gt;) { let _ = stream; }
-</span><span class="boring">}
+</span><span class="boring">struct Config { entries: Vec&lt;Entry&gt;, packet_size: usize }
+</span><span class="boring">struct Entry { size: usize, stride: isize }
+</span><span class="boring">fn gcd(mut a: usize, mut b: usize) -&gt; usize { while b != 0 { (a, b) = (b, a % b); } a }
+</span>impl Config {
+    fn contiguous_run(&amp;self) -&gt; usize {
+        // Walk pairs from innermost outward; stop at the first non-contiguous pair.
+        // Two adjacent entries (n_outer : s_outer) and (n_inner : s_inner)
+        // are contiguous when s_outer == n_inner * s_inner.
+        let mut contiguous_run = self.entries.last().map_or(1, |e| e.size);
+        for w in self.entries.windows(2).rev() {
+            if w[0].stride == w[1].size as isize * w[1].stride {
+                contiguous_run *= w[0].size;
+            } else {
+                break;
+            }
+        }
+        contiguous_run
+    }
+
+    fn access_size(&amp;self) -&gt; usize {
+        gcd(self.packet_size, self.contiguous_run())
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>In most cases the packet layout is fully contiguous in DM and <code>access_size == Packet::SIZE</code>.
+See <a href="#non-contiguous-packets">Non-Contiguous Packets</a> for a case where <code>access_size &lt; Packet::SIZE</code>.</p>
+<h3 id="how-it-works"><a class="header" href="#how-it-works">How It Works</a></h3>
+<p>The <code>Config</code> for <code>m![N, C, H, W]</code> → <code>m![W, H, C, N]</code> has one entry per axis in the stream, each with a stride equal to that axis’s span in the source buffer.
+Since <code>Packet = m![1]</code>, <code>Packet::SIZE = access_size = 1</code> and the sequencer issues one DM access per loop iteration.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span><span class="boring">struct Config {
 </span><span class="boring">    entries: Vec&lt;Entry&gt;,
 </span><span class="boring">    packet_size: usize,
@@ -394,35 +416,20 @@ fn write_whcn_nchw(buf: &amp;mut BufTensor&lt;bf16, m![N, C, H, W]&gt;,
     }
 }
 <span class="boring">}</span></code></pre>
-<p>The <code>Time</code> dimension represents logical iteration steps, not physical clock cycles.
-The <code>Packet</code> dimension represents logical unit of data processed per <code>Time</code>.
-The hardware computes <code>fetch_size</code> to determine the minimum number of fetch cycles required (see <a href="./fetch-engine.html#fetch-sequencer">Fetch Engine</a> for the constraints of <code>fetch_size</code>).</p>
-<h2 id="configuration-examples"><a class="header" href="#configuration-examples">Configuration Examples</a></h2>
-<p>The compiler automatically derives configurations required to traverse memory.
-The following examples illustrate common patterns.</p>
-<h3 id="rearranging-axes"><a class="header" href="#rearranging-axes">Rearranging Axes</a></h3>
-<p>Rearranging axes changes the traversal order of the tensor.
-When <code>Time</code> specifies a different axis order than <code>Buf</code>, the compiler computes strides to traverse memory in the requested order.</p>
+<h2 id="configurations"><a class="header" href="#configurations">Configurations</a></h2>
+<p>The following patterns cover most configurations a kernel writer is likely to encounter.</p>
+<h3 id="transposing-axes"><a class="header" href="#transposing-axes">Transposing Axes</a></h3>
+<p>Axes may be transposed so that the stream visits them in a different order than the buffer, and the compiler computes the strides needed to traverse memory in that order.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">}
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span>axes![A = 8, B = 8, C = 8];
 
 fn read_rearranging&lt;'l&gt;(
     buf: &amp;'l BufTensor&lt;i8, m![A, B, C # 32]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![B, A], m![C # 16]&gt; {  // Time, Packet
-    // Compiler-generated configuration: [
-    //   B      -&gt;  8 : 32,
-    //   A      -&gt;  8 : 256,
-    //   C # 16 -&gt; 16 : 1,
-    // ] : 16
     buf.read()
 }
 <span class="boring">}</span></code></pre>
@@ -441,33 +448,20 @@ After processing a term, <code>Buf</code> is updated to reflect that the axis ha
 </tbody>
 </table>
 </div>
-<p>The maximum <code>fetch_size</code> is 16.
-The innermost entry <code>16 : 1</code> has stride 1, making elements contiguous within the packet.</p>
+<p><code>Packet::SIZE = access_size = 16</code>.
+The innermost entry <code>16 : 1</code> is contiguous, so the hardware transfers the full packet in one access.</p>
 <h3 id="splitting-axes"><a class="header" href="#splitting-axes">Splitting Axes</a></h3>
-<p>Splitting axes enables tiling by breaking logical axes into multiple entries.
-This is useful for cache efficiency or matching tensor unit buffer sizes.</p>
+<p>Tiling breaks a logical axis into sub-blocks for cache efficiency or to match tensor unit buffer sizes, and the compiler achieves this by splitting the axis into multiple entries.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">}
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span>axes![A = 8, B = 8, C = 4];
 
 fn read_splitting&lt;'l&gt;(
     buf: &amp;'l BufTensor&lt;i8, m![A, B, C # 8]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![A % 2, B % 4, A / 2, B / 4], m![C # 32]&gt; {  // Time, Packet
-    // The compiler generates: [
-    //   A % 2  -&gt;  2 : 64,
-    //   B % 4  -&gt;  4 : 8,
-    //   A / 2  -&gt;  4 : 128,
-    //   B / 4  -&gt;  2 : 32,
-    //   C # 32 -&gt; 32 : 1,
-    // ] : 32
     buf.read()
 }
 <span class="boring">}</span></code></pre>
@@ -487,32 +481,19 @@ The compiler processes <code>m![A % 2, B % 4, A / 2, B / 4, C # 32]</code> term 
 </tbody>
 </table>
 </div>
-<p>The maximum <code>fetch_size</code> is 32.</p>
+<p><code>Packet::SIZE = access_size = 32</code>.</p>
 <h3 id="slicing-axes"><a class="header" href="#slicing-axes">Slicing Axes</a></h3>
-<p>Slicing reads only a partial range of indices from the memory layout.
-This arises from indexed views that select subsets of the original tensor.</p>
+<p>Slicing reads only a partial range of indices from the memory layout, a condition that arises when an indexed view selects a subset of the original tensor.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">}
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span>axes![A = 16, B = 8, C = 8];
 
 fn read_slicing&lt;'l&gt;(
     buf: &amp;'l BufTensor&lt;i8, m![A, B, C]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![A / 4, A % 4 = 3, B / 4, B % 4 = 2], m![C]&gt; {  // Time, Packet
-    // Compiler-generated configuration: [
-    //   A / 4     -&gt; 4 : 256,
-    //   A % 4 = 3 -&gt; 3 : 64,
-    //   B / 4     -&gt; 2 : 32,
-    //   B % 4 = 2 -&gt; 2 : 8,
-    //   C         -&gt; 8 : 1,
-    // ] : 8
     buf.read()
 }
 <span class="boring">}</span></code></pre>
@@ -532,35 +513,24 @@ The compiler processes <code>m![A / 4, A % 4 = 3, B / 4, B % 4 = 2, C]</code> te
 </tbody>
 </table>
 </div>
-<p>The maximum <code>fetch_size</code> is 8.</p>
+<p><code>Packet::SIZE = access_size = 8</code>.</p>
 <h3 id="broadcasting-axes"><a class="header" href="#broadcasting-axes">Broadcasting Axes</a></h3>
-<p>Broadcasting replicates tensor elements across multiple packets or time steps.
-Stride 0 causes the hardware to repeatedly read from the same memory location.</p>
+<p>Broadcasting replicates an element across multiple packets or time steps when the stream visits axes that <code>Buf</code> does not carry.
+Any axis (or partial-axis fragment like <code>N / 512</code>) present in <code>Time</code> or <code>Packet</code> but absent from <code>Buf</code> becomes a broadcast entry, shown as <code>: 0</code> in the stride table (the hardware revisits the same address on each iteration).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">}
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span>axes![A = 16, T = 4, P = 4];
 
 fn read_broadcasting&lt;'l&gt;(
     buf: &amp;'l BufTensor&lt;i8, m![A]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![T, A], m![P]&gt; {  // Time, Packet
-    // Compiler-generated configuration: [
-    //   T -&gt;  4 : 0,   // temporal broadcast
-    //   A -&gt; 16 : 1,
-    //   P -&gt;  4 : 0,   // spatial broadcast
-    // ] : 4
     buf.read()
 }
 <span class="boring">}</span></code></pre>
-<p>Axes not present in <code>Buf</code> get stride 0.
-The compiler processes <code>m![T, A, P]</code> term by term:</p>
+<p>The compiler processes <code>m![T, A, P]</code> term by term:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -573,45 +543,24 @@ The compiler processes <code>m![T, A, P]</code> term by term:</p>
 </tbody>
 </table>
 </div>
-<p>The maximum <code>fetch_size</code> is 4.
-Since <code>P</code> has stride 0, the same element is replicated across the packet (spatial broadcast).
-Since <code>T</code> has stride 0, the same data is repeated across time steps (temporal broadcast).</p>
+<p><code>Packet::SIZE = access_size = 4</code>.
+<code>P</code> is broadcast, so the same element is replicated across the packet (spatial broadcast).
+<code>T</code> is broadcast, so the same data is repeated across time steps (temporal broadcast).</p>
+<p>The same rule applies when <code>Time</code> or <code>Packet</code> references a fragment of an axis that <code>Buf</code> does not carry.
+For example, a buffer of <code>m![N % 512]</code> read as <code>StreamTensor&lt;m![N / 512], m![N % 512]&gt;</code> broadcasts on the <code>N / 512</code> time entry: the buffer’s 512 elements are reused across each of the <code>N / 512</code> outer iterations.</p>
 <h3 id="merging-entries"><a class="header" href="#merging-entries">Merging Entries</a></h3>
-<p>When a transformation produces more than 8 entries, the compiler merges adjacent entries to meet hardware limits.
+<p>The hardware supports at most 8 entries per configuration, so when a transformation produces more, the compiler merges adjacent entries to satisfy that limit.
 Adjacent entries <code>(n1 : s1)</code> and <code>(n2 : s2)</code> merge into <code>(n1 * n2 : s2)</code> when physically contiguous: <code>s1 == n2 * s2</code>.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">}
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span>axes![N = 8, C = 8, H = 8, W = 32];
 
 fn read_merging&lt;'l&gt;(
     buf: &amp;'l BufTensor&lt;i8, m![N, C, H, W]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![W / 16, H % 2, H / 2, C / 2, C % 2, N / 2, N % 2, W / 8 % 2], m![W % 8]&gt; {  // Time, Packet
-    // Initial 9 entries:
-    //   W / 16     -&gt; 2 : 16,
-    //   H % 2      -&gt; 2 : 32,
-    //   H / 2      -&gt; 4 : 64,
-    //   C / 2      -&gt; 4 : 512,
-    //   C % 2      -&gt; 2 : 256,
-    //   N / 2      -&gt; 4 : 4096,
-    //   N % 2      -&gt; 2 : 2048,
-    //   W / 8 % 2  -&gt; 2 : 8,
-    //   W % 8      -&gt; 8 : 1,
-
-    // After merging to 6 entries:
-    //   W / 16     -&gt; 2 : 16,
-    //   H % 2      -&gt; 2 : 32,
-    //   H / 2      -&gt; 4 : 64,
-    //   C          -&gt; 8 : 256,    // merged C / 2 and C % 2
-    //   N          -&gt; 8 : 2048,   // merged N / 2 and N % 2
-    //   W % 16     -&gt; 16 : 1,     // merged W / 8 % 2 and W % 8
     buf.read()
 }
 <span class="boring">}</span></code></pre>
@@ -637,7 +586,7 @@ fn read_merging&lt;'l&gt;(
 <p>Since 9 entries exceed the hardware limit of 8, the compiler merges contiguous pairs where <code>s1 == n2 * s2</code>.
 The entries for <code>H % 2 -&gt; (2 : 32)</code> and <code>H / 2 -&gt; (4 : 64)</code> are not merged because they are not physically contiguous (\(s_1 \neq n_2 \times s_2 \iff 32 \neq 4 \times 64\)).
 The final configuration has 6 entries.
-The last merge combines a temporal entry with the packet entry, increasing the packet size from 8 to 16.</p>
+The last merge crosses the time/packet boundary: <code>W/8%2 (2:8)</code> and <code>W%8 (8:1)</code> merge into <code>W%16 (16:1)</code>.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -653,10 +602,73 @@ The last merge combines a temporal entry with the packet entry, increasing the p
 </tbody>
 </table>
 </div>
-<h2 id="configuration-failures"><a class="header" href="#configuration-failures">Configuration Failures</a></h2>
-<p>In TCP, violating any of the following limits causes a compilation error:</p>
+<p><code>Packet::SIZE = access_size = 8</code>.</p>
+<h3 id="non-contiguous-packets"><a class="header" href="#non-contiguous-packets">Non-Contiguous Packets</a></h3>
+<p>When the DM layout has stride discontinuities within the packet span, <code>access_size &lt; Packet::SIZE</code> and the hardware issues one access per contiguous sub-block rather than one per packet.
+The example below writes a packet of 32 elements (<code>m![A, B]</code>) to a buffer where each B row is padded to 16 slots in DM.
+A’s stride is 16 rather than 8, so the packet span is not contiguous and the hardware issues 4 accesses instead of 1:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span>axes![A = 4, B = 8];
+
+fn write_padded(
+    buf: &amp;mut BufTensor&lt;i8, m![A, B # 16]&gt;,
+    stream: StreamTensor&lt;i8, m![1], m![A, B]&gt;,
+) {
+    // Compiler-generated configuration: [
+    //   A -&gt; 4 : 16,   (16 != 8 * 1, NOT contiguous — padding gap after each B row)
+    //   B -&gt; 8 : 1,    (packet sub-block, contiguous)
+    // ] : 32
+    buf.write(stream)
+}
+<span class="boring">}</span></code></pre>
+<p><code>Packet::SIZE = 32</code>, <code>contiguous_run = 8</code>, <code>access_size = 8</code>.</p>
+<p>Non-contiguous strides also arise when <code>Packet</code> contains non-adjacent axes from the source layout.
+The example below reads the same <code>m![N, C, H, W]</code> buffer with two different <code>Packet</code> choices.
+Placing only the innermost axis <code>W</code> in <code>Packet</code> gives <code>access_size = Packet::SIZE = 8</code>, one access per packet.
+Placing <code>m![N, H, W]</code> in <code>Packet</code> skips <code>C</code>, so N’s stride in source (96) does not equal H×W (32): <code>contiguous_run = 32</code>, <code>access_size = 32</code>, and the hardware issues 4 accesses per packet instead of 1.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span>axes![N = 4, C = 3, H = 4, W = 8];
+
+// Compiler-generated configuration: [
+//   N -&gt; 4 : 96,   (96 == 3 × 32, contiguous)
+//   C -&gt; 3 : 32,   (32 == 4 × 8,  contiguous)
+//   H -&gt; 4 : 8,    (8  == 8 × 1,  contiguous)
+//   W -&gt; 8 : 1,    (packet dimension)
+// ] : 8
+// contiguous_run = 8 (W); ×4 (H): 8==8×1 ✓; ×3 (C): 32==4×8 ✓; ×4 (N): 96==3×32 ✓; all axes contiguous
+// access_size = gcd(packet_size, contiguous_run) = packet_size = 8
+fn read_contiguous&lt;'l&gt;(
+    buf: &amp;'l BufTensor&lt;i8, m![N, C, H, W]&gt;,
+) -&gt; StreamTensor&lt;'l, i8, m![N, C, H], m![W]&gt; {
+    buf.read()
+}
+
+// Compiler-generated configuration: [
+//   C -&gt; 3 : 32,   (time dimension)
+//   N -&gt; 4 : 96,   (96 != 4 × 8 = 32, NOT contiguous — C axis interspersed)
+//   H -&gt; 4 : 8,    (8  == 8 × 1, contiguous)
+//   W -&gt; 8 : 1,    (packet dimension)
+// ] : 128
+// contiguous_run = 8 (W); ×4 (H): 8==8×1 ✓ → 32; ×4 (N): 96!=4×8 ✗ stop → 32
+// access_size = gcd(128, 32) = 32; hardware issues 128/32 = 4 accesses per packet
+fn read_non_contiguous&lt;'l&gt;(
+    buf: &amp;'l BufTensor&lt;i8, m![N, C, H, W]&gt;,
+) -&gt; StreamTensor&lt;'l, i8, m![C], m![N, H, W]&gt; {
+    buf.read()
+}
+<span class="boring">}</span></code></pre>
+<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
+<p>In RNGD, exceeding any of the following hardware limits causes a compilation error:</p>
 <ul>
-<li><strong>Entry limit</strong>: Maximum 8 entries; the compiler merges adjacent entries where possible (see <a href="#merging-entries">Merging Entries</a> in Configuration Examples).</li>
+<li><strong>Entry limit</strong>: Maximum 8 entries, so the compiler merges adjacent entries where possible (see <a href="#merging-entries">Merging Entries</a> in Configurations).</li>
 <li><strong>Iteration limit</strong>: <code>size &lt;= 65,536</code> per entry.</li>
 <li><strong>Packet size</strong>: Must be 1, 2, 4, 8, 16, or 32 bytes.</li>
 <li><strong>Packet fetch</strong>: The innermost entry <code>n : s</code> must satisfy one of:
@@ -666,58 +678,28 @@ The last merge combines a temporal entry with the packet entry, increasing the p
 </ul>
 </li>
 </ul>
-<p>If merging fails or limits are exceeded, redesign the tensor mapping or split the operation across multiple sequencer calls.
-The following examples illustrate common failure cases.</p>
-<h3 id="insufficient-input"><a class="header" href="#insufficient-input">Insufficient Input</a></h3>
-<p>The temporal mapping <code>Time</code> attempts to iterate over indices that do not exist in <code>Buf</code>.</p>
+<p>If merging fails or limits are exceeded, redesign the tensor mapping or split the operation across multiple sequencer calls.</p>
+<h3 id="compatible-axis-decompositions"><a class="header" href="#compatible-axis-decompositions">Compatible Axis Decompositions</a></h3>
+<p>Each axis named in both <code>Buf</code> and the stream must use the same decomposition.
+The compiler walks the stream term by term and consumes axes from <code>Buf</code> (see <a href="#architecture">Architecture</a>).
+When <code>Buf</code> splits an axis one way and the stream splits it another with no common refinement, no traversal order works and the configuration is rejected, even when both sides have the same total element count.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">}
-</span>axes![N = 2048];
-
-fn read_insufficient&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![N % 512]&gt;,  // Buf
-) -&gt; StreamTensor&lt;'l, i8, m![N / 512], m![N % 512]&gt; {  // Time, Packet
-    buf.read() // Compilation error: insufficient input
-}
-<span class="boring">}</span></code></pre>
-<p><code>Time</code> requires <code>N / 512</code>, but <code>Buf</code> only contains <code>N % 512</code>.
-The buffer does not have the indices that the temporal mapping tries to iterate over.</p>
-<h3 id="incompatible-shapes"><a class="header" href="#incompatible-shapes">Incompatible Shapes</a></h3>
-<p>The buffer and stream mappings have the same total size but different mathematical structures that no single sequencer configuration can reconcile.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span><span class="boring">use std::marker::PhantomData;
-</span><span class="boring">struct BufTensor&lt;D: Scalar, Buf: M&gt;(PhantomData&lt;(D, Buf)&gt;);
-</span><span class="boring">struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt;(PhantomData&lt;&amp;'l (D, Time, Packet)&gt;);
-</span><span class="boring">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
-</span><span class="boring">    fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; { unimplemented!() }
-</span><span class="boring">}
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span>axes![A = 15];
 
 fn read_incompatible&lt;'l&gt;(
     buf: &amp;'l BufTensor&lt;i8, m![A % 5, A / 5]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![1], m![A % 3, A / 3]&gt; {  // Time, Packet
-    buf.read() // Compilation error: incompatible shapes
+    buf.read() // Compilation error: incompatible decomposition
 }
 <span class="boring">}</span></code></pre>
-<p>Both <code>Buf</code> and <code>Packet</code> represent 15 elements, but their internal index mappings differ.
-The buffer uses a base-5 decomposition (<code>A % 5, A / 5</code>) while the packet uses a base-3 decomposition (<code>A % 3, A / 3</code>).
-These are mathematically incompatible: there is no way to traverse memory in one pattern to produce the other.</p>
-<p>The compiler detects this using a “factorizable” concept: it attempts to decompose axes with the same label into <code>(inner, intersection, outer)</code> components to find a common representation.
-When no such factorization exists, the configuration is rejected.</p>
+<p><code>Buf</code> decomposes <code>A</code> as <code>5 × 3</code> while the stream decomposes it as <code>3 × 5</code>.
+Since <code>gcd(5, 3) = 1</code>, neither decomposition refines the other: the compiler cannot consume <code>A % 3</code> from a <code>Buf</code> that has already committed to a 5-block split.</p>
 <h2 id="indirect-access"><a class="header" href="#indirect-access">Indirect Access</a></h2>
-<!-- > **TODO** (jeongmin.park): Detailed content needed for indirect access patterns and implementation. -->
-<p>Standard sequencer entries use fixed strides: the memory offset between iterations is constant.
+<p>All entries above use fixed strides: the memory offset between iterations is constant.
 <code>IndirectLoop</code> extends this by allowing variable offsets per iteration, enabling gather operations with data-dependent access patterns.</p>
 <p>The standard pattern <code>(limit, stride)</code> becomes <code>(limit, [offset0, offset1, ...])</code>, where each iteration uses a different offset from the provided sequence.
 This supports operations like embedding lookups where indices are determined at runtime.</p>
@@ -766,11 +748,11 @@ This supports operations like embedding lookups where indices are determined at 
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

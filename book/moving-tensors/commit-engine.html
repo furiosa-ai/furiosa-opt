@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,44 +177,50 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="commit-engine"><a class="header" href="#commit-engine">Commit Engine</a></h1>
-<p>The Commit Engine writes Tensor Unit results back to DM (Data Memory), the primary on-chip SRAM tier.
-It implements a <a href="./index.html">logical tensor move</a> from Tensor Unit streams to SRAM, writing each slice’s result to its designated DM address.</p>
-<p>After the Tensor Unit completes computation, results exist as streaming packets distributed across slices.
-The Commit Engine transforms these packets through an adapter (<a href="#truncating">truncating</a>) and writes them to DM via a <a href="#commit-sequencer">sequencer</a>.
-This page covers the interface and examples, the adapter stages, the sequencer, sub-context operations, and performance guidelines.</p>
+<p>The Commit Engine writes Tensor Unit stream packets to DM in two stages:</p>
+<ul>
+<li><strong><a href="#commit-adapter">Commit Adapter</a></strong>: Applies optional per-element operations (truncating, type casting, and sub-context-only valid count packing and generate mode) that may change the mathematical tensor.</li>
+<li><strong><a href="#commit-sequencer">Commit Sequencer</a></strong>: A <a href="../mapping-tensors/tensor-semantics.html#mathematical-tensor-move">mathematical tensor move</a> that writes packets to each slice’s DM partition.</li>
+</ul>
+<p>See <a href="#optimizations">Optimizations</a> for write throughput considerations.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: Position, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
-    StreamTensor&lt;'l, { T }, P, D, Chip, Cluster, Slice, Time, Packet&gt;
+<p>A <code>TuTensor</code> carries <code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, <code>Time</code>, and <code>Packet</code> dimensions at the end of the Tensor Unit pipeline.
+Its <code>Time</code> reflects the temporal unrolling of the computation, and <code>Packet</code> is the element layout in the output stream.</p>
+<p><code>.commit()</code> converts the stream to a <code>DmTensor</code> in DM.
+The Commit Engine mirrors the <a href="./fetch-engine.html">Fetch Engine’s</a> structure, but operates in reverse.</p>
+<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyCommit, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
-    /// Commits to the data memory.
-    #[primitive(StreamTensor::commit)]
-    pub fn commit&lt;Element: M&gt;(self, address: Address) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element&gt; {
+    /// Commits to data memory at `address`.
+    #[primitive(TuTensor::commit)]
+    pub fn commit&lt;Element: M&gt;(self, address: Address) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
         verify_commit::&lt;D, Time, Packet, Element&gt;();
         DmTensor::new(self.inner.transpose(false), address)
     }
 
-    /// Commits to mutable tensor view in the data memory.
-    #[primitive(StreamTensor::commit_view)]
-    pub fn commit_view&lt;Element: M&gt;(self, mut dst: DmTensorViewMut&lt;'l, D, Chip, Cluster, Slice, Element&gt;) {
+    /// Commits to a mutable tensor view in data memory.
+    #[primitive(TuTensor::commit_view)]
+    pub fn commit_view&lt;Element: M&gt;(self, mut dst: DmTensorViewMut&lt;'l, D, Chip, Cluster, Slice, Element, B&gt;) {
         verify_commit::&lt;D, Time, Packet, Element&gt;();
         dst.inner.write_transpose(self.inner.view(), false);
     }
 }</code></pre>
-<p>The Commit Engine mirrors the <a href="./fetch-engine.html">Fetch Engine’s</a> structure, but operates in reverse.</p>
-<p>For detailed examples, see <a href="../kernel-examples/fetch-commit-engine.html">kernel examples</a>.</p>
-<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<p>Consider storing a matrix multiplication result <code>C = A * B</code> back to DM after computation.
-The <a href="../computing-tensors/cast-engine.html">Cast Engine</a> converts the Contraction Engine’s <code>f32</code> packet elements to <code>bf16</code> to save space.
-The Commit Engine stores the resulting tensor to DM.</p>
+<p><code>.commit()</code> preserves the <code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> dimensions unchanged, because each slice independently writes to its own DM partition.
+The output <code>Element</code> mapping replaces <code>Time</code> and <code>Packet</code>, defining how the stream is laid out in DM.</p>
+<p><code>Element</code> configures both the Commit Sequencer and the Commit Adapter, and can reorder <code>Time</code> axes relative to the input stream, performing a transpose during the commit.
+For performance implications of the <code>Element</code> mapping, see <a href="#optimizations">Optimizations</a>.</p>
+<p>The following example commits a cast accumulation result to DM as <code>bf16</code>.
+The output <code>DmTensor</code> stores 16 time steps × 8 <code>bf16</code> elements across 256 slices.
+Here <code>D = bf16</code> and <code>Element = m![M, N # 16]</code>.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![P = 256, M = 16, N = 8];
 
 fn cast_commit&lt;'l, const T: Tu&gt;(
-    input: AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![P], m![M], m![N]&gt;,
+    input: ContractTensor&lt;'l, T, f32, m![1], m![1], m![P], m![M], m![N]&gt;,
 ) -&gt; DmTensor&lt;bf16, m![1], m![1], m![P], m![M, N # 16]&gt; {
     // Cast f32 to bf16 (Cast Engine), then commit to DM (Commit Engine).
     // Input: M = 16 time steps, N = 8 f32 elements per packet (32 bytes).
@@ -223,192 +229,130 @@ fn cast_commit&lt;'l, const T: Tu&gt;(
     input.cast::&lt;bf16, m![N # 16]&gt;().commit(0)
 }
 <span class="boring">}</span></code></pre>
-<h2 id="adapter"><a class="header" href="#adapter">Adapter</a></h2>
-<p>The adapter transforms stream packets before writing to DM via <a href="#truncating">truncating</a>.</p>
-<p>The <a href="../computing-tensors/index.html#execution-contexts">main context</a> and <a href="../computing-tensors/index.html#execution-contexts">sub-context</a> adapters both support truncating.
-The sub-context is typically used for prefetching to TRF/VRF.</p>
+<h2 id="commit-adapter"><a class="header" href="#commit-adapter">Commit Adapter</a></h2>
+<p>The Commit Adapter applies optional per-element operations on stream packets before they reach the <a href="#commit-sequencer">Commit Sequencer</a>.
+Capabilities differ between the <a href="../computing-tensors/index.html#scheduling-execution-contexts">main and sub contexts</a>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Operation</th><th>Main</th><th>Sub</th></tr>
+</thead>
+<tbody>
+<tr><td><a href="#truncating">Truncating</a></td><td>✅</td><td>✅</td></tr>
+<tr><td><a href="#type-casting">Type Casting</a></td><td>✅</td><td>❌</td></tr>
+<tr><td><a href="#valid-count-packing">Valid Count Packing</a></td><td>❌</td><td>✅</td></tr>
+<tr><td><a href="#generate-mode">Generate Mode</a></td><td>❌</td><td>✅</td></tr>
+</tbody>
+</table>
+</div>
 <h3 id="truncating"><a class="header" href="#truncating">Truncating</a></h3>
-<p>Truncating reduces packet size by keeping only the leading elements.
-The input packet is always a full 32-byte flit.
-The <code>commit_in_size</code> parameter controls how many bytes are actually written to DM: 8, 16, 24, or 32 bytes (where 32 bytes means no reduction).
-This operation discards trailing elements or satisfies downstream alignment constraints.</p>
+<p>Stream packets in the Tensor Unit pipeline are always 32-byte <em>flits</em> (see <a href="../computing-tensors/collect-engine.html">Collect Engine</a>), but a flit may carry fewer valid elements than its capacity, with trailing elements filled by padding.
+Writing the full flit verbatim would clobber DM bytes beyond the valid region with the flit’s padding values.</p>
+<p>Truncating solves this by writing only the leading <code>valid_size</code> elements of each flit to DM, discarding the trailing padding.
+The compiler derives <code>valid_size</code> from the output tensor mapping.
+Users do not set it directly.
+<code>D[valid_size]</code> must be 8, 16, 24, or 32 bytes (where 32 means no truncation).
+Truncating adds nearly zero latency.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 4, K = 2, W = 8, N = 16, J = 64];
 
 fn i8_padding_truncation&lt;'l, const T: Tu&gt;(
     input: CastTensor&lt;'l, T, i8, m![1], m![1], m![1], m![M, K], m![W # 32]&gt;,
 ) -&gt; DmTensor&lt;i8, m![1], m![1], m![1], m![M, K, W]&gt; {
-    // Input: 8 i8 elements padded to 32 (32 bytes per packet).
-    // Truncation removes padding: only the 8 leading elements are written to DM.
-    // commit_in_size = 8 elements × 1 byte = 8 bytes.
+    // 8 valid i8 out of 32 padded; valid_size = 8.
     input.commit(0)
 }
 
 fn f32_non_padding_truncation&lt;'l, const T: Tu&gt;(
-    input: AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, K], m![W]&gt;,
+    input: ContractTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, K], m![W]&gt;,
 ) -&gt; DmTensor&lt;f32, m![1], m![1], m![1], m![M, K, W = 4]&gt; {
-    // Input: 8 f32 elements (32 bytes per packet).
-    // Truncation: only the first 4 elements are written to DM.
-    // commit_in_size = 4 elements × 4 bytes = 16 bytes.
+    // 4 valid f32 out of 8; valid_size = 4.
     input.commit(0)
 }
 
 fn bf16_truncation_with_transpose&lt;'l, const T: Tu&gt;(
     input: CastTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![M, K], m![N]&gt;,
 ) -&gt; DmTensor&lt;bf16, m![1], m![1], m![1], m![K, M, N = 8]&gt; {
-    // Input: 16 bf16 elements (32 bytes per packet).
-    // Truncation: only the leading 8 elements are written to DM.
-    // commit_in_size = 8 elements × 2 bytes = 16 bytes.
-    // Time is transposed: m![M, K] → m![K, M].
+    // 8 valid bf16 out of 16; valid_size = 8.
     input.commit(0)
 }
 
 fn i4_no_truncation_with_transpose&lt;'l, const T: Tu&gt;(
     input: CastTensor&lt;'l, T, i4, m![1], m![1], m![1], m![M, K], m![J]&gt;,
 ) -&gt; DmTensor&lt;i4, m![1], m![1], m![1], m![K, M, J]&gt; {
-    // Input: 64 i4 elements (32 bytes per packet).
-    // No truncation: the full 32-byte packet is written to DM.
-    // commit_in_size = 64 elements × 0.5 bytes = 32 bytes.
-    // Time is transposed: m![M, K] → m![K, M].
+    // No truncation; valid_size = 64.
     input.commit(0)
 }
 <span class="boring">}</span></code></pre>
-<blockquote class="blockquote-tag blockquote-tag-note">
-<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
-<p>The <code>commit_in_size</code> value is automatically derived by the compiler from the output tensor mapping.
-It is not manually specified by the user.</p>
-</blockquote>
-<!--### Type Casting
+<h3 id="type-casting"><a class="header" href="#type-casting">Type Casting</a></h3>
+<p>Type casting converts <code>f32</code> data to <code>bf16</code> format just before writing to DM.
+This reduces storage requirements and optionally applies a <code>ReLU</code> activation function during conversion.</p>
+<p>The <a href="../computing-tensors/cast-engine.html">Cast Engine</a> handles most type conversions in the Tensor Unit pipeline.
+Commit Engine type casting exists for one specific case: running main-context contraction in parallel with sub-context Vector Engine work.
+The Cast Engine sits on top of the Vector Engine and so occupies it during a conversion.
+If the main-context performed its <code>f32</code> → <code>bf16</code> conversion through the Cast Engine, the Vector Engine would be busy and the sub-context could not run in parallel.
+Routing the conversion through the Commit Engine instead leaves the Vector Engine free for the sub-context.
+Sub-context itself does not support type casting (consistent with the <a href="#commit-adapter">Commit Adapter</a> main/sub matrix above).</p>
+<h4 id="standard-conversion-f32-to-bf16"><a class="header" href="#standard-conversion-f32-to-bf16">Standard conversion (<code>f32</code> to <code>bf16</code>)</a></h4>
+<p>Standard conversion reduces precision from <code>f32</code> to <code>bf16</code> while preserving all values, including negative ones.</p>
+<pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![N = 4, C = 3, H = 4, W = 8];
 
-> **TODO** (jeongmin.park): Is this section still relevant? If type casting here is legacy, should it be removed or kept for completeness/backward compatibility? When is it still used?
-
-Type casting converts `f32` data to `bf16` format just before writing to DM.
-This reduces storage requirements and optionally applies a `ReLU` activation function during conversion.
-
-> [!NOTE]
-> The current compiler pipeline performs most type conversions in the Cast Engine upstream.
-> The Commit Engine's type casting and ReLU features are largely legacy functionality.
-
-#### Standard Conversion (`f32` to `bf16`)
-
-Standard conversion reduces precision from `f32` to `bf16` while preserving all values, including negative ones.
-
-> **TODO** (pedro.lobo): Current API does not support legacy type casting.
-> Remove `ignore` if we come up with an API for it, or delete the example if casting should only be handled in the Cast Engine.
-
-```rust,ignore
-# #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
-axes![N = 4, C = 3, H = 4, W = 8];
-
-fn cast_commit<'l, const T: Tu>(
-    input: AccumulationTensor<'l, T, f32, m![1], m![1], m![1], m![N, C, H], m![W]>,
-) -> DmTensor<bf16, m![1], m![1], m![1], m![N, C, H, W # 16]> {
+fn cast_commit&lt;'l, const T: Tu&gt;(
+    input: ContractTensor&lt;'l, T, f32, m![1], m![1], m![1], m![N, C, H], m![W]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![1], m![1], m![N, C, H, W # 16]&gt; {
     // Cast f32 to bf16 (values preserved), then commit to DM.
     // W = 8 f32 elements (32 bytes) → 8 bf16 elements padded to 16 (32 bytes).
     input.commit_cast(0)
-}
-```
+}</code></pre>
+<h4 id="conversion-with-relu-f32-to-bf16"><a class="header" href="#conversion-with-relu-f32-to-bf16">Conversion with ReLU (<code>f32</code> to <code>bf16</code>)</a></h4>
+<p>Conversion with ReLU applies the <code>ReLU</code> activation function during type conversion.
+Negative values are clamped to zero, while non-negative values are converted to <code>bf16</code> unchanged.</p>
+<pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![N = 4, C = 3, H = 4, W = 8];
 
-#### Conversion with ReLU (`f32` to `bf16`)
-
-Conversion with ReLU applies the `ReLU` activation function during type conversion.
-Negative values are clamped to zero, while non-negative values are converted to `bf16` unchanged.
-
-> **TODO** (pedro.lobo): Current API does not support legacy type casting.
-> Remove `ignore` if we come up with an API for it, or delete the example if casting should only be handled in the Cast Engine.
-
-```rust,ignore
-# #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
-axes![N = 4, C = 3, H = 4, W = 8];
-
-fn cast_relu_commit<'l, const T: Tu>(
-    input: AccumulationTensor<'l, T, f32, m![1], m![1], m![1], m![N, C, H], m![W]>,
-) -> DmTensor<bf16, m![1], m![1], m![1], m![N, C, H, W # 16]> {
+fn cast_relu_commit&lt;'l, const T: Tu&gt;(
+    input: ContractTensor&lt;'l, T, f32, m![1], m![1], m![1], m![N, C, H], m![W]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![1], m![1], m![N, C, H, W # 16]&gt; {
     // Cast f32 to bf16 with ReLU: negative values clamped to 0.0.
     // e.g., [-5.0, -0.1, 0.0, 3.7] → [0.0, 0.0, 0.0, 3.7]
     input.commit_cast_relu(0)
-}
-```-->
-<!--### Chunking
-
-Chunking splits a single input packet into multiple smaller writes.
-This occurs when the output DM layout has stride discontinuities within `Packet`, such as padding between rows.
-This disallows the packet from being written in a single contiguous operation.
-Chunking is implicitly performed by the [Sequencer](#sequencer) and is not manually specified by the user.
-
-The commit write size (`commit_in_size`) is determined by:
-
-$$
-\texttt{commit\_in\_size} = \gcd(\texttt{contiguous\_sram\_access\_size}, \texttt{ packet\_size})
-$$
-
-where `contiguous_sram_access_size` is the byte size of the innermost contiguous region in the output DM tensor, and `packet_size` is the input packet size in bytes.
-When `commit_in_size < packet_size`, the packet is chunked into `packet_size / commit_in_size` writes.
-
-```rust
-# #![feature(adt_const_params)]
-# extern crate furiosa_visa_std;
-# use furiosa_visa_std::prelude::*;
-axes![N = 3, R = 4, C = 8];
-
-fn chunking_commit<'l, const T: Tu>(
-    input: AccumulationTensor<'l, T, i8, m![1], m![1], m![1], m![N], m![R, C]>,
-) -> DmTensor<i8, m![1], m![1], m![1], m![N, R, C # 16]> {
-    // Input: R × C = 4 × 8 = 32 i8 elements = 32-byte packet.
-    // Output: m![N, R, C # 16] — each C row is 8 useful bytes, padded to 16 in DM.
-    //
-    // Compiler-generated configuration: [
-    //   N -> 3 : 64,   (64 == 4 * 16, contiguous)
-    //   R -> 4 : 16,   (16 != 8 * 1,  NOT contiguous — padding gap)
-    //   C -> 8 : 1
-    // ] : 8
-    // contiguous_sram_access_size = 8
-    // commit_in_size = gcd(contiguous_sram_access_size, packet_size)
-    //                = gcd(8, 32) = 8
-    //
-    // The 32-byte packet is split into 4 × 8-byte writes along the R axis:
-    // - Write 0: packet[ 0.. 8] → DM offset  0 (row R=0)
-    // - Write 1: packet[ 8..16] → DM offset 16 (row R=1, stride 16)
-    // - Write 2: packet[16..24] → DM offset 32 (row R=2)
-    // - Write 3: packet[24..32] → DM offset 48 (row R=3)
-    // Each write places 8 non-padded elements into a 16-element-padded row.
-    input.commit(0)
-}
-```
-
-Without padding (`Element = m![N, R, C]`), the layout is fully contiguous: `contiguous_sram_access_size = N × R × C = 96`, `gcd(96, 32) = 32`, and the entire packet is written in a single 32-byte operation with no chunking.
-
-> [!NOTE]
-> Chunking is automatically performed by the Commit Engine's sequencer.
-> The user does not manually specify the sequencer configuration.-->
+}</code></pre>
+<h3 id="valid-count-packing"><a class="header" href="#valid-count-packing">Valid Count Packing</a></h3>
+<p>Valid Count Packing selectively commits only valid tensor elements based on a runtime count, excluding padding or invalid data from the output buffer.
+When computation produces variable-length results (for example, filtering operations or dynamic sequence lengths), valid count packing ensures that only meaningful elements are written to DM, preventing wasted memory and simplifying downstream processing.
+The hardware uses a count parameter to determine how many leading elements from each packet should be committed, discarding the remainder.</p>
+<h3 id="generate-mode"><a class="header" href="#generate-mode">Generate Mode</a></h3>
+<p>Generate Mode writes a single <code>32</code>-bit value to a specified address via an <code>ITOS</code> (immediate-to-SRAM) command, bypassing the Tensor Unit execution pipeline.</p>
 <h2 id="commit-sequencer"><a class="header" href="#commit-sequencer">Commit Sequencer</a></h2>
-<p>The commit sequencer writes streams to DM across slices.
-Each slice within an aggregation executes its own sequencer.
-This mirrors how fetch sequencers pull data into Tensor Units.</p>
-<p>The <code>commit_size</code> value determines how many bytes are written per sequencer step.
-It is analogous to the Fetch Engine’s <a href="./fetch-engine.html#constraints"><code>fetch_size</code></a> and is also derived from <code>contiguous_sram_access_size</code>:</p>
-<p>$$
-\texttt{commit_size} = \gcd(\texttt{contiguous_sram_access_size_bytes},\ \texttt{commit_in_size})
-$$</p>
+<p><code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> are the hardware spatial parallelism dimensions.
+A Commit Sequencer runs independently in every slice, each writing to its own local DM partition.</p>
+<h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
 <ul>
-<li>When <code>commit_size == commit_in_size</code>, each time step produces a single DM write.</li>
-<li>When <code>commit_size &lt; commit_in_size</code>, the packet is split into <code>commit_in_size / commit_size</code> writes per time step.</li>
+<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="./sequencer.html#architecture">Sequencer</a>).</li>
+<li><strong>Address alignment</strong>: All sequencer strides must be multiples of 8 bytes.</li>
+<li><strong>Write unit alignment</strong>: <code>D[valid_size]</code> must be 8, 16, 24, or 32 bytes (see <a href="#truncating">Truncating</a>).</li>
 </ul>
-<p>The main context supports a <code>commit_size</code> of 8, 16, 24, or 32 bytes (see <a href="../computing-tensors/index.html#execution-contexts">main context</a>).
-The sub-context supports a <code>commit_size</code> of 8 bytes only (see <a href="../computing-tensors/index.html#execution-contexts">sub-context</a>).</p>
+<h3 id="multi-write-packet"><a class="header" href="#multi-write-packet">Multi-Write Packet</a></h3>
+<p>Writing a packet may require multiple hardware writes because packet axes may not be contiguous in DM.
+The per-write element count <code>write_size = gcd(valid_size, access_size)</code> is derived by the compiler, where <code>valid_size</code> comes from the <a href="#commit-adapter">Commit Adapter</a> and <code>access_size</code> from the <a href="./sequencer.html#access-size">Sequencer Architecture</a>.
+In the <a href="../computing-tensors/index.html#scheduling-execution-contexts">sub-context</a>, <code>D[write_size]</code> is fixed at 8 bytes.
+The total cycle count is <code>Time::SIZE * (valid_size / write_size)</code>.
+The division is always exact: in the main-context, <code>valid_size == write_size</code>, so each packet commits in a single cycle.
+In the sub-context, <code>write_size</code> is fixed at 8 bytes and <code>valid_size</code> is one of 8, 16, 24, or 32 bytes (from the truncating constraint), so <code>valid_size / write_size</code> is always 1, 2, 3, or 4.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 4, K = 2, W = 8, N = 16];
 
 // Compiler-generated configuration: [
@@ -416,9 +360,7 @@ The sub-context supports a <code>commit_size</code> of 8 bytes only (see <a href
 //   K -&gt; 2 : 8,   (8  == 8 * 1,  contiguous)
 //   W -&gt; 8 : 1    (packet dimension, contiguous)
 // ] : 8
-// contiguous_sram_access_size = (8 * 2 * 4) elements × 1 byte = 64 bytes
-// commit_in_size = 8 bytes (8 valid i8 elements out of 32-byte flit)
-// commit_size = gcd(64, 8) = 8
+// access_size = 64; valid_size = 8; write_size = gcd(64, 8) = 8; writes per packet = 1
 fn no_transpose&lt;'l, const T: Tu&gt;(
     input: CastTensor&lt;'l, T, i8, m![1], m![1], m![1], m![M, K], m![W # 32]&gt;,
 ) -&gt; DmTensor&lt;i8, m![1], m![1], m![1], m![M, K, W]&gt; {
@@ -430,11 +372,9 @@ fn no_transpose&lt;'l, const T: Tu&gt;(
 //   K -&gt; 2 : 32,  (32 != 8 * 1,  NOT contiguous)
 //   W -&gt; 8 : 1    (packet dimension, contiguous)
 // ] : 32
-// contiguous_sram_access_size = 8 elements × 4 bytes = 32 bytes
-// commit_in_size = 32 bytes
-// commit_size = gcd(32, 32) = 32
+// access_size = 8; valid_size = 8; write_size = gcd(8, 8) = 8; writes per packet = 1
 fn transpose&lt;'l, const T: Tu&gt;(
-    input: AccumulationTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, K], m![W]&gt;,
+    input: ContractTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, K], m![W]&gt;,
 ) -&gt; DmTensor&lt;f32, m![1], m![1], m![1], m![K, M, W]&gt; {
     input.commit(0)
 }
@@ -444,9 +384,7 @@ fn transpose&lt;'l, const T: Tu&gt;(
 //   K -&gt; 2 : 32,  (32 != 8 * 1,  NOT contiguous)
 //   N -&gt; 8 : 1    (truncated packet dimension, contiguous)
 // ] : 16
-// contiguous_sram_access_size = 8 elements × 2 bytes = 16 bytes
-// commit_in_size = 16 bytes (8 bf16 elements; truncation from 16 elements to 8)
-// commit_size = gcd(16, 16) = 16
+// access_size = 8; valid_size = 8 (truncated from 16); write_size = gcd(8, 8) = 8; writes per packet = 1
 fn transpose_with_truncation&lt;'l, const T: Tu&gt;(
     input: CastTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![M, K], m![N]&gt;,
 ) -&gt; DmTensor&lt;bf16, m![1], m![1], m![1], m![K, M, N = 8]&gt; {
@@ -458,9 +396,7 @@ fn transpose_with_truncation&lt;'l, const T: Tu&gt;(
 //   M -&gt; 4 : 16,  (16 != 8 * 1,  NOT contiguous)
 //   W -&gt; 8 : 1    (packet dimension, contiguous)
 // ] : 8
-// contiguous_sram_access_size = 8 elements × 1 byte = 8 bytes
-// commit_in_size = 32 bytes
-// commit_size = gcd(8, 32) = 8
+// access_size = 8; valid_size = 32; write_size = gcd(8, 32) = 8; writes per packet = 4
 //
 // The 32-byte packet is split into 4 × 8-byte writes along the M axis:
 // - Write 0: packet[ 0.. 8] → DM offset  0
@@ -474,80 +410,17 @@ fn padding_chunking&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">}</span></code></pre>
 <h3 id="slice-bitmap"><a class="header" href="#slice-bitmap">Slice Bitmap</a></h3>
-<p>The slice bitmap enables selective commits to specific slices.
-A <code>256</code>-bit mask controls which slices receive commit data, with each bit corresponding to one slice.</p>
-<p>For example:</p>
+<p>The slice bitmap is a 256-bit mask covering one full cluster (one bit per slice, 256 slices per cluster) that gates which slices receive commit data.
+For example, <code>bitmap = 00000000...01</code> enables commit only to slice <code>0</code>, and <code>bitmap = 11111111...10</code> enables commit to all slices except slice <code>0</code>.</p>
+<h3 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h3>
+<p>Three factors determine Commit Sequencer throughput.</p>
 <ul>
-<li><code>bitmap = 00000000...01</code> enables commit only to slice <code>0</code></li>
-<li><code>bitmap = 11111111...10</code> enables commit to all slices except slice <code>0</code></li>
+<li><strong>Sequential Addresses</strong>: Writing to sequential DM addresses within each slice enables parallel bank access (128 B/cycle per DMN, 256 B/cycle with DMN interleaving).
+Patterns that hit the same bank 64+ times consecutively trigger <a href="./memory-performance.html#bank-starvation">DM Bank Starvation</a>.</li>
+<li><strong>Spatial parallelism</strong>: Distributing writes across all active slices maximizes throughput.</li>
+<li><strong>Aligned writes</strong> (invariant): Partial bank writes never occur, because both the write address and the write unit are always 8-byte aligned.
+Sequencer strides are multiples of 8 bytes (see <a href="#constraints">Constraints</a>) and <code>D[valid_size]</code> is one of 8, 16, 24, or 32 bytes (see <a href="#truncating">Truncating</a>).</li>
 </ul>
-<p>This feature supports workflows that compute on specific slices and commit results only to those slices.</p>
-<h3 id="hardware-constraint"><a class="header" href="#hardware-constraint">Hardware Constraint</a></h3>
-<p>The commit sequencer must adhere to the same limits as fetch sequencers.
-See <a href="./fetch-engine.html#constraints">fetch sequencer constraints</a> for details.</p>
-<h2 id="sub-context-operations"><a class="header" href="#sub-context-operations">Sub-Context Operations</a></h2>
-<p>The sub-context Commit Engine provides specialized capabilities beyond the main context, though it supports fewer adapter stages.</p>
-<!-- > **TODO** (jeongmin.park): Please document this section. -->
-<ul>
-<li><strong>Valid Count Packing</strong>: This operation selectively commits only valid tensor elements based on a runtime count, excluding padding or invalid data from the output buffer. When computation produces variable-length results (for example, filtering operations or dynamic sequence lengths), valid count packing ensures that only meaningful elements are written to DM, preventing wasted memory and simplifying downstream processing. The hardware uses a count parameter to determine how many leading elements from each packet should be committed, discarding the remainder.</li>
-</ul>
-<!-- > **TODO**: Add detailed specification including count parameter format, interaction with slice bitmap, and performance characteristics of variable-length commits. -->
-<ul>
-<li><strong>Generate Mode</strong>: Writes a single <code>32</code>-bit value to a specified address via an <code>ITOS</code> (immediate-to-SRAM) command, bypassing the Tensor Unit execution pipeline.</li>
-</ul>
-<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
-<ul>
-<li>The input packet size must be 32 bytes.</li>
-<li>The <code>commit_in_size</code> must be 8, 16, 24, or 32 bytes.
-The <code>commit_size</code> must be 8, 16, 24, or 32 bytes for the <a href="../computing-tensors/index.html#execution-contexts">main context</a> and 8 bytes only for the <a href="../computing-tensors/index.html#execution-contexts">sub-context</a>. Note that the user only specifies the <code>Element</code> mapping. These constraints are internal to the compiler.</li>
-</ul>
-<!--- Type casting is available in the [main context](./computing-tensors.md#execution-contexts) only. The only supported type conversion is `f32` → `bf16`, with an optional `ReLU` activation. No other type conversions are supported.-->
-<ul>
-<li>The two contexts support different capabilities:</li>
-</ul>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Stage</th><th>Main context</th><th>Sub context</th></tr>
-</thead>
-<tbody>
-<tr><td>Truncating</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>Valid Count Packing</td><td>No</td><td>Yes</td></tr>
-<tr><td>Generate Mode</td><td>No</td><td>Yes</td></tr>
-</tbody>
-</table>
-</div>
-<!--| Chunking            | Yes                             | Yes         |-->
-<!--| Type Casting        | f32 → bf16 (with optional ReLU) | No          |-->
-<ul>
-<li>Sub-context commits can only follow <code>fetch</code>.
-These cannot be preceded by <a href="../computing-tensors/cast-engine.html">Cast Engine</a> or <a href="../computing-tensors/transpose-engine.html">Transpose Engine</a> operations.</li>
-<li>The commit sequencer shares the same limits as the fetch sequencer (see <a href="./fetch-engine.html#constraints">fetch sequencer constraints</a>).
-Additionally, all sequencer strides must be multiples of 8 bytes.</li>
-</ul>
-<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
-<p>Commit Engine performance directly affects overall computation throughput since DM writes must complete before subsequent operations can access the data.</p>
-<h3 id="write-bandwidth"><a class="header" href="#write-bandwidth">Write Bandwidth</a></h3>
-<p>The Commit Engine achieves maximum write bandwidth when:</p>
-<ul>
-<li><strong>Slice Interleaving</strong>: Distributing writes across all active slices (or the subset specified by the slice bitmap) avoids bottlenecks on individual slices.
-The RNGD chip has 64 slices per PE. The 256-bit bitmap accommodates up to 4 PEs (4 × 64 = 256).</li>
-<li><strong>Sequential Addresses</strong>: Writing to sequential DM addresses within each slice enables parallel bank access (128 B/cycle per DMN, 256 B/cycle with DMN interleaving).</li>
-<li><strong>Aligned Packet Sizes</strong>: Using 8-byte aligned packet sizes (8, 16, 24, 32 bytes) avoids partial bank writes.</li>
-</ul>
-<p>For detailed memory performance characteristics, see <a href="./memory-performance.html">Memory Performance</a>.</p>
-<h3 id="adapter-stage-costs"><a class="header" href="#adapter-stage-costs">Adapter Stage Costs</a></h3>
-<p>Each adapter stage adds minimal latency:</p>
-<ul>
-<li><strong>Truncating</strong>: Nearly zero cost (simple data width reduction)</li>
-</ul>
-<!--- **Chunking**: Increases time proportionally (splitting one 32-byte packet into four 8-byte packets takes 4× longer)-->
-<!--- **Type Casting**: 1-2 cycle latency for `f32` to `bf16` conversion-->
-<h3 id="bank-starvation-prevention"><a class="header" href="#bank-starvation-prevention">Bank Starvation Prevention</a></h3>
-<p>The Commit Engine shares DM bank access with the <a href="./fetch-engine.html">Fetch Engine</a> and <a href="./dma-engine.html">DMA Engine</a>.
-To prevent bank starvation and catastrophic NoC timeouts, ensure commit patterns avoid <code>64</code>+ consecutive accesses to the same bank.
-The compiler automatically enforces this constraint by treating violating operations as if they occupy DMA context, preventing concurrent DMA operations.</p>
-<p>See <a href="./memory-performance.html#bank-starvation">DM Bank Starvation</a> for details.</p>
 
                     </main>
 
@@ -593,11 +466,11 @@ The compiler automatically enforces this constraint by treating violating operat
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["LexerMode","Mapping"],"struct":["IndexAssignment","IndexParser","Lexer","MappingParser"]};

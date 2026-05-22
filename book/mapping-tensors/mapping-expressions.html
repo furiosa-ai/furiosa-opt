@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,30 +177,36 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="mapping-expressions"><a class="header" href="#mapping-expressions">Mapping Expressions</a></h1>
-<p>A mapping expression defines where each tensor element sits in a buffer.
-This page covers the available mapping constructors and the equivalences between mappings.</p>
-<p>Consider a tensor with <code>axes![A = 8, B = 512]</code>.
-The mapping expression <code>m![A, B]</code> places \(A\) as the major axis and \(B\) as the minor axis, requiring a buffer of <code>8 × 512 = 4096</code> elements.
-Buffer position 0 holds \(\{A=0, B=0\}\), position 1 holds \(\{A=0, B=1\}\), and so on through all 512 elements where \(A=0\) before moving to \(A=1\).</p>
+<p>A mapping expression is a Rust type that encodes a mapping.
+This page defines its constructors and equivalence rules.</p>
 <h2 id="axis-sizes"><a class="header" href="#axis-sizes">Axis Sizes</a></h2>
 <p>The <code>axes!</code> macro declares axis identifiers and their sizes.
-Throughout this section, assume the following axis sizes.</p>
+The following declaration applies throughout this section:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, B = 512];
 <span class="boring">}</span></code></pre>
 <h2 id="mapping-interface"><a class="header" href="#mapping-interface">Mapping Interface</a></h2>
-<p>A mapping expression like <code>m![H, W]</code> is a Rust type that describes how tensor indices map to buffer positions.
-Every mapping expression implements the <code>M</code> trait, which provides the buffer size and a buffer-index-to-tensor-index mapping function:</p>
+<p>A mapping expression like <code>m![H, W]</code> is a Rust type that assigns each tensor index to a buffer position.
+Every mapping expression implements the <code>M</code> trait, which provides the buffer size and a function from buffer positions to tensor indices:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// Inside `furiosa_visa_std::prelude`...
-<span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span>// Inside `furiosa_opt_std::prelude`...
+<span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">use std::fmt::Debug;
-</span>
+</span>pub trait M: Debug + Clone {
+    /// The computed size for the given shape.
+    const SIZE: usize;
+
+    /// Converts the mapping expression type into a value.
+    fn to_value() -&gt; Mapping;
+
+    /// Converts a buffer index to a tensor index, returning `None` if out-of-bounds.
+    fn map(i: usize) -&gt; Option&lt;Index&gt;;
+}
 
 /// Tensor index: a map from axis identifiers to coordinate values.
 pub struct Index { /* ... */ }
@@ -212,24 +218,26 @@ macro_rules! i {
 </span>    /* ... */
 }
 <span class="boring">}</span></code></pre>
-<p>A mapping defines what mathematical tensor a buffer represents.
-For example, <code>HostTensor&lt;bf16, m![A, B]&gt;</code> denotes a host memory buffer containing <code>m![A, B]::SIZE</code> elements of <code>bf16</code> data, which is 4096 elements.
-We say a buffer <em>holds</em> a tensor \(T\) when:</p>
+<h3 id="usage-example-host-tensor"><a class="header" href="#usage-example-host-tensor">Usage Example: Host Tensor</a></h3>
+<p>The simplest concrete type built on the <code>M</code> trait is <code>HostTensor&lt;D, E&gt;</code>: a host memory buffer of element type <code>D</code> whose layout is fully determined by mapping <code>E</code>.
+<code>E</code> determines both the buffer size (<code>E::SIZE</code>) and the correspondence from buffer positions to tensor indices (<code>E::map</code>).
+<code>HostTensor&lt;bf16, m![A, B]&gt;</code> contains 4,096 elements of <code>bf16</code> data.
+A <code>HostTensor&lt;D, E&gt;</code> <em>holds</em> a tensor \(T\) when:</p>
 <ul>
-<li>For every buffer index <code>i</code> and tensor index <code>ti</code>,</li>
-<li>if <code>m![A, B]::map(i) = Some(ti)</code>,</li>
-<li>then the <code>i</code>-th element of the buffer stores the value of tensor \(T\) at index <code>ti</code>.</li>
+<li>for every buffer index <code>i</code> and tensor index <code>ti</code> where <code>E::map(i) = Some(ti)</code>,</li>
+<li>the <code>i</code>-th element stores the value of tensor \(T\) at index <code>ti</code>.</li>
 </ul>
+<p>Device tensors such as <code>HbmTensor</code> and <code>DmTensor</code> have more complex layouts spanning multiple mapping expressions; see <a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> for details.</p>
 <h2 id="constructors"><a class="header" href="#constructors">Constructors</a></h2>
-<p>Mapping expressions are built by composing small constructors, each of which transforms or combines simpler mappings.
+<p>Mapping expressions, including the layout <code>E</code> in <code>HostTensor&lt;D, E&gt;</code>, are built by composing small constructors, each of which transforms or combines simpler mappings.
 These expressions use arithmetic-like operators (<code>/</code>, <code>%</code>, and <code>#</code> for padding) to concisely define the mapping between tensor and linear buffer indices.</p>
 <h3 id="symbol"><a class="header" href="#symbol">Symbol</a></h3>
 <p>A symbol is a single uppercase letter whose size comes from the shape declaration.
-The mapping <code>m![A]</code> maps 8 buffer indices linearly to tensor indices along the axis: buffer index <code>0</code> holds <code>i![]</code> (empty tensor index), index <code>1</code> holds <code>i![A: 1]</code>, index <code>2</code> holds <code>i![A: 2]</code>, and so on:</p>
+The mapping <code>m![A]</code> maps 8 buffer indices linearly to tensor indices along the axis:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span><span class="boring">axes![A = 8];
 </span><span class="boring">
@@ -237,14 +245,16 @@ The mapping <code>m![A]</code> maps 8 buffer indices linearly to tensor indices 
 
 #[test]
 fn test_symbol() {
+    assert_eq!(E::map(0), Some(i![A: 0]));
+    assert_eq!(E::map(1), Some(i![A: 1]));
+    assert_eq!(E::map(2), Some(i![A: 2]));
     for i in 0..E::SIZE {
         assert_eq!(E::map(i), Some(i![A: i]));
     }
     assert_eq!(E::map(E::SIZE), None);
 }
 <span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">// Trait implementation
-impl&lt;S: AxisName&gt; M for Symbol&lt;S&gt; {
+<pre><code class="language-rust ignore">impl&lt;S: AxisName&gt; M for Symbol&lt;S&gt; {
     const SIZE: usize = S::SIZE;
 
     fn to_value() -&gt; Mapping {
@@ -255,7 +265,7 @@ impl&lt;S: AxisName&gt; M for Symbol&lt;S&gt; {
     }
 
     fn map(i: usize) -&gt; Option&lt;Index&gt; {
-        if i &lt; S::SIZE {
+        (i &lt; S::SIZE).then(|| {
             let mut index = Index::new();
             Index::add_term(
                 &amp;mut index,
@@ -269,28 +279,23 @@ impl&lt;S: AxisName&gt; M for Symbol&lt;S&gt; {
                 },
                 i,
             );
-            Some(index)
-        } else {
-            None
-        }
+            index
+        })
     }
 }</code></pre>
 <blockquote class="blockquote-tag blockquote-tag-note">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
-<p>For every symbol <code>A</code>, the 0’th index <code>i![A: 0]</code> corresponds to the empty tensor index <code>i![]</code>.</p>
+<p>For every symbol <code>A</code>, the zeroth index <code>i![A: 0]</code> is equivalent to the empty tensor index <code>i![]</code>.</p>
 </blockquote>
 <h3 id="pair"><a class="header" href="#pair">Pair</a></h3>
-<p>One way to store a 2D tensor with shape \(\{A=8, B=512\}\) is the pair mapping <code>m![A, B]</code>.
-This creates a buffer of 4096 elements where <code>A</code> is the major axis and <code>B</code> is the minor axis.
-The first 512 elements hold <code>A = 0</code> and the next 512 elements hold <code>A = 1</code>.
-Buffer index <code>519</code> holds <code>i![A: 1, B: 7]</code> since <code>519 == 512 * 1 + 7</code>.</p>
-<p>The mapping <code>Pair&lt;L, R&gt;</code> maps the Cartesian product of two spaces into a linear buffer where <code>L</code> is the major dimension and <code>R</code> is the minor dimension.
+<p>The pair mapping <code>m![A, B]</code> stores a 2D tensor with shape \(\{A=8, B=512\}\) as a buffer of 4,096 elements.
+The mapping <code>Pair&lt;L, R&gt;</code> maps the Cartesian product of two spaces into a linear buffer where <code>L</code> is the major dimension and <code>R</code> is the minor dimension.
 The size is <code>L::SIZE * R::SIZE</code>, and the mapping uses floor division and modulo to decompose indices.
 <code>m![A, B, C, D]</code> expands to <code>Pair&lt;A, Pair&lt;B, Pair&lt;C, D&gt;&gt;&gt;</code> and is right-associative.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span><span class="boring">axes![A = 8, B = 512];
 </span><span class="boring">
@@ -298,15 +303,18 @@ The size is <code>L::SIZE * R::SIZE</code>, and the mapping uses floor division 
 
 #[test]
 fn test_pair() {
+    // First 512 elements hold A=0, next 512 hold A=1
+    assert_eq!(E::map(0),   Some(i![A: 0, B: 0]));
+    assert_eq!(E::map(511), Some(i![A: 0, B: 511]));
+    assert_eq!(E::map(512), Some(i![A: 1, B: 0]));
+    assert_eq!(E::map(519), Some(i![A: 1, B: 7])); // 519 == 512 * 1 + 7
     for i in 0..E::SIZE {
         assert_eq!(E::map(i), Some(i![A: i / &lt;m![B]&gt;::SIZE, B: i % &lt;m![B]&gt;::SIZE]));
     }
-    assert_eq!(E::map(2 * &lt;m![B]&gt;::SIZE + 7), Some(i![A: 2, B: 7]));
     assert_eq!(E::map(E::SIZE), None);
 }
 <span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">// Trait implementation
-impl&lt;L, R&gt; M for Pair&lt;L, R&gt;
+<pre><code class="language-rust ignore">impl&lt;L, R&gt; M for Pair&lt;L, R&gt;
 where
     L: M,
     R: M,
@@ -332,8 +340,8 @@ where
 It serves as the identity element for <code>Pair</code>: <code>m![1, A]</code> and <code>m![A, 1]</code> are both equivalent to <code>m![A]</code>.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span>type E = m![1]; // Identity
 
@@ -343,8 +351,7 @@ fn test_identity() {
     assert_eq!(E::map(1), None);
 }
 <span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">// Trait implementation
-impl M for Identity {
+<pre><code class="language-rust ignore">impl M for Identity {
     const SIZE: usize = 1;
 
     fn to_value() -&gt; Mapping {
@@ -362,8 +369,8 @@ With <code>axes![C = 13, D = 61]</code>, <code>m![C, D]</code> creates misaligne
 <code>m![C, D # 64]</code> fixes this by aligning each row to 64-byte boundaries, using 3 extra elements per row.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span>axes![C = 13, D = 61];
 
@@ -379,8 +386,7 @@ fn test_padding() {
     assert_eq!(E::map(64), Some(i![C: 1, D: 0]));
 }
 <span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">// Trait implementation
-impl&lt;L, const SIZE: usize&gt; M for Padding&lt;L, SIZE&gt;
+<pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize&gt; M for Padding&lt;L, SIZE&gt;
 where
     L: M,
 {
@@ -399,12 +405,13 @@ where
     }
 }</code></pre>
 <h3 id="resize"><a class="header" href="#resize">Resize</a></h3>
-<p>Resize constrains a mapping to a smaller logical size by truncating indices beyond the new size, discarding elements outside that range. Unlike padding, which expands the buffer, Resize shrinks the logical view.
+<p>Resize constrains a mapping to a smaller logical size by truncating indices beyond the new size, discarding elements outside that range.
+Unlike padding, which expands the buffer, Resize shrinks the logical view.
 The mapping <code>m![D = 2]</code> takes only the first 2 elements of axis <code>D</code>, producing indices <code>D = 0</code> and <code>D = 1</code>.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span>axes![C = 2, D = 3];
 type E = m![C, D = 2]; // Pair&lt;m![C], Resize&lt;m![D], 2&gt;&gt;
@@ -418,8 +425,7 @@ fn test_resize() {
     assert_eq!(E::map(4), None);
 }
 <span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">// Trait implementation
-impl&lt;L, const SIZE: usize&gt; M for Resize&lt;L, SIZE&gt;
+<pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize&gt; M for Resize&lt;L, SIZE&gt;
 where
     L: M,
 {
@@ -436,12 +442,13 @@ where
         if i &lt; SIZE { L::map(i) } else { None }
     }
 }</code></pre>
+<h3 id="tiling"><a class="header" href="#tiling">Tiling</a></h3>
 <p>Tiling is implemented through <em>indexed views</em>, pure metadata transformations without data copies.
 The <code>.tile()</code> method extracts a tile by resizing one dimension to the tile size and offsetting into the buffer.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span><span class="boring">axes![A = 8, B = 512];
 </span><span class="boring">
@@ -456,18 +463,20 @@ let tile23 = view.tile::&lt;m![B], 2, m![A, B = 2 # 4]&gt;(2); // HbmTensorView:
 <ul>
 <li>The <em>tile dimension</em> <code>m![B]</code> specifies which dimension to divide along.</li>
 <li>The <em>tile size</em> <code>2</code> specifies the number of elements per tile.</li>
-<li>The <em>tile mapping</em> <code>m![A, B = 2 # 4]</code> defines the resulting view’s mapping. The mapping <code>B = 2 # 4</code> signifies that dimension <code>B</code> has a logical size of <code>2</code> within the view but exists within a physical footprint of <code>4</code>. This is essential for preserving the original memory layout and stride calculations.</li>
-<li>The <em>starting index</em> specifies which tile to extract. Passing <code>0</code> captures the range <code>0..2</code> for <code>tile01</code>, while passing <code>2</code> captures the range <code>2..4</code> for <code>tile23</code>.</li>
+<li>The <em>tile mapping</em> <code>m![A, B = 2 # 4]</code> defines the resulting view’s mapping.
+The mapping <code>B = 2 # 4</code> signifies that dimension <code>B</code> has a logical size of <code>2</code> within the view but exists within a physical footprint of <code>4</code>.
+Without <code># 4</code>, the stride between tiles would be 2 instead of 4, causing the view to read from wrong buffer positions.</li>
+<li>The <em>starting index</em> specifies which tile to extract.
+Passing <code>0</code> captures the range <code>0..2</code> for <code>tile01</code>, while passing <code>2</code> captures the range <code>2..4</code> for <code>tile23</code>.</li>
 </ul>
 <h3 id="stride-and-modulo"><a class="header" href="#stride-and-modulo">Stride and Modulo</a></h3>
 <p>Stride (<code>/</code>) and modulo (<code>%</code>) decompose a single dimension into two: the outer (block index) and the inner (position within block).
 Consider the 512-element axis <code>B</code> divided into 8 blocks of 64 elements each.
-The mapping <code>m![B / 64, B % 64]</code> creates an 8 × 64 grid where the first dimension selects which block and the second dimension selects the position within that block.
-Buffer index <code>130</code> corresponds to block <code>2</code> at position <code>2</code> within that block, giving tensor index <code>B = 64 × 2 + 2 = 130</code>, equal to the flat-buffer result (since <code>m![B / 64, B % 64]</code> is equivalent to <code>m![B]</code>):</p>
+The mapping <code>m![B / 64, B % 64]</code> creates an 8 × 64 grid where the first dimension selects which block and the second dimension selects the position within that block:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">axes![A = 8, B = 512];
 </span>type D1 = m![B / 64]; // stride with size 8
 type D2 = m![B % 64]; // modulo with size 64
@@ -476,6 +485,9 @@ type E = m![B / 64, B % 64]; // equivalent to `m![B]`
 
 #[test]
 fn test_stride_modulo() {
+    assert_eq!(E::map(130), Some(i![B / 64: 2, B % 64: 2])); // block 2, position 2: B = 64*2 + 2 = 130
+    assert_eq!(E::map(130), &lt;m![B]&gt;::map(130));               // same result as flat m![B]
+
     for i in 0..8 {
         assert_eq!(D1::map(i), Some(i![B / 64: i]));
     }
@@ -489,16 +501,15 @@ fn test_stride_modulo() {
     for i in 0..8 {
         for j in 0..64 {
             assert_eq!(
-                E::map(64 * i + j),     // i![B / 64: i, B % 64: j]
-                &lt;m![B]&gt;::map(64 * i + j), // equivalent to above
+                E::map(64 * i + j),
+                &lt;m![B]&gt;::map(64 * i + j),
             );
         }
     }
     assert_eq!(E::map(512), None);
 }
 <span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">// Trait implementation
-impl&lt;L, const SIZE: usize&gt; M for Stride&lt;L, SIZE&gt;
+<pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize&gt; M for Stride&lt;L, SIZE&gt;
 where
     L: M,
 {
@@ -539,9 +550,9 @@ where
         if i &lt; Self::SIZE { L::map(i % L::SIZE) } else { None }
     }
 }</code></pre>
-<p>Together, <code>m![B / 64, B % 64]</code> transforms axis <code>B</code> into an 8 × 64 grid.
-The mapping is equivalent to <code>m![B]</code> but expresses a different logical view of the same data, revealing block structure hidden in the flat representation.</p>
-<p>Stride and modulo mappings can be visualized in tabular form. Consider the mapping <code>m![B / 4, B % 4]</code> with <code>B::SIZE = 16</code>. The following table shows how buffer indices are arranged: each row corresponds to a specific index of <code>B / 4</code> (the stride axis), and each column corresponds to an index of <code>B % 4</code> (the modulo axis):</p>
+<p>Stride and modulo mappings can be visualized in tabular form.
+Consider the mapping <code>m![B / 4, B % 4]</code> with <code>B::SIZE = 16</code>.
+The following table shows how buffer indices are arranged: each row corresponds to a specific index of <code>B / 4</code> (the stride axis), and each column corresponds to an index of <code>B % 4</code> (the modulo axis):</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -555,9 +566,6 @@ The mapping is equivalent to <code>m![B]</code> but expresses a different logica
 </tbody>
 </table>
 </div>
-<p>Stride and modulo factorize a single mapping into multiple dimensions.
-The expression <code>m![B / n]</code> creates an outer dimension indexing blocks of size <code>n</code>.
-The expression <code>m![B % n]</code> creates an inner dimension indexing positions within each block.</p>
 <p>Modulo differs from resize in how it handles buffer size:</p>
 <ul>
 <li>Resize shrinks the buffer by truncating indices beyond the new size.</li>
@@ -567,8 +575,8 @@ The expression <code>m![B % n]</code> creates an inner dimension indexing positi
 The following example splits <code>B</code> into three dimensions where the buffer’s bit layout differs from that of the tensor index.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">axes![A = 8, B = 512];
 </span>// B's bits: 6 - 8,  0 - 4,          5
 // Values:   0 - 7, 0 - 31,      0 - 1
@@ -576,6 +584,14 @@ type E = m![B / 64, B % 32, B / 32 % 2];
 
 #[test]
 fn test_nested_stride() {
+    assert_eq!(E::map(67), Some(i![B: 97])); // 67 = 64*1 + 2*1 + 1 (i=1,j=1,k=1) → B = 64*1 + 1 + 32*1 = 97
+    // Verify B=97 round-trips: 97/64=1, 97%32=1, (97/32)%2=1
+    assert_eq!(97 / 64, 1);
+    assert_eq!(97 % 32, 1);
+    assert_eq!((97 / 32) % 2, 1);
+
+    // buffer index: 64 * i + 2 * j + k (i = block, j = position within block, k = sub-block)
+    // tensor index B: 64 * i + j + 32 * k (rearranges bit positions)
     for i in 0..8 {
         for j in 0..32 {
             for k in 0..2 {
@@ -589,14 +605,6 @@ fn test_nested_stride() {
     assert_eq!(E::map(512), None);
 }
 <span class="boring">}</span></code></pre>
-<p>The buffer index decomposes as <code>64 * i + 2 * j + k</code> where <code>i</code> selects the block, <code>j</code> selects position within the block, and <code>k</code> selects the sub-block.
-The tensor index <code>B</code> reconstructs as <code>64 * i + j + 32 * k</code>, which rearranges the bit positions.</p>
-<p>For example, buffer index <code>67</code> maps to <code>B = 97</code>:</p>
-<ul>
-<li>Buffer <code>67 = 64 * 1 + 2 * 1 + 1</code> gives <code>i=1, j=1, k=1</code></li>
-<li>Tensor <code>B = 64 * 1 + 1 + 32 * 1 = 97</code></li>
-<li>Verify: <code>97 / 64 = 1</code>, <code>97 % 32 = 1</code>, <code>(97 / 32) % 2 = 1</code></li>
-</ul>
 <p>This kind of bit rearrangement maps naturally to hardware memory layouts where address bits are reordered for bank interleaving or cache efficiency.
 In binary, this rearranges bit positions: buffer <code>001_00001_1</code> becomes <code>B = 001_1_00001</code>.
 The buffer groups bits as <code>[8:6]_[5:1]_[0]</code> while <code>B</code> groups them as <code>[8:6]_[5]_[4:0]</code>.</p>
@@ -604,8 +612,8 @@ The buffer groups bits as <code>[8:6]_[5:1]_[0]</code> while <code>B</code> grou
 The following example tiles by block using <code>m![B / 32]</code> and creates overlapping tiles:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">axes![A = 8, B = 512];
 </span>let tensor = unsafe { HbmTensor::&lt;bf16, m![1], m![A, B]&gt;::from_addr(0) };
 for i in 0..15 {
@@ -615,7 +623,7 @@ for i in 0..15 {
 <p>With <code>B = 512</code>, the dimension <code>B / 32</code> has 16 blocks numbered 0-15.
 Each tile takes 2 consecutive blocks starting at index <code>i</code>.
 Tile 0 covers blocks <code>{0, 1}</code>, tile 1 covers blocks <code>{1, 2}</code>, and so on through tile 14 covering blocks <code>{14, 15}</code>.
-These tiles overlap because consecutive tiles share one block: tiles 0 and 1 both include block 1.</p>
+These tiles overlap because consecutive tiles share one block.</p>
 <p>The tile mapping <code>B / 32 = 2</code> resizes the block dimension to 2 since each tile contains exactly 2 blocks.
 When tiling with a single block, <code>B / 32 = 1</code> simplifies to the identity <code>m![1]</code> since the dimension has only one value.</p>
 <h3 id="escape"><a class="header" href="#escape">Escape</a></h3>
@@ -623,22 +631,29 @@ When tiling with a single block, <code>B / 32 = 1</code> simplifies to the ident
 With separate mappings <code>L = m![A]</code> and <code>R = m![B]</code>, combining them as <code>m![{ L }, { R }]</code> produces the same result as <code>m![A, B]</code>:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">axes![A = 8, B = 512];
 </span>type L = m![A];
 type R = m![B];
 type E = m![{ L }, { R }]; // equivalent to `m![A, B]`
+
+#[test]
+fn test_escape() {
+    for i in 0..E::SIZE {
+        assert_eq!(E::map(i), &lt;m![A, B]&gt;::map(i));
+    }
+}
 <span class="boring">}</span></code></pre>
 <p>This escape syntax breaks down complex mappings into named, reusable components.</p>
 <h3 id="advanced-constructors"><a class="header" href="#advanced-constructors">Advanced Constructors</a></h3>
-<!-- > **TODO** (jeongmin.park): Need input on how to write this section. -->
-<h4 id="skewed-axis"><a class="header" href="#skewed-axis">Skewed Axis</a></h4>
+<h4 id="skewed-axis"><a class="header" href="#skewed-axis">Skewed axis</a></h4>
 <p>A skewed axis creates a diagonal access pattern across two dimensions.
 Skewed axes introduce derived axis labels defined by arithmetic differences between existing axes; for example, <code>B' = B - A</code> defines a new axis <code>B'</code> whose coordinate at any point equals <code>B</code> minus <code>A</code>.
 Algorithms that process data along diagonals use this pattern, such as certain wavefront computations.</p>
 <p>The expression <code>m![A, B' = 4]</code> with <code>B' = B - A</code> creates a mapping where each row is shifted relative to the previous one.
-The <code>=</code> operator specifies the logical size after skewing. The result wraps around using modular arithmetic.</p>
+The <code>=</code> operator specifies the logical size after skewing.
+The result wraps around using modular arithmetic.</p>
 <p>For example, with <code>axes![A = 4, B = 4]</code> and <code>B' = B - A</code>:</p>
 <div class="table-wrapper">
 <table>
@@ -658,15 +673,16 @@ The <code>=</code> operator specifies the logical size after skewing. The result
 </table>
 </div>
 <p>When <code>A = 1</code> and <code>B' = 3</code>, the original <code>B</code> coordinate wraps to <code>0</code> via modular arithmetic since <code>B = (B' + A) % 4 = (3 + 1) % 4 = 0</code>.</p>
-<h4 id="indirect-sequencing"><a class="header" href="#indirect-sequencing">Indirect Sequencing</a></h4>
-<blockquote>
-<p><strong>TODO</strong>: Document indirect sequencing patterns for non-contiguous memory access. This advanced constructor provides index-based memory access where the sequence of buffer positions is determined by an indirection table rather than a mathematical formula.</p>
-</blockquote>
-<h4 id="sliding-linear-combination"><a class="header" href="#sliding-linear-combination">Sliding (Linear Combination)</a></h4>
+<h4 id="indirect-sequencing"><a class="header" href="#indirect-sequencing">Indirect sequencing</a></h4>
+<h4 id="sliding-linear-combination"><a class="header" href="#sliding-linear-combination">Sliding (linear combination)</a></h4>
 <blockquote class="blockquote-tag blockquote-tag-note">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
-<p>Linear combination expressions <code>$(e1:n1, ..., ed:nd)</code> combine multiple dimensions with specified strides. Formal definition: <code>size_S($(e1:n1, ..., ed:nd)) = 1 + sum_k((size_S(ek) - 1) * nk)</code>. The mapping <code>S, $(e1:n1, ..., ed:nd) |- si ~ ti</code> holds if there exist <code>si1...sid, ti1...tid</code> such that for all <code>k</code>: <code>S, ek |- sik ~ tik</code>, <code>si = sum_k(sik * nk)</code>, and <code>ti = sum_k(tik * nk)</code>.</p>
-<p>Linear combinations can encode outer sum: <code>e1 * e2</code> is equivalent to <code>$(e1 : size_S(e2), e2 : 1)</code>. However, outer sum is preferred because it’s more resilient to axis reordering. Changing <code>e1 * e2</code> to <code>e2 * e1</code> doesn’t require manual stride updates.</p>
+<p>Linear combination expressions <code>$(e1:n1, ..., ed:nd)</code> combine multiple dimensions with specified strides.
+Formal definition: <code>size_S($(e1:n1, ..., ed:nd)) = 1 + sum_k((size_S(ek) - 1) * nk)</code>.
+The mapping <code>S, $(e1:n1, ..., ed:nd) |- si ~ ti</code> holds if there exist <code>si1...sid, ti1...tid</code> such that for all <code>k</code>: <code>S, ek |- sik ~ tik</code>, <code>si = sum_k(sik * nk)</code>, and <code>ti = sum_k(tik * nk)</code>.</p>
+<p>Linear combinations can encode outer sum: <code>e1 * e2</code> is equivalent to <code>$(e1 : size_S(e2), e2 : 1)</code>.
+However, outer sum is preferred because it’s more resilient to axis reordering.
+Changing <code>e1 * e2</code> to <code>e2 * e1</code> doesn’t require manual stride updates.</p>
 </blockquote>
 <p>Sliding operations access overlapping data blocks, essential for convolutional neural networks.
 Consider a buffer of 9 elements representing a tensor with shape \(\{N=5, F=3\}\) where each row is a 3-element slice that slides one element at a time.
@@ -684,31 +700,27 @@ N=4 &amp; 4 &amp; 6 &amp; 8 \\
 $$</p>
 <blockquote class="blockquote-tag blockquote-tag-note">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
-<p>In this sliding pattern, a single space index can map to multiple tensor indices. For example, space index <code>4</code> maps to <code>{4_N}</code>, <code>{2_N, 1_F}</code>, and <code>{2_F}</code> simultaneously. This illustrates the non-one-to-one nature of <code>(S, e).maps(si, ti)</code>.</p>
+<p>In this sliding pattern, a single space index can map to multiple tensor indices.
+For example, space index <code>4</code> maps to <code>{4_N}</code>, <code>{2_N, 1_F}</code>, and <code>{2_F}</code> simultaneously.
+This illustrates the non-one-to-one nature of <code>(S, e).maps(si, ti)</code>.</p>
 </blockquote>
 <p>This can be expressed using a linear combination expression where the <code>N</code> axis has stride <code>1</code> and the <code>F</code> axis has stride <code>2</code>, yielding a total size of <code>1 + (5-1)*1 + (3-1)*2 = 9</code>.</p>
-<!-- > **TODO**: Define the Rust pseudocode syntax for linear combination expressions. -->
-<!-- > -->
-<!-- > Expected syntax format: -->
-<!-- > ```text -->
-<!-- > // Linear combination with specified strides -->
-<!-- > m![$( N: 1, F: 2 )] -->
-<!-- > // or similar notation to express: $(e1:n1, ..., ed:nd) -->
-<!-- > ``` -->
 <h2 id="equivalent-mapping"><a class="header" href="#equivalent-mapping">Equivalent Mapping</a></h2>
-<p>Mappings <code>E1</code> and <code>E2</code> are <em>equivalent</em> when:</p>
+<p>Different constructor combinations can produce the same mapping.
+Specifically, mappings <code>E1</code> and <code>E2</code> are <em>equivalent</em> when:</p>
 <ul>
-<li><code>E1::SIZE == E2::SIZE</code></li>
-<li>For every <code>i</code>, <code>E1::map(i) == E2::map(i)</code></li>
+<li><code>E1::SIZE == E2::SIZE</code>, and</li>
+<li>For every <code>i</code>, <code>E1::map(i) == E2::map(i)</code>.</li>
 </ul>
-<p>The equivalence relation is reflexive, symmetric, and transitive. Examples:</p>
+<p>The equivalence relation is reflexive, symmetric, and transitive.
+The following identities capture common equivalences:</p>
 <ul>
-<li>Identity of pairs: for every <code>E</code>, <code>E</code> is equivalent both to <code>m![{ E }, 1]</code> and <code>m![1, { E }]</code>.</li>
-<li>Stride-modulo decomposition: for every <code>E</code> whose size <code>E::SIZE</code> is divisible by <code>n</code>, <code>E</code> and <code>m![{ E } / n, { E } % n]</code> are equivalent.</li>
-<li>Pair projection: for every <code>A</code> and <code>B</code>, <code>m![[{ A }, { B }] / B::SIZE]</code> is equivalent to <code>m![A]</code> and <code>m![[{ A }, { B }] % B::SIZE]</code> is equivalent to <code>m![B]</code>.</li>
-<li>Associativity of pairs: for every <code>E1</code>, <code>E2</code>, <code>E3</code>, <code>m![{ E1 }, { E2 }, { E3 }]</code>, <code>m![[{ E1 }, { E2 }], { E3 }]</code>, and <code>m![{ E1 }, [{ E2 }, { E3 }]]</code> are equivalent.</li>
-<li>Idempotent operations: for every <code>E</code>, <code>E</code> is equivalent to <code>m![{ E } / 1]</code>, to <code>m![{ E } # E::SIZE]</code>, and to <code>m![{ E } = E::SIZE]</code>.</li>
-<li>Modulo by 1: For every <code>E</code>, <code>m![E % 1]</code> is equivalent to the identity mapping <code>m![1]</code>.</li>
+<li><strong>Identity of pairs</strong>: for every <code>E</code>, <code>E</code> is equivalent both to <code>m![{ E }, 1]</code> and <code>m![1, { E }]</code>.</li>
+<li><strong>Stride-modulo decomposition</strong>: for every <code>E</code> whose size <code>E::SIZE</code> is divisible by <code>n</code>, <code>E</code> and <code>m![{ E } / n, { E } % n]</code> are equivalent.</li>
+<li><strong>Pair projection</strong>: for every <code>A</code> and <code>B</code>, <code>m![[{ A }, { B }] / B::SIZE]</code> is equivalent to <code>m![A]</code> and <code>m![[{ A }, { B }] % B::SIZE]</code> is equivalent to <code>m![B]</code>.</li>
+<li><strong>Associativity of pairs</strong>: for every <code>E1</code>, <code>E2</code>, <code>E3</code>, <code>m![{ E1 }, { E2 }, { E3 }]</code>, <code>m![[{ E1 }, { E2 }], { E3 }]</code>, and <code>m![{ E1 }, [{ E2 }, { E3 }]]</code> are equivalent.</li>
+<li><strong>Idempotent operations</strong>: for every <code>E</code>, <code>E</code> is equivalent to <code>m![{ E } / 1]</code>, to <code>m![{ E } # E::SIZE]</code>, and to <code>m![{ E } = E::SIZE]</code>.</li>
+<li><strong>Modulo by 1</strong>: for every <code>E</code>, <code>m![E % 1]</code> is equivalent to the identity mapping <code>m![1]</code>.</li>
 </ul>
 
                     </main>
@@ -719,7 +731,7 @@ $$</p>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../mapping-tensors/memory-stream.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../mapping-tensors/spatial-temporal-dimensions.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -733,7 +745,7 @@ $$</p>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../mapping-tensors/memory-stream.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../mapping-tensors/spatial-temporal-dimensions.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
@@ -755,11 +767,11 @@ $$</p>
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

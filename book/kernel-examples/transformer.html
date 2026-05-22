@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,12 +177,11 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="transformer-architecture"><a class="header" href="#transformer-architecture">Transformer Architecture</a></h1>
-<!-- > **TODO(youseok.yang)**: This page describes each transformer operation in terms of mathematical shapes and hardware engine annotations, but shows no Virtual ISA code. -->
-<!-- > Add kernel code for representative operations following the style of `fetch-commit-engine.md` — at minimum: one einsum (e.g., QKV projection showing the Contraction Engine axis mapping) and one Vector Engine operation (e.g., RMSNorm showing the elementwise sequence). -->
-<p>This page uses Llama 3 70B as a concrete example to show how each transformer operation maps to specific TCP hardware components.
-Llama 3 70B implements a decoder-only transformer architecture with two main phases: prefill (input encoding) and decode (token generation).</p>
+<p>This chapter maps each operation in a transformer model to specific TCP hardware components.
+Llama 3 70B serves as the running example.
+As a decoder-only model, it runs through two phases (prefill for input encoding and decode for token generation), each with different TCP hardware characteristics.</p>
 <h2 id="model-parameters"><a class="header" href="#model-parameters">Model Parameters</a></h2>
-<p>The following parameters define the Llama 3 70B architecture, grouped by category:</p>
+<p>The following parameters define the Llama 3 70B architecture and are referenced in all shape annotations throughout this chapter:</p>
 <p><strong>Sequence dimensions</strong> (control input/output length):</p>
 <ul>
 <li><code>B</code>: batch size</li>
@@ -208,7 +207,6 @@ Llama 3 70B implements a decoder-only transformer architecture with two main pha
 </ul>
 <h2 id="prefill-phase"><a class="header" href="#prefill-phase">Prefill Phase</a></h2>
 <p>The prefill phase processes the entire input sequence in parallel, outputting the first token while storing computed Key/Value pairs as KV cache.
-The transformer block executes on all input tokens provided by the user.
 The following subsections describe each step in order.</p>
 <h3 id="1-embedding-lookup"><a class="header" href="#1-embedding-lookup">1. Embedding Lookup</a></h3>
 <p>Embedding lookup converts input tokens to vector space representations.</p>
@@ -245,7 +243,7 @@ The following subsections describe each step in order.</p>
 <p>Each transformer layer applies attention and feed-forward operations sequentially.
 For each layer <code>l = 1, ..., L</code>, perform the following:</p>
 <h4 id="21-input-layer-normalization"><a class="header" href="#21-input-layer-normalization">2.1. Input Layer Normalization</a></h4>
-<p>Input layer normalization stabilizes training by normalizing activations before attention.</p>
+<p>Input layer normalization normalizes activations before attention, processed by the Vector Engine.</p>
 <ul>
 <li><strong>Input</strong>
 <ul>
@@ -272,7 +270,7 @@ For each layer <code>l = 1, ..., L</code>, perform the following:</p>
 <h4 id="22-multi-head-grouped-query-attention-gqa"><a class="header" href="#22-multi-head-grouped-query-attention-gqa">2.2. Multi-Head Grouped Query Attention (GQA)</a></h4>
 <p>Grouped Query Attention (GQA) improves memory efficiency by sharing key/value heads across multiple query heads, reducing KV cache size.</p>
 <h5 id="221-qkv-projection"><a class="header" href="#221-qkv-projection">2.2.1. QKV Projection</a></h5>
-<p>QKV projection transforms the normalized input into Query, Key, and Value tensors.</p>
+<p>QKV projection runs three separate einsum operations on the Contraction Engine, each reducing the <code>D</code> axis to produce Query, Key, and Value tensors.</p>
 <ul>
 <li><strong>Input</strong>
 <ul>
@@ -298,12 +296,12 @@ For each layer <code>l = 1, ..., L</code>, perform the following:</p>
 <li><code>Q = einsum(x_norm, w_q)</code></li>
 <li><code>K = einsum(x_norm, w_k)</code></li>
 <li><code>V = einsum(x_norm, w_v)</code></li>
-<li>matmul corresponds to einsum (= broadcast + elementwise mul + reduce add).</li>
-<li>elementwise mul: Contraction Engine</li>
-<li>reduce add
+<li>matmul corresponds to einsum: broadcast, then elementwise multiply, then reduce-add.</li>
+<li>elementwise multiply: Contraction Engine</li>
+<li>reduce-add decomposed by scope:
 <ul>
-<li>packet reduce: Reducer</li>
-<li>time reduce: Reducer</li>
+<li>packet reduce: Packet Reducer</li>
+<li>time reduce: Time Reducer</li>
 <li>slice reduce: global adder tree</li>
 <li>split reduce: interleaved fetch + Vector Engine binary op</li>
 <li>cluster/chip reduce: DMA + interleaved fetch + Vector Engine binary op</li>
@@ -355,7 +353,7 @@ For each layer <code>l = 1, ..., L</code>, perform the following:</p>
 </li>
 <li><strong>Apply RoPE</strong>
 <ul>
-<li>RoPE computation reduces to a simple einsum operation given the prepared rotation transformation matrix values.</li>
+<li>RoPE computation reduces to an einsum operation once the rotation matrix values are prepared.</li>
 <li><strong>Reshape (noop)</strong>
 <ul>
 <li><code>Q: shape![B, s_in, h_q, d_k] == shape![B, s_in, h_q, d_k_prime, f]</code></li>
@@ -382,7 +380,6 @@ For each layer <code>l = 1, ..., L</code>, perform the following:</p>
 </ul>
 </li>
 </ul>
-<p>As a result of RoPE, Q/K values encode relative positional information.</p>
 <h5 id="223-store-in-kv-cache"><a class="header" href="#223-store-in-kv-cache">2.2.3. Store in KV Cache</a></h5>
 <p>KV cache stores the current layer’s Key and Value for reuse during the decode phase, avoiding redundant computation.</p>
 <ul>
@@ -407,8 +404,7 @@ For each layer <code>l = 1, ..., L</code>, perform the following:</p>
 </li>
 </ul>
 <h5 id="224-grouped-query-attention-computation"><a class="header" href="#224-grouped-query-attention-computation">2.2.4. Grouped Query Attention Computation</a></h5>
-<p>Grouped Query Attention shares each key/value head across multiple query heads.
-Each of the 8 KV heads is shared with 8 Query heads (<code>G = h_q / h_kv = 64 / 8 = 8</code>).</p>
+<p>Grouped Query Attention shares each key/value head across multiple query heads, with <code>G = 8</code> query heads sharing each KV head (as defined in the Model Parameters above).</p>
 <p><strong>2.2.4.1. Attention Scores Computation</strong></p>
 <p>Attention scores measure the relevance between query and key positions using dot product similarity.</p>
 <ul>
@@ -451,8 +447,8 @@ Each tensor’s shape axes must be precisely distinguished from the output shape
 </li>
 </ul>
 <p><strong>2.2.4.2. Causal Mask Application</strong></p>
-<p>Causal masking prevents tokens from attending to future positions, preserving autoregressive semantics.
-In the prefill phase, <code>s_in</code> tokens are processed in parallel, but the <code>i</code>-th token must not reference tokens after position <code>i</code> to maintain the autoregressive model’s semantics.</p>
+<p>Causal masking prevents tokens from attending to future positions.
+In the prefill phase, <code>s_in</code> tokens are processed in parallel, but the <code>i</code>-th token must not reference tokens after position <code>i</code>.</p>
 <ul>
 <li><strong>Input</strong>
 <ul>
@@ -772,9 +768,8 @@ This process occurs on the Host, not the TCP.</p>
 </li>
 </ul>
 <h2 id="decode-phase"><a class="header" href="#decode-phase">Decode Phase</a></h2>
-<p>The decode phase reuses the same operation sequence as prefill (embedding, transformer layers, LM head, sampling), but operates on a single token at a time, reusing cached KV pairs instead of recomputing them.
-The decode phase generates tokens one at a time autoregressively, continuing until an end token (EOS) is produced or the maximum length is reached.
-Unlike prefill, decode processes only one token per iteration.</p>
+<p>The decode phase reuses the same operation sequence as prefill (embedding, transformer layers, LM head, sampling), but operates on a single token at a time and reuses cached KV pairs instead of recomputing them.
+It continues autoregressively until an EOS token is produced or the maximum length is reached.</p>
 <p>Three characteristics distinguish decode from prefill:</p>
 <ul>
 <li><strong>Single-token input</strong>: <code>s_in = 1</code> (only the most recent output token is used as query)</li>
@@ -928,24 +923,24 @@ For each layer <code>l = 1, ..., L</code>, perform the following:</p>
 <h5 id="223-kv-cache-update"><a class="header" href="#223-kv-cache-update">2.2.3. KV Cache Update</a></h5>
 <p>KV cache update appends the new Key and Value to the existing cache for future token generation.</p>
 <ul>
-<li><strong>Inputs</strong>
+<li>
+<p><strong>Inputs</strong></p>
 <ul>
 <li><code>kv_cache_l_K: shape![B, h_kv, s-1, d_k]</code> (existing cache)</li>
 <li><code>kv_cache_l_V: shape![B, h_kv, s-1, d_k]</code> (existing cache)</li>
 <li><code>K_rope: shape![B, h_kv, 1, d_k]</code> (new Key)</li>
 <li><code>V_new: shape![B, 1, h_kv, d_k]</code> (new Value)</li>
 </ul>
-<blockquote>
-<p><strong>TODO</strong> (youseok.yang): <code>V_new</code> has shape <code>[B, 1, h_kv, d_k]</code> but the cache expects <code>[B, h_kv, s, d_k]</code>. Either correct <code>V_new</code>’s shape to <code>[B, h_kv, 1, d_k]</code> (consistent with <code>K_rope</code> and the cache) or add an explicit reshape/transpose step before the cache update.</p>
-</blockquote>
 </li>
-<li><strong>Outputs</strong>
+<li>
+<p><strong>Outputs</strong></p>
 <ul>
 <li><code>kv_cache_l_K: shape![B, h_kv, s, d_k]</code> (updated cache)</li>
 <li><code>kv_cache_l_V: shape![B, h_kv, s, d_k]</code> (updated cache)</li>
 </ul>
 </li>
-<li><strong>Operations</strong>
+<li>
+<p><strong>Operations</strong></p>
 <ul>
 <li><strong>Concatenate</strong>: Add new K, V to existing cache
 <ul>
@@ -960,7 +955,7 @@ Data movement between slices: use RoutingEngine/parallel copy; data movement bet
 </li>
 </ul>
 <h5 id="224-grouped-query-attention-computation-1"><a class="header" href="#224-grouped-query-attention-computation-1">2.2.4. Grouped Query Attention Computation</a></h5>
-<p>Attention computation uses the current Query against the entire KV cache to determine which past tokens are relevant.</p>
+<p>Attention computation uses the current Query against the entire KV cache to determine which past tokens contribute to the current output.</p>
 <p><strong>2.2.4.1. Attention Scores Computation</strong></p>
 <p>Attention scores measure similarity between the current Query and all cached Keys.</p>
 <ul>
@@ -1259,7 +1254,8 @@ Unlike prefill, no slice operation is needed since there is only a single token.
 </ul>
 <p>If generation continues, update <code>s &lt;- s + 1</code> and return to the next decoding step.</p>
 <h2 id="prefill-vs-decode-phase-comparison"><a class="header" href="#prefill-vs-decode-phase-comparison">Prefill vs Decode Phase Comparison</a></h2>
-<p>The following table summarizes the key differences between prefill and decode phases:</p>
+<p>Prefill is compute-bound (large parallel computation over all input tokens) while decode is memory-bound (KV cache access for a single token per step).
+The following table summarizes the key differences:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -1322,11 +1318,11 @@ Unlike prefill, no slice operation is needed since there is only a single token.
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

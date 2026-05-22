@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,52 +177,38 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="cast-engine"><a class="header" href="#cast-engine">Cast Engine</a></h1>
-<p>Storing full <code>f32</code>/<code>i32</code> results in DM would waste memory; the Cast Engine narrows them back to application-specified types (e.g., <code>bf16</code>) before the Commit Engine writes to DM.</p>
+<p>The Cast Engine narrows <code>f32</code>/<code>i32</code> pipeline results to lower-precision types (e.g., <code>bf16</code>) before the <a href="../moving-tensors/commit-engine.html">Commit Engine</a> writes them to DM, reducing storage cost.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt; StreamCast&lt;D&gt;
-    for CollectTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet&gt;
+<p><code>CollectTensor</code>, <code>ContractTensor</code>, and <code>VectorFinalTensor</code> all expose <code>.cast()</code> with the same semantics.</p>
+<pre><code class="language-rust ignore">//
+// The Cast Engine accepts only `VeScalar` inputs (hardware constraint), so the
+// bound lives on the impl rather than on a wider trait.
+impl&lt;'l, const T: Tu, P: CanApplyCast, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
-    type CastOutput&lt;D2: Scalar, OutPacket: M&gt;
-        = CastTensor&lt;'l, T, D2, Chip, Cluster, Slice, Time, OutPacket&gt;
+    /// Casts each element to type `OutD` and pads the output packet back to one
+    /// 32-byte flit.
+    #[primitive(TuTensor::cast)]
+    pub fn cast&lt;OutD: Scalar, OutPacket: M&gt;(self) -&gt; CastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, OutPacket, B&gt;
     where
-        D: Cast&lt;D2&gt;;
-
-    #[primitive(CollectTensor::cast)]
-    fn cast&lt;D2: Scalar, OutPacket: M&gt;(self) -&gt; Self::CastOutput&lt;D2, OutPacket&gt;
-    where
-        D: Cast&lt;D2&gt;,
+        D: Cast&lt;OutD&gt;,
     {
-        cast_stream(self.ctx, self.inner)
+        verify_cast::&lt;D, OutD, Packet, OutPacket&gt;();
+        CastTensor::new(self.ctx, self.inner.map(|v| v.map(|v| v.cast())).transpose(false))
     }
 }</code></pre>
-<h2 id="precision-lowering"><a class="header" href="#precision-lowering">Precision Lowering</a></h2>
-<p>Precision lowering downcasts <code>f32</code> or <code>i32</code> data into specific lower-precision formats:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Input Type (<code>D1</code>)</th><th>Supported Output Types (<code>D2</code>)</th></tr>
-</thead>
-<tbody>
-<tr><td><code>i32</code></td><td><code>i4</code>, <code>i8</code>, <code>i16</code></td></tr>
-<tr><td><code>f32</code></td><td><code>f8e5m2</code>, <code>f8e4m3</code>, <code>f16</code>, <code>bf16</code></td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="packet-transformation"><a class="header" href="#packet-transformation">Packet Transformation</a></h2>
-<p>The input packet must be exactly 32 bytes (one flit).
-The <a href="./collect-engine.html">Collect Engine</a> ensures this before data reaches the Cast Engine.</p>
-<p>After casting each element to the output type, the result is padded back to 32 bytes.
-Time passes through unchanged.</p>
-<pre><code class="language-text">Input:  Time = [T],  Packet = [P # (32 / sizeof(D1))],  dtype = D1
-Output: Time = [T],  Packet = [P # (32 / sizeof(D2))],  dtype = D2
-</code></pre>
-<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<h3 id="single-flit-packet"><a class="header" href="#single-flit-packet">Single-flit packet</a></h3>
+<p><code>.cast::&lt;OutD, OutPacket&gt;()</code> converts each element to type <code>OutD</code> and pads the output back to one 32-byte flit.
+The kernel writer chooses <code>OutD</code> (the target type) and <code>OutPacket</code> (the output element layout).
+The compiler derives the rest.</p>
+<p>Although the Cast Engine is not a <a href="../mapping-tensors/tensor-semantics.html#mathematical-tensor-move">mathematical tensor move</a>, it preserves the tensor’s shape and only changes the element type.
+All dimensions pass through unchanged, except for the <code>Packet</code> layout, which repads so the output still fits one 32-byte flit.</p>
+<p>The example below casts an 8-element <code>i32</code> packet (8 × 4 = 32 bytes) to <code>i8</code>.
+After the cast, the 8 elements occupy 8 bytes, so <code>A # 32</code> pads the output back to 32 bytes:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 4, A = 8];
 
 fn cast_i32_to_i8&lt;'l, const T: Tu&gt;(
@@ -231,17 +217,13 @@ fn cast_i32_to_i8&lt;'l, const T: Tu&gt;(
     input.cast()
 }
 <span class="boring">}</span></code></pre>
-<p>Before the cast, each flit is fully utilized: <code>A</code> = 8 elements x 4 bytes (<code>i32</code>) = 32 bytes.
-After the cast, each element shrinks to 1 byte (<code>i8</code>), so <code>A</code> = 8 elements occupy only 8 bytes.
-The <code>A # 32</code> padding fills the remaining 24 bytes to maintain the 32-byte flit alignment.
-Time stays <code>m![B]</code> because it passes through unchanged.</p>
-<h3 id="padded-input-packet"><a class="header" href="#padded-input-packet">Padded input packet</a></h3>
-<p>When the input data doesn’t fill the full flit, it arrives already padded from the Collect Engine.</p>
+<p>The input data may not fill 32 bytes.
+The example below casts an <code>i32</code> input where 4 data elements are padded to 8 (<code>A # 8</code>, 32 bytes) into an <code>i8</code> output where the same 4 elements are padded to 32 (<code>A # 32</code>, also 32 bytes):</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 4];
 
 fn cast_padded&lt;'l, const T: Tu&gt;(
@@ -250,17 +232,29 @@ fn cast_padded&lt;'l, const T: Tu&gt;(
     input.cast()
 }
 <span class="boring">}</span></code></pre>
-<p>Input packet <code>A # 8</code> = 4 data elements padded to 8 elements at <code>i32</code> = 32 bytes (one flit).
-After cast to <code>i8</code>, 4 data elements occupy 4 bytes, padded to 32: <code>m![A # 32]</code>.</p>
-<p>This under-utilization may look wasteful, but the Cast Engine is a pass-through stage that is never the pipeline bottleneck.
-The downstream <a href="../moving-tensors/commit-engine.html">Commit Engine</a> can aggregate multiple under-utilized flits into dense DM writes anyway.
-The net effect is the same: no bandwidth is wasted at the DM level.</p>
+<h2 id="supported-casts"><a class="header" href="#supported-casts">Supported Casts</a></h2>
+<p>Each input is a 32-byte flit.
+The supported source types are <code>f32</code> and <code>i32</code>, each with specific target types:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input Type (<code>D</code>)</th><th>Supported Output Types (<code>OutD</code>)</th></tr>
+</thead>
+<tbody>
+<tr><td><code>i32</code></td><td><code>i4</code>, <code>i8</code>, <code>i16</code></td></tr>
+<tr><td><code>f32</code></td><td><code>f8e5m2</code>, <code>f8e4m3</code>, <code>f16</code>, <code>bf16</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
+<p>The Cast Engine is never the pipeline bottleneck: it processes one flit per cycle regardless of how much of the flit carries valid data.
+The downstream <a href="../moving-tensors/commit-engine.html">Commit Engine</a> aggregates under-utilized flits into dense DM writes, so no DM bandwidth is wasted.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../computing-tensors/vector-engine/inter-slice-block.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../computing-tensors/vector-engine/inter-slice-reducer.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -274,7 +268,7 @@ The net effect is the same: no bandwidth is wasted at the DM level.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../computing-tensors/vector-engine/inter-slice-block.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../computing-tensors/vector-engine/inter-slice-reducer.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
@@ -300,11 +294,11 @@ The net effect is the same: no bandwidth is wasted at the DM level.</p>
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["PositionCollect"],"type":["CollectTensor"]};

@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,13 +177,13 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="mapping-tensors"><a class="header" href="#mapping-tensors">Mapping Tensors</a></h1>
-<p>This chapter explains what mappings are, how to declare them in TCP’s Virtual ISA, and how to choose them for performance.</p>
+<p>Tensors have no intrinsic order of elements.
+A mapping assigns each tensor index to a buffer position, defining that order.</p>
+<p>This chapter shows how layout choices affect memory access and explains TCP’s declarative approach to tensor layout with mapping expressions.</p>
 <h2 id="layout-and-performance"><a class="header" href="#layout-and-performance">Layout and Performance</a></h2>
-<p>Tensors have no intrinsic order of elements. A mapping is a function from tensor indices to buffer positions, which defines the order in which elements are stored.
-When storing a tensor in hardware, you need to decide how they will be mapped into the flat buffer.</p>
-<p>The choice of mapping matters because hardware reads memory in contiguous blocks: elements stored far apart require more memory transfers.
-For example, one can choose which axis is <em>major</em> (outermost, changes slowest) and which is <em>minor</em> (innermost, changes fastest, stored contiguously).
-Changing a layout after allocation requires copying and transposing data, so the mapping chosen at allocation time constrains all subsequent operations to match that layout.</p>
+<p>The mapping determines access efficiency: hardware reads memory in contiguous blocks, so elements stored far apart require more transfers.
+This choice affects programs too: programmers choose which axis is <em>major</em> (outermost, changes slowest) and which is <em>minor</em> (innermost, changes fastest, stored contiguously).
+Layout cannot change after allocation without copying and transposing data, so the choice at allocation time constrains all subsequent operations.</p>
 <p>Consider a tensor with axes H (height, 6 rows) and W (width, 8 columns).
 The same tensor admits different mappings, each with different performance characteristics.</p>
 <div class="table-wrapper">
@@ -201,8 +201,9 @@ The same tensor admits different mappings, each with different performance chara
 </tbody>
 </table>
 </div>
-<h3 id="h-major-w-minor"><a class="header" href="#h-major-w-minor">H Major, W Minor</a></h3>
-<p>A scan along W is contiguous; a scan along H accesses one element per cache line.</p>
+<ul>
+<li>
+<p><strong>H Major, W Minor</strong>: A scan along W is contiguous; a scan along H accesses one element per cache line.</p>
 <table>
   
 <tr>
@@ -220,8 +221,9 @@ The same tensor admits different mappings, each with different performance chara
 
 </table>
 
-<h3 id="w-major-h-minor"><a class="header" href="#w-major-h-minor">W Major, H Minor</a></h3>
-<p>A scan along H is contiguous; a scan along W accesses one element per cache line.</p>
+</li>
+<li>
+<p><strong>W Major, H Minor</strong>: A scan along H is contiguous; a scan along W accesses one element per cache line.</p>
 <table>
   
 <tr>
@@ -241,10 +243,10 @@ The same tensor admits different mappings, each with different performance chara
 
 </table>
 
-<p>Either choice sacrifices <strong>spatial locality</strong> (the property that nearby elements are stored at nearby addresses) in one direction.
-Tiling achieves good locality along both axes by grouping nearby H and W indices into 2D tiles.</p>
-<h3 id="22-tiles"><a class="header" href="#22-tiles">2×2 Tiles</a></h3>
-<p>All elements within a tile are contiguous.</p>
+</li>
+<li>
+<p><strong>2×2 Tiles</strong>: Either choice sacrifices locality along one axis: H-major stores H-adjacent elements far apart, and W-major stores W-adjacent elements far apart.
+To avoid this trade-off, tiling groups nearby H and W indices into 2D tiles, achieving good locality along both axes, at the cost of a non-trivial address formula.</p>
 <table>
   
 <tr>
@@ -264,30 +266,36 @@ Tiling achieves good locality along both axes by grouping nearby H and W indices
 
 </table>
 
-<p>W-minor layout is fast along W but slow along H; H-minor layout is the reverse; tiling gives balanced locality in both directions at the cost of more complex address calculation.
-The outer dimension of a decomposition can become a hardware time loop; the inner dimension, a parallel lane.
-Choosing a decomposition is how programmers control which dimensions execute sequentially and which execute in parallel.
-TCP names these hardware dimensions <code>Time</code> (the sequential loop counter) and <code>Packet</code> (the parallel data lane width), used throughout this book; <a href="./memory-stream.html">Memory and Stream</a> explains how decompositions map to them.</p>
-<h2 id="the-declarative-approach"><a class="header" href="#the-declarative-approach">The Declarative Approach</a></h2>
-<p>Virtual ISA lets the programmer declare a mapping in terms of logical axes; the compiler derives physical placement, alignment, and hardware scheduling.
-In the <a href="#layout-and-performance">above example</a>, the simplest form is <code>m![H, W]</code> for H-major and <code>m![W, H]</code> for W-major, where the leftmost axis is major and the rightmost is minor.
-Decomposing axes further with <code>/</code> and <code>%</code> enables tiling, expressed as <code>m![H / 2, W / 2, H % 2, W % 2]</code>: the first two dimensions are the tile indices and the last two are positions within the tile.</p>
-<p>Declarative mappings offer three benefits:</p>
-<ul>
-<li><strong>Expressiveness</strong>: Layout is stated in terms of logical axes (<code>m![H, W]</code>), not raw memory strides or offsets.</li>
-<li><strong>Correctness</strong>: The compiler normalizes mapping expressions to canonical form and verifies them symbolically, turning layout properties into compile-time invariants.</li>
-<li><strong>Portability</strong>: The same expression targets CPUs, GPUs, and TCPs without rewrites; the compiler derives hardware-specific placement from the axis description.</li>
+<p>Decompositions also determine hardware execution structure.
+The outer dimension can become a hardware time loop, and the inner dimension becomes a parallel lane.
+TCP names these hardware dimensions <code>Time</code> (the sequential loop counter) and <code>Packet</code> (the parallel data lane width), used throughout this book.
+<a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> explains how decompositions map to them.</p>
+</li>
 </ul>
-<p>Mapping expressions describe a tensor at every stage of its life, not only when it is at rest in memory.
-The same tensor can be stored in HBM, loaded into DM with a different layout, and streamed through the pipeline as packets; each stage holds the same mathematical values under a different mapping.</p>
-<p>This unified view treats data movement as preserving the mathematical tensor: moving a tensor between stages changes only its physical representation, not its values.
-The <a href="./tensor-functions.html">Tensor Functions</a> page formalizes this perspective and shows how it makes data movement composable with computation in the same pipeline.</p>
+<h2 id="the-declarative-approach"><a class="header" href="#the-declarative-approach">The Declarative Approach</a></h2>
+<p>Choosing optimal layout combinations manually is complex: the programmer must account for hardware geometry, alignment constraints, and execution patterns simultaneously.
+The compiler derives physical placement, alignment, and hardware scheduling.</p>
+<p>Virtual ISA lets the programmer and compiler declare a mapping in terms of logical axes.
+For the H×W tensor from <a href="#layout-and-performance">Layout and Performance</a>, the leftmost axis is major and the rightmost is minor:</p>
+<ul>
+<li><strong>H-major</strong>: <code>m![H, W]</code></li>
+<li><strong>W-major</strong>: <code>m![W, H]</code></li>
+<li><strong>2×2 Tiles</strong>: <code>m![H / 2, W / 2, H % 2, W % 2]</code>, where the first two dimensions are tile indices and the last two are positions within the tile.</li>
+</ul>
+<p>Declarative mappings offer two benefits:</p>
+<ul>
+<li><strong>Expressiveness</strong>: Layout is stated in terms of logical axes (<code>m![H, W]</code>), not raw strides or offsets.</li>
+<li><strong>Correctness</strong>: Mapping expressions are normalized to canonical form and verified symbolically, turning layout properties into compile-time invariants.</li>
+</ul>
+<p>Mapping expressions describe a tensor at every stage of its life: the same tensor can be stored in HBM, loaded into DM with a different layout, and streamed through the pipeline as packets.
+Each stage holds the same mathematical values in a different physical representation.
+<a href="./tensor-semantics.html">Tensor Semantics</a> formalizes this perspective and shows how it makes data movement composable with computation in the same pipeline.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../hello-tcp.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../quick-start.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -301,7 +309,7 @@ The <a href="./tensor-functions.html">Tensor Functions</a> page formalizes this 
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../hello-tcp.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../quick-start.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
@@ -327,11 +335,11 @@ The <a href="./tensor-functions.html">Tensor Functions</a> page formalizes this 
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

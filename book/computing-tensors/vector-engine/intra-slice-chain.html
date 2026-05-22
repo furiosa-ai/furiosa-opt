@@ -1,0 +1,1013 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Intra-Slice Chain - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../../searchindex-85db366b.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../../toc-0b46deb9.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="intra-slice-chain"><a class="header" href="#intra-slice-chain">Intra-Slice Chain</a></h1>
+<p>The Intra-Slice Chain performs elementwise, binary, and intra-slice reduce operations on each slice’s data independently.
+It handles post-contraction processing such as activation and normalization.
+For example, computing \(\operatorname{sigmoid}(XW + b)\) runs \(XW\) on the <a href="../contraction-engine/index.html">Contraction Engine</a>, and the addition plus sigmoid activation in the Intra-Slice Chain.</p>
+<h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
+<p>The example below applies a fixed-point bias, runs sigmoid on the float path (narrowing to 4-way and widening back), and finishes with a ReLU clip.
+It computes \(output[a, b] = \max(\operatorname{sigmoid}(input[a, b] + 100), 0)\).</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2];
+
+fn staged_pipeline&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, i32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; {
+    input
+    .vector_init()
+    .vector_intra_slice_tag(TagMode::Zero)
+    // input + 100
+    .vector_fxp(FxpBinaryOp::AddFxp, 100)
+    // i32 → f32 (fixed-point, int_width = 31)
+    .vector_fxp_to_fp(31)
+    // Way8 → Way4 for the float path
+    .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()
+    // sigmoid(input + 100)
+    .vector_fp_unary(FpUnaryOp::Sigmoid)
+    // Way4 → Way8
+    .vector_widen_pad::&lt;m![A % 2 # 8]&gt;()
+    // f32 → i32
+    .vector_fp_to_fxp(31)
+    // max(sigmoid(input + 100), 0)
+    .vector_clip(ClipBinaryOpI32::Max, 0)
+    .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="pipeline"><a class="header" href="#pipeline">Pipeline</a></h3>
+<p>The chain starts (as shown above) with <code>vector_intra_slice_tag()</code> (right after <a href="./index.html#interface"><code>vector_init()</code></a> or on the inter-slice reducer’s output), or with <code>vector_intra_slice_unzip()</code> directly after <code>vector_init()</code> for <a href="#pair-mode">Pair Mode</a> (see below).</p>
+<pre><code class="language-rust ignore">    #[primitive(VectorInitTensor::vector_intra_slice_tag)]
+    pub fn vector_intra_slice_tag(
+        self,
+        branch: TagMode,
+    ) -&gt; VectorBranchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, D, NoTensor, { VeOrder::IntraFirst }&gt; {
+
+    #[primitive(VectorInitTensor::vector_intra_slice_unzip)]
+    pub fn vector_intra_slice_unzip&lt;I: AxisName, TileTime: M, SplitTime: M&gt;(
+        self,
+    ) -&gt; VectorTensorPair&lt;'l, T, D, stage::Tag, Chip, Cluster, Slice, SplitTime, Packet&gt; {</code></pre>
+<p>After entry, the chain steps through the pipeline stages below in a fixed order; software chains the relevant ones and skips the rest, as the example skips <code>Logic</code>, <code>FpDiv</code>, and <code>Filter</code>.
+Each row lists the stage’s position in the chain (<code>#</code>), its name (<code>Stage</code>), the API method that triggers it (<code>Method</code>), the way it runs in (<code>Way</code>, either 8 or 4 elements per cycle), and whether it accepts an operand (<code>Operand</code>).
+The type system enforces every stage transition at compile time, so methods become callable only after the preceding chain reaches a compatible state.
+Per-stage detail is in <a href="#stages">Stages</a> below.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>#</th><th>Stage</th><th>Method</th><th>Way</th><th>Operand</th><th>→ Inter-Slice Reducer</th></tr>
+</thead>
+<tbody>
+<tr><td>1</td><td>Entry</td><td><code>vector_intra_slice_tag()</code></td><td>Way8</td><td>–</td><td>–</td></tr>
+<tr><td>2</td><td>Logic</td><td><code>vector_logic()</code></td><td>Way8</td><td>yes</td><td>yes</td></tr>
+<tr><td>3</td><td>Fxp</td><td><code>vector_fxp()</code></td><td>Way8</td><td>yes</td><td>yes</td></tr>
+<tr><td>4</td><td>FxpToFp</td><td><code>vector_fxp_to_fp()</code></td><td>Way8</td><td>–</td><td>yes</td></tr>
+<tr><td>5</td><td>Narrow</td><td><code>vector_narrow_split()</code> / <code>vector_narrow_trim()</code></td><td>Way8 → Way4</td><td>–</td><td>–</td></tr>
+<tr><td>6</td><td>Float</td><td><code>vector_fp_unary/binary/ternary()</code></td><td>Way4</td><td>yes</td><td>–</td></tr>
+<tr><td>7</td><td>IntraSliceReduce</td><td><code>vector_intra_slice_reduce()</code></td><td>Way4</td><td>–</td><td>–</td></tr>
+<tr><td>8</td><td>FpDiv</td><td><code>vector_fp_div()</code></td><td>Way4</td><td>yes</td><td>–</td></tr>
+<tr><td>9</td><td>Widen</td><td><code>vector_widen_concat()</code> / <code>vector_widen_pad()</code></td><td>Way4 → Way8</td><td>–</td><td>yes</td></tr>
+<tr><td>10</td><td>FpToFxp</td><td><code>vector_fp_to_fxp()</code></td><td>Way8</td><td>–</td><td>yes</td></tr>
+<tr><td>11</td><td>Clip</td><td><code>vector_clip()</code></td><td>Way8</td><td>yes</td><td>yes</td></tr>
+<tr><td>12</td><td>Filter</td><td><code>vector_filter()</code></td><td>Way8</td><td>–</td><td>–</td></tr>
+</tbody>
+</table>
+</div>
+<p>Stages run either 8-way (8 elements per cycle) or 4-way (4 elements per cycle).
+The floating-point cluster runs 4-way to amortize its half-throughput ALUs against the rest of the chain.
+A chain that uses the float path therefore enters 8-way, calls <code>Narrow</code> (<code>vector_narrow_split</code> or <code>vector_narrow_trim</code>) before the float stages, and calls <code>Widen</code> (<code>vector_widen_concat</code> or <code>vector_widen_pad</code>) afterward to return to 8-way.
+The example does exactly this: <code>vector_narrow_trim</code> then <code>vector_fp_unary(Sigmoid)</code> then <code>vector_widen_pad</code>.</p>
+<p><a id="transitioning-to-the-inter-slice-reducer"></a></p>
+<p>The chain exits via <code>vector_final()</code> (as in the example) or <code>vector_inter_slice_reduce()</code> (handing off to the <a href="./inter-slice-reducer.html">Inter-Slice Reducer</a>).
+Both exits require 8-way, so any active 4-way stage must pass through <code>Widen</code> first.</p>
+<h3 id="operands"><a class="header" href="#operands">Operands</a></h3>
+<p>Binary and ternary ops have two slot kinds: a <strong>stream</strong> (the running tensor, i.e., the <code>self</code> of the method chain, fixed by the chain) and one or two <strong>operands</strong> (the extra inputs).
+Each operand comes from one of three sources.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Source</th><th>Example</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Constant</td><td><code>100</code>, <code>2.5f32</code></td><td>Scalar broadcast to all elements</td></tr>
+<tr><td>VRF tensor</td><td><code>VeRhs::vrf(&amp;vrf_tensor)</code></td><td>Pre-loaded via <code>.to_vrf()</code> before entering the Vector Engine</td></tr>
+<tr><td>Stash</td><td><code>Stash</code></td><td>Snapshot of an earlier chain step, described below</td></tr>
+</tbody>
+</table>
+</div>
+<p>Ternary ops (<code>FmaF</code>) take a pair <code>(operand0, operand1)</code>.</p>
+<p>The same op method picks up different sources by the argument type:</p>
+<pre><code class="language-rust ignore">.vector_fxp(FxpBinaryOp::AddFxp, 100)                // operand from constant
+.vector_fxp(FxpBinaryOp::MulInt, VeRhs::vrf(&amp;vrf))   // operand from VRF tensor
+.vector_clip(ClipBinaryOpI32::Max, Stash)            // operand from stash (set earlier)</code></pre>
+<p>The <code>Stash</code> source comes from <code>vector_stash()</code>, which snapshots the running tensor so a later binary or ternary op can read it back as the <code>Stash</code> operand.
+The typical use is a residual or skip-connection like <code>max(f(x), x)</code>, where the original <code>x</code> must survive across intermediate stages.
+Call <code>vector_stash()</code> at any <code>Stashable</code> stage (<code>Branch</code>, <code>Logic</code>, <code>Fxp</code>, <code>Narrow</code>, <code>Fp</code>, <code>FpDiv</code>, <code>Clip</code>); the snapshot stays live until the Tensor Unit invocation ends and feeds any later binary or ternary call that takes <code>Stash</code>.
+The slot is single-use (a second <code>vector_stash()</code> is a compile-time error) and typed, so an <code>f32</code> stash only feeds <code>f32</code> ops.
+The mapping follows the running tensor, so a stash taken before <code>Narrow</code> is still usable after <code>Widen</code>.
+Stash is unavailable in <a href="#pair-mode">Pair Mode</a>, and the <code>IntraFirst</code> transition to the <a href="./inter-slice-reducer.html">inter-slice reducer</a> drops it, so anything stashed before <code>vector_inter_slice_reduce()</code> is gone afterward.</p>
+<p>An <strong>argument mode</strong> then picks which slots hold the stream versus the operands so the same op can compute, e.g., <code>stream + operand</code> or <code>operand - stream</code>.
+For example, <code>BinaryArgMode::Mode10</code> swaps the slots so <code>SubFxp</code> computes <code>operand - stream</code>:</p>
+<pre><code class="language-rust ignore">.vector_fxp_with_mode(FxpBinaryOp::SubFxp, BinaryArgMode::Mode10, 7)  // computes 7 - stream</code></pre>
+<p><code>BinaryArgMode</code> picks which two of a binary op’s slots are stream vs operand (unary ops have no mode and always run as <code>op(stream)</code>):</p>
+<p><a id="argument-modes"></a></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>BinaryArgMode</th><th>Slots</th><th>Computation</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Mode00</code></td><td>stream / stream</td><td><code>op(stream, stream)</code></td></tr>
+<tr><td><code>Mode01</code></td><td>stream / operand</td><td><code>op(stream, operand)</code> (default)</td></tr>
+<tr><td><code>Mode10</code></td><td>operand / stream</td><td><code>op(operand, stream)</code></td></tr>
+<tr><td><code>Mode11</code></td><td>operand / operand</td><td><code>op(operand, operand)</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><code>TernaryArgMode</code> does the same for ternary ops:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>TernaryArgMode</th><th>Slots</th><th>Computation</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Mode012</code></td><td>stream / operand0 / operand1</td><td><code>op(stream, operand0, operand1)</code> (default)</td></tr>
+<tr><td><code>Mode002</code></td><td>stream / stream / operand1</td><td><code>op(stream, stream, operand1)</code></td></tr>
+<tr><td><code>Mode102</code></td><td>operand0 / stream / operand1</td><td><code>op(operand0, stream, operand1)</code></td></tr>
+<tr><td><code>Mode112</code></td><td>operand0 / operand0 / operand1</td><td><code>op(operand0, operand0, operand1)</code></td></tr>
+<tr><td><code>Mode020</code></td><td>stream / operand1 / stream</td><td><code>op(stream, operand1, stream)</code></td></tr>
+<tr><td><code>Mode021</code></td><td>stream / operand1 / operand0</td><td><code>op(stream, operand1, operand0)</code></td></tr>
+<tr><td><code>Mode120</code></td><td>operand0 / operand1 / stream</td><td><code>op(operand0, operand1, stream)</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="pair-mode"><a class="header" href="#pair-mode">Pair Mode</a></h3>
+<p>Pair mode runs the chain on a tensor whose elements split into two interleaved groups, so an op can relate the two groups (e.g., pair-wise add, asymmetric scale).
+Entry is <code>vector_intra_slice_unzip()</code> directly after <code>vector_init()</code>, applied to a collected tensor that carries a 2-way grouping axis.
+Starting the chain with <code>vector_intra_slice_unzip()</code> precludes the <a href="#filter">Filter</a> stage downstream.
+Under the hood, <code>vector_intra_slice_unzip()</code> uses <code>TagMode::AxisToggle</code> to derive each element’s <code>GroupId</code> from the 2-way grouping axis.</p>
+<p>The flow has four steps:</p>
+<ol>
+<li><code>vector_intra_slice_unzip()</code> splits the input into two parallel streams (group 0 and group 1).</li>
+<li>The chain runs through stages with both groups in lock-step (the <strong>paired</strong> phase).</li>
+<li>A <code>_zip</code> op fuses the two streams back into one (the <strong>merged</strong> phase).</li>
+<li>The merged stream continues to <code>vector_final()</code> like a normal chain.</li>
+</ol>
+<p>Stages during the paired phase fall into two flavors:</p>
+<ul>
+<li><strong>Common stages</strong> (<code>vector_fxp_to_fp</code>, <code>vector_narrow_split</code>, <code>vector_widen_concat</code>, <code>vector_fp_to_fxp</code>) act on both groups uniformly.
+<code>vector_narrow_trim</code> and <code>vector_widen_pad</code> are not available on pairs; use the <code>_split</code> / <code>_concat</code> variants instead.</li>
+<li><strong>Per-group ops</strong> take one argument per group:
+<ul>
+<li>Binary and ternary (<code>vector_fxp</code>, <code>vector_fp_binary</code>, <code>vector_fp_ternary</code>, <code>vector_clip</code>, etc.) accept <code>()</code> on a side to skip it, or different operands on each side.</li>
+<li>Unary (<code>vector_fp_unary</code>) is the exception: it takes flags <code>(op, group0_apply, group1_apply)</code> and <code>false</code> skips that group.</li>
+</ul>
+</li>
+</ul>
+<p>Pair mode reinterprets <a href="#argument-modes"><code>BinaryArgMode</code></a> depending on the op: per-group ops (<code>vector_fxp_with_mode</code>, <code>vector_fp_binary_with_mode</code>, etc.) apply the mode inside each group independently (<code>0</code> is that group’s stream, <code>1</code> is that group’s operand), while <code>_zip</code> ops (<code>vector_fxp_zip_with_mode</code>, etc.) take the two slots as the two grouped streams (<code>0</code> is Group 0’s stream, <code>1</code> is Group 1’s stream):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><code>_zip</code> <code>BinaryArgMode</code></th><th>Slots</th><th>Computation</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Mode00</code></td><td>group0 / group0</td><td><code>op(group0, group0)</code></td></tr>
+<tr><td><code>Mode01</code></td><td>group0 / group1</td><td><code>op(group0, group1)</code> (default)</td></tr>
+<tr><td><code>Mode10</code></td><td>group1 / group0</td><td><code>op(group1, group0)</code></td></tr>
+<tr><td><code>Mode11</code></td><td>group1 / group1</td><td><code>op(group1, group1)</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>Pair-mode constraints:</p>
+<ul>
+<li><code>stash()</code> and <code>filter()</code> are unavailable throughout pair mode (both paired and merged phases).</li>
+<li>Before <code>_zip</code> (the paired phase), the chain cannot transition to the <a href="./inter-slice-reducer.html">inter-slice reducer</a>, since <code>vector_inter_slice_reduce()</code> is not available on per-group tensors. After <code>_zip</code> (the merged phase), the result is <code>Commitable</code> again and can call <code>vector_inter_slice_reduce()</code> if the current stage supports the transition.</li>
+<li>ALU usage is shared across the two groups: an ALU used in either group counts as consumed for both.</li>
+</ul>
+<h2 id="stages"><a class="header" href="#stages">Stages</a></h2>
+<p>Within a stage, each ALU runs at most once per Tensor Unit invocation.
+This matters mainly in <code>Logic</code>, <code>Fxp</code>, <code>Fp</code>, and <code>Clip</code>, where multiple operators share a stage-local ALU pool.
+For example, <code>tanh(sqrt(x))</code> cannot fit in a single Tensor Unit invocation because both <code>tanh</code> and <code>sqrt</code> consume the <code>FpFpu</code> ALU.</p>
+<h3 id="tag"><a class="header" href="#tag">Tag</a></h3>
+<p>The Tag stage is the chain’s entry point and assigns each 32-bit element in a flit a 4-bit <code>Tag</code> (0-15), which later stages use to apply conditional operations.
+Bit 3 (the MSB) is <code>GroupId</code>, used by Filter and pair mode to split elements into Group 0 / Group 1.
+Bits 0..2 are general-purpose flag bits filled by comparison results.</p>
+<p>The <code>TagMode</code> selects how the 4 bits are computed for each element:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><code>TagMode</code></th><th>How each tag bit is filled</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Zero</code></td><td>All four bits are 0. Every element has tag = 0.</td></tr>
+<tr><td><code>AxisToggle { axis }</code></td><td>Bit 3 (<code>GroupId</code>) = <code>axis_index % 2</code> along <code>axis</code>. Bits 0..2 stay 0.</td></tr>
+<tr><td><code>Comparison([cmp0, cmp1, cmp2, cmp3])</code></td><td>For each element <code>x</code>, bit <code>i</code> = <code>1</code> iff <code>cmp_i(x)</code> holds. The four comparisons see the same <code>x</code> and must match its dtype (all <code>InputCmpI32</code> or all <code>InputCmpF32</code>). Each <code>cmp_i</code> independently picks (op, boundary) from <code>InputCmp</code> (<code>Less</code>, <code>Greater</code>, <code>Equal</code>, <code>LessUnsigned</code>, <code>GreaterUnsigned</code>, <code>True</code>, <code>False</code>).</td></tr>
+<tr><td><code>ValidCount</code></td><td>Bits derived from the <a href="./vcg.html">Valid Count Generator</a> output.</td></tr>
+<tr><td><code>Vrf</code></td><td>Bits loaded from VRF, previously written by an earlier TuExec (enables tag reuse across invocations).</td></tr>
+</tbody>
+</table>
+</div>
+<p>For example, with <code>i32</code> data and <code>Comparison([Less{0}, Equal{5}, Greater{100}, True])</code>, an element <code>x = 7</code> yields bits <code>0/0/0/1</code> (LSB first), so its tag is <code>0b1000 = 8</code>.</p>
+<p>Once tags are assigned, later binary and ternary ops can condition an operand on the <code>GroupId</code> MSB so different tag groups see different values.
+<code>BinaryOperandTag::always(operand)</code> applies to all groups, <code>BinaryOperandTag::group(operand, GroupId::Zero)</code> applies only to group 0.
+<code>TernaryOperandTag</code> is the ternary form.</p>
+<h3 id="logic-cluster"><a class="header" href="#logic-cluster">Logic Cluster</a></h3>
+<p>The Logic Cluster performs bitwise operations on <code>i32</code> or <code>f32</code> (bit-level).
+It runs 8-way.</p>
+<p>The stage exposes five ALU classes (<code>LogicAnd</code>, <code>LogicOr</code>, <code>LogicXor</code>, <code>LogicLshift</code>, <code>LogicRshift</code>), each runnable once per Tensor Unit invocation.
+Operators sharing the same class cannot fuse into one invocation.</p>
+<p><code>i32</code> operations:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>ALU</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BitAnd</code></td><td><code>LogicAnd</code></td><td>bitwise and</td></tr>
+<tr><td><code>BitOr</code></td><td><code>LogicOr</code></td><td>bitwise or</td></tr>
+<tr><td><code>BitXor</code></td><td><code>LogicXor</code></td><td>bitwise xor</td></tr>
+<tr><td><code>LeftShift</code></td><td><code>LogicLshift</code></td><td>logical left shift</td></tr>
+<tr><td><code>LogicRightShift</code></td><td><code>LogicRshift</code></td><td>logical right shift</td></tr>
+<tr><td><code>ArithRightShift</code></td><td><code>LogicRshift</code></td><td>arithmetic right shift</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>f32</code> operations:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>ALU</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BitAnd</code></td><td><code>LogicAnd</code></td><td>bitwise and on fp bit patterns</td></tr>
+<tr><td><code>BitOr</code></td><td><code>LogicOr</code></td><td>bitwise or on fp bit patterns</td></tr>
+<tr><td><code>BitXor</code></td><td><code>LogicXor</code></td><td>bitwise xor on fp bit patterns</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="fxp-cluster"><a class="header" href="#fxp-cluster">Fxp Cluster</a></h3>
+<p>The Fxp Cluster performs integer and fixed-point arithmetic on <code>i32</code>.
+It runs 8-way.</p>
+<p>The stage exposes four ALU classes (<code>FxpAdd</code>, <code>FxpLshift</code>, <code>FxpMul</code>, <code>FxpRshift</code>), each runnable once per Tensor Unit invocation.
+Operators sharing the same class cannot fuse into one invocation.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>ALU</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>AddFxp</code></td><td><code>FxpAdd</code></td><td>wrapping add</td></tr>
+<tr><td><code>AddFxpSat</code></td><td><code>FxpAdd</code></td><td>saturating add</td></tr>
+<tr><td><code>SubFxp</code></td><td><code>FxpAdd</code></td><td>wrapping subtract</td></tr>
+<tr><td><code>SubFxpSat</code></td><td><code>FxpAdd</code></td><td>saturating subtract</td></tr>
+<tr><td><code>LeftShift</code></td><td><code>FxpLshift</code></td><td>logical left shift</td></tr>
+<tr><td><code>LeftShiftSat</code></td><td><code>FxpLshift</code></td><td>saturating left shift</td></tr>
+<tr><td><code>MulFxp</code></td><td><code>FxpMul</code></td><td>fixed-point multiply</td></tr>
+<tr><td><code>MulInt</code></td><td><code>FxpMul</code></td><td>integer multiply</td></tr>
+<tr><td><code>LogicRightShift</code></td><td><code>FxpRshift</code></td><td>logical right shift</td></tr>
+<tr><td><code>ArithRightShift</code></td><td><code>FxpRshift</code></td><td>arithmetic right shift</td></tr>
+<tr><td><code>ArithRightShiftRound</code></td><td><code>FxpRshift</code></td><td>arithmetic right shift with rounding</td></tr>
+</tbody>
+</table>
+</div>
+<p>The single-ALU rule rejects, for example, two ops that both target <code>FxpAdd</code>:</p>
+<pre><code class="language-rust ignore">// PANICS: "FxpAdd is already in use"
+input
+    .vector_init()
+    .vector_intra_slice_tag(TagMode::Zero)
+    .vector_fxp(FxpBinaryOp::AddFxp, 10)    // uses FxpAdd
+    .vector_fxp(FxpBinaryOp::MulInt, 2)     // uses FxpMul ✓
+    .vector_fxp(FxpBinaryOp::SubFxp, 5)     // uses FxpAdd again ✗
+    .vector_final()</code></pre>
+<h3 id="fxptofp-conversion"><a class="header" href="#fxptofp-conversion">FxpToFp Conversion</a></h3>
+<p>The FxpToFp Conversion stage converts <code>i32</code> to <code>f32</code>.
+The <code>int_width</code> parameter specifies the integer bit width for the conversion; <code>int_width = 31</code> is the standard <code>i32</code> ↔ <code>f32</code> conversion.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>vector_fxp_to_fp(int_width)</code></td><td>convert <code>i32</code> stream to <code>f32</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="narrow"><a class="header" href="#narrow">Narrow</a></h3>
+<p>The <code>Narrow</code> stage switches 8-way to 4-way.
+An 8-way packet carries 8 active elements (<code>Packet = m![... # 8]</code>) and a 4-way packet carries 4 (<code>Packet = m![... # 4]</code>).
+Narrowing halves throughput on the float and reduce path, so the same logical tensor shape takes twice as many packets or Tensor Unit invocations.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Use When</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>vector_narrow_split()</code></td><td>both halves contain real data</td><td>split one 8-way flit into a front-4 and back-4 packet, updating <code>Time</code> and <code>Packet</code></td></tr>
+<tr><td><code>vector_narrow_trim()</code></td><td>back 4 elements are already padding or irrelevant</td><td>keep only the front 4 elements</td></tr>
+</tbody>
+</table>
+</div>
+<p>Shape semantics:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2, S = 64];
+
+fn split_semantics&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![B], m![S # 16 / 4], m![S # 16 % 4], m![A % 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorNarrowTensor&lt;'l, T, i32, m![1], m![B], m![S # 16 / 4], m![S # 16 % 4, A / 4 % 2], m![A % 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input.vector_narrow_split::&lt;m![S # 16 % 4, A / 4 % 2], m![A % 4]&gt;()
+    // shape semantics: [T], [P] -&gt; [T, P / 2], [P % 4]
+}
+
+fn trim_way4_semantics&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorNarrowTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input.vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()
+    // shape semantics: [T], [P] -&gt; [T], [P = 4]
+}
+<span class="boring">}</span></code></pre>
+<h3 id="float-cluster"><a class="header" href="#float-cluster">Float Cluster</a></h3>
+<p>The Float Cluster provides unary, binary, and ternary floating-point operations on <code>f32</code>.
+It runs 4-way, so the input must already have passed through <code>Narrow</code>.</p>
+<p>It exposes five independent ALUs (<code>FpFma</code>, <code>FpFpu</code>, <code>FpExp</code>, <code>FpMul0</code>, <code>FpMul1</code>), each runnable once per Tensor Unit invocation.
+This stage is where ALU planning matters most.</p>
+<p>Unary ops:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>ALU</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Exp</code></td><td><code>FpExp</code></td><td>exponential</td></tr>
+<tr><td><code>NegExp</code></td><td><code>FpExp</code></td><td>negative exponential</td></tr>
+<tr><td><code>Sqrt</code></td><td><code>FpFpu</code></td><td>square root</td></tr>
+<tr><td><code>Tanh</code></td><td><code>FpFpu</code></td><td>hyperbolic tangent</td></tr>
+<tr><td><code>Sigmoid</code></td><td><code>FpFpu</code></td><td>sigmoid</td></tr>
+<tr><td><code>Erf</code></td><td><code>FpFpu</code></td><td>error function</td></tr>
+<tr><td><code>Log</code></td><td><code>FpFpu</code></td><td>natural logarithm</td></tr>
+<tr><td><code>Sin</code></td><td><code>FpFpu</code></td><td>sine</td></tr>
+<tr><td><code>Cos</code></td><td><code>FpFpu</code></td><td>cosine</td></tr>
+</tbody>
+</table>
+</div>
+<p>Binary ops:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>ALU</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>AddF</code></td><td><code>FpFma</code></td><td>floating-point add</td></tr>
+<tr><td><code>SubF</code></td><td><code>FpFma</code></td><td>floating-point subtract</td></tr>
+<tr><td><code>MulF(FpMulAlu::Mul0)</code></td><td><code>FpMul0</code></td><td>multiply</td></tr>
+<tr><td><code>MulF(FpMulAlu::Mul1)</code></td><td><code>FpMul1</code></td><td>multiply</td></tr>
+<tr><td><code>MulF(FpMulAlu::Fma)</code></td><td><code>FpFma</code></td><td>multiply</td></tr>
+<tr><td><code>DivF</code></td><td><code>FpFpu</code></td><td>division inside <code>Fp</code> stage</td></tr>
+</tbody>
+</table>
+</div>
+<p>Ternary ops:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>ALU</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>FmaF</code></td><td><code>FpFma</code></td><td>fused multiply-add</td></tr>
+</tbody>
+</table>
+</div>
+<p>For example, to compute <code>exp(sqrt(((x + 1) * 2) * 3))</code>:</p>
+<ul>
+<li><code>x1 = x + 1</code> via FpFma (<code>FpBinaryOp::AddF</code>)</li>
+<li><code>x2 = x1 * 2</code> via FpMul0 (<code>FpBinaryOp::MulF(FpMulAlu::Mul0)</code>)</li>
+<li><code>x3 = x2 * 3</code> via FpMul1 (<code>FpBinaryOp::MulF(FpMulAlu::Mul1)</code>)</li>
+<li><code>x4 = sqrt(x3)</code> via FpFpu (<code>FpUnaryOp::Sqrt</code>)</li>
+<li><code>x5 = exp(x4)</code> via FpExp (<code>FpUnaryOp::Exp</code>)</li>
+</ul>
+<h3 id="intraslicereduce"><a class="header" href="#intraslicereduce">IntraSliceReduce</a></h3>
+<p>The IntraSliceReduce stage reduces axes within a single slice.
+It runs 4-way.
+The stage uses a dedicated accumulator-tree ALU, so no user-selectable ALU is exposed.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Data Type</th><th>Supported Ops</th></tr>
+</thead>
+<tbody>
+<tr><td><code>i32</code></td><td><code>AddSat</code>, <code>Max</code>, <code>Min</code></td></tr>
+<tr><td><code>f32</code></td><td><code>Add</code>, <code>Max</code>, <code>Min</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>See <a href="./intra-slice-reduce.html">Intra-Slice Reduce</a> for details.</p>
+<h3 id="fpdiv"><a class="header" href="#fpdiv">FpDiv</a></h3>
+<p>The FpDiv stage performs floating-point division.
+It runs 4-way.
+The stage uses a dedicated floating-point divider, so no user-selectable ALU is exposed.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>FpDivBinaryOp::DivF</code></td><td>dedicated floating-point division</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="widen"><a class="header" href="#widen">Widen</a></h3>
+<p>The <code>Widen</code> stage transitions from 4-way back to 8-way.
+Later stages (<code>FpToFxp</code>, <code>Clip</code>, <code>Filter</code>, <code>Output</code>) then see 8-element packets again.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Use When</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>vector_widen_concat()</code></td><td>reversing a prior <code>vector_narrow_split()</code></td><td>merge two 4-way packets back into one 8-way flit</td></tr>
+<tr><td><code>vector_widen_pad()</code></td><td>reversing a prior <code>vector_narrow_trim()</code></td><td>pad a 4-way packet back to 8 elements with invalid fillers</td></tr>
+</tbody>
+</table>
+</div>
+<p>Shape semantics:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2, S = 64];
+
+fn concat_semantics&lt;'l, const T: Tu&gt;(
+    input: VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![B], m![S # 16 / 4], m![A / 4 % 2], m![A % 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorWidenTensor&lt;'l, T, i32, m![1], m![B], m![S # 16 / 4], m![1], m![A % 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input.vector_widen_concat::&lt;m![1], m![A % 8]&gt;()
+    // shape semantics: [T, P / 2], [P % 4] -&gt; [T], [P]
+}
+
+fn pad_way8_semantics&lt;'l, const T: Tu&gt;(
+    input: VectorFpTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorWidenTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input.vector_widen_pad::&lt;m![A % 2 # 8]&gt;()
+    // shape semantics: [T], [P] -&gt; [T], [P # 8]
+}
+<span class="boring">}</span></code></pre>
+<h3 id="fptofxp-conversion"><a class="header" href="#fptofxp-conversion">FpToFxp Conversion</a></h3>
+<p>The FpToFxp Conversion stage converts <code>f32</code> back to <code>i32</code>.
+The <code>int_width</code> parameter specifies the integer bit width.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>vector_fp_to_fxp(int_width)</code></td><td>convert <code>f32</code> stream back to <code>i32</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="clip-cluster"><a class="header" href="#clip-cluster">Clip Cluster</a></h3>
+<p>The Clip Cluster performs clamping and comparison operations.
+It runs 8-way.</p>
+<p>The stage exposes three ALU classes (<code>ClipAdd</code>, <code>ClipMax</code>, <code>ClipMin</code>), each runnable once per Tensor Unit invocation.</p>
+<p><code>i32</code> operations:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>ALU</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Min</code></td><td><code>ClipMin</code></td><td>minimum</td></tr>
+<tr><td><code>Max</code></td><td><code>ClipMax</code></td><td>maximum</td></tr>
+<tr><td><code>AbsMin</code></td><td><code>ClipMin</code></td><td>absolute minimum</td></tr>
+<tr><td><code>AbsMax</code></td><td><code>ClipMax</code></td><td>absolute maximum</td></tr>
+<tr><td><code>AddFxp</code></td><td><code>ClipAdd</code></td><td>wrapping add</td></tr>
+<tr><td><code>AddFxpSat</code></td><td><code>ClipAdd</code></td><td>saturating add</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>f32</code> operations:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Op</th><th>ALU</th><th>Note</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Min</code></td><td><code>ClipMin</code></td><td>minimum</td></tr>
+<tr><td><code>Max</code></td><td><code>ClipMax</code></td><td>maximum</td></tr>
+<tr><td><code>AbsMin</code></td><td><code>ClipMin</code></td><td>absolute minimum</td></tr>
+<tr><td><code>AbsMax</code></td><td><code>ClipMax</code></td><td>absolute maximum</td></tr>
+<tr><td><code>Add</code></td><td><code>ClipAdd</code></td><td>floating-point add</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="filter"><a class="header" href="#filter">Filter</a></h3>
+<p>The Filter stage applies an execution mask derived from <code>TagFilter</code> (matching on the <code>GroupId</code> MSB of each element’s <code>Tag</code>) to filter output flits.
+Available 8-way and <code>Standalone</code> context only.
+The source <code>impl</code> lives on <code>VectorTensor</code> for any stage with <code>CanTransitionTo&lt;Filter&gt;</code>, which covers every intra-slice stage and <code>InterSliceReduce</code>.</p>
+<h3 id="output"><a class="header" href="#output">Output</a></h3>
+<p>The Output stage exits the Vector Engine pipeline.
+The result can continue to the <a href="../cast-engine.html">Cast Engine</a>, <a href="../transpose-engine.html">Transpose Engine</a>, or <a href="../../moving-tensors/commit-engine.html">Commit Engine</a>.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<h3 id="i32-pipeline"><a class="header" href="#i32-pipeline"><code>i32</code> Pipeline</a></h3>
+<p>A minimal <code>i32</code> chain that adds a constant after branching.
+The Fxp stage runs 8-way, so no narrow or widen is needed.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 2048, B = 2];
+
+fn add_constant&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_fxp(FxpBinaryOp::AddFxp, 100)
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="f32-pipeline"><a class="header" href="#f32-pipeline"><code>f32</code> Pipeline</a></h3>
+<p><code>vector_narrow_trim()</code> is the <code>Narrow</code> step that converts the tensor from 8-way to 4-way before the float operation.
+<code>vector_widen_pad()</code> is the <code>Widen</code> step that converts back to 8-way afterward.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2];
+
+fn sigmoid&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;() // Narrow: Way8 -&gt; Way4
+        .vector_fp_unary(FpUnaryOp::Sigmoid)
+        .vector_widen_pad::&lt;m![A % 2 # 8]&gt;() // Widen: Way4 -&gt; Way8
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="single-stream-argument-mode"><a class="header" href="#single-stream-argument-mode">Single-Stream Argument Mode</a></h3>
+<p><code>BinaryArgMode::Mode10</code> swaps the stream and operand positions, so <code>SubFxp</code> computes <code>operand - stream</code> (here, <code>7 - x</code>) rather than the default <code>stream - operand</code>.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 2048, B = 2];
+
+fn bias_minus_x&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_fxp_with_mode(FxpBinaryOp::SubFxp, BinaryArgMode::Mode10, 7) // compute 7 - x
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="vrf-operand"><a class="header" href="#vrf-operand">VRF Operand</a></h3>
+<p>Pre-loaded VRF data as an operand:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 2048, B = 2, N = 256];
+
+fn vrf_add&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![N], m![A % 8]&gt;,
+    vrf: &amp;VrfTensor&lt;i32, m![1], m![B], m![A / 8], m![A % 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![N], m![A % 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_fxp(FxpBinaryOp::AddFxp, VeRhs::vrf(vrf))
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="stash-on-the-fp-only-path"><a class="header" href="#stash-on-the-fp-only-path">Stash on the Fp-Only Path</a></h3>
+<p>Stash at an early stage, then use it later in a Clip operation.
+This implements <code>max(2 * x, x)</code>:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2];
+
+fn residual_max&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; {
+    input
+        .vector_init()                                        // enter VE
+        .vector_intra_slice_tag(TagMode::Zero) // start the intra-slice path
+        .vector_stash()                                       // save original x
+        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()                  // narrow to Way4
+        .vector_fp_binary(FpBinaryOp::MulF(FpMulAlu::Mul0), 2.0f32) // compute 2 * x
+        .vector_widen_pad::&lt;m![A % 2 # 8]&gt;()                   // widen back to Way8
+        .vector_clip(ClipBinaryOpF32::Max, Stash)             // max(2 * x, x)
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="stash-on-the-fxp-only-path"><a class="header" href="#stash-on-the-fxp-only-path">Stash on the Fxp-Only Path</a></h3>
+<p>Stash at an early stage, then use it later in a Clip operation.
+This implements <code>max(x + bias, x)</code>:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 2048, B = 2];
+
+fn stash_at_fxp&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt; {
+    input
+        .vector_init()                                      // enter VE
+        .vector_intra_slice_tag(TagMode::Zero) // start the intra-slice path
+        .vector_stash()                                     // save original x
+        .vector_fxp(FxpBinaryOp::AddFxp, 100)               // compute x + bias
+        .vector_clip(ClipBinaryOpI32::Max, Stash)           // compute max(x + bias, x)
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="stash-across-narrow-and-widen"><a class="header" href="#stash-across-narrow-and-widen">Stash Across Narrow and Widen</a></h3>
+<p>Stash before narrowing, consume after widening.
+This computes <code>max(sigmoid(x), x)</code>:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2];
+
+fn stash_across_narrow_widen&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; {
+    input
+        .vector_init()                                     // enter VE
+        .vector_intra_slice_tag(TagMode::Zero) // start the intra-slice path
+        .vector_stash()                                    // save x (Way8)
+        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()               // narrow to Way4
+        .vector_fp_unary(FpUnaryOp::Sigmoid)               // compute sigmoid(x) in Way4
+        .vector_widen_pad::&lt;m![A % 2 # 8]&gt;()                // widen back to Way8
+        .vector_clip(ClipBinaryOpF32::Max, Stash)          // compute max(sigmoid(x), x)
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="pair-add"><a class="header" href="#pair-add">Pair Add</a></h3>
+<p>Zip two interleaved groups with integer add:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 2048, B = 2, I = 2];
+
+fn pair_add&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_unzip::&lt;I, m![1 # 2], m![1]&gt;()
+        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="pair-per-side-preprocessing"><a class="header" href="#pair-per-side-preprocessing">Pair Per-Side Preprocessing</a></h3>
+<p>Asymmetric preprocessing scales only group 0 before zip:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 2048, B = 2, I = 2];
+
+fn pair_preprocess_one_side&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_unzip::&lt;I, m![1 # 2], m![1]&gt;()
+        .vector_fxp(FxpBinaryOp::MulInt, 10, ())   // group 0 only
+        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="pair-float-pipeline-with-zip"><a class="header" href="#pair-float-pipeline-with-zip">Pair Float Pipeline with Zip</a></h3>
+<p>Both groups traverse the float path (narrow -&gt; fp -&gt; zip -&gt; widen):</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2, I = 2];
+
+fn pair_fp_mul_zip&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_unzip::&lt;I, m![1 # 2], m![1]&gt;()
+        .vector_narrow_split::&lt;m![B], m![A % 2 # 4]&gt;()        // both groups: Way8 -&gt; Way4
+        .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))   // group0 * group1 (Way4)
+        .vector_widen_concat::&lt;m![1], m![A % 2 # 8]&gt;()           // Way4 -&gt; Way8
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="pair-per-group-preprocessing"><a class="header" href="#pair-per-group-preprocessing">Pair Per-Group Preprocessing</a></h3>
+<p>Apply a different operation to each group before zipping:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2, I = 2];
+
+fn pair_asymmetric_preprocess&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_unzip::&lt;I, m![1 # 2], m![1]&gt;()
+        .vector_narrow_split::&lt;m![B], m![A % 2 # 4]&gt;()
+        .vector_fp_unary(FpUnaryOp::Exp, true, false)         // group 0: exp(x), group 1: skip
+        .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))   // exp(group0) * group1
+        .vector_widen_concat::&lt;m![1], m![A % 2 # 8]&gt;()
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h3 id="pair-zip-argument-mode"><a class="header" href="#pair-zip-argument-mode">Pair Zip Argument Mode</a></h3>
+<p><code>BinaryArgMode::Mode10</code> swaps the two grouped streams when zipping:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2, I = 2];
+
+fn pair_sub_reverse&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_unzip::&lt;I, m![1 # 2], m![1]&gt;()
+        .vector_narrow_split::&lt;m![B], m![A % 2 # 4]&gt;()
+        .vector_fp_zip_with_mode(FpBinaryOp::SubF, BinaryArgMode::Mode10) // compute group1 - group0
+        .vector_widen_concat::&lt;m![1], m![A % 2 # 8]&gt;()
+        .vector_final()
+}
+<span class="boring">}</span></code></pre>
+<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
+<p>Throughput is full 8-way (8 elements per cycle) on the Logic, Fxp, and Clip clusters.
+The Float cluster runs at 4-way, and the Narrow/Widen wrapping around the float path halves effective throughput in practice.</p>
+<p>Latency adds one cycle per ALU used.
+Operations spanning multiple ALUs accumulate their latencies.
+For example, <code>exp(sqrt(x))</code> adds 2 cycles (FpFpu for sqrt plus FpExp for exp).</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../computing-tensors/vector-engine/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../../computing-tensors/vector-engine/intra-slice-reduce.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../computing-tensors/vector-engine/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../../computing-tensors/vector-engine/intra-slice-reduce.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../../mark-09e88c2c.min.js"></script>
+        <script src="../../searcher-09f2665d.js"></script>
+
+        <script src="../../clipboard-1626706a.min.js"></script>
+        <script src="../../highlight-abc7f01d.js"></script>
+        <script src="../../book-c22b7243.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../../mermaid-eefea253.min.js"></script>
+        <script src="../../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

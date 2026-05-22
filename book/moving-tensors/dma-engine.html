@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-56bb6057.js";
+            window.path_to_searchindex_js = "../searchindex-85db366b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-3bdaffa5.js"></script>
+        <script src="../toc-0b46deb9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,711 +177,544 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="dma-engine"><a class="header" href="#dma-engine">DMA Engine</a></h1>
-<p>The DMA Engine moves tensors directly between memory locations without involving the Tensor Unit.
-It supports all combinations of HBM, SPM, and DM transfers while optionally transforming memory layouts.</p>
-<p>As a kernel writer, you control the source and destination memory tiers and any layout transformation expressed as mapping expressions.
-Prefer direct transfers between tiers: routing data through an intermediate tier (e.g., HBM→SPM→DM when HBM→DM suffices) adds unnecessary latency and bandwidth pressure.
-The compiler derives the read/write sequencer configuration.</p>
-<p>This page covers the interface, worked examples, architecture, and performance characteristics.</p>
+<p>The DMA Engine moves tensors directly between memory tiers without engaging the Tensor Unit pipeline.
+Each transfer pairs two coordinated stages:</p>
+<ul>
+<li><strong><a href="#architecture">Read Sequencer</a></strong>: Reads from the source tier.</li>
+<li><strong><a href="#architecture">Write Sequencer</a></strong>: Writes to the destination tier, possibly with a layout transformation.</li>
+</ul>
+<p>A DMA transfer is a <a href="../mapping-tensors/tensor-semantics.html#mathematical-tensor-move">mathematical tensor move</a>: the output holds the same mathematical tensor as the input even when the layouts differ.
+Tensor DMA spans cross-DMN, cross-cluster, and cross-chip transfers, with chip IDs globally agreed across the system.</p>
+<p>See <a href="#optimizations">Optimizations</a> for transfer throughput considerations.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span>/// Moves a tensor from one memory location to another using DMA.
-/// Supports layout transformations during transfer.
-fn dma&lt;D: Scalar, InMedia, OutMedia, InMapping, OutMapping, StreamMapping&gt;(
-    input: &amp;Tensor&lt;D, InMedia, InMapping&gt;,
-    output: &amp;mut Tensor&lt;D, OutMedia, OutMapping&gt;,
-    stream: StreamMapping,
-) {
-    // Hardware implementation:
-    // - Read sequencer fetches from source memory
-    // - Write sequencer stores to destination memory
-    // - Stream mapping coordinates the transfer
-}</code></pre>
-<p>The operation signature follows this pattern:</p>
-<pre><code class="language-rust ignore">impl&lt;D: Scalar, Chip: M, Element: M&gt; HbmTensor&lt;D, Chip, Element&gt; {
+<p>A DMA transfer takes a tensor in one memory tier and produces a tensor in another (or the same) tier.
+The kernel writer calls <code>.to_dm()</code>, <code>.to_hbm()</code>, or related methods on the source tensor, passing in a <code>DmaContext</code>:</p>
+<ul>
+<li><code>Context::tdma</code>: Tensor DMA context for on-chip transfers (HBM ↔ HBM, HBM ↔ DM, DM ↔ DM).</li>
+<li><code>Context::pdma</code>: PCIe DMA context for host ↔ HBM transfers (see <a href="#pcie-dma">PCIe DMA</a>).</li>
+</ul>
+<pre><code class="language-rust ignore">impl&lt;D: Scalar, Chip: M, Element: M, B: Backend&gt; HbmTensor&lt;D, Chip, Element, B&gt; {
     /// Converts to data memory tensor.
     #[primitive(HbmTensor::to_dm)]
     pub fn to_dm&lt;Cluster: M, Slice: M, Element2: M&gt;(
         &amp;self,
         _dma: &amp;mut DmaContext&lt;{ Dma::Tensor }&gt;,
         address: Address,
-    ) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element2&gt; {
+    ) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element2, B&gt; {
+        assert_dma_layout::&lt;D, m![{ Chip }, { Element }], Element2&gt;(DMA_SRAM_WRITE_WIDTH);
         DmTensor::new(self.inner.transpose(true), address)
     }
 }</code></pre>
-<p>Transfer capabilities:</p>
-<ul>
-<li>All nine source-destination pairs between DM, SPM, and HBM (including same-tier copies)</li>
-<li>Cross-DMN, cross-cluster, and cross-chip transfers</li>
-<li>Inter-chip transfers via PCIe at 30 bytes/cycle</li>
-</ul>
-<p>See also: <a href="./memory-performance.html">Memory Performance</a>, <a href="./sequencer.html">Sequencer</a>.</p>
-<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<h3 id="layout-transformation"><a class="header" href="#layout-transformation">Layout Transformation</a></h3>
-<p>Consider transposing a tensor’s layout while moving it from HBM to DM:</p>
-<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_visa_std;
-</span><span class="boring">use furiosa_visa_std::prelude::*;
-</span>axes![N = 4, C = 3, H = 8, W = 8];
-
-// Tensor in HBM with NCHW layout
-let hbm: HbmTensor&lt;i8, m![1], m![N, C, H, W]&gt; = /* ... */;
-
-// DMA Engine moves to DM with NHWC layout
-let dm: DmTensor&lt;i8, m![1], m![1], m![1], m![N, H, W, C]&gt; =
-    dma_engine(&amp;hbm);</code></pre>
-<p>The DMA Engine reads from HBM using one access pattern and writes to DM using a different pattern, transforming the layout during transfer.
-For parameter definitions, see the <a href="#architecture">Architecture</a> section below.</p>
-<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
-<p>The DMA Engine coordinates paired read and write sequencers for flexible tensor movement.
-Each RNGD chip contains eight DMA Engines, one per pair of DMNs, so up to eight independent tensor transfers can proceed simultaneously.</p>
-<h3 id="single-engine-operation"><a class="header" href="#single-engine-operation">Single-Engine Operation</a></h3>
-<p>A single DMA Engine operation transforms a tensor by reading it from one memory location and writing it to another with a potentially different layout.</p>
-<h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
-<p>The DMA operation requires several parameters to specify the source tensor, destination tensor, and how data flows between them:</p>
-<ul>
-<li><code>shape</code>: The tensor’s logical shape (declared via <code>axes![...]</code>)</li>
-<li><code>dtype</code>: Element datatype (e.g., <code>i8</code>, <code>bf16</code>)</li>
-<li><code>media_in</code>, <code>media_out</code>: Source and destination media types (DM/SPM/HBM)</li>
-<li><code>b_in</code>, <code>b_out</code>: Base memory addresses for input/output tensors (when media is HBM, <code>b = { element: b_element }</code>)</li>
-<li><code>In</code>, <code>Out</code>: Mapping environments that specify how logical tensor indices map to physical memory locations</li>
-<li><code>Stream</code>: Intermediate stream mapping environment that coordinates the read and write sequencers</li>
-</ul>
-<p>The operation executes using two coordinated sequencers:
-The read sequencer applies <code>read(shape, dtype, b_in, In, Stream)</code> to fetch data from the source, while the write sequencer applies <code>write(shape, dtype, b_out, Out, Stream)</code> to store data at the destination.
-These sequencers work together through the shared <code>Stream</code> environment to ensure data flows correctly from source to destination.</p>
-<h3 id="alignment-constraints"><a class="header" href="#alignment-constraints">Alignment Constraints</a></h3>
-<p>These constraints reflect the physical organization of memory hardware and the AXI bus protocol.
-<strong>The 8-byte DM write alignment</strong> stems from SRAM bank structure: each bank has an 8-byte data width, and the bank controller can only write complete 8-byte units.
-Misaligned writes require a read-modify-write operation, tripling the time and blocking other operations on that bank.
-<strong>The 1-byte read alignment</strong> reflects asymmetric hardware capabilities: SRAM read ports can extract arbitrary byte ranges using byte-select logic, but write ports cannot.
-<strong>HBM-to-DM 8-byte alignment</strong> combines both constraints: unaligned HBM reads incur severe performance penalties (potentially halving bandwidth), so the hardware enforces alignment for this critical path.
-<strong>The 4096-byte packet limit</strong> comes from the AXI bus protocol: AXI transactions cannot exceed 256 beats, and with 16-byte data width this yields 4096 bytes maximum.
-Violating these constraints causes correctness errors or hardware exceptions, not just performance degradation.
-The compiler enforces these rules because they are hardware invariants, not optimization hints.</p>
-<h3 id="structural-requirements"><a class="header" href="#structural-requirements">Structural Requirements</a></h3>
-<p>The mapping environments must follow specific structural requirements depending on the media types involved:</p>
-<ul>
-<li>
-<p><code>Stream</code> must have a specific form:</p>
-<pre><code class="language-text">// Stream = { time: Time, packet: Packet }
-</code></pre>
-</li>
-<li>
-<p><code>In/out</code> must have a specific form depending on the media <code>media_in/out</code>:</p>
-<pre><code class="language-text">// In =
-//   if media_in in {HBM, SPM}: { element: ElementIn }
-//   if media_in in {DM}: { slice: SliceIn, element: ElementIn }
-//
-// Out =
-//   if media_out in {HBM, SPM}: { element: ElementOut }
-//   if media_out in {DM}: { slice: SliceOut, element: ElementOut }
-</code></pre>
-<p>This specifies the respective memory space.</p>
-</li>
-<li>
-<p><code>b_in/out</code> must have a specific form depending on the media <code>media_in/out</code>:</p>
-<pre><code class="language-text">// b_in =
-//   if media_in in {HBM, SPM}: { chip: b_chip_in, element: b_element_in }
-//   if media_in in {DM}: { chip: b_chip_in, cluster: b_cluster_in, slice: b_sliceIn, element: b_element_in }
-//
-// b_out =
-//   if media_out in {HBM, SPM}: { chip: b_chip_out, element: b_element_out }
-//   if media_out in {DM}: { chip: b_chip_out, cluster: b_cluster_out, slice: b_sliceOut, element: b_element_out }
-</code></pre>
-<p>This specifies addresses in the respective memory space.</p>
-</li>
-<li>
-<p>RNGD imposes the following hardware constraints on DMA Engine sequencers (see <a href="./sequencer.html#constraints">sequencer constraints</a> for details):</p>
-<ul>
-<li>
-<p>Alignment requirements for addresses and packet size (<code>Packet::SIZE</code>):</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th></th><th>HBM</th><th>DM (SRAM)</th></tr>
-</thead>
-<tbody>
-<tr><td>Read address</td><td><code>1B</code></td><td><code>1B</code></td></tr>
-<tr><td>Write address</td><td><code>1B</code></td><td><code>8B</code></td></tr>
-<tr><td>packet size</td><td><code>1B</code></td><td><code>8B</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>In addition, HBM-to-DM DMA transfers require an <code>8</code>-byte alignment for the read address, write address, and packet size, regardless of the values shown in the table above.</p>
-</li>
-<li>
-<p>The packet size must be less than or equal to <code>4096</code> bytes (AXI protocol constraint).</p>
-</li>
-</ul>
-</li>
-</ul>
-<h3 id="example-basic-hbm-to-hbm-layout-transformation"><a class="header" href="#example-basic-hbm-to-hbm-layout-transformation">Example: Basic HBM-to-HBM Layout Transformation</a></h3>
-<p>This example demonstrates how a DMA operation transforms a tensor’s memory layout through a simple HBM-to-HBM transfer that rearranges tensor dimensions.</p>
-<p>Consider a DMA operation with the following arguments:</p>
-<pre><code class="language-text">axes![N = 4, C = 3, H = 8, W = 8];
-// dtype = i8
-// media_in = media_out = HBM
-// b_in = { chip: 0, element: 1024 }, b_out = { chip: 0, element: 2048 }
-// In = { element: m![N, C, H, W] }, Out = { element: m![H, C, N, W] }
-// Stream = { time: m![H, C, N], packet: m![W] }
-</code></pre>
-<p>The compiler generates the following sequencer configurations from these arguments:</p>
-<!-- > **TODO** (jeongmin.park): The axes above declare `N=4`, but the configs below say `N=3`. Also verify the write sequencer: the `H` stride (192) and `C` size (8) look inconsistent with `axes![N=4, C=3, H=8, W=8]`. Fix. -->
-<ul>
-<li>Read sequencer configuration: <code>[H=8:8, C=3:64, N=3:192, W=8:1]:8  HBM/D@1024</code></li>
-<li>Write sequencer configuration: <code>[H=8:192, C=8:32, N=3:8, W=8:1]:8  HBM/D@2048</code></li>
-</ul>
-<p>The hardware traverses memory locations according to these sequencer configurations.
-The following pseudocode models this behavior conceptually:</p>
+<p>The compiler derives the read and write sequencer configurations from the source and destination tensor types.
+The kernel writer specifies the destination type’s <code>Cluster</code>, <code>Slice</code>, and <code>Element</code> (for DM tensors) or <code>Element</code> (for HBM tensors), which encode the layout transformation.</p>
+<p>The example below transposes a tensor from <code>[A, B, C]</code> to <code>[C, A, B]</code> using two HBM-to-HBM transfers:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>fn dma_sequencer() {
-    let packet_size = 8; // packet size divides last consecutive read/write sequencer configuration entry
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 8, B = 16, C = 32];
 
-    for h in 0..8 {
-        for c in 0..3 {
-            for n in 0..4 {
-                for w_packet in 0..1 {
-                    // packet size is 8, so W=8 is accessed as a single chunk
-                    let read_index = h * 8 + c * 64 + n * 192 + w_packet * 1;
-                    let stream = Mem[read_index..(read_index + packet_size)];
-                    let writ_index = h * 96 + c * 32 + n * 8 + w_packet * 1;
-                    Mem[writ_index..(writ_index + packet_size)] = stream;
-                }
-            }
-        }
-    }
+fn transpose_simple(
+    ctx: &amp;mut Context,
+    input: &amp;HbmTensor&lt;f32, m![1], m![A, B, C]&gt;,
+) -&gt; HbmTensor&lt;f32, m![1], m![C, A, B]&gt; {
+    // Step 1: [A, B, C] → [A, C, B]
+    let intermediate: HbmTensor&lt;f32, m![1], m![A, C, B]&gt; = input.to_hbm(&amp;mut ctx.tdma, 0);
+
+    // Step 2: [A, C, B] → [C, A, B]
+    intermediate.to_hbm(&amp;mut ctx.tdma, 0x1000)
 }
 <span class="boring">}</span></code></pre>
-<p>This example illustrates how the stream environment (<code>Stream</code>) mediates between different input and output layouts (<code>In</code> and <code>Out</code>), transforming the tensor’s organization in memory while moving it.</p>
-<h3 id="performance"><a class="header" href="#performance">Performance</a></h3>
-<p>Optimal DMA performance requires attention to startup overhead, alignment, and packet size:</p>
-<p><strong>Startup overhead:</strong> Each DMA operation incurs approximately 500 cycles of initial overhead. Combining multiple transfers into fewer operations improves efficiency.</p>
-<p><strong>Alignment:</strong> While the constraints above specify minimum requirements, using larger alignment factors (particularly 256-byte alignment) yields better throughput. For detailed guidance, refer to the <a href="./memory-performance.html">memory performance section</a>.</p>
-<p><strong>Packet size and internal DMA requests:</strong> DMA automatically splits packets into 256-byte units internally: an n-byte packet becomes ceil(n / 256) DMA requests. Examples:</p>
-<ul>
-<li>If the innermost entry is <code>x=4095:1</code>, packet size 4095 results in 16 DMA requests.</li>
-<li>If the innermost entry is <code>x=4099:1</code>, since 4099 is prime, a single DmaCommand processes 1 byte at a time (very inefficient). Split into two DmaCommands (e.g., 4096/3 portions) instead, though each additional DmaCommand adds ~500 cycles of initial latency.</li>
-</ul>
-<h3 id="homogeneous-aggregate-operation"><a class="header" href="#homogeneous-aggregate-operation">Homogeneous Aggregate Operation</a></h3>
-<p>Multiple DMA Engines work together in parallel to improve throughput for large tensor moves.
-The homogeneous aggregate operation distributes a single logical tensor move across DMA Engines in multiple DMNs, with all DMNs using identical stream environments to coordinate their work.
-With four chips, up to 32 DMA Engines execute portions of a single tensor move concurrently.</p>
-<p>The operation has the following form:</p>
-<pre><code class="language-text">// dma(shape, dtype, media_in, media_out, b_in, b_out, In, Stream, Out)
+<p>A transfer that crosses tiers also takes a layout transformation through the destination type’s mapping.
+For an HBM-to-DM transfer, the destination DM tensor adds <code>Cluster</code> and <code>Slice</code> axes that distribute the tensor across hardware partitions.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 2048];
+
+fn hbm_to_dm(
+    ctx: &amp;mut Context,
+    input: &amp;HbmTensor&lt;i8, m![1], m![A]&gt;,
+) -&gt; DmTensor&lt;i8, m![1], m![1 # 2], m![A / 8], m![A % 8]&gt; {
+    input.to_dm::&lt;m![1 # 2], m![A / 8], m![A % 8]&gt;(&amp;mut ctx.tdma, 0)
+}
+<span class="boring">}</span></code></pre>
+<p>Here the 2,048-element vector is distributed as 256 elements per slice (<code>Slice = m![A / 8]</code>) with 8 elements per slice (<code>Element = m![A % 8]</code>), spread across 2 clusters.</p>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<p>Each RNGD chip holds 8 DMA Engines, one per pair of DMNs, running up to 8 independent transfers in parallel.
+A single DMA Engine runs paired read and write sequencers, and a tensor move spreads across multiple engines through an aggregate.
+The subsections below describe its static structure, sequencer representation, dynamic behavior, compiler derivation, and aggregate operations.</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>The Tensor Unit (via <a href="./fetch-engine.html">Fetch</a> and <a href="./commit-engine.html">Commit</a> Engines) is often more efficient than DMA for SRAM-to-SRAM transfers, since DMA may underutilize SRAM slice bandwidth.
+HBM bandwidth, however, is typically the bottleneck in practice, making this gap less critical for HBM ↔ DM transfers.</p>
+</blockquote>
+<h3 id="static-structure"><a class="header" href="#static-structure">Static Structure</a></h3>
+<p><code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> are the hardware spatial parallelism dimensions.
+The 8 DMA Engines per chip transfer between different memory components in parallel (e.g., engine #0 handles HBM ↔ DM while engine #1 handles DM ↔ DM).</p>
+<p>Each DMA Engine runs paired read and write sequencers in lockstep.
+The read sequencer traverses source addresses, the write sequencer traverses destination addresses.
+Both share the same loop count but use different strides and base addresses, since the layout transformation reorders how the same logical elements appear in source vs. destination memory.
+The compiler represents the pair compactly as a single sequencer with paired strides per loop entry, exploiting the matched read and write counts.</p>
+<p>The compiler distributes a single tensor move across the available DMA Engines, partitioning the work along chip, cluster, and slice dimensions and assigning each partition to a DMA Engine.
+Any DMA Engine handles any transfer.
+By default the compiler picks the source DM’s local DMA Engine, since local DMN access is faster than cross-DMN access.
+The kernel writer can also specify an engine explicitly.</p>
+<h3 id="sequencer-representation"><a class="header" href="#sequencer-representation">Sequencer Representation</a></h3>
+<p>The compiler represents each DMA Engine’s work as a <code>DmaSequencer</code> paired with source and destination addressing:</p>
+<pre><code class="language-rust ignore">struct DmaSequencer {
+    entries: Vec&lt;DmaEntry&gt;,
+    stride0: u16,        // 1..=4096, per-iteration packet size in bytes
+    source_base: usize,
+    dest_base: usize,
+}
+
+struct DmaEntry {
+    axis: AxisName,
+    size: usize,
+    source_stride: isize,
+    dest_stride: isize,
+}</code></pre>
+<p>Each entry specifies a loop with a shared <code>size</code> but separate <code>source_stride</code> and <code>dest_stride</code>, since the layout transformation reorders the same logical elements between source and destination memory.
+The innermost-loop stride <code>stride0</code> (1 to 4,096 bytes) sets the per-iteration packet size.
+A full DMA command bundles the sequencer with the engine’s location and media:</p>
+<pre><code class="language-rust ignore">struct DmaDescriptor {
+    sequencer: DmaSequencer,
+    source_media: Media,
+    dest_media: Media,
+}
+
+struct DmnIndex {
+    chip: ChipIndex,
+    cluster_in_chip: ClusterInChipIndex,
+    slice_in_cluster: SliceInClusterIndex,
+}
+
+enum Media {
+    Hbm(ChipIndex),
+    Dm(DmnIndex),
+    Spm(DmnIndex),
+}
+
+enum Dtype {
+    I4, I8, F8E4M3, F8E5M2, I16, Bf16, F16, I32, F32,
+}</code></pre>
+<p>A homogeneous aggregate uses one descriptor template parameterized across all participating DMA Engines.
+A heterogeneous aggregate uses a <code>HashMap&lt;DmnIndex, DmaDescriptor&gt;</code> that pairs each DMN with its specific descriptor.
+DM tensor specifications must include chip, cluster, and slice in the mapping expression to identify the exact memory location.</p>
+<h3 id="dynamic-behavior"><a class="header" href="#dynamic-behavior">Dynamic Behavior</a></h3>
+<p>Each loop in the <code>DmaSequencer</code> advances a counter in row-major order, deriving the read and write addresses from the paired strides.
+For the sequencer below with <code>base = (0, 256³)</code>:</p>
+<pre><code class="language-text">[
+  A -&gt; 256 : (65,536, 256),
+  B -&gt; 256 : (256, 65,536),
+  C -&gt; 256 : (1, 1),
+] : 256
 </code></pre>
-<p>Each participating DMN executes its own DMA Engine to handle a portion of the overall transfer, together implementing the following single logical tensor move:</p>
-<pre><code class="language-text">// &lt;shape, In, media_in / dtype @ { element: b_in }&gt; --id--&gt; &lt;shape, Out, media_out / dtype @ { element: b_out }&gt;
-</code></pre>
-<p>Parallel execution across multiple DMNs requires extending the mapping environments beyond the single-DMN case to include chip, cluster, and slice dimensions:</p>
-<pre><code class="language-text">// In =
-//   if media_in in {HBM, SPM}: { chip: ChipIn, element: ElementIn }
-//   if media_in in {DM}: { chip: ChipIn, cluster: ClusterIn, slice: SliceIn,
-//                          element: ElementIn }
-//
-// Out =
-//   if media_out in {HBM, SPM}: { chip: ChipOut, element: ElementOut }
-//   if media_out in {DM}: { chip: ChipOut, cluster: ClusterOut, slice: SliceOut,
-//                           element: ElementOut }
-</code></pre>
-<p>The key characteristic of homogeneous operations is that all DMNs share the same parametric stream environment:</p>
-<pre><code class="language-text">// Stream = { chip: ChipStream, cluster: ClusterStream, slice: SliceStream,
-//              time: Time, packet: Packet }
-</code></pre>
-<h3 id="heterogeneous-aggregate-operation"><a class="header" href="#heterogeneous-aggregate-operation">Heterogeneous Aggregate Operation</a></h3>
-<p>The heterogeneous aggregate operation provides flexibility for different DMNs to process data differently during a parallel transfer.
-This variant allows each DMN to use a distinct stream environment while coordinating to perform a single logical tensor move.</p>
-<p>Two constraints maintain correctness with this added flexibility:</p>
-<ul>
-<li>All participating DMA Engines must use the same input and output media types</li>
-<li>A single, unified input and output tensor mapping expression must govern the overall transfer</li>
-</ul>
-<p>The heterogeneous aggregate DMA operation is defined as:</p>
-<pre><code class="language-text">// dma(shape, dtype, media_in, media_out, b_in, b_out, In, StreamFn, Out)
-</code></pre>
-<p>Each DMN executes its own DMA Engine to implement the following single logical tensor move:</p>
-<pre><code class="language-text">// &lt;shape, In, media_in / dtype @ { element: b_in }&gt; --id--&gt; &lt;shape, Out, media_out / dtype @ { element: b_out }&gt;
-</code></pre>
-<p>The stream environment specification distinguishes this operation.
-Instead of a single parametric stream environment shared by all DMNs, the heterogeneous operation uses <code>StreamFn</code>, a function mapping each DMN’s location to its own unique stream environment.
-For a DMN at chip <code>i</code>, cluster <code>j</code>, and slice index <code>k</code>, the function <code>StreamFn(i, j, k)</code> returns that DMN’s specific stream mapping of the form <code>{ time: Time, packet: Packet }</code>.
-The input and output mapping environments (<code>In</code> and <code>Out</code>) remain structurally identical to the homogeneous case, ensuring a well-defined overall logical tensor move.</p>
-<h3 id="dma-command-syntax"><a class="header" href="#dma-command-syntax">DMA Command Syntax</a></h3>
-<p>Two syntactic forms express DMA operations, depending on whether each DMN needs its own descriptor or can share a common pattern.</p>
-<h4 id="heterogeneous-syntax-full-flexibility"><a class="header" href="#heterogeneous-syntax-full-flexibility">Heterogeneous Syntax (Full Flexibility)</a></h4>
-<p>The heterogeneous syntax specifies a complete DMA descriptor for each DMN individually, including potentially different source and destination media:</p>
-<pre><code class="language-bnf">&lt;DMACommand&gt; ::= HashMap(&lt;DmnIndex&gt;, &lt;DmaDescriptor&gt;)
-&lt;DmaDescriptor&gt; ::= (&lt;DmaSequencer&gt;, &lt;source_media: Media&gt;, &lt;dest_media: Media&gt;)
-&lt;DmaSequencer&gt; ::= (&lt;limit: integer&gt;, &lt;source_stride: integer&gt;, &lt;dest_stride: integer&gt;)*,
-                   (&lt;source_base: integer&gt;, &lt;dest_base: integer&gt;), &lt;stride0: 1~4096&gt;
-&lt;Media&gt; ::= "HBM"(&lt;ChipIndex&gt;) | "DM"(DmnIndex) | "SPM"(DmnIndex)
-&lt;DmnIndex&gt; ::= (&lt;ChipIndex&gt;, &lt;ClusterInChipIndex&gt;, &lt;SliceInClusterIndex&gt;)
-&lt;ChipIndex&gt; ::= 0 | 1 | 2 | 3 (when using 4 chips)
-&lt;ClusterInChipIndex&gt; ::= 0 | 1
-&lt;SliceInClusterIndex&gt; ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
-</code></pre>
-<p>Note: While a DMA operation logically uses separate read and write sequencers, the compiler represents them compactly as a single DmaSequencer with paired strides and bases per entry (one for source, one for destination).</p>
-<h4 id="homogeneous-syntax-common-case"><a class="header" href="#homogeneous-syntax-common-case">Homogeneous Syntax (Common Case)</a></h4>
-<p>For the common case where all DMNs follow a regular pattern, the homogeneous syntax offers a concise representation:</p>
-<pre><code class="language-bnf">&lt;DMACommand&gt; ::= ( &lt;source: Tensor&gt;, &lt;dest: Tensor&gt;, HashMap(&lt;DmnIndex&gt;, &lt;StreamShape&gt;) )
-&lt;Tensor&gt; ::= ( &lt;Shape&gt;, &lt;Memory Mapping Expression&gt;, &lt;Media&gt;, &lt;addr: integer&gt;, &lt;Dtype&gt; )
-&lt;Shape&gt;, &lt;Memory Mapping Expression&gt;: defined before
-&lt;Media&gt; ::= "HBM" | "DM" | "SPM"
-&lt;Dtype&gt; ::= i4 | i8 | f8e4m3 | f8e5m2 | i16 | fp16 | bf16 | i32 | f32
-&lt;StreamShape&gt; ::= &lt;Memory Mapping Expression&gt;
-&lt;DmnIndex&gt; ::= (&lt;ChipIndex&gt;, &lt;ClusterInChipIndex&gt;, &lt;SliceInClusterIndex&gt;)
-</code></pre>
-<p><strong>Key usage notes:</strong></p>
-<ul>
-<li>DM tensor specifications must include chip, cluster, and slice dimensions in the Memory Mapping Expression to identify the exact memory location</li>
-<li>Each DMN’s <code>StreamShape</code> includes inter-DMN mapping information (e.g., <code>chip: A!4, chip #2</code> means the stream shape uses <code>A@2!1</code> to specify reading from a particular chip)</li>
-<li>Stream shapes are often inferred: if only source and destination tensors are provided, the compiler derives appropriate stream shapes. Alternatively, specify a single stream shape with chip/cluster/slice dimensions, from which per-DMN stream shapes are automatically derived</li>
-</ul>
-<p><strong>Example of heterogeneous mapping:</strong></p>
-<pre><code class="language-text">axes![A = 4, B = 256, C = 256, D = 256];
-// source: [Chip: [A % 4], Dram: [B % 256 * C % 256 * D % 256]], HBM @ 0
-// dest: [Chip: [A % 4], Cluster: [B / 128], Partitioning: [C % 256], InSlice: [B % 128 * D % 256]], DM @ 0
-</code></pre>
-<p>StreamShape for (Chip_i, Cluster_j, Slice_k):</p>
-<pre><code class="language-text">// [A @ i % 1 * (B / 128) @ j % 1 * (C / 64) @ k % 1 * C % 32 * B % 128 * C / 32 % 2 (DMN) * D % 256]
-// DMA Sequencer = [C=32:(32 * 256, slice_stride), B=128:(256 * 256, 256),
-//                  C/32=2:(32 * 256, 32) * slice_stride, D=256:(1, 1)],
-//                  base: (Chip, Cluster, Slice, HBM/InSlice) = ((i, i), (j, j), (k, k), (0, 0))
-// (slice_stride = 4MB = virtual address space of in_slice DM)
-</code></pre>
-<h3 id="implementation-details"><a class="header" href="#implementation-details">Implementation Details</a></h3>
-<p>This section explains how the compiler generates DMA operations and how the hardware executes them.</p>
-<p><strong>Compiler generates aggregate operations by default:</strong> The compiler treats tensor-to-tensor moves (T → T’) as atomic units and automatically distributes work across available DMNs in parallel, similar to Fetch/Commit Sequencers. Aggregate operations are the primary abstraction programmers interact with, which explains why this documentation emphasizes them rather than single-DMN DMA.</p>
-<p><strong>Sequencer representation is compact:</strong> Although DMA operations logically use separate read and write sequencers, the compiler represents them efficiently as a single structure. Each entry in this unified sequencer contains shared loop limits but separate strides (one for read, one for write) and separate base addresses (one for source, one for destination). This compact representation exploits the fact that read and write amounts must always match.</p>
-<p><strong>DMA Engine assignment is flexible:</strong></p>
-<ul>
-<li>Any DMA Engine among the 8 can handle any transfer, but using the DMN’s own DMA Engine is more efficient (not quantitatively measured).</li>
-<li>The compiler typically uses the source DM DMN’s DMA Engine, but any DMA Engine works.</li>
-<li>The 8 DMA Engines can transfer between different memory components in parallel (e.g., DMA #0: HBM ↔ DM, DMA #1: DM ↔ DM).</li>
-<li>The compiler only allows moving from one tensor (HBM/DM/SPM) to another tensor (HBM/DM/SPM).</li>
-<li>For inter-chip transfers, all chip IDs are globally agreed upon across the system</li>
-<li>Programmers can leave DMA Engine selection unspecified and let the compiler choose, though explicit specification is also supported</li>
-</ul>
-<p><strong>SRAM access patterns for optimal bandwidth:</strong> SRAM memory bandwidth depends critically on DMN (Data Memory Network) interleaving. For detailed SRAM performance characteristics and interleaving patterns, see the <a href="./memory-performance.html#data-memory-dm">Data Memory section</a>. The key principle: interleave across both DMNs to achieve full 256 B/cycle bandwidth.</p>
-<p><strong>Bandwidth trade-offs:</strong> DMA provides flexibility for arbitrary tensor moves but may underutilize SRAM slice bandwidth compared to the Tensor Unit. However, HBM bandwidth is often the bottleneck in practice, making this less critical. For SRAM-to-SRAM transfers, the Tensor Unit is often more efficient, except when the Switch Engine operates at size 256 (which may be slower than DMA).</p>
-<h3 id="tensor-memory-mapping"><a class="header" href="#tensor-memory-mapping">Tensor Memory Mapping</a></h3>
-<p>The compiler automatically derives the correspondence between source and destination memory indices from the mapping environments.
-Given tensor memory mappings <code>(e, e')</code>, the compiler computes how each flat memory index relates to the logical tensor dimensions:</p>
-<pre><code class="language-text">// S, e' |- i ~ { i_A = (i % 65536) / 256, i_B = i / 65536, i_C = i % 256 }
-</code></pre>
-<p>A simple layout transformation that reorders dimensions:</p>
-<pre><code class="language-text">axes![A = 256, B = 256, C = 256];
-// e_1 = A * B * C, e_2 = B * A * C
-// DMA: &lt;S, e_1, HBM@0&gt; =id=&gt; &lt;S, e_2, HBM@256^3&gt;
-</code></pre>
-<h3 id="dma-sequencer-internals"><a class="header" href="#dma-sequencer-internals">DMA Sequencer Internals</a></h3>
-<p>This section explains how DMA sequencers execute at the hardware level.</p>
-<p>A DMA Descriptor represents a single execution unit that the hardware can process.
-Each DMN’s DMA Engine can accept multiple DmaDescriptors, which it executes in sequence (or potentially in parallel when resources permit).
-The sequencer within each descriptor determines the exact order in which memory addresses are accessed.</p>
-<p><strong>Startup overhead detail:</strong> As mentioned in the performance considerations above, each DMA Descriptor incurs approximately 500 cycles of initial latency before data transfer begins.</p>
-<p><strong>Example sequencer execution:</strong></p>
-<pre><code class="language-text">// DmaSequencer = [A=256:(65536, 256), B=256:(256, 65536), C=256:(1, 1)], base=(0, 256^3)
-</code></pre>
-<p>Reading one data element per cycle, each cycle performs:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>i</th><th>ti</th><th>read addr</th><th>write addr</th></tr>
+<tr><th>iteration <code>i</code></th><th>counters</th><th>read addr</th><th>write addr</th></tr>
 </thead>
 <tbody>
-<tr><td>0</td><td><code>{ A: 0, B: 0, C: 0 }</code></td><td>0</td><td>write_base (=256³)</td></tr>
-<tr><td>1</td><td><code>{ A: 0, B: 0, C: 1 }</code></td><td>1</td><td>1 + write_base</td></tr>
+<tr><td>0</td><td><code>(0, 0, 0)</code></td><td>0</td><td><code>write_base</code></td></tr>
+<tr><td>1</td><td><code>(0, 0, 1)</code></td><td>1</td><td><code>1 + write_base</code></td></tr>
 <tr><td>…</td><td>…</td><td>…</td><td>…</td></tr>
-<tr><td>255</td><td><code>{ A: 0, B: 0, C: 255 }</code></td><td>255</td><td>255 + write_base</td></tr>
-<tr><td>256</td><td><code>{ A: 0, B: 1, C: 0 }</code></td><td>256</td><td>65536 + write_base</td></tr>
-<tr><td><code>i = a*256² + b*256 + c</code></td><td><code>{ A: a, B: b, C: c }</code></td><td><code>i</code></td><td><code>256*a + 256²*b + c + write_base</code></td></tr>
+<tr><td>255</td><td><code>(0, 0, 255)</code></td><td>255</td><td><code>255 + write_base</code></td></tr>
+<tr><td>256</td><td><code>(0, 1, 0)</code></td><td>256</td><td><code>65,536 + write_base</code></td></tr>
+<tr><td><code>i = a·256² + b·256 + c</code></td><td><code>(a, b, c)</code></td><td><code>i</code></td><td><code>256·a + 256²·b + c + write_base</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>The DmaSequencer compactly represents this address mapping table.
-With <code>stride0 = 256</code>, the hardware reads and writes 256 bytes per cycle: cycle 0 processes all values for <code>(A, B, C) = (0, 0, 0..255)</code> as a single packet.</p>
-<p>A complete descriptor example:</p>
-<pre><code class="language-text">// DmaSequencer = [A=256:(65536, 256), B=256:(256, 65536), C=256:(1, 1)],
-//                base=(0, 256^3), stride0 = 256
-// media_source = HBM, media_dest = HBM, DmnIndex = (0, 0, 0)
+<p>With <code>stride0 = 256</code>, the hardware reads and writes 256 bytes per iteration, so iteration 0 processes all values for <code>(A, B, C) = (0, 0, 0..255)</code> as a single packet.
+The transfer completes in approximately 500 cycles of startup latency plus 256 × 256 cycles of data transfer.</p>
+<h3 id="compiler-derivation"><a class="header" href="#compiler-derivation">Compiler Derivation</a></h3>
+<p>Given source and destination tensor mappings (<code>In</code>, <code>Out</code>) and a stream shape (<code>Stream</code>), the compiler derives the read and write sequencers:</p>
+<ul>
+<li><strong>Read sequencer</strong>: Projects <code>In</code> onto the stream shape, producing per-loop strides into the source tier.</li>
+<li><strong>Write sequencer</strong>: Projects <code>Out</code> onto the stream shape, producing per-loop strides into the destination tier.</li>
+<li><strong>Unified sequencer</strong>: Merges the two so each entry pairs the read and write strides.</li>
+<li><strong>Packet size</strong>: Infers <code>stride0</code> from the consecutive read/write volume.
+When both read and write access 256 consecutive bytes, the optimal <code>stride0</code> is 256.</li>
+</ul>
+<p>For the layout transformation <code>m![A, B, C] → m![B, A, C]</code> over <code>axes![A=256, B=256, C=256]</code> with <code>Stream = m![A, B, C]</code>, the compiler uses the index relation <code>m![A, B, C]::map(i) = i![A: i / 65,536, B: (i % 65,536) / 256, C: i % 256]</code> (see <a href="../mapping-tensors/mapping-expressions.html">Mapping Expressions</a> for the notation) to derive:</p>
+<pre><code class="language-text">read_sequencer  = [
+  A -&gt; 256 : 65,536,
+  B -&gt; 256 : 256,
+  C -&gt; 256 : 1,
+] : 256, HBM @ 0
+write_sequencer = [
+  A -&gt; 256 : 256,
+  B -&gt; 256 : 65,536,
+  C -&gt; 256 : 1,
+] : 256, HBM @ 256³
 </code></pre>
-<p>This descriptor activates the DMA Engine on Chip 0, Cluster 0, DMN 0, moving data from HBM starting at address 0 to HBM starting at address 256³.
-The transfer completes in approximately 500 cycles (initial latency) + 256 × 256 cycles (data transfer).</p>
-<p><strong>How the compiler derives sequencers:</strong> Given source and destination tensor shapes along with a stream shape, the compiler derives the DMA sequencer configuration:</p>
-<pre><code class="language-text">// stream_shape = [A * B * C]
-// =&gt; read_sequencer = [A=256:65536, B=256:256, C=256:1], base=0
-// =&gt; write_sequencer = [A=256:256, B=256:65536, C=256:1], base=256^3
-</code></pre>
-<p>The derivation process follows these steps:</p>
+<p>These combine into a single <code>DmaSequencer</code> with paired strides per entry.
+Each side of the unified <code>DmaSequencer</code> (read or write) can be displayed as a single-stride sequencer for that direction, omitting the paired-stride bracket for clarity.</p>
+<h3 id="aggregate-operations"><a class="header" href="#aggregate-operations">Aggregate Operations</a></h3>
+<p>The aggregate takes one of two forms based on whether tensor shapes divide evenly across DMNs.</p>
+<p>When shapes divide evenly, all participating engines run a <em>homogeneous</em> aggregate.
+Every DMA Engine uses the same parametric stream environment (<code>Stream = { chip, cluster, slice, time, packet }</code>), differing only by base address.</p>
+<p>When shapes do not divide evenly, the compiler falls back to a <em>heterogeneous</em> aggregate.
+Each DMN gets its own stream environment via <code>StreamFn(chip, cluster, slice)</code>, and boundary DMNs split their work across multiple DMA commands to avoid writing past the valid region.
+The input and output mapping environments (<code>In</code> and <code>Out</code>) remain structurally identical to the homogeneous case, so the overall logical tensor move is well-defined.</p>
+<p>Two correctness invariants apply across both forms:</p>
 <ul>
-<li>The read sequencer is derived by projecting the source tensor mapping onto the stream shape</li>
-<li>The write sequencer is derived by projecting the destination tensor mapping onto the stream shape</li>
-<li>These are combined into a unified DMA sequencer with paired strides and bases</li>
-<li>The packet size (stride0) is inferred from the consecutive read/write volume: if both read and write access 256 consecutive bytes, the optimal stride0 is 256 bytes</li>
+<li><strong>Same media types</strong>: All participating DMA Engines must use the same source and destination media.</li>
+<li><strong>Single unified mapping</strong>: One input and one output tensor mapping govern the overall transfer.</li>
 </ul>
-<p>When stride0 is not 256-byte aligned, the cycle count formula is <code>ceil(stride0 / 256)</code>. However, <strong>HBM write operations</strong> incur additional penalties beyond the ceil calculation. The unaligned write requires a Read-Modify-Write (RMW) operation for the partial 256-byte block, slowing the operation significantly (see the Misaligned Access section in ./memory-performance.md for details). For <strong>HBM read operations</strong>, the penalty is limited to the ceil overhead. For <strong>SRAM operations</strong>, alignment has minimal impact.</p>
-<h3 id="memory-bandwidth-limits"><a class="header" href="#memory-bandwidth-limits">Memory Bandwidth Limits</a></h3>
-<p>Memory bandwidth limits are crucial for achieving optimal DMA performance.
-A single DMA Engine can theoretically move up to 256 bytes per clock cycle, but the actual transfer rate is constrained by the slowest component in the data path: the source memory, the destination memory, or the PCIe interconnect for inter-chip transfers.</p>
-<p>For detailed characteristics and optimization strategies for each memory type, see:</p>
+<p>Each command incurs its own startup latency, so prefer tensor shapes that divide evenly across DMNs to keep the aggregate homogeneous.</p>
+<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
+<p>The DMA Engine enforces hardware-level alignment and packet-size rules.
+Violations cause correctness errors or hardware exceptions, not just performance degradation.</p>
 <ul>
-<li><a href="./memory-performance.html#data-memory-dm">Data Memory (DM) performance</a></li>
-<li><a href="./memory-performance.html#high-bandwidth-memory-hbm">High-Bandwidth Memory (HBM) performance</a></li>
-<li><a href="./memory-performance.html#scratchpad-memory-spm">Scratchpad Memory (SPM) performance</a></li>
-</ul>
-<p><strong>Key bandwidth constraints:</strong></p>
-<ul>
-<li>HBM: 1.5 TB/s combined read + write per chip (0.75 TB/s read + 0.75 TB/s write)</li>
-<li>DM: 256 B/cycle per cluster with proper DMN interleaving (128 B/cycle per DMN)</li>
-<li>SPM: 128 B/cycle per cluster</li>
-<li>PCIe DMA Engine: 30 bytes/cycle for inter-chip transfers</li>
-</ul>
-<h2 id="detailed-examples"><a class="header" href="#detailed-examples">Detailed Examples</a></h2>
-<p>The following examples illustrate DMA Engine behavior across various configurations, from simple single-engine transfers to complex multi-DMN operations with performance considerations.</p>
-<h3 id="example-1-single-dma-engine-hbm-to-hbm"><a class="header" href="#example-1-single-dma-engine-hbm-to-hbm">Example 1: Single DMA Engine HBM to HBM</a></h3>
-<p>This example demonstrates a basic HBM-to-HBM transfer using a single DMA Engine to rearrange tensor dimensions.
-The operation achieves good performance through effective channel interleaving, distributing memory accesses across different HBM channels to enable parallel processing.</p>
-<p><strong>Operation arguments:</strong></p>
-<pre><code class="language-text">axes![A = 8, B = 8, C = 256];
-// dtype = i8
-// media_in = media_out = HBM
-// b_in = { chip: 0, element: 0 }, b_out = { chip: 0, element: 16384 }
-// In = { element: m![A, B, C] }
-// Out = { element: m![B, A, C] }
-// Stream = { time: m![A, B], packet: m![C] }
-</code></pre>
-<p><strong>Generated sequencer configurations:</strong></p>
-<ul>
-<li>Read sequencer configuration: <code>[A=8:2048, B=8:256, C=256:1]:256  HBM/D@0</code></li>
-<li>Write sequencer configuration: <code>[A=8:256, B=8:2048, C=256:1]:256  HBM/D@16384</code></li>
-</ul>
-<p><strong>Why this achieves good performance:</strong>
-Channel interleaving enables efficient parallel processing.
-The strides in the non-innermost sequencer entries (256 and 2048) toggle HBM address bits 8 and 11, which correspond to the stack and channel selection bits.
-This access pattern ensures that every read and write request targets a different HBM channel, with multiple memory operations proceeding in parallel.</p>
-<p>Although each 256-byte transfer takes 4 cycles at 0.75GHz clock speed, the parallel distribution across channels enables efficient execution.
-At 1GHz, the total time is approximately 128 cycles (64 read requests + 64 write requests) plus approximately 500 cycles of initial latency.</p>
+<li>
+<p><strong>Address alignment</strong>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>read #i</th><th>ti</th><th>read addr</th><th>write addr</th></tr>
+<tr><th>Tier</th><th>Read</th><th>Write</th></tr>
 </thead>
 <tbody>
-<tr><td>0</td><td><code>{ A: 0, B: 0, C: 0 }</code></td><td>0</td><td>write_base(=16384)</td></tr>
-<tr><td>1</td><td><code>{ A: 0, B: 0, C: 1 }</code></td><td>1</td><td>1 + write_base</td></tr>
-<tr><td>2</td><td><code>{ A: 0, B: 0, C: 2 }</code></td><td>2</td><td>2 + write_base</td></tr>
-<tr><td>…</td><td>…</td><td></td><td></td></tr>
-<tr><td>255</td><td><code>{ A: 0, B: 0, C: 255 }</code></td><td>255</td><td>255 + write_base</td></tr>
-<tr><td>256</td><td><code>{ A: 0, B: 1, C: 0 }</code></td><td>256</td><td>2048 + write_base</td></tr>
-<tr><td>257</td><td><code>{ A: 0, B: 1, C: 1 }</code></td><td>257</td><td>2048 + 1  + write_base</td></tr>
-<tr><td>…</td><td>…</td><td></td><td></td></tr>
-<tr><td><code>i = a * 2048 + b * 256 + c</code></td><td><code>{ A: a, B: b, C: c }</code></td><td><code>i</code></td><td>256 * a + 2048 * b + c + write_base</td></tr>
-<tr><td>…</td><td>…</td><td></td><td></td></tr>
+<tr><td>HBM</td><td>1 byte</td><td>1 byte</td></tr>
+<tr><td>DM (SRAM)</td><td>1 byte</td><td>8 bytes</td></tr>
 </tbody>
 </table>
 </div>
-<p><strong>Bandwidth sharing note:</strong> HBM bandwidth is 1.5 TB/s (read + write combined), and each DMA Engine has 256 GB/s bandwidth. For DRAM ↔ DRAM operations, read bandwidth is 0.75 TB/s. If 4 DMA Engines perform DRAM ↔ DRAM operations, each gets ~0.1875 TB/s. Even with stride0=256, each engine reads 256B per request but cannot complete one request per cycle due to this bandwidth constraint.</p>
-<h3 id="example-2-single-dma-engine-hbm-to-dm"><a class="header" href="#example-2-single-dma-engine-hbm-to-dm">Example 2: Single DMA Engine HBM to DM</a></h3>
-<p>This example demonstrates an HBM-to-DM transfer that achieves optimal bandwidth by carefully interleaving both HBM channels and DM DMNs.
-Both memory systems require specific access patterns to reach their full bandwidth potential.</p>
-<p><strong>Operation arguments:</strong></p>
-<pre><code class="language-text">axes![A = 256, B = 256, C = 256];
-// dtype = i8
-// media_in = HBM
-// media_out = DM
-// b_in = { chip: 0, element: 0 }
-// b_out = { chip: 0, cluster: 0, slice: 0, element: 0 }
-// In = { element: m![B, A, C] }
-// Out = { slice: m![A / 4], element: m![A % 4, B, C] }
-// Stream = { time: m![B, A % 4, A / 4 % 32, A / 128], packet: m![C] }
+<p>HBM ↔ DM transfers additionally require 8-byte alignment for the read address, write address, and packet size, regardless of the table above.
+The asymmetric DM rule reflects asymmetric SRAM hardware.
+Read ports use byte-select logic to extract arbitrary byte ranges, but write ports operate on full 8-byte bank-width units.
+Misaligned DM writes therefore trigger a Read-Modify-Write operation that triples the write time and blocks other operations on the affected bank.</p>
+<p>The compiler enforces these constraints as hardware invariants.</p>
+</li>
+<li>
+<p><strong>Packet size</strong>: The maximum packet size is 4,096 bytes, set by the AXI protocol constraint that transactions cannot exceed 256 beats × 16-byte data width.</p>
+</li>
+</ul>
+<h2 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h2>
+<p>Three factors determine DMA throughput: memory bandwidth, channel and DMN interleaving, and startup latency with packet splitting.</p>
+<h3 id="memory-bandwidth"><a class="header" href="#memory-bandwidth">Memory Bandwidth</a></h3>
+<p>Each tier has a peak bandwidth that bounds achievable throughput, and the actual rate is limited by the slowest component on the streaming path.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Tier</th><th>Peak bandwidth</th></tr>
+</thead>
+<tbody>
+<tr><td>HBM</td><td>1.5 TB/s per chip (32 channels × 48 GB/s per channel at 0.75 GHz)</td></tr>
+<tr><td>DM</td><td>256 B/cycle per cluster (with DMN interleaving, 128 B/cycle per DMN)</td></tr>
+<tr><td>SPM</td><td>128 B/cycle per cluster (same-chip only, not yet exposed in the API)</td></tr>
+<tr><td>PCIe</td><td>30 B/cycle for both reads and writes (see <a href="#pcie-dma">PCIe DMA</a>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Each DMA Engine moves up to 256 B/cycle on its own.
+HBM bandwidth is shared across all engines transferring HBM data, so an aggregate saturating HBM is bounded by the 1.5 TB/s HBM peak rather than by any per-engine sum.</p>
+<p>Same-cluster DM-to-DM transfers serialize their reads and writes, since both phases contend for the same DM bank access.
+Cross-tier transfers like HBM ↔ DM pipeline the read and write phases.</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>The Tensor Unit (via <a href="./fetch-engine.html">Fetch</a> and <a href="./commit-engine.html">Commit</a> Engines) is often more efficient than DMA for SRAM-to-SRAM transfers, since DMA may underutilize SRAM slice bandwidth.
+HBM bandwidth, however, is typically the bottleneck in practice, making this gap less critical for HBM ↔ DM transfers.</p>
+</blockquote>
+<h3 id="channel-and-dmn-interleaving"><a class="header" href="#channel-and-dmn-interleaving">Channel and DMN Interleaving</a></h3>
+<p>Sustaining peak bandwidth requires interleaving access patterns across the underlying memory partitions.</p>
+<p>HBM channel selection uses address bits 9 to 28, and address bit 8 is the stack bit.
+Access patterns must toggle all of these bits to spread requests across all 32 channels.
+Missing the stack bit (address bit 8) alone halves effective bandwidth by routing all requests to only 16 of the 32 channels.
+Access patterns that hit the same HBM bank repeatedly (toggling row-address bits 21+ on consecutive accesses) trigger row-conflict penalties of approximately 40 cycles per access, degrading bandwidth by an order of magnitude.
+FR-FCFS memory scheduling recovers some throughput, but the fundamental cost remains severe.</p>
+<p>DM bandwidth requires alternating between both DMNs (each 128 B/cycle), so a single-DMN access pattern halves DM bandwidth.</p>
+<h3 id="startup-latency-and-packet-splitting"><a class="header" href="#startup-latency-and-packet-splitting">Startup Latency and Packet Splitting</a></h3>
+<p>Each DMA command incurs approximately 500 cycles of fixed startup latency before data transfer begins.
+Combining multiple transfers into fewer commands amortizes this cost, while heterogeneous aggregates split into per-DMN commands and pay the latency on each command.</p>
+<p>Within a single command, the hardware splits each packet into 256-byte units, so an n-byte packet becomes <code>ceil(n / 256)</code> AXI requests.
+A 4,095-byte packet therefore costs 16 requests, while a 4,099-byte packet (a prime length, awkwardly placed past the 4,096-byte limit) requires splitting into multiple commands.
+The innermost-loop stride (<code>stride0</code>) determines packet alignment: when <code>stride0</code> is 256-byte aligned, the cycle count is <code>ceil(stride0 / 256)</code>.
+When <code>stride0</code> is not 256-byte aligned, HBM writes additionally pay a Read-Modify-Write penalty for the partial 256-byte block.
+HBM reads incur only the <code>ceil</code> overhead, and DM operations are largely unaffected by this kind of misalignment.</p>
+<p>DMA has the lowest DM bank-access priority, so 64+ consecutive same-bank accesses from the Fetch or Commit Engine can starve it and trigger a NoC timeout.
+See <a href="./memory-performance.html#bank-starvation">DM Bank Starvation</a> for details.</p>
+<h2 id="detailed-examples"><a class="header" href="#detailed-examples">Detailed Examples</a></h2>
+<p>The examples below give concrete sequencer configurations and cycle estimates for representative transfer patterns.
+Examples 1 to 3 cover well-tuned single-engine cases for each tier pair.
+Examples 4 and 5 contrast pathological access patterns that lose 10x or more.
+Example 6 illustrates heterogeneous segmentation when shapes do not divide evenly across DMNs.</p>
+<p>The sequencer configurations use two address-stride symbols:</p>
+<ul>
+<li><code>slice_stride</code>: The virtual address span of one in-slice DM partition (4 MB).</li>
+<li><code>DMN_stride</code>: The address span between two DMNs within the same cluster.</li>
+</ul>
+<h3 id="example-1-hbm--hbm-layout-transformation"><a class="header" href="#example-1-hbm--hbm-layout-transformation">Example 1: HBM ↔ HBM Layout Transformation</a></h3>
+<p>Arguments:</p>
+<ul>
+<li><code>axes![A = 8, B = 8, C = 256]</code></li>
+<li><code>dtype = i8</code></li>
+<li>Source: HBM at offset <code>0</code>, mapping <code>m![A, B, C]</code></li>
+<li>Destination: HBM at offset <code>16,384</code>, mapping <code>m![B, A, C]</code></li>
+<li>Stream: time <code>m![A, B]</code>, packet <code>m![C]</code></li>
+</ul>
+<p>Generated sequencers:</p>
+<pre><code class="language-text">read = [
+  A -&gt; 8   : 2,048,
+  B -&gt; 8   : 256,
+  C -&gt; 256 : 1,
+] : 256, HBM @ 0
+
+write = [
+  A -&gt; 8   : 256,
+  B -&gt; 8   : 2,048,
+  C -&gt; 256 : 1,
+] : 256, HBM @ 16,384
 </code></pre>
-<p><strong>Generated sequencer configurations:</strong></p>
+<p>The non-innermost strides (256 and 2,048) toggle HBM address bits 8 (stack) and 11 (channel), spreading every request across distinct HBM channels for parallel execution.
+A single 256-byte transfer takes 4 cycles per channel at 0.75 GHz, but parallel channel distribution sustains near-peak bandwidth.
+Total time: approximately 64 read requests + 64 write requests at 1 GHz, plus 500 cycles startup ≈ 628 cycles.</p>
+<p>When 4 DMA Engines share HBM ↔ HBM traffic, each gets approximately 0.1875 TB/s out of the 0.75 TB/s read bandwidth.
+Even with <code>stride0 = 256</code>, no single engine completes one request per cycle under that share.</p>
+<h3 id="example-2-hbm--dm-with-full-bandwidth"><a class="header" href="#example-2-hbm--dm-with-full-bandwidth">Example 2: HBM → DM with Full Bandwidth</a></h3>
+<p>This cross-tier transfer pipelines reads and writes by interleaving across HBM channels and both DMNs.</p>
+<p>Arguments:</p>
 <ul>
-<li>Read sequencer configuration: <code>[B=256:65536, A%4=4:256, A/4%32=32:1024, A/128=2:32768, C=256:1]:256  HBM/D@0</code></li>
-<li>Write sequencer configuration: <code>[B=256:256, A%4=4:65536, A/4%32=32:slice_stride, A/128=2:DMN_stride, C=256:1]:256  DM/D@0</code></li>
+<li><code>axes![A = 256, B = 256, C = 256]</code></li>
+<li><code>dtype = i8</code></li>
+<li>Source: HBM at chip 0, mapping <code>m![B, A, C]</code></li>
+<li>Destination: DM at chip 0, cluster 0, slice 0. Slice mapping <code>m![A / 4]</code>, element mapping <code>m![A % 4, B, C]</code></li>
+<li>Stream: time <code>m![B, A % 4, A / 4 % 32, A / 128]</code>, packet <code>m![C]</code></li>
 </ul>
-<p><strong>Performance analysis:</strong>
-Both HBM and DM achieve full bandwidth through careful interleaving in their respective access patterns.</p>
-<p><strong>HBM side:</strong> The stride of 32768 for the <code>A/128=2</code> loop interleaves memory accesses effectively.
-For the innermost 2 iterations, this interleaves at the byte level; for outer iterations, it interleaves across HBM channels.
-The hardware command queue processes all 65536 requests (256 * 4 * 32 * 2) efficiently, utilizing full HBM bandwidth.</p>
-<p><strong>DM side:</strong> DMN and slice interleaving work together to maximize throughput.
-Each of the two DMNs provides 128 bytes/cycle bandwidth, so a 256-byte write normally requires 2 cycles on a single DMN.
-However, interleaving consecutive requests across both DMNs (achieved through the DMN_stride and slice_stride) enables the two DMNs to operate in parallel, processing one 256-byte request per cycle.
-All 65536 write requests therefore complete at one request per cycle.</p>
-<p><strong>Total execution time:</strong> Approximately 65536 cycles (read) + 65536 cycles (write) + 500 cycles (initial latency). Since reads and writes overlap in the pipeline, the actual time is closer to max(65536, 65536) + 500 ≈ 66036 cycles.</p>
-<h3 id="example-3-single-dma-engine-dm-to-dm"><a class="header" href="#example-3-single-dma-engine-dm-to-dm">Example 3: Single DMA Engine DM to DM</a></h3>
-<p>This example shows a DM-to-DM transfer within a single cluster, where both reads and writes access the same DM.
-This scenario requires careful DMN interleaving for both operations to avoid contention and achieve maximum bandwidth.</p>
-<p><strong>Operation arguments:</strong></p>
-<pre><code class="language-text">axes![A = 256, B = 256, C = 256];
-// dtype = i8
-// media_in = DM
-// media_out = DM
-// b_in = { chip: 0, cluster: 0, slice: 0, element: 0 }
-// b_out = { chip: 0, cluster: 0, slice: 0, element: 4 * 256 * 256 }
-// In = { slice: m![A / 4], element: m![A % 4, B, C] }
-// Out = { slice: m![A / 4], element: m![B, A % 4, C] }
-// Stream = { time: m![B, A % 4, A / 4 % 32, A / 128], packet: m![C] }
+<p>Generated sequencers:</p>
+<pre><code class="language-text">read = [
+  B      -&gt; 256 : 65,536,
+  A%4    -&gt; 4   : 256,
+  A/4%32 -&gt; 32  : 1,024,
+  A/128  -&gt; 2   : 32,768,
+  C      -&gt; 256 : 1,
+] : 256, HBM @ 0
+
+write = [
+  B      -&gt; 256 : 256,
+  A%4    -&gt; 4   : 65,536,
+  A/4%32 -&gt; 32  : slice_stride,
+  A/128  -&gt; 2   : DMN_stride,
+  C      -&gt; 256 : 1,
+] : 256, DM @ 0
 </code></pre>
-<p><strong>Generated sequencer configurations:</strong></p>
+<p>On the HBM side, the 32,768-stride on <code>A/128=2</code> interleaves access across channels, and the hardware command queue keeps all 65,536 requests (256 × 4 × 32 × 2) flowing.
+On the DM side, <code>slice_stride</code> and <code>DMN_stride</code> interleave consecutive 256-byte writes across the two DMNs, keeping both at one request per cycle.
+Reads and writes pipeline across tiers, so total time is approximately max(65,536 read cycles, 65,536 write cycles) + 500 startup ≈ 66,036 cycles.</p>
+<h3 id="example-3-dm--dm-within-one-cluster"><a class="header" href="#example-3-dm--dm-within-one-cluster">Example 3: DM → DM Within One Cluster</a></h3>
+<p>Same-cluster DM-to-DM transfers serialize reads and writes, since both contend for the same DM bank access.</p>
+<p>Arguments:</p>
 <ul>
-<li>Read sequencer configuration: <code>[B=256:1, A%4=4:65536, A/4%32=32:slice_stride, A/128=2:DMN_stride, C=256:1]:256  DM/D@0</code></li>
-<li>Write sequencer configuration: <code>[B=256:1024, A%4=4:256, A/4%32=32:slice_stride, A/128=2:DMN_stride, C=256:1]:256  DM/D@(4 * 256 * 256)</code></li>
+<li><code>axes![A = 256, B = 256, C = 256]</code></li>
+<li><code>dtype = i8</code></li>
+<li>Source: DM at chip 0, cluster 0, slice 0, element offset <code>0</code>. Slice mapping <code>m![A / 4]</code>, element mapping <code>m![A % 4, B, C]</code></li>
+<li>Destination: DM at chip 0, cluster 0, slice 0, element offset <code>4·256·256</code>. Slice mapping <code>m![A / 4]</code>, element mapping <code>m![B, A % 4, C]</code></li>
+<li>Stream: time <code>m![B, A % 4, A / 4 % 32, A / 128]</code>, packet <code>m![C]</code></li>
 </ul>
-<p><strong>Performance analysis:</strong>
-DMN and slice interleaving enable full bandwidth for both read and write operations.
-Each 256-byte access is structured to interleave across the two DMNs, while the outer loops interleave across different DM slices.
-Each DMN provides 128 bytes/cycle bandwidth, so a single 256-byte access normally requires 2 cycles on one DMN.
-However, alternating requests between both DMNs enables parallel operation to achieve full 256 B/cycle bandwidth.</p>
-<p><strong>Request execution:</strong></p>
-<ul>
-<li>Total read requests: 65536 (256 * 4 * 32 * 2)</li>
-<li>Total write requests: 65536</li>
-<li>At saturation with proper interleaving, one request completes per cycle</li>
-</ul>
-<p><strong>Total execution time:</strong> Approximately 131072 cycles (since reads and writes must proceed sequentially for DM-to-DM within the same cluster) + 500 cycles (initial latency).</p>
-<p><strong>Note on packet size alignment:</strong> The choice of C=256 is important for performance. If C were between 1-255, the cycle count remains similar because the number of DMA requests determines execution time. However, if the packet size is 256n+r (where 0 ≤ r &lt; 256), the cycle count increases by a factor of (n+1) due to more requests. Aligning packet sizes to 256-byte boundaries maximizes data transferred per request.</p>
-<h3 id="example-4-homogeneous-dma-engine-hbm-to-dm-pathological-bank-conflict"><a class="header" href="#example-4-homogeneous-dma-engine-hbm-to-dm-pathological-bank-conflict">Example 4: Homogeneous DMA Engine, HBM to DM (Pathological: Bank Conflict)</a></h3>
-<p>This example demonstrates performance degradation from poorly designed memory access patterns: severe HBM bank conflicts.
-The issue arises when the stream shape causes consecutive accesses to trigger row switches within HBM banks, preventing efficient parallel execution and resulting in approximately 10x slower performance compared to well-optimized access patterns.</p>
-<p><strong>Operation arguments:</strong></p>
-<pre><code class="language-text">// 1 chip (8 DMNs): chip-related mapping is not needed
-axes![A = 64, B = 2048, C = 1024];
-// dtype = i8
-// media_in = HBM
-// media_out = DM
-// b_in = 0
-// b_out = 0
-// In = { cluster: m![B / 1024], slice: m![B / 256 % 4, A], element: m![B % 256, C] }
-// Out = { slice: m![A / 4], element: m![B, A % 4, C] }
-// Stream = { cluster: m![B / 1024], slice: m![B / 256 % 4],
-//              time: m![B % 256, C / 256, A % 32, A / 32], packet: m![C % 256] }
+<p>Generated sequencers:</p>
+<pre><code class="language-text">read = [
+  B      -&gt; 256 : 1,
+  A%4    -&gt; 4   : 65,536,
+  A/4%32 -&gt; 32  : slice_stride,
+  A/128  -&gt; 2   : DMN_stride,
+  C      -&gt; 256 : 1,
+] : 256, DM @ 0
+
+write = [
+  B      -&gt; 256 : 1,024,
+  A%4    -&gt; 4   : 256,
+  A/4%32 -&gt; 32  : slice_stride,
+  A/128  -&gt; 2   : DMN_stride,
+  C      -&gt; 256 : 1,
+] : 256, DM @ (4·256·256)
 </code></pre>
-<p><strong>Generated sequencer configurations:</strong></p>
+<p>DMN and slice interleaving give each phase the full 256 B/cycle, but the two phases serialize.
+Total time: approximately 131,072 cycles (65,536 reads + 65,536 writes) + 500 startup.</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>Choose <code>C</code> to be a multiple of 256 when possible.
+For <code>C = 256n + r</code> with <code>0 &lt; r &lt; 256</code>, the cycle count grows by a factor of <code>n+1</code> because each access splits into more requests, even though the total data volume changes only slightly.</p>
+</blockquote>
+<h3 id="example-4-hbm-bank-conflict-pathology"><a class="header" href="#example-4-hbm-bank-conflict-pathology">Example 4: HBM Bank-Conflict Pathology</a></h3>
+<p>DM interleaving is healthy here, but a pathological HBM access pattern costs roughly 10x the well-tuned cycle count.</p>
+<p>Arguments:</p>
 <ul>
-<li>Read sequencer configuration at <code>(cluster_i, dmn_j)</code>: <code>[B%256=256:1024, C/256=4:256, A%32=32:2^21, A/32=2:2^26, C%256=256:1]:256  HBM/D@(i * (1024 * 1024) + j * (256 * 1024))</code>
-<ul>
-<li>The base address offset <code>i * (1024 * 1024) + j * (256 * 1024)</code> is derived from the DMN location <code>(B/1024, B/256%4) = (i, j)</code></li>
+<li>1 chip (8 DMNs)</li>
+<li><code>axes![A = 64, B = 2,048, C = 1,024]</code></li>
+<li><code>dtype = i8</code></li>
+<li>Source: HBM, with cluster mapping <code>m![B / 1024]</code>, slice mapping <code>m![B / 256 % 4, A]</code>, element mapping <code>m![B % 256, C]</code></li>
+<li>Destination: DM, with slice mapping <code>m![A / 4]</code>, element mapping <code>m![B, A % 4, C]</code></li>
+<li>Stream: cluster <code>m![B / 1024]</code>, slice <code>m![B / 256 % 4]</code>, time <code>m![B % 256, C / 256, A % 32, A / 32]</code>, packet <code>m![C % 256]</code></li>
 </ul>
-</li>
-<li>Write sequencer configuration at <code>(cluster_i, dmn_j)</code>: <code>[B%256=256:1024, C/256=4:256, A%32=32:slice_stride, A/32=2:DMN_stride, C%256=256:1]:256  DM/D@(cluster_i, dmn_j, 0)</code></li>
-</ul>
-<p><strong>Why this performs poorly: row-level bank conflicts</strong>
-The stream shape structure optimized for DM’s DMN/slice interleaving creates a pathological access pattern for HBM.
-The innermost interleaving dimensions (A%32 and A/32) correspond to HBM address bits 21 and 26, which control row addressing within banks.
-Consecutive memory accesses trigger row switches within the same bank on nearly every request.</p>
-<p>Channel interleaving still occurs (the C dimension’s stride of 256 enables stack interleaving across all 32 channels), but this parallelism cannot compensate for the row conflict penalty within each channel.
-Each access within a channel must wait for the previous row to close and the new row to open, dramatically increasing latency.</p>
-<p><strong>Performance breakdown:</strong></p>
-<p>HBM reads (the bottleneck):</p>
-<ul>
-<li>Per DMN: 65536 data requests (256 * 4 * 32 * 2)</li>
-<li>Across 8 DMNs: 524288 total requests, distributed evenly across 32 HBM channels</li>
-<li>Each channel handles: 16384 requests</li>
-<li>Each request incurs approximately 40 cycles due to bank conflicts (a conservative estimate; actual penalty depends on tCCD and FR-FCFS scheduling)</li>
-<li>Total HBM time: approximately 655360 cycles (16384 * 40)</li>
-</ul>
-<p>DM writes (not the bottleneck):</p>
-<ul>
-<li>DMN interleaving works correctly, achieving full 256 B/cycle bandwidth</li>
-<li>65536 requests per DMN, processing at one request per cycle</li>
-</ul>
-<p><strong>Total execution time:</strong> Approximately 655360 cycles + 500 cycles (initial latency) ≈ 655860 cycles.</p>
-<p><strong>Critical lesson:</strong> Careful access pattern design is essential for performance. Avoid bank conflicts through proper stream shape construction. Note that this estimate is conservative; actual performance may be somewhat better due to FR-FCFS (First Ready-First Come First Served) memory scheduling, which can mitigate some conflicts, but the fundamental problem remains severe.</p>
-<h3 id="example-5-homogeneous-dma-engine-hbm-to-dm-pathological-missing-stack-interleaving"><a class="header" href="#example-5-homogeneous-dma-engine-hbm-to-dm-pathological-missing-stack-interleaving">Example 5: Homogeneous DMA Engine HBM to DM (Pathological: Missing Stack Interleaving)</a></h3>
-<p>This example demonstrates another common pitfall: failing to interleave across HBM’s stack dimension (address bit 8).
-When this bit is not toggled by the access pattern, only 16 of the 32 available HBM channels are utilized, cutting effective bandwidth in half.</p>
-<p><strong>Operation arguments:</strong></p>
-<pre><code class="language-text">// 1 chip (8 DMNs)
-axes![A = 8, B = 64, C = 8, D = 512];
-// dtype = i8
-// media_in = HBM
-// media_out = DM
-// b_in = 0
-// b_out = 0
-// In = { element: m![A, B, C, D] }
-// Out = { cluster: m![A / 4], slice: m![A % 4, B], element: m![C, D % 256] }
-// Stream = { cluster: m![A / 4], slice: m![A % 4], time: m![C, B % 32, B / 32], packet: m![D % 256] }
+<p>Generated sequencers per <code>(cluster_i, dmn_j)</code>:</p>
+<pre><code class="language-text">read = [
+  B%256 -&gt; 256 : 1,024,
+  C/256 -&gt; 4   : 256,
+  A%32  -&gt; 32  : 2²¹,
+  A/32  -&gt; 2   : 2²⁶,
+  C%256 -&gt; 256 : 1,
+] : 256, HBM @ (i·2²⁰ + j·2¹⁸)
+
+write = [
+  B%256 -&gt; 256 : 1,024,
+  C/256 -&gt; 4   : 256,
+  A%32  -&gt; 32  : slice_stride,
+  A/32  -&gt; 2   : DMN_stride,
+  C%256 -&gt; 256 : 1,
+] : 256, DM @ (cluster_i, dmn_j, 0)
 </code></pre>
-<p><strong>Generated sequencer configurations:</strong></p>
+<p>The strides on <code>A%32</code> and <code>A/32</code> toggle HBM address bits 21 and 26, which select the row within an HBM bank.
+Consecutive accesses within each channel therefore close one row and open the next on nearly every request, paying approximately 40 cycles per access.
+Channel interleaving via <code>C / 256 = 4</code> (stride 256) does spread requests across all 32 channels, but cannot hide the row-conflict cost within each channel.</p>
+<p>Performance breakdown:</p>
 <ul>
-<li>Read sequencer configuration at <code>(cluster_i, dmn_j)</code>: <code>[C=8:512, B%32=32:4096, B/32=2:131072, D%256=256:1]:256  DM/D@(i * 2^20 + j * 2^18)</code>
+<li>HBM reads: 524,288 total requests across 32 channels = 16,384 per channel × ~40 cycles ≈ 655,360 cycles.</li>
+<li>DM writes: 65,536 requests per DMN at one per cycle, hidden under the read latency.</li>
+</ul>
+<p>Total time: approximately 655,360 cycles + 500 startup ≈ 655,860 cycles.
+FR-FCFS scheduling recovers some throughput, but the order-of-magnitude penalty remains.</p>
+<h3 id="example-5-missing-stack-bit-pathology"><a class="header" href="#example-5-missing-stack-bit-pathology">Example 5: Missing Stack Bit Pathology</a></h3>
+<p>The access pattern fails to interleave across HBM’s stack dimension (address bit 8), routing all traffic to half the channels and halving effective bandwidth.</p>
+<p>Arguments:</p>
 <ul>
-<li>The base address offset <code>i * 2^20 + j * 2^18</code> is derived from the DMN location <code>(A/4, A%4) = (i, j)</code></li>
+<li>1 chip (8 DMNs)</li>
+<li><code>axes![A = 8, B = 64, C = 8, D = 512]</code></li>
+<li><code>dtype = i8</code></li>
+<li>Source: HBM, mapping <code>m![A, B, C, D]</code></li>
+<li>Destination: DM, with cluster mapping <code>m![A / 4]</code>, slice mapping <code>m![A % 4, B]</code>, element mapping <code>m![C, D % 256]</code></li>
+<li>Stream: cluster <code>m![A / 4]</code>, slice <code>m![A % 4]</code>, time <code>m![C, B % 32, B / 32]</code>, packet <code>m![D % 256]</code></li>
 </ul>
-</li>
-<li>Write sequencer configuration at <code>(cluster_i, dmn_j)</code>: <code>[C=8:256, B%32=32:slice_stride, B/32=2:DMN_stride, D%256=256:1]:256  DM/D@(cluster_i, dmn_j, 0)</code></li>
-</ul>
-<p><strong>Why this performs poorly: missing stack bit interleaving</strong>
-The stream shape does not exercise HBM address bit 8, which controls the stack dimension.
-In the HBM access pattern, the C axis has a stride of 512, so bit 8 is never toggled during the innermost loops.
-This occurs in operations like tensor splits where dimension structure changes between input and output (notice that the input tensor mapping includes D/256 but the output/stream does not).</p>
-<p>HBM channel selection uses address bits 9-28, while the stack bit is bit 8.
-Without bit 8 interleaving, memory requests distribute across only 16 of the 32 available channels, immediately halving achievable bandwidth.</p>
-<p><strong>Performance breakdown:</strong></p>
-<p>HBM reads (the bottleneck):</p>
-<ul>
-<li>Per DMN: 512 data requests (8 * 32 * 2)</li>
-<li>Across 8 DMNs: 4096 total requests, distributed across only 16 channels</li>
-<li>Each channel handles: 256 requests</li>
-<li>Each channel’s bandwidth: 256B per 4 cycles at 0.75GHz, or approximately 5.3 cycles per request at 1GHz</li>
-<li>Total HBM time: approximately 1357 cycles (256 * 5.3)</li>
-</ul>
-<p>DM writes (not the bottleneck):</p>
-<ul>
-<li>DMN interleaving achieves full 256 B/cycle bandwidth</li>
-<li>512 requests per DMN (8 * 32 * 2), processing at one request per cycle</li>
-<li>DM writes overlap with HBM reads in the pipeline, so their latency is hidden</li>
-</ul>
-<p><strong>Total execution time:</strong> Approximately 1357 cycles + 500 cycles (initial latency) ≈ 1857 cycles.</p>
-<p><strong>Critical lesson:</strong> Achieving full HBM bandwidth (1.5TB/s) and DMA Engine bandwidth (2TB/s) requires memory access patterns that interleave across all 32 channels by toggling all relevant address bits including the stack bit (bit 8). Missing even one dimension of interleaving significantly degrades performance.</p>
-<h3 id="example-6-heterogeneous-dma-engine-with-segmentation"><a class="header" href="#example-6-heterogeneous-dma-engine-with-segmentation">Example 6: Heterogeneous DMA Engine with Segmentation</a></h3>
-<p>This example demonstrates a heterogeneous DMA operation where the tensor shape does not divide evenly across all DMNs.
-Some DMNs must use different stream environments than others, and in extreme cases, a DMN may need to segment its work into multiple DMA commands to avoid writing to incorrect memory locations.
-This illustrates both the flexibility and complexity of heterogeneous DMA operations.</p>
-<p><strong>Operation arguments:</strong></p>
-<pre><code class="language-text">// 4 chips
-axes![A = 15, B = 32, C = 256, D = 8];
-// dtype = i8
-// media_in = DM
-// media_out = HBM
-// b_in = 0
-// b_out = 0
-// In = let A' = A + 1# in
-//        { chip: m![D / 2], cluster: m![D % 2], slice: m![A' / 4, A' / 2 % 2, B],
-//          element: m![A' % 2, C] }
-// Out = { chip: m![D / 2], element: m![D % 2, B, A, C] }
-// StreamFn(chip_i, cluster_j, slice_k) = let A' = A + 1# in
-//        { chip: m![(D / 2) @ i = 1],
-//          cluster: m![(D % 2) @ j = 1],
-//          slice: m![(A' / 4) @ k = 1],
-//          time: (k == 0,1,2): m![A' % 2, B, A' / 2 % 2, C]
-//                (k == 3, exec #0): m![A' % 2, B, A' / 2 = 1, C]
-//                (k == 3, exec #1): m![A' = 1, B, A' / 2 % 2 @ 1, C],
-//          packet: m![C] }
+<p>Generated sequencers per <code>(cluster_i, dmn_j)</code>:</p>
+<pre><code class="language-text">read = [
+  C     -&gt; 8   : 512,
+  B%32  -&gt; 32  : 4,096,
+  B/32  -&gt; 2   : 131,072,
+  D%256 -&gt; 256 : 1,
+] : 256, HBM @ (i·2²⁰ + j·2¹⁸)
+
+write = [
+  C     -&gt; 8   : 256,
+  B%32  -&gt; 32  : slice_stride,
+  B/32  -&gt; 2   : DMN_stride,
+  D%256 -&gt; 256 : 1,
+] : 256, DM @ (cluster_i, dmn_j, 0)
 </code></pre>
-<p>The compiler generates the following sequencer configurations:</p>
+<p>The <code>C</code> stride of 512 never toggles HBM address bit 8 (the stack bit), so the eight DMNs concentrate on 16 of the 32 HBM channels.</p>
+<p>Performance breakdown:</p>
 <ul>
-<li>Read sequencer configuration at <code>(chip_i, cluster_j, dmn_k)</code>:
+<li>HBM reads (bottleneck): 4,096 total requests across 16 channels = 256 per channel × ~5.3 cycles per request at 1 GHz ≈ 1,357 cycles.</li>
+<li>DM writes: 512 requests per DMN, pipelined under the reads.</li>
+</ul>
+<p>Total time: approximately 1,357 cycles + 500 startup ≈ 1,857 cycles.
+Restoring stack-bit interleaving across all 32 channels would halve the HBM cycle count.</p>
+<h3 id="example-6-heterogeneous-dmn-segmentation"><a class="header" href="#example-6-heterogeneous-dmn-segmentation">Example 6: Heterogeneous DMN Segmentation</a></h3>
+<p>When tensor shapes do not divide evenly across DMNs, the compiler segments the boundary DMN’s work into multiple commands, each paying its own startup latency.</p>
+<p>Arguments:</p>
 <ul>
-<li>k = 0, 1, 2:
-<code>[A'%2=2:256, B=32:slice_stride, A'/2%2=2:DMN_stride, C=256:1]:256  DM/D@(chip_i, cluster_j, dmn_k, 0)</code></li>
-<li>k = 3:
+<li>4 chips</li>
+<li><code>axes![A = 15, B = 32, C = 256, D = 8]</code></li>
+<li><code>dtype = i8</code></li>
+<li>Source: DM, with (writing <code>A' = A + 1#</code>) chip mapping <code>m![D / 2]</code>, cluster mapping <code>m![D % 2]</code>, slice mapping <code>m![A' / 4, A' / 2 % 2, B]</code>, element mapping <code>m![A' % 2, C]</code></li>
+<li>Destination: HBM, with chip mapping <code>m![D / 2]</code>, element mapping <code>m![D % 2, B, A, C]</code></li>
+<li>Stream (per-DMN, expressed as <code>StreamFn(chip_i, cluster_j, slice_k)</code>):</li>
+</ul>
+<pre><code class="language-text">StreamFn(chip_i, cluster_j, slice_k) = let A' = A + 1# in
+  { chip: m![(D / 2) @ i = 1], cluster: m![(D % 2) @ j = 1],
+    slice: m![(A' / 4) @ k = 1],
+    time: (k == 0,1,2): m![A' % 2, B, A' / 2 % 2, C]
+          (k == 3, exec #0): m![A' % 2, B, A' / 2 = 1, C]
+          (k == 3, exec #1): m![A' = 1, B, A' / 2 % 2 @ 1, C],
+    packet: m![C] }
+</code></pre>
+<p>The dimension <code>A = 15</code> does not divide across 4 DMNs (15 = 3·4 + 3), so DMNs 0 to 2 each handle 4 elements while DMN 3 handles only 3.
+A single descriptor on DMN 3 would write a fourth element past the valid region, so the compiler segments DMN 3’s work into two commands that together cover exactly 3 elements.</p>
+<p>Performance breakdown:</p>
 <ul>
-<li>execution #0
-<code>[A'%2=2:256, B=32:slice_stride, A'/2=1:DMN_stride, C=256:1]:256  DM/D@(chip_i, cluster_j, dmn_3, 0)</code></li>
-<li>execution #1
-<code>[A'%2=2:256, B=32:slice_stride, A'/2=1:DMN_stride, C=256:1]:256  DM/D@(chip_i, cluster_j, dmn_3, 0)</code></li>
+<li>DMNs 0 to 2 (one command each): ~256 cycles + 500 startup ≈ 756 cycles.</li>
+<li>DMN 3 (two commands): ~192 data cycles + 1,000 startup (500 each) ≈ 1,192 cycles.</li>
 </ul>
-</li>
-</ul>
-</li>
-<li>Write sequencer configuration at <code>(chip_i, cluster_j, dmn_k)</code>:
-<ul>
-<li>k = 0, 1, 2:
-<code>[A'%2=2:256, B=32:15 * 256, A'/2%2=2:512, C=256:1]:256  HBM/D@(0 + i * 2 * (15 * 32 * 256) + j * (15 * 32 * 256) + k * (4 * 256))</code></li>
-<li>k = 3:
-<ul>
-<li>execution #0
-<code>[A'%2=2:256, B=32:15 * 256, A'/2=1:512, C=256:1]:256  HBM/D@(0 + i * 2 * (15 * 32 * 256) + j * (15 * 32 * 256) + 3 * (4 * 256))</code></li>
-<li>execution #1
-<code>[A'%2=1:256, B=32:15 * 256, A'/2=1:512, C=256:1]:256  HBM/D@(0 + i * 2 * (15 * 32 * 256) + j * (15 * 32 * 256) + 3 * (4 * 256) + 512)</code>
-<ul>
-<li>512: offset by <code>A'/2%2@1</code></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<p><strong>Why DMN #3 requires segmentation:</strong>
-The tensor dimension A=15 does not divide evenly across 4 DMNs (15 = 3*4 + 3).
-DMNs #0, #1, and #2 each process exactly 4 elements of the A dimension.
-DMN #3 must process the remaining 3 elements (A=12, 13, 14) but its sequencer would naturally try to process 4 elements.
-If DMN #3 used the same single-command pattern as the other DMNs, it would write one extra element, corrupting memory in the region designated for B * (A + 1#) * C.</p>
-<p>The compiler segments DMN #3’s work into two commands to avoid this:</p>
-<ul>
-<li>Execution #0 handles part of the valid range</li>
-<li>Execution #1 handles the remainder, ensuring the total is exactly 3 elements rather than 4</li>
-</ul>
-<p><strong>Performance comparison:</strong></p>
-<p>DMNs #0, #1, #2 (single command each):</p>
-<ul>
-<li>DM reads: 128 cycles for 2 * 32 * 2 packets of 256B each</li>
-<li>HBM writes: 128 cycles with proper channel interleaving</li>
-<li>Total: approximately 256 cycles (reads and writes overlap) + 500 cycles (initial latency) = 756 cycles</li>
-</ul>
-<p>DMN #3 (two commands):</p>
-<ul>
-<li>Execution #0: 64 DM read cycles + 64 HBM write cycles + 500 cycles initial latency
-<ul>
-<li>Note: reads from one DMN only, but slice interleaving still applies</li>
-</ul>
-</li>
-<li>Execution #1: 32 DM read cycles + 32 HBM write cycles + 500 cycles initial latency</li>
-<li>Total: 192 data cycles + 1000 cycles (initial latency for two commands) = 1192 cycles</li>
-</ul>
-<p><strong>Overall execution time:</strong> The heterogeneous operation completes when the slowest DMN finishes. DMN #3 determines the total time: approximately 1192 cycles.</p>
-<p><strong>Key insight:</strong> Command segmentation incurs additional startup overhead (500 cycles per command). Choose tensor shapes that divide evenly across DMNs when possible, avoiding the need for heterogeneous stream environments and command segmentation.</p>
-<h2 id="performance-1"><a class="header" href="#performance-1">Performance</a></h2>
-<p>DMA Engine performance depends on memory types, access patterns, and parallelism strategies.</p>
-<h3 id="memory-specific-bandwidth"><a class="header" href="#memory-specific-bandwidth">Memory-Specific Bandwidth</a></h3>
-<p>Transfer bandwidth varies by memory type and configuration:</p>
-<p><strong>Data Memory (DM/SRAM)</strong>:</p>
-<ul>
-<li>Peak bandwidth: 256 B/cycle (with proper DMN interleaving)</li>
-<li>Requires interleaving across both DMNs (128 B/cycle each)</li>
-<li>Bank conflicts and starvation can severely degrade performance</li>
-<li>See <a href="./memory-performance.html">Memory Performance</a> for DM optimization details</li>
-</ul>
-<p><strong>High-Bandwidth Memory (HBM)</strong>:</p>
-<ul>
-<li>Peak bandwidth: 1.5 TB/s per chip (48 GB/s per channel × 32 channels)</li>
-<li>Channel interleaving is essential for high bandwidth</li>
-<li>Misaligned access and bank conflicts cause severe degradation</li>
-<li>See <a href="./memory-performance.html#high-bandwidth-memory-hbm">HBM Performance</a> for optimization strategies</li>
-</ul>
-<p><strong>Scratchpad Memory (SPM)</strong>:</p>
-<ul>
-<li>Bandwidth: 128 B/cycle per cluster</li>
-<li>Restricted to same-chip transfers</li>
-</ul>
-<h3 id="startup-latency"><a class="header" href="#startup-latency">Startup Latency</a></h3>
-<p>Each DMA command incurs approximately <strong>500 cycles</strong> of startup latency before data transfer begins.
-This fixed cost is amortized over large transfers but becomes significant for small tensors.</p>
-<p>Command segmentation (as shown in Example 6) doubles startup latency by requiring two separate commands, emphasizing the importance of tensor shapes that divide evenly across DMNs.</p>
-<h3 id="parallelism-strategies"><a class="header" href="#parallelism-strategies">Parallelism Strategies</a></h3>
-<p>Multiple DMA Engines can operate simultaneously:</p>
-<ul>
-<li><strong>8 DMA Engines per chip</strong> (one per pair of DMNs, 8 DMNs per cluster)</li>
-<li>Parallel DMA operations on independent data enable high aggregate bandwidth</li>
-<li>Local DMN memory access is faster than cross-DMN access (not quantitatively measured)</li>
-</ul>
-<h3 id="alignment-constraints-1"><a class="header" href="#alignment-constraints-1">Alignment Constraints</a></h3>
-<p>Strict alignment requirements affect performance:</p>
-<ul>
-<li><strong>DM writes</strong>: 8-byte alignment required for addresses and packet sizes</li>
-<li><strong>HBM operations</strong>: 1-byte alignment for reads/writes, but HBM-to-DM transfers require 8-byte alignment</li>
-<li><strong>Maximum packet size</strong>: 4096 bytes (AXI protocol constraint)</li>
-<li>Misaligned access in HBM can halve bandwidth or trigger expensive Read-Modify-Write operations</li>
-</ul>
-<h3 id="bank-starvation-prevention"><a class="header" href="#bank-starvation-prevention">Bank Starvation Prevention</a></h3>
-<p>DMA Engine shares DM bank access with Fetch and Commit Engines.
-DMA has the <strong>lowest priority</strong> among these engines, making it vulnerable to bank starvation.
-If a DMA request blocks for more than 4,096 cycles, a NoC timeout occurs, requiring a hardware reset.</p>
-<p>The compiler prevents this by ensuring operations with 64+ consecutive same-bank accesses are not scheduled concurrently with DMA.
-See <a href="./memory-performance.html#bank-starvation">Bank Starvation</a> for details.</p>
-<h3 id="inter-chip-transfers"><a class="header" href="#inter-chip-transfers">Inter-Chip Transfers</a></h3>
-<p>PCIe-based inter-chip transfers have limited bandwidth:</p>
-<ul>
-<li><strong>30 B/cycle</strong> for both reads and writes</li>
-<li>Significantly slower than on-chip transfers</li>
-<li>Consider minimizing cross-chip data movement in algorithm design</li>
-</ul>
+<p>Total time: approximately 1,192 cycles, gated by DMN 3.
+Choose tensor shapes that divide evenly across DMNs to avoid this segmentation cost.</p>
+<h2 id="shuffle-operations"><a class="header" href="#shuffle-operations">Shuffle Operations</a></h2>
+<p>Shuffle operations redistribute a tensor across clusters or chips according to a per-partition source pattern.
+The methods chain off the source tensor, matching the <code>to_dm</code> / <code>to_hbm</code> convention: <code>dm_cluster_shuffle</code> and <code>dm_chip_shuffle</code> live on <code>DmTensorView</code>, while <code>hbm_cluster_shuffle</code> and <code>hbm_chip_shuffle</code> live on <code>HbmTensor</code>.
+The shuffle pattern specifies, for each destination cluster or chip, which source cluster or chip provides its data.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 256, B = 4096];
+
+fn cluster_shuffle(
+    ctx: &amp;mut Context,
+    input: &amp;DmTensor&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt;,
+) -&gt; DmTensor&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt; {
+    // Shuffle pattern [1, 0]: cluster 0 ↔ cluster 1
+    input.view().dm_cluster_shuffle::&lt;2&gt;(&amp;mut ctx.tdma, &amp;[1, 0])
+}
+<span class="boring">}</span></code></pre>
+<p>Inter-chip shuffles use the system-wide global chip IDs.
+<code>hbm_chip_shuffle</code> is generic over the DMA context (<code>tdma</code> or <code>pdma</code>) because the cross-chip operation is HBM ↔ HBM, and HBM ↔ HBM is the one DMA pair that both Tensor DMA and PCIe DMA support.
+The other shuffle methods, and DMA pairs like HBM ↔ DM and DM ↔ DM in general, are not context-generic.</p>
+<h2 id="scatter-and-gather"><a class="header" href="#scatter-and-gather">Scatter and Gather</a></h2>
+<p>Scatter and gather move tensor elements at addresses computed from an index tensor rather than at fixed strides.</p>
+<p><code>DmTensor::dma_scatter</code> writes DM values to HBM at indices given by an index tensor.
+<code>HbmTensor::dma_gather</code> reads HBM rows into DM at indices given by an index tensor.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![K = 512, D = 128, C = 612];
+
+fn scatter_minimal(
+    ctx: &amp;mut Context,
+    data: &amp;HbmTensor&lt;bf16, m![1], m![K, D]&gt;,
+    index: &amp;HbmTensor&lt;i32, m![1], m![K]&gt;,
+    output: &amp;mut HbmTensor&lt;bf16, m![1], m![C, D]&gt;,
+) {
+    let data_dm: DmTensor&lt;bf16, m![1], m![1 # 2], m![K / 2], m![K % 2, D]&gt; =
+        data.to_dm(&amp;mut ctx.tdma, 0x0);
+
+    data_dm.dma_scatter::&lt;m![K], _, _&gt;(index, output, true);
+}
+
+fn gather_minimal(
+    table: &amp;HbmTensor&lt;bf16, m![1], m![K, D]&gt;,
+    index: &amp;HbmTensor&lt;i32, m![1], m![C]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![C / 2], m![C % 2, D]&gt; {
+    table.dma_gather::&lt;m![1 # 2], m![C / 2], m![C % 2, D], _&gt;(index, 0x0, true)
+}
+<span class="boring">}</span></code></pre>
+<p><code>scaled</code> matches <code>dma_scatter</code>’s convention.
+<code>true</code> treats index values as byte-offsets along the gather axis (divided internally to recover the row position).
+<code>false</code> treats index values as raw row positions.</p>
+<h2 id="pcie-dma"><a class="header" href="#pcie-dma">PCIe DMA</a></h2>
+<p>PCIe DMA (<code>Context::pdma</code>) moves tensors between host system memory and device HBM.
+It is a separate physical engine from the on-chip Tensor DMA.
+PCIe DMA handles only host ↔ HBM, while Tensor DMA handles all on-chip transfers.</p>
+<p>The kernel writer calls <code>.to_hbm()</code> on a <code>HostTensor</code> (host → device) or <code>.to_host()</code> on an <code>HbmTensor</code> (device → host).
+Both are async operations.</p>
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">use rand::{rngs::SmallRng, SeedableRng};
+</span>axes![A = 8, B = 512];
+
+async fn upload_and_download(ctx: &amp;mut Context) {
+    let mut rng = SmallRng::seed_from_u64(0);
+    let host: HostTensor&lt;i8, m![A, B]&gt; = HostTensor::rand(&amp;mut rng);
+
+    // Host → HBM at address 0x1000
+    let hbm: HbmTensor&lt;i8, m![A], m![B]&gt; = host.to_hbm(&amp;mut ctx.pdma, 0x1000).await;
+
+    // HBM → host (back to system memory)
+    let _round_tripped: HostTensor&lt;i8, m![A, B]&gt; = hbm.to_host(&amp;mut ctx.pdma).await;
+}</code></pre>
+<p><code>HostTensor</code> carries only an <code>Element</code> mapping (host memory has no chip/cluster/slice partitioning), while the destination <code>HbmTensor</code> adds the <code>Chip</code> axis to distribute across chips.
+The destination element layout in HBM may differ from the host layout, since <code>to_hbm</code> accepts new <code>Chip</code> and <code>Element</code> type parameters.</p>
+<p>PCIe DMA bandwidth is 30 B/cycle, an order of magnitude slower than on-chip Tensor DMA (256 B/cycle).
+Algorithms should minimize host ↔ device traffic, uploading data once and reusing it across many on-chip operations.</p>
 
                     </main>
 
@@ -927,11 +760,11 @@ See <a href="./memory-performance.html#bank-starvation">Bank Starvation</a> for 
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>
