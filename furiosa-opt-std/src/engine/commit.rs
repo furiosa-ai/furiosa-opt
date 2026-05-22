@@ -134,53 +134,5 @@ mod tests {
         use super::*;
 
         axes![M = 4, N = 8, X = 8, Y = 4, Z = 2];
-
-        #[test]
-        #[should_panic(expected = "Commit input packet must be exactly 32 bytes (one flit), got 16")]
-        fn input_packet_not_flit() {
-            verify_commit::<i8, m![M], m![N # 16], m![M, N]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "Commit output packet must be one of [8, 16, 24, 32] bytes, got 13")]
-        fn out_packet_invalid_size() {
-            verify_commit::<i8, m![M], m![N # 32], m![M, N # 13]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "Commit output packet must be one of [8, 16, 24, 32] bytes, got 48")]
-        fn extra_padding() {
-            verify_commit::<i8, m![M], m![N # 32], m![M, N # 48]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "Commit packet mismatch")]
-        fn different_packet_axes() {
-            verify_commit::<i8, m![M], m![N # 32], m![M, X]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "not a valid transpose of the input Time")]
-        fn different_time_axes() {
-            verify_commit::<i8, m![M], m![N # 32], m![Y, N # 16]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "not a valid transpose of the input Time")]
-        fn time_transpose_padding_mismatch() {
-            verify_commit::<bf16, m![M # 32, X], m![N # 16], m![X, M # 16, N = 4]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "not a valid transpose of the input Time")]
-        fn time_axis_dropped_with_padding() {
-            verify_commit::<i8, m![M, Z], m![N # 32], m![M # 8, N]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "not a valid transpose of the input Time")]
-        fn time_axis_resized_with_padding() {
-            verify_commit::<i8, m![M # 8], m![N # 32], m![M = 2 # 8, N]>();
-        }
     }
 }

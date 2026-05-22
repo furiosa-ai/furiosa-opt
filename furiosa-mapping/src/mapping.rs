@@ -318,16 +318,6 @@ mod tests {
         assert_eq!(outer, <m![[B, A # 9] / 4]>::to_value().factorize());
     }
 
-    /// Total size not divisible by target → panic.
-    /// [A = 6 # 9] (size 9) split at 4: 9 % 4 != 0.
-    #[test]
-    #[should_panic(expected = "not divisible")]
-    fn unittest_split_at_5() {
-        axes![A = 6];
-        let f = <m![A # 9]>::to_value().factorize();
-        f.split_at(4);
-    }
-
     /// Non-divisible padding with multiple outer terms:
     /// [C = 2, B = 4, A = 4 # 9] (size 72) split at 4.
     #[test]

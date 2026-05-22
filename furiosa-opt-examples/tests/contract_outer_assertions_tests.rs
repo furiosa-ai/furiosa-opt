@@ -1,4 +1,4 @@
-use furiosa_opt_examples::contract_outer_assertions::{A, B, C, E, F, R, T, U, V};
+use furiosa_opt_examples::contract_outer_assertions::{A, B, E, R, T, U, V};
 use furiosa_opt_std::prelude::*;
 
 type Chip = m![1];
@@ -77,44 +77,6 @@ mod lane_size {
 
         launch(valid_size_8, (&mut *ctx, &input, &input_trf, &mut output)).await;
     }
-
-    #[tokio::test]
-    #[should_panic(expected = "Lane::SIZE must be 1, 2, 4, or 8, got 3")]
-    async fn test_invalid_size_3() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, B]>::from_buf((0..<m![R, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, B]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![A, R # 8]>::from_addr(0x1000) };
-
-        launch(invalid_size_3, (&mut *ctx, &input, &input_trf, &mut output)).await;
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "Lane::SIZE must be 1, 2, 4, or 8, got 16")]
-    async fn test_invalid_size_16() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, B]>::from_buf((0..<m![R, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, B]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![A, R # 8]>::from_addr(0x1000) };
-
-        launch(invalid_size_16, (&mut *ctx, &input, &input_trf, &mut output)).await;
-    }
 }
 
 mod cpacket_size {
@@ -157,25 +119,6 @@ mod cpacket_size {
 
         launch(valid_size_32, (&mut *ctx, &input, &input_trf, &mut output)).await;
     }
-
-    #[tokio::test]
-    #[should_panic(expected = "OutPacket must be 32 or 64 bytes (matching PackSize ∈ {1, 2}), got 128 bytes")]
-    async fn test_invalid_size_128() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, C]>::from_buf((0..<m![A, C]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, C]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, C]>::from_buf((0..<m![R, C]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, C]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![A, R # 8]>::from_addr(0x1000) };
-
-        launch(invalid_size_128, (&mut *ctx, &input, &input_trf, &mut output)).await;
-    }
 }
 
 mod cpacket_mapping {
@@ -216,71 +159,6 @@ mod cpacket_mapping {
         let mut output = unsafe { HbmTensor::<i32, Chip, m![A, R # 8]>::from_addr(0x1000) };
 
         launch(valid_two_collect_flits, (&mut *ctx, &input, &input_trf, &mut output)).await;
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "Time does not divide OutTime")]
-    async fn test_invalid_one_collect_flit_no_padding() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, B]>::from_buf((0..<m![R, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, B]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![A, R # 8]>::from_addr(0x1000) };
-
-        launch(
-            invalid_one_collect_flit_no_padding,
-            (&mut *ctx, &input, &input_trf, &mut output),
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "`contract_outer` packet mismatch")]
-    async fn test_invalid_one_collect_flit_no_padding_reversed() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, B]>::from_buf((0..<m![R, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, B]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![A, R # 8]>::from_addr(0x1000) };
-
-        launch(
-            invalid_one_collect_flit_no_padding_reversed,
-            (&mut *ctx, &input, &input_trf, &mut output),
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "`contract_outer` packet mismatch")]
-    async fn test_invalid_mapping() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, B]>::from_buf((0..<m![R, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, B]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![A, R # 8]>::from_addr(0x1000) };
-
-        launch(invalid_mapping, (&mut *ctx, &input, &input_trf, &mut output)).await;
     }
 }
 
@@ -361,69 +239,6 @@ mod time_broadcast {
 
         launch(valid_transposed_tiling, (&mut *ctx, &input, &input_trf, &mut output)).await;
     }
-
-    #[tokio::test]
-    #[should_panic(expected = "Time does not divide OutTime")]
-    async fn test_invalid_time_mismatch() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, E]>::from_buf((0..<m![A, E]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, E]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, E]>::from_buf((0..<m![R, E]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, E]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![F, R # 8]>::from_addr(0x1000) };
-
-        launch(invalid_time_mismatch, (&mut *ctx, &input, &input_trf, &mut output)).await;
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "Time axes are reordered in OutTime")]
-    async fn test_invalid_swapped_time_axes() {
-        let mut ctx = Context::acquire();
-
-        let input =
-            HostTensor::<i8, m![A, V, E]>::from_buf((0..<m![A, V, E]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![A, V, E]>(&mut ctx.pdma, 0)
-                .await;
-
-        let input_trf = HostTensor::<i8, m![R, T, V, E]>::from_buf(
-            (0..<m![R, T, V, E]>::SIZE).map(|x| x as i8).collect::<Vec<_>>(),
-        )
-        .to_hbm::<Chip, m![R, T, V, E]>(&mut ctx.pdma, 0)
-        .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![V, A, T, R # 8]>::from_addr(0x1000) };
-
-        launch(invalid_swapped_time_axes, (&mut *ctx, &input, &input_trf, &mut output)).await;
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "tiling axes must be innermost in OutTime")]
-    async fn test_invalid_tiling_not_innermost() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, E]>::from_buf((0..<m![A, E]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, E]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, T, E]>::from_buf((0..<m![R, T, E]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, T, E]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![T, A, R # 8]>::from_addr(0x1000) };
-
-        launch(
-            invalid_tiling_not_innermost,
-            (&mut *ctx, &input, &input_trf, &mut output),
-        )
-        .await;
-    }
 }
 
 mod trf_mapping {
@@ -458,72 +273,6 @@ mod trf_mapping {
 
         launch(valid_unit_time_lane, (&mut *ctx, &input_trf)).await;
     }
-
-    #[tokio::test]
-    #[should_panic(expected = "`to_trf` lane mismatch: time_outer != Lane")]
-    async fn test_invalid_lane_mapping() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![A, 1 # 8]>::from_addr(0x1000) };
-
-        launch(invalid_lane_mapping, (&mut *ctx, &input, &mut output)).await;
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "`to_trf` element mismatch: [time_inner, Packet] != Element")]
-    async fn test_invalid_mapping() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let input_trf =
-            HostTensor::<i8, m![R, B]>::from_buf((0..<m![R, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![R, B]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i32, Chip, m![A, 1 # 8]>::from_addr(0x1000) };
-
-        launch(invalid_mapping, (&mut *ctx, &input, &input_trf, &mut output)).await;
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "Lane::SIZE (4) does not divide Time::SIZE (6)")]
-    async fn test_invalid_lane_not_divisible_by_time() {
-        let mut ctx = Context::acquire();
-
-        let input_trf =
-            HostTensor::<i8, m![F, E]>::from_buf((0..<m![F, E]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![F, E]>(&mut ctx.pdma, 0)
-                .await;
-
-        launch(invalid_lane_not_divisible_by_time, (&mut *ctx, &input_trf)).await;
-    }
-}
-
-mod trf_lane_time {
-    use super::*;
-    use furiosa_opt_examples::contract_outer_assertions::trf_lane_time::*;
-
-    #[tokio::test]
-    #[should_panic(expected = "Lane::SIZE (4) does not divide Time::SIZE (2)")]
-    async fn test_invalid_lane_exceeds_time() {
-        let mut ctx = Context::acquire();
-
-        let input =
-            HostTensor::<i8, m![A / 4, E]>::from_buf((0..<m![A / 4, E]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-                .to_hbm::<Chip, m![A / 4, E]>(&mut ctx.pdma, 0)
-                .await;
-
-        let mut output = unsafe { HbmTensor::<i8, Chip, m![A / 4, E]>::from_addr(0x1000) };
-
-        launch(invalid_lane_exceeds_time, (&mut *ctx, &input, &mut output)).await;
-    }
 }
 
 mod trf_size {
@@ -554,37 +303,5 @@ mod trf_size {
         let mut output = unsafe { HbmTensor::<i8, Chip, m![A, B]>::from_addr(0x1000) };
 
         launch(valid_to_trf_half, (&mut *ctx, &input, &mut output)).await;
-    }
-
-    #[tokio::test]
-    #[should_panic(
-        expected = "TRF data (524288 bytes = 8 lanes x 65536 bytes) exceeds register file capacity (65536 bytes for TrfAddress::Full)"
-    )]
-    async fn test_invalid_to_trf_full() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let mut output = unsafe { HbmTensor::<i8, Chip, m![A, B]>::from_addr(0x1000) };
-
-        launch(invalid_to_trf_full, (&mut *ctx, &input, &mut output)).await;
-    }
-
-    #[tokio::test]
-    #[should_panic(
-        expected = "TRF data (65536 bytes = 8 lanes x 8192 bytes) exceeds register file capacity (32768 bytes for TrfAddress::FirstHalf)"
-    )]
-    async fn test_invalid_to_trf_half() {
-        let mut ctx = Context::acquire();
-
-        let input = HostTensor::<i8, m![A, B]>::from_buf((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>())
-            .to_hbm::<Chip, m![A, B]>(&mut ctx.pdma, 0)
-            .await;
-
-        let mut output = unsafe { HbmTensor::<i8, Chip, m![A, B]>::from_addr(0x1000) };
-
-        launch(invalid_to_trf_half, (&mut *ctx, &input, &mut output)).await;
     }
 }

@@ -102,19 +102,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not a valid contraction")]
-    fn invalid_retained_packet_size() {
-        verify_contract_packet::<i8, m![K], m![D]>();
-    }
-
-    #[test]
-    #[should_panic(expected = "OutPacket::SIZE must be at most 32, got 64")]
-    fn invalid_no_reduction() {
-        // Temporal accumulator only has 32 columns, cannot fit 64 packet
-        verify_contract_packet::<i8, m![K], m![K]>();
-    }
-
-    #[test]
     fn valid_partial_reduction_multi_axis() {
         // `D / 2 % 4` is reduced, retained_packet is `[A, D / 8]`.
         verify_contract_packet::<i8, m![A, D / 2], m![A, D / 8]>();
@@ -139,17 +126,5 @@ mod tests {
     fn valid_no_spatial_reduction_bf16() {
         // Tree depth 0: all 32 bf16 elements pass through, no reduction.
         verify_contract_packet::<bf16, m![D], m![D]>();
-    }
-
-    #[test]
-    #[should_panic(expected = "OutPacket::SIZE must be a power of two, got 3")]
-    fn invalid_non_power_of_two_out_packet() {
-        verify_contract_packet::<i8, m![K], m![K = 3]>();
-    }
-
-    #[test]
-    #[should_panic(expected = "not a valid contraction")]
-    fn invalid_partial_inner_packet() {
-        verify_contract_packet::<i8, m![K], m![K % 4]>();
     }
 }

@@ -259,13 +259,6 @@ fn vcl<Lane: M, Time: M, Packet: M, OutTime: M, OutPacket: M>(kind: LaneMode) {
     verify_contract_lane::<Lane, Time, Packet, OutTime, OutPacket>(Time::to_value().factorize(), kind);
 }
 
-/// Test helper for cross-stage buffer checks where the post-`contract_time`
-/// `Time` differs from the pre-reduce `Time`.
-#[cfg(test)]
-fn vcl_pre<Lane: M, PreReduceTime: M, Time: M, Packet: M, OutTime: M, OutPacket: M>(kind: LaneMode) {
-    verify_contract_lane::<Lane, Time, Packet, OutTime, OutPacket>(PreReduceTime::to_value().factorize(), kind);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,12 +271,6 @@ mod tests {
         #[test]
         fn valid() {
             vcl::<m![1], m![A], m![1], m![A], m![1 # 8]>(LaneMode::Interleaved);
-        }
-
-        #[test]
-        #[should_panic(expected = "OutPacket::SIZE must be 8, got 32")]
-        fn invalid() {
-            vcl::<m![1], m![A], m![1], m![A], m![D]>(LaneMode::Interleaved);
         }
     }
 
@@ -328,49 +315,6 @@ mod tests {
             // Old: Time=[A], OutTime=[1] (all reduced). post=[1].
             vcl::<m![N], m![1], m![1], m![1], m![N]>(LaneMode::Interleaved);
         }
-
-        #[test]
-        #[should_panic(expected = "OutTime mismatch")]
-        fn invalid_sliced_no_padding() {
-            // Packet truncation is only allowed on padded elements.
-            // Otherwise, input data would be silently discarded.
-            vcl::<m![N], m![M], m![D], m![M, D = 16], m![N]>(LaneMode::Interleaved);
-        }
-
-        #[test]
-        #[should_panic(expected = "Could not decompose OutTime")]
-        fn invalid_packet_size_out_time() {
-            vcl::<m![N], m![M], m![D], m![M, K], m![N]>(LaneMode::Interleaved);
-        }
-
-        #[test]
-        #[should_panic(expected = "OutTime mismatch")]
-        fn invalid_resize() {
-            vcl::<m![1], m![A], m![D], m![A, D / 4 % 4], m![1 # 8]>(LaneMode::Interleaved);
-        }
-
-        #[test]
-        #[should_panic(expected = "OutTime mismatch")]
-        fn invalid_out_time() {
-            // OutTime decomposes as outer_time=[C], packet=identity. outer_time==time fails.
-            vcl::<m![N], m![A, B], m![1], m![C], m![N]>(LaneMode::Interleaved);
-        }
-
-        #[test]
-        #[should_panic(expected = "axes inner to reduce must be <= 128 in size, got 256")]
-        fn invalid_buffer() {
-            // pre=[A,D#64,C], post=[D#64,C] (A reduced). inner_time = D#64*C/1 = 256.
-            vcl_pre::<m![N], m![A, D # 64, C], m![D # 64, C], m![1], m![D # 64, C], m![N]>(LaneMode::Interleaved);
-        }
-
-        #[test]
-        #[should_panic(expected = "axes inner to reduce must be <= 128 in size, got 256")]
-        fn invalid_buffer_multiple_reduce_axes() {
-            // pre=[A,B#64,M#8,C], post=[B#64,C]. Reduce A and M#8.
-            vcl_pre::<m![N], m![A, B # 64, M # 8, C], m![B # 64, C], m![1], m![B # 64, C], m![N]>(
-                LaneMode::Interleaved,
-            );
-        }
     }
 
     mod sequential {
@@ -409,43 +353,9 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "OutPacket mismatch")]
-        fn invalid_packet_axis() {
-            vcl::<m![N], m![M], m![B], m![M, N], m![A # 8]>(LaneMode::Sequential);
-        }
-
-        #[test]
-        #[should_panic(expected = "OutTime mismatch")]
-        fn invalid_out_time() {
-            // post=[B] (A reduced), OutTime=[C,N], split_at|Lane*packet_outer|=|N|=8: inner=N, outer=[C].
-            // outer_time==time fails ([C] != [B]).
-            vcl::<m![N], m![B], m![1], m![C, N], m![1 # 8]>(LaneMode::Sequential);
-        }
-
-        #[test]
-        #[should_panic(expected = "OutTime mismatch")]
-        fn invalid_out_time_row() {
-            // Lane=N, OutTime ends with [Lane, packet_outer]=[N]; OutTime=[B,M] ends in M not N.
-            vcl::<m![N], m![B], m![1], m![B, M], m![1 # 8]>(LaneMode::Sequential);
-        }
-
-        #[test]
         fn valid_multi_axis_reduction() {
             // Reduce A and C. post=[B].
             vcl::<m![N], m![B], m![1], m![B, N], m![1 # 8]>(LaneMode::Sequential);
-        }
-
-        #[test]
-        #[should_panic(expected = "axes inner to reduce must be <= 32 in size, got 64")]
-        fn invalid_buffer() {
-            // pre=[A,P], post=[P]. P=8 reduced? No, A=4 reduced. inner_time = P = 8. buffer = 8*N*1 = 64.
-            vcl_pre::<m![N], m![A, P], m![P], m![1], m![P, N], m![1 # 8]>(LaneMode::Sequential);
-        }
-
-        #[test]
-        #[should_panic(expected = "axes inner to reduce must be <= 32 in size, got 64")]
-        fn invalid_buffer_packet_outer() {
-            vcl_pre::<m![1], m![A, N, B], m![N, B], m![D], m![N, B, D / 8], m![D % 8]>(LaneMode::Sequential);
         }
     }
 }

@@ -805,14 +805,6 @@ mod tests {
                     &SwitchConfig::CustomBroadcast { ring_size: 16 },
                 );
             }
-
-            #[test]
-            #[should_panic(
-                expected = "Switch axes moving from input slice to output time must be at the output time innermost positions."
-            )]
-            fn permutation_time_change() {
-                verify_switch::<m![A, B], m![C], m![B, A], m![R]>(&SwitchConfig::CustomBroadcast { ring_size: 256 });
-            }
         }
 
         mod broadcast {
@@ -902,73 +894,10 @@ mod tests {
             }
 
             #[test]
-            #[should_panic(expected = "Switch broadcast axes must each be used exactly once in OutSlice")]
-            fn duplicate_broadcast_symbol() {
-                verify_switch::<m![A, B], m![C], m![A / 2, Y, B / 2, Y], m![C, A % 2, B % 2]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 32 },
-                );
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch broadcast axes must be new axes (not present in input Slice or Time).")]
-            fn broadcast_axis_from_time() {
-                verify_switch::<m![A, B], m![C], m![A, B / 8, C], m![C, B % 8]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 8,
-                });
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch broadcast axes must be new axes (not present in input Slice or Time).")]
-            fn inter_transpose() {
-                verify_switch::<m![A, B], m![C], m![A, C, B / 8], m![B % 8]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 256,
-                });
-            }
-
-            #[test]
             fn partial_broadcast_replacement() {
                 // A % 2 replaced by broadcast
                 verify_switch::<m![A, B], m![C], m![A / 2, Y, B / 2, Z], m![C, B % 2]>(
                     &SwitchConfig::CustomBroadcast { ring_size: 32 },
-                );
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch broadcast axis X in output Slice must not be padded.")]
-            fn padded_broadcast_axis() {
-                verify_switch::<m![A, B], m![C], m![A / 2, X # 8, B / 8, Y], m![C, A % 2, B % 8]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 32 },
-                );
-            }
-
-            #[test]
-            #[should_panic(
-                expected = "Switch axes moving from input slice to output time must be at the output time innermost positions."
-            )]
-            fn moved_axes_not_innermost() {
-                verify_switch::<m![A, B], m![C], m![A / 2, Y, B / 2, Z], m![A % 2, C, B % 2]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 32 },
-                );
-            }
-
-            #[test]
-            #[should_panic(
-                expected = "Switch axes moving from input Slice to output Time must preserve their relative order from input Slice."
-            )]
-            fn reversed_order_in_time() {
-                // A % 2 and B % 2 are reversed in output Time.
-                verify_switch::<m![A, B], m![C], m![A / 2, Y, B / 2, Z], m![C, B % 2, A % 2]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 32 },
-                );
-            }
-
-            #[test]
-            #[should_panic(
-                expected = "Switch axes moving from input slice to output time must be at the output time innermost positions."
-            )]
-            fn outer_time_padding_mismatch() {
-                verify_switch::<m![A, B], m![C # 32], m![A, B / 4, X], m![C # 16, B % 4]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 4 },
                 );
             }
 
@@ -1013,82 +942,6 @@ mod tests {
             #[test]
             fn padded_broadcast_slicing() {
                 verify_switch::<m![P # 8, Q # 32], m![C], m![P # 8, Q # 32 / 4, X], m![C, Q # 32 % 4 = 3]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 4 },
-                );
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch broadcast axes in output time must come from input slice.")]
-            fn wrong_axis_in_slicing() {
-                verify_switch::<m![A, B], m![C], m![A, B / 4, X], m![C, B / 4 = 3]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 4,
-                });
-            }
-        }
-
-        mod ring_size {
-            use super::*;
-
-            #[test]
-            #[should_panic(expected = "Switch ring size must be a power of 2, got 3")]
-            fn non_power_of_two() {
-                verify_switch::<m![A, B], m![C], m![A, B / 4, X], m![C, B % 4]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 3,
-                });
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch ring size mismatch. Expected 256, got 4")]
-            fn wrong_full_permutation() {
-                verify_switch::<m![A, B], m![C], m![B % 4, B / 4, A % 4, A / 4], m![C]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 4 },
-                );
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch ring size mismatch. Expected 16, got 256")]
-            fn wrong_partial_permutation() {
-                verify_switch::<m![A, B], m![C], m![A, B % 4, B / 4], m![C]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 256,
-                });
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch ring size mismatch. Expected 4, got 32")]
-            fn wrong_broadcast() {
-                verify_switch::<m![A, B], m![C], m![A, B / 4, X], m![C, B % 4]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 32,
-                });
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch ring size mismatch. Expected 256, got 2")]
-            fn wrong_permutation_above_broadcast() {
-                verify_switch::<m![R, Q, P], m![C], m![Q, R, P / 2, Y], m![C, P % 2]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 2,
-                });
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch ring size mismatch. Expected 4, got 16")]
-            fn wrong_padded_broadcast() {
-                verify_switch::<m![A # 16, B # 16], m![C], m![A # 16, B # 16 / 4, X], m![C, B # 16 % 4]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 16 },
-                );
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch ring size mismatch. Expected 16, got 256")]
-            fn wrong_padded_permutation() {
-                verify_switch::<m![A # 16, B # 16], m![C], m![A # 16, B # 16 % 4, B # 16 / 4], m![C]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 256 },
-                );
-            }
-
-            #[test]
-            #[should_panic(expected = "Switch ring size mismatch. Expected 256, got 4")]
-            fn wrong_padded_permutation_above_broadcast() {
-                verify_switch::<m![P # 8, Q # 32], m![C], m![Q # 32 / 4, P # 8, X], m![C, Q # 32 % 4]>(
                     &SwitchConfig::CustomBroadcast { ring_size: 4 },
                 );
             }

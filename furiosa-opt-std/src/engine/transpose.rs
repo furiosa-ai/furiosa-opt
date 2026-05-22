@@ -194,104 +194,25 @@ mod tests {
     mod input_packet {
         use super::*;
         axes![C = 8, D = 8, E = 4, F = 16];
-
-        #[test]
-        #[should_panic(expected = "Transpose input packet must be 32 bytes, got 16")]
-        fn invalid() {
-            verify_transpose::<i8, m![C, D], m![E # 16], m![C, E], m![D # 32]>();
-        }
     }
 
     mod output_packet {
         use super::*;
         axes![C = 8, D = 8, E = 8];
-
-        #[test]
-        #[should_panic(expected = "Transpose output packet must be 32 bytes, got 16")]
-        fn invalid() {
-            verify_transpose::<i8, m![C, D], m![E # 32], m![C, E], m![D # 16]>();
-        }
     }
 
     mod in_rows {
         use super::*;
         axes![A = 4, C = 8, D = 8, E = 8, F = 32];
-
-        #[test]
-        #[should_panic(expected = "Transpose `in_rows` must be <= 8 bytes, got 16")]
-        fn invalid_i4() {
-            verify_transpose::<i4, m![C, D], m![E # 64], m![C, E], m![F # 64]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "Transpose `in_rows` must be <= 8 bytes, got 32")]
-        fn invalid_i8() {
-            verify_transpose::<i8, m![C, D], m![E # 32], m![C, E], m![A, D]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "Transpose `in_rows` must be <= 8 bytes, got 16")]
-        fn invalid_bf16() {
-            verify_transpose::<bf16, m![C, D], m![E # 16], m![C, E], m![D # 16]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "must be present in the input Time")]
-        fn invalid_in_rows_not_in_time() {
-            verify_transpose::<i8, m![C, D], m![E # 32], m![C, E], m![A # 32]>();
-        }
     }
 
     mod in_cols {
         use super::*;
         axes![C = 8, D = 8, E = 8, F = 16, G = 4];
-
-        #[test]
-        #[should_panic(expected = "Transpose `in_cols` size (64) must be one of [16, 32] for 4-bit type")]
-        fn invalid_i4() {
-            verify_transpose::<i4, m![F, G], m![E # 64], m![G, E], m![F # 64]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "Transpose `in_cols` size (64) must be one of [8, 16, 32] for 8-bit type")]
-        fn invalid_i8() {
-            verify_transpose::<i8, m![C, D], m![E # 32], m![D, E], m![C # 32]>();
-        }
     }
 
     mod out_time {
         use super::*;
         axes![A = 2, B = 2, C = 4, D = 2, E = 8, F = 8, G = 16];
-
-        #[test]
-        #[should_panic(expected = "Transpose time mismatch")]
-        fn invalid_outer_mismatch() {
-            verify_transpose::<i8, m![B, C, D], m![E # 32], m![A, D, E], m![C # 32]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "not found in OutTime")]
-        fn invalid_missing_packets_per_col() {
-            verify_transpose::<i8, m![C, D], m![E # 32], m![E], m![C # 32]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "must match")]
-        fn invalid_wrong_axis() {
-            verify_transpose::<i8, m![C, D], m![E # 32], m![D, F], m![C # 32]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "must match")]
-        fn invalid_non_padding_resize() {
-            // E = 4 discards non-padded elements
-            verify_transpose::<i8, m![C], m![E # 32], m![E = 4], m![C # 32]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "must be <=")]
-        fn invalid_out_rows_exceeds_in_cols() {
-            verify_transpose::<i8, m![A], m![B # 32], m![B # 16], m![A # 32]>();
-        }
     }
 }

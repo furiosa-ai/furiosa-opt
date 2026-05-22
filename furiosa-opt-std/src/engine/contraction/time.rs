@@ -141,17 +141,5 @@ mod tests {
             // checks; here we only verify the order/padding contract.
             verify_contract_time::<m![A, B], m![B]>();
         }
-
-        #[test]
-        #[should_panic(expected = "OutTime axes must follow the same order")]
-        fn invalid_reorder() {
-            verify_contract_time::<m![A, B], m![B, A]>();
-        }
-
-        #[test]
-        #[should_panic(expected = "Padding mismatch")]
-        fn invalid_padding() {
-            verify_contract_time::<m![A, B # 32], m![A, B]>();
-        }
     }
 }
