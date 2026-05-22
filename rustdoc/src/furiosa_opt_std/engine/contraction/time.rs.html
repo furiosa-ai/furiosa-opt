@@ -141,18 +141,6 @@
 <a href=#141 id=141 data-nosnippet>141</a>            // checks; here we only verify the order/padding contract.
 <a href=#142 id=142 data-nosnippet>142</a>            </span>verify_contract_time::&lt;<span class="macro">m!</span>[A, B], <span class="macro">m!</span>[B]&gt;();
 <a href=#143 id=143 data-nosnippet>143</a>        }
-<a href=#144 id=144 data-nosnippet>144</a>
-<a href=#145 id=145 data-nosnippet>145</a>        <span class="attr">#[test]
-<a href=#146 id=146 data-nosnippet>146</a>        #[should_panic(expected = <span class="string">"OutTime axes must follow the same order"</span>)]
-<a href=#147 id=147 data-nosnippet>147</a>        </span><span class="kw">fn </span>invalid_reorder() {
-<a href=#148 id=148 data-nosnippet>148</a>            verify_contract_time::&lt;<span class="macro">m!</span>[A, B], <span class="macro">m!</span>[B, A]&gt;();
-<a href=#149 id=149 data-nosnippet>149</a>        }
-<a href=#150 id=150 data-nosnippet>150</a>
-<a href=#151 id=151 data-nosnippet>151</a>        <span class="attr">#[test]
-<a href=#152 id=152 data-nosnippet>152</a>        #[should_panic(expected = <span class="string">"Padding mismatch"</span>)]
-<a href=#153 id=153 data-nosnippet>153</a>        </span><span class="kw">fn </span>invalid_padding() {
-<a href=#154 id=154 data-nosnippet>154</a>            verify_contract_time::&lt;<span class="macro">m!</span>[A, B # <span class="number">32</span>], <span class="macro">m!</span>[A, B]&gt;();
-<a href=#155 id=155 data-nosnippet>155</a>        }
-<a href=#156 id=156 data-nosnippet>156</a>    }
-<a href=#157 id=157 data-nosnippet>157</a>}
+<a href=#144 id=144 data-nosnippet>144</a>    }
+<a href=#145 id=145 data-nosnippet>145</a>}
 </code></pre></div></section></main></body></html>

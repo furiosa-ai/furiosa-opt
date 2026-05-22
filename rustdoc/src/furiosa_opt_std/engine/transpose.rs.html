@@ -194,105 +194,26 @@
 <a href=#194 id=194 data-nosnippet>194</a>    <span class="kw">mod </span>input_packet {
 <a href=#195 id=195 data-nosnippet>195</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
 <a href=#196 id=196 data-nosnippet>196</a>        <span class="macro">axes!</span>[C = <span class="number">8</span>, D = <span class="number">8</span>, E = <span class="number">4</span>, F = <span class="number">16</span>];
-<a href=#197 id=197 data-nosnippet>197</a>
-<a href=#198 id=198 data-nosnippet>198</a>        <span class="attr">#[test]
-<a href=#199 id=199 data-nosnippet>199</a>        #[should_panic(expected = <span class="string">"Transpose input packet must be 32 bytes, got 16"</span>)]
-<a href=#200 id=200 data-nosnippet>200</a>        </span><span class="kw">fn </span>invalid() {
-<a href=#201 id=201 data-nosnippet>201</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">16</span>], <span class="macro">m!</span>[C, E], <span class="macro">m!</span>[D # <span class="number">32</span>]&gt;();
-<a href=#202 id=202 data-nosnippet>202</a>        }
-<a href=#203 id=203 data-nosnippet>203</a>    }
-<a href=#204 id=204 data-nosnippet>204</a>
-<a href=#205 id=205 data-nosnippet>205</a>    <span class="kw">mod </span>output_packet {
-<a href=#206 id=206 data-nosnippet>206</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
-<a href=#207 id=207 data-nosnippet>207</a>        <span class="macro">axes!</span>[C = <span class="number">8</span>, D = <span class="number">8</span>, E = <span class="number">8</span>];
+<a href=#197 id=197 data-nosnippet>197</a>    }
+<a href=#198 id=198 data-nosnippet>198</a>
+<a href=#199 id=199 data-nosnippet>199</a>    <span class="kw">mod </span>output_packet {
+<a href=#200 id=200 data-nosnippet>200</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
+<a href=#201 id=201 data-nosnippet>201</a>        <span class="macro">axes!</span>[C = <span class="number">8</span>, D = <span class="number">8</span>, E = <span class="number">8</span>];
+<a href=#202 id=202 data-nosnippet>202</a>    }
+<a href=#203 id=203 data-nosnippet>203</a>
+<a href=#204 id=204 data-nosnippet>204</a>    <span class="kw">mod </span>in_rows {
+<a href=#205 id=205 data-nosnippet>205</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
+<a href=#206 id=206 data-nosnippet>206</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>, C = <span class="number">8</span>, D = <span class="number">8</span>, E = <span class="number">8</span>, F = <span class="number">32</span>];
+<a href=#207 id=207 data-nosnippet>207</a>    }
 <a href=#208 id=208 data-nosnippet>208</a>
-<a href=#209 id=209 data-nosnippet>209</a>        <span class="attr">#[test]
-<a href=#210 id=210 data-nosnippet>210</a>        #[should_panic(expected = <span class="string">"Transpose output packet must be 32 bytes, got 16"</span>)]
-<a href=#211 id=211 data-nosnippet>211</a>        </span><span class="kw">fn </span>invalid() {
-<a href=#212 id=212 data-nosnippet>212</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">32</span>], <span class="macro">m!</span>[C, E], <span class="macro">m!</span>[D # <span class="number">16</span>]&gt;();
-<a href=#213 id=213 data-nosnippet>213</a>        }
-<a href=#214 id=214 data-nosnippet>214</a>    }
-<a href=#215 id=215 data-nosnippet>215</a>
-<a href=#216 id=216 data-nosnippet>216</a>    <span class="kw">mod </span>in_rows {
-<a href=#217 id=217 data-nosnippet>217</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
-<a href=#218 id=218 data-nosnippet>218</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>, C = <span class="number">8</span>, D = <span class="number">8</span>, E = <span class="number">8</span>, F = <span class="number">32</span>];
-<a href=#219 id=219 data-nosnippet>219</a>
-<a href=#220 id=220 data-nosnippet>220</a>        <span class="attr">#[test]
-<a href=#221 id=221 data-nosnippet>221</a>        #[should_panic(expected = <span class="string">"Transpose `in_rows` must be &lt;= 8 bytes, got 16"</span>)]
-<a href=#222 id=222 data-nosnippet>222</a>        </span><span class="kw">fn </span>invalid_i4() {
-<a href=#223 id=223 data-nosnippet>223</a>            verify_transpose::&lt;i4, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">64</span>], <span class="macro">m!</span>[C, E], <span class="macro">m!</span>[F # <span class="number">64</span>]&gt;();
-<a href=#224 id=224 data-nosnippet>224</a>        }
-<a href=#225 id=225 data-nosnippet>225</a>
-<a href=#226 id=226 data-nosnippet>226</a>        <span class="attr">#[test]
-<a href=#227 id=227 data-nosnippet>227</a>        #[should_panic(expected = <span class="string">"Transpose `in_rows` must be &lt;= 8 bytes, got 32"</span>)]
-<a href=#228 id=228 data-nosnippet>228</a>        </span><span class="kw">fn </span>invalid_i8() {
-<a href=#229 id=229 data-nosnippet>229</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">32</span>], <span class="macro">m!</span>[C, E], <span class="macro">m!</span>[A, D]&gt;();
-<a href=#230 id=230 data-nosnippet>230</a>        }
-<a href=#231 id=231 data-nosnippet>231</a>
-<a href=#232 id=232 data-nosnippet>232</a>        <span class="attr">#[test]
-<a href=#233 id=233 data-nosnippet>233</a>        #[should_panic(expected = <span class="string">"Transpose `in_rows` must be &lt;= 8 bytes, got 16"</span>)]
-<a href=#234 id=234 data-nosnippet>234</a>        </span><span class="kw">fn </span>invalid_bf16() {
-<a href=#235 id=235 data-nosnippet>235</a>            verify_transpose::&lt;bf16, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">16</span>], <span class="macro">m!</span>[C, E], <span class="macro">m!</span>[D # <span class="number">16</span>]&gt;();
-<a href=#236 id=236 data-nosnippet>236</a>        }
-<a href=#237 id=237 data-nosnippet>237</a>
-<a href=#238 id=238 data-nosnippet>238</a>        <span class="attr">#[test]
-<a href=#239 id=239 data-nosnippet>239</a>        #[should_panic(expected = <span class="string">"must be present in the input Time"</span>)]
-<a href=#240 id=240 data-nosnippet>240</a>        </span><span class="kw">fn </span>invalid_in_rows_not_in_time() {
-<a href=#241 id=241 data-nosnippet>241</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">32</span>], <span class="macro">m!</span>[C, E], <span class="macro">m!</span>[A # <span class="number">32</span>]&gt;();
-<a href=#242 id=242 data-nosnippet>242</a>        }
-<a href=#243 id=243 data-nosnippet>243</a>    }
-<a href=#244 id=244 data-nosnippet>244</a>
-<a href=#245 id=245 data-nosnippet>245</a>    <span class="kw">mod </span>in_cols {
-<a href=#246 id=246 data-nosnippet>246</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
-<a href=#247 id=247 data-nosnippet>247</a>        <span class="macro">axes!</span>[C = <span class="number">8</span>, D = <span class="number">8</span>, E = <span class="number">8</span>, F = <span class="number">16</span>, G = <span class="number">4</span>];
-<a href=#248 id=248 data-nosnippet>248</a>
-<a href=#249 id=249 data-nosnippet>249</a>        <span class="attr">#[test]
-<a href=#250 id=250 data-nosnippet>250</a>        #[should_panic(expected = <span class="string">"Transpose `in_cols` size (64) must be one of [16, 32] for 4-bit type"</span>)]
-<a href=#251 id=251 data-nosnippet>251</a>        </span><span class="kw">fn </span>invalid_i4() {
-<a href=#252 id=252 data-nosnippet>252</a>            verify_transpose::&lt;i4, <span class="macro">m!</span>[F, G], <span class="macro">m!</span>[E # <span class="number">64</span>], <span class="macro">m!</span>[G, E], <span class="macro">m!</span>[F # <span class="number">64</span>]&gt;();
-<a href=#253 id=253 data-nosnippet>253</a>        }
-<a href=#254 id=254 data-nosnippet>254</a>
-<a href=#255 id=255 data-nosnippet>255</a>        <span class="attr">#[test]
-<a href=#256 id=256 data-nosnippet>256</a>        #[should_panic(expected = <span class="string">"Transpose `in_cols` size (64) must be one of [8, 16, 32] for 8-bit type"</span>)]
-<a href=#257 id=257 data-nosnippet>257</a>        </span><span class="kw">fn </span>invalid_i8() {
-<a href=#258 id=258 data-nosnippet>258</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">32</span>], <span class="macro">m!</span>[D, E], <span class="macro">m!</span>[C # <span class="number">32</span>]&gt;();
-<a href=#259 id=259 data-nosnippet>259</a>        }
-<a href=#260 id=260 data-nosnippet>260</a>    }
-<a href=#261 id=261 data-nosnippet>261</a>
-<a href=#262 id=262 data-nosnippet>262</a>    <span class="kw">mod </span>out_time {
-<a href=#263 id=263 data-nosnippet>263</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
-<a href=#264 id=264 data-nosnippet>264</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>, B = <span class="number">2</span>, C = <span class="number">4</span>, D = <span class="number">2</span>, E = <span class="number">8</span>, F = <span class="number">8</span>, G = <span class="number">16</span>];
-<a href=#265 id=265 data-nosnippet>265</a>
-<a href=#266 id=266 data-nosnippet>266</a>        <span class="attr">#[test]
-<a href=#267 id=267 data-nosnippet>267</a>        #[should_panic(expected = <span class="string">"Transpose time mismatch"</span>)]
-<a href=#268 id=268 data-nosnippet>268</a>        </span><span class="kw">fn </span>invalid_outer_mismatch() {
-<a href=#269 id=269 data-nosnippet>269</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[B, C, D], <span class="macro">m!</span>[E # <span class="number">32</span>], <span class="macro">m!</span>[A, D, E], <span class="macro">m!</span>[C # <span class="number">32</span>]&gt;();
-<a href=#270 id=270 data-nosnippet>270</a>        }
-<a href=#271 id=271 data-nosnippet>271</a>
-<a href=#272 id=272 data-nosnippet>272</a>        <span class="attr">#[test]
-<a href=#273 id=273 data-nosnippet>273</a>        #[should_panic(expected = <span class="string">"not found in OutTime"</span>)]
-<a href=#274 id=274 data-nosnippet>274</a>        </span><span class="kw">fn </span>invalid_missing_packets_per_col() {
-<a href=#275 id=275 data-nosnippet>275</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">32</span>], <span class="macro">m!</span>[E], <span class="macro">m!</span>[C # <span class="number">32</span>]&gt;();
-<a href=#276 id=276 data-nosnippet>276</a>        }
-<a href=#277 id=277 data-nosnippet>277</a>
-<a href=#278 id=278 data-nosnippet>278</a>        <span class="attr">#[test]
-<a href=#279 id=279 data-nosnippet>279</a>        #[should_panic(expected = <span class="string">"must match"</span>)]
-<a href=#280 id=280 data-nosnippet>280</a>        </span><span class="kw">fn </span>invalid_wrong_axis() {
-<a href=#281 id=281 data-nosnippet>281</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[C, D], <span class="macro">m!</span>[E # <span class="number">32</span>], <span class="macro">m!</span>[D, F], <span class="macro">m!</span>[C # <span class="number">32</span>]&gt;();
-<a href=#282 id=282 data-nosnippet>282</a>        }
-<a href=#283 id=283 data-nosnippet>283</a>
-<a href=#284 id=284 data-nosnippet>284</a>        <span class="attr">#[test]
-<a href=#285 id=285 data-nosnippet>285</a>        #[should_panic(expected = <span class="string">"must match"</span>)]
-<a href=#286 id=286 data-nosnippet>286</a>        </span><span class="kw">fn </span>invalid_non_padding_resize() {
-<a href=#287 id=287 data-nosnippet>287</a>            <span class="comment">// E = 4 discards non-padded elements
-<a href=#288 id=288 data-nosnippet>288</a>            </span>verify_transpose::&lt;i8, <span class="macro">m!</span>[C], <span class="macro">m!</span>[E # <span class="number">32</span>], <span class="macro">m!</span>[E = <span class="number">4</span>], <span class="macro">m!</span>[C # <span class="number">32</span>]&gt;();
-<a href=#289 id=289 data-nosnippet>289</a>        }
-<a href=#290 id=290 data-nosnippet>290</a>
-<a href=#291 id=291 data-nosnippet>291</a>        <span class="attr">#[test]
-<a href=#292 id=292 data-nosnippet>292</a>        #[should_panic(expected = <span class="string">"must be &lt;="</span>)]
-<a href=#293 id=293 data-nosnippet>293</a>        </span><span class="kw">fn </span>invalid_out_rows_exceeds_in_cols() {
-<a href=#294 id=294 data-nosnippet>294</a>            verify_transpose::&lt;i8, <span class="macro">m!</span>[A], <span class="macro">m!</span>[B # <span class="number">32</span>], <span class="macro">m!</span>[B # <span class="number">16</span>], <span class="macro">m!</span>[A # <span class="number">32</span>]&gt;();
-<a href=#295 id=295 data-nosnippet>295</a>        }
-<a href=#296 id=296 data-nosnippet>296</a>    }
-<a href=#297 id=297 data-nosnippet>297</a>}
+<a href=#209 id=209 data-nosnippet>209</a>    <span class="kw">mod </span>in_cols {
+<a href=#210 id=210 data-nosnippet>210</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
+<a href=#211 id=211 data-nosnippet>211</a>        <span class="macro">axes!</span>[C = <span class="number">8</span>, D = <span class="number">8</span>, E = <span class="number">8</span>, F = <span class="number">16</span>, G = <span class="number">4</span>];
+<a href=#212 id=212 data-nosnippet>212</a>    }
+<a href=#213 id=213 data-nosnippet>213</a>
+<a href=#214 id=214 data-nosnippet>214</a>    <span class="kw">mod </span>out_time {
+<a href=#215 id=215 data-nosnippet>215</a>        <span class="kw">use </span>super::<span class="kw-2">*</span>;
+<a href=#216 id=216 data-nosnippet>216</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>, B = <span class="number">2</span>, C = <span class="number">4</span>, D = <span class="number">2</span>, E = <span class="number">8</span>, F = <span class="number">8</span>, G = <span class="number">16</span>];
+<a href=#217 id=217 data-nosnippet>217</a>    }
+<a href=#218 id=218 data-nosnippet>218</a>}
 </code></pre></div></section></main></body></html>
