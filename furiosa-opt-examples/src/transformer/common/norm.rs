@@ -150,7 +150,7 @@ fn rms_norm_pipeline(
         .collect::<m![S % 2], m![1 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_trim::<m![1 # 4]>()
+        .vector_narrow_clip::<m![1 # 4]>()
         .vector_fp_unary(FpUnaryOp::Sqrt)
         .vector_fp_div_with_mode(BinaryArgMode::Mode10, 1.0f32)
         .vector_widen_pad::<m![1 # 8]>() // TODO: use filter to move Time -> Packet
@@ -233,7 +233,7 @@ pub(crate) fn final_norm(
         .collect::<m![1], m![1 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_trim::<m![1 # 4]>()
+        .vector_narrow_clip::<m![1 # 4]>()
         .vector_fp_unary(FpUnaryOp::Sqrt)
         .vector_fp_div_with_mode(BinaryArgMode::Mode10, 1.0f32)
         .vector_widen_pad::<m![1 # 8]>()

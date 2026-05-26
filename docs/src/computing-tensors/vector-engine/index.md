@@ -134,7 +134,7 @@ fn full_sum<'l, const T: Tu>(
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         // Way8 → Way4 (back 4 packet positions were padding)
-        .vector_narrow_trim::<m![R % 4]>()
+        .vector_narrow_clip::<m![R % 4]>()
         // sum over R's Time and Packet portions
         .vector_intra_slice_reduce::<R, m![1], m![1 # 4]>(IntraSliceReduceOpI32::AddSat)
         // Way4 → Way8

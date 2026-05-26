@@ -35,7 +35,7 @@ fn reduce_time<'l, const T: Tu>(
 ) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1], m![A / 2], m![1], m![A % 2 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }>
 {
     input
-        .vector_narrow_trim::<m![A % 2 # 4]>()       // 8-way → 4-way
+        .vector_narrow_clip::<m![A % 2 # 4]>()       // 8-way → 4-way
         // R eliminated from Time
         .vector_intra_slice_reduce::<R, m![1], m![A % 2 # 4]>(
             IntraSliceReduceOpI32::AddSat,
@@ -60,7 +60,7 @@ fn reduce_packet<'l, const T: Tu>(
 ) -> VectorIntraSliceReduceTensor<'l, T, f32, m![1], m![1], m![A / 2], m![A % 2], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }>
 {
     input
-        .vector_narrow_trim::<m![R]>()             // 8-way → 4-way
+        .vector_narrow_clip::<m![R]>()             // 8-way → 4-way
         // R eliminated from Packet
         .vector_intra_slice_reduce::<R, m![A % 2], m![1 # 4]>(
             IntraSliceReduceOpF32::Add,
@@ -87,7 +87,7 @@ fn reduce_time_packet<'l, const T: Tu>(
 ) -> VectorIntraSliceReduceTensor<'l, T, f32, m![1], m![1], m![A], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }>
 {
     input
-        .vector_narrow_trim::<m![R % 4]>()            // 8-way → 4-way
+        .vector_narrow_clip::<m![R % 4]>()            // 8-way → 4-way
         // R eliminated from both Time and Packet
         .vector_intra_slice_reduce::<R, m![1], m![1 # 4]>(
             IntraSliceReduceOpF32::Max,
@@ -114,7 +114,7 @@ fn reduce_slice_time_packet<'l, const T: Tu>(
 ) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1], m![R # 32 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }>
 {
     input
-        .vector_narrow_trim::<m![R # 32 % 4]>()       // 8-way → 4-way
+        .vector_narrow_clip::<m![R # 32 % 4]>()       // 8-way → 4-way
         // R eliminated from Time and Packet (accumulated within each slice)
         .vector_intra_slice_reduce::<R, m![1], m![1 # 4]>(
             IntraSliceReduceOpI32::Min,
@@ -144,7 +144,7 @@ fn invalid_too_many_slots<'l, const T: Tu>(
 ) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1], m![A / 3], m![A % 3, B % 4], m![B / 4], i32, NoTensor, { stage::VeOrder::IntraFirst }>
 {
     input
-        .vector_narrow_trim::<m![B / 4]>()
+        .vector_narrow_clip::<m![B / 4]>()
         // Time      = m![R, A % 3, B % 4]
         // OutTime   = m![A % 3, B % 4]
         // InnerTime = m![A % 3, B % 4], InnerTime::SIZE = 3 × 4 = 12 > 8

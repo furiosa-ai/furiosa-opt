@@ -55,17 +55,17 @@ pub(crate) fn verify_vector_widen_concat<Time: M, Packet: M, Time2: M, Packet2: 
     );
 }
 
-/// Verify vector_narrow_trim: Packet (size 8) → Packet2 (size 4, front half only).
+/// Verify vector_narrow_clip: Packet (size 8) → Packet2 (size 4, front half only).
 ///
 /// Checks that the back 4 of Packet are dummy,
 /// and that Packet2 matches the front 4 of Packet.
-pub(crate) fn verify_vector_narrow_trim<Packet: M, Packet2: M>() {
+pub(crate) fn verify_vector_narrow_clip<Packet: M, Packet2: M>() {
     assert_eq!(
         Packet::SIZE,
         8,
-        "vector_narrow_trim: input Packet must have 8 elements (one flit), got {}. \
-         vector_narrow_trim is used to strip the back-4 dummy lanes before float operations. \
-         If Packet is already 4, you don't need vector_narrow_trim.",
+        "vector_narrow_clip: input Packet must have 8 elements (one flit), got {}. \
+         vector_narrow_clip is used to strip the back-4 dummy lanes before float operations. \
+         If Packet is already 4, you don't need vector_narrow_clip.",
         Packet::SIZE,
     );
     let Tuple2(packet_outer, packet_inner) = Packet::to_value().factorize().split_at(4);
@@ -74,21 +74,21 @@ pub(crate) fn verify_vector_narrow_trim<Packet: M, Packet2: M>() {
     assert_eq!(
         packet_outer.clone().normalize(),
         <m![1 # 2]>::to_value().factorize(),
-        "vector_narrow_trim: the back 4 lanes of the packet must be dummy (padding), \
+        "vector_narrow_clip: the back 4 lanes of the packet must be dummy (padding), \
          but got: {packet_outer}. \
-         If the back 4 lanes contain real data, use vector_narrow_split() instead of vector_narrow_trim()."
+         If the back 4 lanes contain real data, use vector_narrow_split() instead of vector_narrow_clip()."
     );
     // Output must be the front 4
     assert_eq!(
         Packet2::SIZE,
         4,
-        "vector_narrow_trim: output Packet2 must have 4 elements, got {}.",
+        "vector_narrow_clip: output Packet2 must have 4 elements, got {}.",
         Packet2::SIZE,
     );
     assert_eq!(
         packet_inner,
         Packet2::to_value().factorize(),
-        "vector_narrow_trim: Packet2 must match the front 4 of Packet. \
+        "vector_narrow_clip: Packet2 must match the front 4 of Packet. \
          Expected: {packet_inner}, got: {}.",
         Packet2::to_value().factorize(),
     );
@@ -101,8 +101,8 @@ pub(crate) fn verify_vector_widen_pad<Packet: M, Packet2: M>() {
     assert_eq!(
         Packet::SIZE,
         4,
-        "vector_widen_pad: input Packet must have 4 elements (after vector_narrow_trim), got {}. \
-         vector_widen_pad restores the back-4 dummy lanes stripped by vector_narrow_trim.",
+        "vector_widen_pad: input Packet must have 4 elements (after vector_narrow_clip), got {}. \
+         vector_widen_pad restores the back-4 dummy lanes stripped by vector_narrow_clip.",
         Packet::SIZE,
     );
     assert_eq!(

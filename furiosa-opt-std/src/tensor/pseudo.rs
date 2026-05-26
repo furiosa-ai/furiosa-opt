@@ -90,7 +90,10 @@ mod tests {
         let buf = BufTensor::<i32, m![A, B]>::from_buf(vec![10, 11, 12, 20, 21, 22]);
         let stream = buf.read::<m![A], m![B]>();
 
-        assert_eq!(stream.to_buf(), vec![10, 11, 12, 20, 21, 22]);
+        assert_eq!(
+            stream.to_buf(),
+            Tensor::<i32, m![A, B]>::from_buf(vec![10, 11, 12, 20, 21, 22]).to_buf()
+        );
     }
 
     /// Axis reordering read: visiting `m![B, A]` over a `m![A, B]` buffer transposes the matrix.
@@ -104,7 +107,10 @@ mod tests {
         // stream in [B, A]-order: B=0 column, then B=1 column, then B=2 column.
         let stream = buf.read::<m![B], m![A]>();
 
-        assert_eq!(stream.to_buf(), vec![10, 20, 11, 21, 12, 22]);
+        assert_eq!(
+            stream.to_buf(),
+            Tensor::<i32, m![A, B]>::from_buf(vec![10, 20, 11, 21, 12, 22]).to_buf()
+        );
     }
 
     /// Write reverses read: round-tripping through a transposed stream restores the buffer.
@@ -120,7 +126,7 @@ mod tests {
         let mut sink = BufTensor::<i32, m![A, B]>::from_buf(vec![0; 6]);
         sink.write(stream);
 
-        assert_eq!(sink.to_buf(), original);
+        assert_eq!(sink.to_buf(), Tensor::<i32, m![A, B]>::from_buf(original).to_buf());
     }
 
     /// Axis split read: `m![A % 2, A / 2]` reads `A`'s low bit then high bit.
@@ -132,6 +138,9 @@ mod tests {
         let buf = BufTensor::<i32, m![A]>::from_buf(vec![0, 1, 2, 3]);
         let stream = buf.read::<m![A % 2], m![A / 2]>();
 
-        assert_eq!(stream.to_buf(), vec![0, 2, 1, 3]);
+        assert_eq!(
+            stream.to_buf(),
+            Tensor::<i32, m![A]>::from_buf(vec![0, 2, 1, 3]).to_buf()
+        );
     }
 }

@@ -76,15 +76,15 @@ pub enum VeOrder {
 ///
 /// The hardware VE flit is 8 elements wide, but float ALU only processes the front 4.
 /// `Way8` is the default (full 8-element flit).
-/// `Way4` indicates the packet has been narrowed to 4 elements via `vector_narrow_split` or `vector_narrow_trim`.
+/// `Way4` indicates the packet has been narrowed to 4 elements via `vector_narrow_split` or `vector_narrow_clip`.
 /// Float operations are only available in `Way4`, enforced at compile time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ConstParamTy)]
 pub enum Way {
     /// 8-way (default). Full 8-element flit.
     /// Float operations are NOT available.
-    /// Use `vector_narrow_split` (>4 real elements) or `vector_narrow_trim` (≤4 real elements) to transition to `Way4`.
+    /// Use `vector_narrow_split` (>4 real elements) or `vector_narrow_clip` (≤4 real elements) to transition to `Way4`.
     Way8,
-    /// 4-way. Front-4-only flit after `vector_narrow_split` or `vector_narrow_trim`.
+    /// 4-way. Front-4-only flit after `vector_narrow_split` or `vector_narrow_clip`.
     /// Float operations are available.
     /// Use `vector_widen_concat` or `vector_widen_pad` to transition back to `Way8`.
     Way4,

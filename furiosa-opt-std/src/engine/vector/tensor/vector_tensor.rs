@@ -53,7 +53,7 @@ use crate::engine::vector::stage::markers::VeOrder;
 use crate::engine::vector::stage::markers::Way::{self, Way4, Way8};
 use crate::engine::vector::stage::state::VeState;
 use crate::engine::vector::tensor::verify::{
-    verify_vector_narrow_split, verify_vector_narrow_trim, verify_vector_widen_concat, verify_vector_widen_pad,
+    verify_vector_narrow_clip, verify_vector_narrow_split, verify_vector_widen_concat, verify_vector_widen_pad,
 };
 use crate::tensor_state::{HasTensor, NoTensor, TensorState};
 
@@ -128,7 +128,7 @@ pub struct VeTensorData<
 ///
 /// The `W` type parameter represents the way:
 /// - `Way8`: Default 8-element flit mode. Float operations are NOT available.
-/// - `Way4`: After `vector_narrow_split` or `vector_narrow_trim`, front-4-only. Float operations are available.
+/// - `Way4`: After `vector_narrow_split` or `vector_narrow_clip`, front-4-only. Float operations are available.
 #[derive(Debug)]
 pub struct VectorTensor<
     'l,
@@ -813,7 +813,7 @@ pub type VectorFxpToFpTensor<
     const W: Way = { Way8 },
 > = VectorTensor<'l, T, stage::FxpToFp, D, Chip, Cluster, Slice, Time, Packet, StashD, Stash, VE_ORDER, FS, W>;
 
-/// Tensor after narrow layer (split or trim).
+/// Tensor after narrow layer (split or clip).
 pub type VectorNarrowTensor<
     'l,
     const T: Tu,
@@ -1185,7 +1185,7 @@ where
 }
 
 // ============================================================================
-// Narrow operations (split / trim)
+// Narrow operations (split / clip)
 // ============================================================================
 
 impl<
@@ -1227,7 +1227,7 @@ where
 }
 
 // ============================================================================
-// vector_narrow_trim: strip back-4 dummy from Packet 8 → 4 (type-only, no-op at hardware level)
+// vector_narrow_clip: strip back-4 dummy from Packet 8 → 4 (type-only, no-op at hardware level)
 // ============================================================================
 
 impl<
@@ -1254,11 +1254,11 @@ where
     /// This is a type-system-only operation — no hardware instruction is emitted.
     /// Use this when the back 4 lanes are already padding (≤ 4 real elements).
     /// For packets with > 4 real elements, use `vector_narrow_split()` instead.
-    #[primitive(VectorTensor::vector_narrow_trim)]
-    pub fn vector_narrow_trim<Packet2: M>(
+    #[primitive(VectorTensor::vector_narrow_clip)]
+    pub fn vector_narrow_clip<Packet2: M>(
         self,
     ) -> VectorNarrowTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet2, StashD, Stash, VE_ORDER, FS, { Way4 }> {
-        verify_vector_narrow_trim::<Packet, Packet2>();
+        verify_vector_narrow_clip::<Packet, Packet2>();
 
         let (ctx, inner, tag, ve_state) = self.into_parts();
 
@@ -1627,7 +1627,7 @@ where
     /// Transitions from `Way4` to `Way8` mode and enters the `Widen` stage.
     ///
     /// This is a type-system-only operation — no hardware instruction is emitted.
-    /// Reverse of `vector_narrow_trim`. Use this when no time-dimension merging is needed.
+    /// Reverse of `vector_narrow_clip`. Use this when no time-dimension merging is needed.
     /// For merging split time steps back, use `vector_widen_concat()` instead.
     #[primitive(VectorTensor::vector_widen_pad)]
     pub fn vector_widen_pad<Packet2: M>(

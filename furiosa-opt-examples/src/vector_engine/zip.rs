@@ -292,7 +292,7 @@ pub fn ve_elementwise_ternary(ctx: &mut Context, input: &HbmTensor<f32, Chip, m!
         .collect::<m![1], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_trim::<m![A % 2 # 4]>()
+        .vector_narrow_clip::<m![A % 2 # 4]>()
         // Using tuple syntax: (operand0, operand1) where operand0 is f32 constant
         // FmaF: data * operand0 + operand1 = input * 2.0 + 3.0
         .vector_fp_ternary(FpTernaryOp::FmaF, (2.0f32, 3.0f32))
@@ -321,7 +321,7 @@ pub fn ve_elementwise_ternary_stash(
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         .vector_stash()
-        .vector_narrow_trim::<m![A % 2 # 4]>()
+        .vector_narrow_clip::<m![A % 2 # 4]>()
         // Using Stash as operand0: data * stash + 1.0 = input * input + 1.0
         .vector_fp_ternary(FpTernaryOp::FmaF, (Stash, 1.0f32))
         .vector_widen_pad::<m![A % 2 # 8]>()

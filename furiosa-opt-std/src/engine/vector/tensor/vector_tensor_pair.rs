@@ -639,7 +639,7 @@ impl<
 }
 
 // ============================================================================
-// VectorTensorPair - Narrow operations (split / trim)
+// VectorTensorPair - Narrow operations (split / clip)
 // Stage order: Narrow comes after FxpToFp
 // ============================================================================
 
@@ -693,9 +693,9 @@ impl<
 }
 
 // ============================================================================
-// vector_narrow_trim is intentionally NOT available on `VectorTensorPair`.
+// vector_narrow_clip is intentionally NOT available on `VectorTensorPair`.
 //
-// `vector_narrow_trim` is the bypass (no-op) form of Split: it only reinterprets
+// `vector_narrow_clip` is the bypass (no-op) form of Split: it only reinterprets
 // the Way8 flit's front 4 lanes as Way4 without emitting any hardware
 // instruction. In combination with a later `vector_widen_pad` (which also
 // bypass-pads in LIR as `Concat(Bypass)`), the group execution-id tensor gets
@@ -708,7 +708,7 @@ impl<
 // than just reinterpreting lane shape) before running float-side per-group
 // operations. Users that only need a single stream can still call
 // `vector_fp_zip` / `vector_clip_zip` / `vector_fxp_zip` to consume the pair
-// and then `vector_narrow_trim` on the resulting `VectorTensor`.
+// and then `vector_narrow_clip` on the resulting `VectorTensor`.
 // ============================================================================
 
 // ============================================================================
@@ -949,13 +949,13 @@ impl<
 // ============================================================================
 // vector_widen_pad is intentionally NOT available on `VectorTensorPair`.
 //
-// Symmetric to the `vector_narrow_trim` block above: the LIR realization of
+// Symmetric to the `vector_narrow_clip` block above: the LIR realization of
 // `vector_widen_pad` is `Concat(Bypass)`, which zero-pads the group
 // execution-id tensor on the back 4 Way8 lanes. Any downstream op that
 // filters by `Group` on Way8 then only matches the front 4 lanes while
 // the cache is still laid out with 8 lanes per partition — the same
 // Way8-filter-vs-Way8-cache misalignment that motivates blocking
-// `vector_narrow_trim`. Pair tensors must use the buffered `vector_widen_concat`
+// `vector_narrow_clip`. Pair tensors must use the buffered `vector_widen_concat`
 // instead (it actually moves data between the front and back halves, so
 // exec-ids stay meaningful). Zipping the pair first (`vector_fp_zip`,
 // `vector_clip_zip`, `vector_fxp_zip`) and then calling `vector_widen_pad`
