@@ -639,7 +639,7 @@
 <a href=#639 id=639 data-nosnippet>639</a>}
 <a href=#640 id=640 data-nosnippet>640</a>
 <a href=#641 id=641 data-nosnippet>641</a><span class="comment">// ============================================================================
-<a href=#642 id=642 data-nosnippet>642</a>// VectorTensorPair - Narrow operations (split / trim)
+<a href=#642 id=642 data-nosnippet>642</a>// VectorTensorPair - Narrow operations (split / clip)
 <a href=#643 id=643 data-nosnippet>643</a>// Stage order: Narrow comes after FxpToFp
 <a href=#644 id=644 data-nosnippet>644</a>// ============================================================================
 <a href=#645 id=645 data-nosnippet>645</a>
@@ -693,9 +693,9 @@
 <a href=#693 id=693 data-nosnippet>693</a>}
 <a href=#694 id=694 data-nosnippet>694</a>
 <a href=#695 id=695 data-nosnippet>695</a><span class="comment">// ============================================================================
-<a href=#696 id=696 data-nosnippet>696</a>// vector_narrow_trim is intentionally NOT available on `VectorTensorPair`.
+<a href=#696 id=696 data-nosnippet>696</a>// vector_narrow_clip is intentionally NOT available on `VectorTensorPair`.
 <a href=#697 id=697 data-nosnippet>697</a>//
-<a href=#698 id=698 data-nosnippet>698</a>// `vector_narrow_trim` is the bypass (no-op) form of Split: it only reinterprets
+<a href=#698 id=698 data-nosnippet>698</a>// `vector_narrow_clip` is the bypass (no-op) form of Split: it only reinterprets
 <a href=#699 id=699 data-nosnippet>699</a>// the Way8 flit's front 4 lanes as Way4 without emitting any hardware
 <a href=#700 id=700 data-nosnippet>700</a>// instruction. In combination with a later `vector_widen_pad` (which also
 <a href=#701 id=701 data-nosnippet>701</a>// bypass-pads in LIR as `Concat(Bypass)`), the group execution-id tensor gets
@@ -708,7 +708,7 @@
 <a href=#708 id=708 data-nosnippet>708</a>// than just reinterpreting lane shape) before running float-side per-group
 <a href=#709 id=709 data-nosnippet>709</a>// operations. Users that only need a single stream can still call
 <a href=#710 id=710 data-nosnippet>710</a>// `vector_fp_zip` / `vector_clip_zip` / `vector_fxp_zip` to consume the pair
-<a href=#711 id=711 data-nosnippet>711</a>// and then `vector_narrow_trim` on the resulting `VectorTensor`.
+<a href=#711 id=711 data-nosnippet>711</a>// and then `vector_narrow_clip` on the resulting `VectorTensor`.
 <a href=#712 id=712 data-nosnippet>712</a>// ============================================================================
 <a href=#713 id=713 data-nosnippet>713</a>
 <a href=#714 id=714 data-nosnippet>714</a>// ============================================================================
@@ -949,13 +949,13 @@
 <a href=#949 id=949 data-nosnippet>949</a><span class="comment">// ============================================================================
 <a href=#950 id=950 data-nosnippet>950</a>// vector_widen_pad is intentionally NOT available on `VectorTensorPair`.
 <a href=#951 id=951 data-nosnippet>951</a>//
-<a href=#952 id=952 data-nosnippet>952</a>// Symmetric to the `vector_narrow_trim` block above: the LIR realization of
+<a href=#952 id=952 data-nosnippet>952</a>// Symmetric to the `vector_narrow_clip` block above: the LIR realization of
 <a href=#953 id=953 data-nosnippet>953</a>// `vector_widen_pad` is `Concat(Bypass)`, which zero-pads the group
 <a href=#954 id=954 data-nosnippet>954</a>// execution-id tensor on the back 4 Way8 lanes. Any downstream op that
 <a href=#955 id=955 data-nosnippet>955</a>// filters by `Group` on Way8 then only matches the front 4 lanes while
 <a href=#956 id=956 data-nosnippet>956</a>// the cache is still laid out with 8 lanes per partition — the same
 <a href=#957 id=957 data-nosnippet>957</a>// Way8-filter-vs-Way8-cache misalignment that motivates blocking
-<a href=#958 id=958 data-nosnippet>958</a>// `vector_narrow_trim`. Pair tensors must use the buffered `vector_widen_concat`
+<a href=#958 id=958 data-nosnippet>958</a>// `vector_narrow_clip`. Pair tensors must use the buffered `vector_widen_concat`
 <a href=#959 id=959 data-nosnippet>959</a>// instead (it actually moves data between the front and back halves, so
 <a href=#960 id=960 data-nosnippet>960</a>// exec-ids stay meaningful). Zipping the pair first (`vector_fp_zip`,
 <a href=#961 id=961 data-nosnippet>961</a>// `vector_clip_zip`, `vector_fxp_zip`) and then calling `vector_widen_pad`

@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-85db366b.js";
+            window.path_to_searchindex_js = "../../searchindex-6c04c645.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-0b46deb9.js"></script>
@@ -207,7 +207,7 @@ fn reduce_time&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![A / 2], m![1], m![A % 2 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()       // 8-way → 4-way
+        .vector_narrow_clip::&lt;m![A % 2 # 4]&gt;()       // 8-way → 4-way
         // R eliminated from Time
         .vector_intra_slice_reduce::&lt;R, m![1], m![A % 2 # 4]&gt;(
             IntraSliceReduceOpI32::AddSat,
@@ -230,7 +230,7 @@ fn reduce_packet&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![A / 2], m![A % 2], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![R]&gt;()             // 8-way → 4-way
+        .vector_narrow_clip::&lt;m![R]&gt;()             // 8-way → 4-way
         // R eliminated from Packet
         .vector_intra_slice_reduce::&lt;R, m![A % 2], m![1 # 4]&gt;(
             IntraSliceReduceOpF32::Add,
@@ -255,7 +255,7 @@ fn reduce_time_packet&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![A], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![R % 4]&gt;()            // 8-way → 4-way
+        .vector_narrow_clip::&lt;m![R % 4]&gt;()            // 8-way → 4-way
         // R eliminated from both Time and Packet
         .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
             IntraSliceReduceOpF32::Max,
@@ -280,7 +280,7 @@ fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 32 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![R # 32 % 4]&gt;()       // 8-way → 4-way
+        .vector_narrow_clip::&lt;m![R # 32 % 4]&gt;()       // 8-way → 4-way
         // R eliminated from Time and Packet (accumulated within each slice)
         .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
             IntraSliceReduceOpI32::Min,
@@ -304,7 +304,7 @@ fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![A / 3], m![A % 3, B % 4], m![B / 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![B / 4]&gt;()
+        .vector_narrow_clip::&lt;m![B / 4]&gt;()
         // Time      = m![R, A % 3, B % 4]
         // OutTime   = m![A % 3, B % 4]
         // InnerTime = m![A % 3, B % 4], InnerTime::SIZE = 3 × 4 = 12 &gt; 8

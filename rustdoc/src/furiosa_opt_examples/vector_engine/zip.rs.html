@@ -292,7 +292,7 @@
 <a href=#292 id=292 data-nosnippet>292</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">8</span>]&gt;()
 <a href=#293 id=293 data-nosnippet>293</a>        .vector_init()
 <a href=#294 id=294 data-nosnippet>294</a>        .vector_intra_slice_tag(TagMode::Zero)
-<a href=#295 id=295 data-nosnippet>295</a>        .vector_narrow_trim::&lt;<span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">4</span>]&gt;()
+<a href=#295 id=295 data-nosnippet>295</a>        .vector_narrow_clip::&lt;<span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">4</span>]&gt;()
 <a href=#296 id=296 data-nosnippet>296</a>        <span class="comment">// Using tuple syntax: (operand0, operand1) where operand0 is f32 constant
 <a href=#297 id=297 data-nosnippet>297</a>        // FmaF: data * operand0 + operand1 = input * 2.0 + 3.0
 <a href=#298 id=298 data-nosnippet>298</a>        </span>.vector_fp_ternary(FpTernaryOp::FmaF, (<span class="number">2.0f32</span>, <span class="number">3.0f32</span>))
@@ -321,7 +321,7 @@
 <a href=#321 id=321 data-nosnippet>321</a>        .vector_init()
 <a href=#322 id=322 data-nosnippet>322</a>        .vector_intra_slice_tag(TagMode::Zero)
 <a href=#323 id=323 data-nosnippet>323</a>        .vector_stash()
-<a href=#324 id=324 data-nosnippet>324</a>        .vector_narrow_trim::&lt;<span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">4</span>]&gt;()
+<a href=#324 id=324 data-nosnippet>324</a>        .vector_narrow_clip::&lt;<span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">4</span>]&gt;()
 <a href=#325 id=325 data-nosnippet>325</a>        <span class="comment">// Using Stash as operand0: data * stash + 1.0 = input * input + 1.0
 <a href=#326 id=326 data-nosnippet>326</a>        </span>.vector_fp_ternary(FpTernaryOp::FmaF, (Stash, <span class="number">1.0f32</span>))
 <a href=#327 id=327 data-nosnippet>327</a>        .vector_widen_pad::&lt;<span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">8</span>]&gt;()

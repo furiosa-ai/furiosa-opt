@@ -76,15 +76,15 @@
 <a href=#76 id=76 data-nosnippet>76</a>///
 <a href=#77 id=77 data-nosnippet>77</a>/// The hardware VE flit is 8 elements wide, but float ALU only processes the front 4.
 <a href=#78 id=78 data-nosnippet>78</a>/// `Way8` is the default (full 8-element flit).
-<a href=#79 id=79 data-nosnippet>79</a>/// `Way4` indicates the packet has been narrowed to 4 elements via `vector_narrow_split` or `vector_narrow_trim`.
+<a href=#79 id=79 data-nosnippet>79</a>/// `Way4` indicates the packet has been narrowed to 4 elements via `vector_narrow_split` or `vector_narrow_clip`.
 <a href=#80 id=80 data-nosnippet>80</a>/// Float operations are only available in `Way4`, enforced at compile time.
 <a href=#81 id=81 data-nosnippet>81</a></span><span class="attr">#[derive(Debug, Clone, Copy, PartialEq, Eq, ConstParamTy)]
 <a href=#82 id=82 data-nosnippet>82</a></span><span class="kw">pub enum </span>Way {
 <a href=#83 id=83 data-nosnippet>83</a>    <span class="doccomment">/// 8-way (default). Full 8-element flit.
 <a href=#84 id=84 data-nosnippet>84</a>    /// Float operations are NOT available.
-<a href=#85 id=85 data-nosnippet>85</a>    /// Use `vector_narrow_split` (&gt;4 real elements) or `vector_narrow_trim` (≤4 real elements) to transition to `Way4`.
+<a href=#85 id=85 data-nosnippet>85</a>    /// Use `vector_narrow_split` (&gt;4 real elements) or `vector_narrow_clip` (≤4 real elements) to transition to `Way4`.
 <a href=#86 id=86 data-nosnippet>86</a>    </span>Way8,
-<a href=#87 id=87 data-nosnippet>87</a>    <span class="doccomment">/// 4-way. Front-4-only flit after `vector_narrow_split` or `vector_narrow_trim`.
+<a href=#87 id=87 data-nosnippet>87</a>    <span class="doccomment">/// 4-way. Front-4-only flit after `vector_narrow_split` or `vector_narrow_clip`.
 <a href=#88 id=88 data-nosnippet>88</a>    /// Float operations are available.
 <a href=#89 id=89 data-nosnippet>89</a>    /// Use `vector_widen_concat` or `vector_widen_pad` to transition back to `Way8`.
 <a href=#90 id=90 data-nosnippet>90</a>    </span>Way4,

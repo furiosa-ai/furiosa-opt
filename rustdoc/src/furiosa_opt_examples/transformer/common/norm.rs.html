@@ -150,7 +150,7 @@
 <a href=#150 id=150 data-nosnippet>150</a>        .collect::&lt;<span class="macro">m!</span>[S % <span class="number">2</span>], <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>]&gt;()
 <a href=#151 id=151 data-nosnippet>151</a>        .vector_init()
 <a href=#152 id=152 data-nosnippet>152</a>        .vector_intra_slice_tag(TagMode::Zero)
-<a href=#153 id=153 data-nosnippet>153</a>        .vector_narrow_trim::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>]&gt;()
+<a href=#153 id=153 data-nosnippet>153</a>        .vector_narrow_clip::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>]&gt;()
 <a href=#154 id=154 data-nosnippet>154</a>        .vector_fp_unary(FpUnaryOp::Sqrt)
 <a href=#155 id=155 data-nosnippet>155</a>        .vector_fp_div_with_mode(BinaryArgMode::Mode10, <span class="number">1.0f32</span>)
 <a href=#156 id=156 data-nosnippet>156</a>        .vector_widen_pad::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>]&gt;() <span class="comment">// TODO: use filter to move Time -&gt; Packet
@@ -233,7 +233,7 @@
 <a href=#233 id=233 data-nosnippet>233</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>]&gt;()
 <a href=#234 id=234 data-nosnippet>234</a>        .vector_init()
 <a href=#235 id=235 data-nosnippet>235</a>        .vector_intra_slice_tag(TagMode::Zero)
-<a href=#236 id=236 data-nosnippet>236</a>        .vector_narrow_trim::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>]&gt;()
+<a href=#236 id=236 data-nosnippet>236</a>        .vector_narrow_clip::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>]&gt;()
 <a href=#237 id=237 data-nosnippet>237</a>        .vector_fp_unary(FpUnaryOp::Sqrt)
 <a href=#238 id=238 data-nosnippet>238</a>        .vector_fp_div_with_mode(BinaryArgMode::Mode10, <span class="number">1.0f32</span>)
 <a href=#239 id=239 data-nosnippet>239</a>        .vector_widen_pad::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>]&gt;()

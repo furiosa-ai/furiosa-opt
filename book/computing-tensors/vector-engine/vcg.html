@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-85db366b.js";
+            window.path_to_searchindex_js = "../../searchindex-6c04c645.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-0b46deb9.js"></script>
@@ -177,1037 +177,519 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="valid-count-generator"><a class="header" href="#valid-count-generator">Valid Count Generator</a></h1>
-<p>The Valid Count Generator (VCG) handles padding exclusion for intra-slice reduce by tagging each 8-element packet with a <code>valid_count</code> (abbreviated <code>vc</code>), telling the <a href="./intra-slice-reduce.html">Intra-Slice Reduce stage</a> how many elements are real data.
-When a reduce axis is padded, the extra positions contain arbitrary data that the reduction must exclude (see <a href="./intra-slice-reduce.html#padding-strategy">Padding Strategy</a>).</p>
-<p>The <a href="./intra-slice-reduce.html#interface">intra-slice reduce API</a> takes a <code>REDUCE_LABEL</code> that identifies the axis to reduce (e.g., <code>Ident::R</code>).
-When that axis is padded, the VCG automatically determines which elements are real data and which are padding, based on how the axis distributes across Slice, Time, and Packet.</p>
-<p>Throughout this page, capitalized <code>Slice</code>, <code>Time</code>, and <code>Packet</code> refer to the mapping dimensions, and lowercase <code>slice</code> and <code>time step</code> refer to individual runtime instances within a cluster.</p>
-<p>The compiler configures the VCG automatically, so no manual setup is needed.
-The VCG requires the reduce axis to be padded, split, and distributed across Slice, Time, and Packet according to specific rules.
-<a href="#distribution-rules-for-r">Distribution Rules for <code>R</code></a> lists the rules, followed by concrete examples for each placement.
-For the underlying hardware mechanism, see the <a href="#architecture">Architecture</a> section below.</p>
-<h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<h3 id="two-modes"><a class="header" href="#two-modes">Two Modes</a></h3>
-<p>The VCG operates in one of two scenarios, derived from where <code>R</code> sits in the mapping rather than selected by a hardware mode bit.
-The hardware machinery is uniform (see <a href="#validity-decision">Validity Decision</a>), so “mode” here is shorthand for the two qualitatively different valid-count patterns that the placement produces.</p>
-<ul>
-<li><strong>Packet Reduce Mode</strong>: <code>R</code> appears in Packet, for example <code>Packet = m![R # 24 % 8]</code>.
-The VCG assigns a per-packet <code>valid_count</code> from 0 to 8, telling the <code>IntraSliceReduce</code> stage how many packet elements are real data.</li>
-<li><strong>Time Reduce Mode</strong>: <code>R</code> does not appear in Packet, only in Slice and/or Time.
-The VCG makes a binary valid-or-invalid decision per flit.</li>
-</ul>
-<p>Sketching the two output patterns side by side:</p>
-<pre><code class="language-text">Packet Reduce Mode: per-flit count (0..8)        Time Reduce Mode: per-flit gate (valid or not)
-  flit 0: [████████]  vc = 8 (full)                flit 0: ✓  (whole flit valid)
-  flit 1: [████████]  vc = 8                       flit 1: ✓
-  flit 2: [███     ]  vc = 3 (partial)             flit 2: ✗  (whole flit gated off)
+<p>The <a href="./intra-slice-reduce.html">Intra-Slice Reduce</a> stage reduces the axis identified by <code>REDUCE_LABEL</code> (e.g., <code>R</code>) across its <code>Time</code> and <code>Packet</code> factors, leaving any <code>Slice</code> factor in the output.
+That axis often needs padding to fit hardware dimensions, and the extra padded positions contain arbitrary data that the reduction must exclude.</p>
+<p>The Valid Count Generator (VCG) solves this.
+The user places <code>R</code> as sub-expressions across <code>Slice</code>, <code>Time</code>, and/or <code>Packet</code> in the mapping.
+The compiler then configures the VCG to tag each 8-element flit with a <code>valid_size</code> count of how many elements are real data.
+Each sub-expression in <code>Time</code> or <code>Slice</code> maps to a sequencer counter assigned to a time filter.
+Each sub-expression in <code>Packet</code> drives the packet clipper.</p>
+<p>Throughout this page, capitalized <code>Slice</code>, <code>Time</code>, <code>Packet</code> refer to mapping dimensions; lowercase <code>slice</code> and <code>time step</code> refer to runtime instances.</p>
+<p>The mapping must express <code>R</code> in a specific form for the VCG to work.
+<code>R</code> is padded to a hardware-aligned size, written <code>R # PADDED_SIZE</code> when discussed in general.
+Concrete examples use the actual padded value (e.g., <code>R # 16</code>, <code>R # 48</code>).
+Each sub-expression is then a factor of <code>R # PADDED_SIZE</code> of the form <code>R # PADDED_SIZE / n % m</code> (stride <code>n</code>, modulo <code>m</code>).
+See <a href="../../mapping-tensors/mapping-expressions.html#stride-and-modulo">Stride and Modulo</a> for <code>/ n</code> and <code>% m</code> semantics.
+Each sub-expression is assigned to one hardware dimension.
+One possible distribution is <code>R = 43</code> padded to <code>R # 48</code>, split across all three dimensions:</p>
+<pre><code class="language-text">Slice:  R # 48 / 8       (stride 8, 6 positions)
+Time:   R # 48 / 2 % 4   (stride 2, 4 positions)
+Packet: R # 48 % 2       (stride 1, 2 positions)
 </code></pre>
-<p>A <em>boundary slice</em> is the single slice that straddles the valid/padding edge of <code>R</code>, so only part of its time steps hold real data.
-The formal definition lives in <a href="#gate-dims-per-flit-binary-validity">Gate Dims</a>.</p>
-<h3 id="distribution-rules-for-r"><a class="header" href="#distribution-rules-for-r">Distribution Rules for <code>R</code></a></h3>
-<p>To use the VCG, pad the reduce axis to a hardware-aligned size, split it into sub-expressions, and distribute those sub-expressions across Slice, Time, and Packet according to the rules below.</p>
-<p>At the top level, <code>R # p</code> splits into an outer and an inner part:</p>
-<pre><code class="language-text">R # p -&gt; R # p / k (outer), R # p % k (inner)
-</code></pre>
-<p>Each part assigns to one of the three hardware dimensions.
-Within a dimension, a part splits again recursively.</p>
-<p>The rule depends on where <code>R</code> appears.
-Each bullet states the rule first, then the reason that ties it back to the hardware (see <a href="#why-limitations-arise">Why Limitations Arise</a> for the full derivation).
-“Stride” below refers to the mapping-expression stride (see <a href="../../mapping-tensors/mapping-expressions.html#stride-and-modulo">Stride and Modulo</a>).</p>
-<ul>
-<li><strong>Slice</strong>: when <code>R</code> appears multiple times in Slice, the stride order must increase from inner to outer.
-This keeps each slice’s <code>R</code> range contiguous, so all of <code>R</code>’s Slice sub-expressions can be tracked by one <a href="#gate-dims-per-flit-binary-validity">gate dim</a> with a single threshold.</li>
-<li><strong>Time</strong>: multiple <code>R</code> sub-expressions may appear in any order, and non-reduce axes may sit between them.
-The gate dim sums the counter contributions of all Time sub-expressions to recover <code>R</code>’s index, so the sub-expression ordering does not affect the threshold check.</li>
-<li><strong>Packet</strong>: Packet must still pad to <code># 8</code>. <code>R</code> appears at most once in Packet, and it must be the innermost <code>% k</code> part occupying the packet prefix.
-The packet count marks a contiguous prefix valid (see <a href="#packet-dim-packet-level-valid-count">Packet Dim</a>), so <code>R</code> must own the prefix.
-Otherwise the count cannot reach <code>R</code>’s positions without also marking interleaved non-<code>R</code> positions as valid.</li>
-</ul>
-<details>
-<summary>Example: why Slice stride order matters</summary>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![R = 13, X = 32];
-// R # 16, split into 2 * 4 * 2:
-//   Slice = m![R # 16 / 8, X, R # 16 / 2 % 4]
-//   Time  = m![R # 16 % 2]
-//
-// Slice strides for R:
-//   R # 16 / 2 % 4  -&gt; stride = 2  (inner)
-//   R # 16 / 8      -&gt; stride = 8  (outer)
-//   2 &lt; 8, so each slice receives a contiguous R interval.
-fn example_stride_ordering&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 8, X, R # 16 / 2 % 4], m![R # 16 % 2], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 8, X, R # 16 / 2 % 4], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpI32::Min,
-        )
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<p>The VCG assigns a <code>valid_size(s, t) ∈ {0, 1, ..., 8}</code> to each flit, where <code>s</code> is the slice id (an integer encoding the flit’s position across all <code>Slice</code> sub-expressions) and <code>t</code> is the time step.
+The first <code>valid_size</code> elements of the flit are real data, the rest are padding.</p>
+<pre><code class="language-rust ignore">struct VcgConfig {
+    time_filters:   [TimeFilterConfig; 3], // for R's sub-expressions in Time and/or Slice
+    packet_clipper: PacketClipperConfig,   // for R's sub-expressions in Packet
 }
-<span class="boring">}</span></code></pre>
-</details>
-<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
-<p>The table below maps each <code>R</code> placement to its example and shows whether the VCG supports it.
-The Intended Mode column shows which mode the placement maps to.
-Placements that put <code>R</code> only in Slice are absent: intra-slice reduce eliminates <code>Time</code> and <code>Packet</code> factors only, so a Slice-only <code>R</code> cannot be reduced (see <a href="./intra-slice-reduce.html#interface"><code>REDUCE_LABEL</code></a>).</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Placement</th><th>Intended Mode</th><th>Example</th><th>Supported</th></tr>
-</thead>
-<tbody>
-<tr><td><a href="#slice--time-standard">Slice + Time (standard)</a></td><td>Time Reduce</td><td><code>Slice = m![X, R # 24 / 3]</code>, <code>Time = m![R # 24 % 3]</code></td><td>Yes</td></tr>
-<tr><td><a href="#time-only">Time only</a></td><td>Time Reduce</td><td><code>Time = m![R # 16]</code></td><td>Yes</td></tr>
-<tr><td><a href="#transposed-supported">Slice + Time (transposed, supported)</a></td><td>Time Reduce</td><td><code>Slice = m![X, R # 8 % 4]</code>, <code>Time = m![R # 8 / 4]</code></td><td>Yes</td></tr>
-<tr><td><a href="#transposed-not-supported">Slice + Time (transposed, not supported)</a></td><td>Time Reduce</td><td><code>Slice = m![X, R # 20 % 4]</code>, <code>Time = m![R # 20 / 4]</code></td><td>No</td></tr>
-<tr><td><a href="#non-outerinner-ordering-not-supported">Non-outer/inner ordering</a></td><td>Time Reduce</td><td><code>Slice = m![X, R # 16 / 2 % 4, R # 16 / 8]</code></td><td>No</td></tr>
-<tr><td><a href="#packet-only">Packet only</a></td><td>Packet Reduce</td><td><code>Packet = m![R # 8]</code></td><td>Yes</td></tr>
-<tr><td><a href="#time--packet">Time + Packet</a></td><td>Packet Reduce</td><td><code>Time = m![R # 24 / 8]</code>, <code>Packet = m![R # 24 % 8]</code></td><td>Yes</td></tr>
-<tr><td><a href="#time--packet-packet-not-innermost-not-supported">Time + Packet (Packet not innermost)</a></td><td>Packet Reduce</td><td><code>Time = m![R # 24 % 8]</code>, <code>Packet = m![R # 24 / 8 # 8]</code></td><td>No</td></tr>
-<tr><td><a href="#time--packet-mixed-packet-axes-not-supported">Time + Packet (mixed Packet axes)</a></td><td>Packet Reduce</td><td><code>Packet = m![R # 24 % 4, A]</code></td><td>No</td></tr>
-<tr><td><a href="#slice--packet-not-supported">Slice + Packet</a></td><td>Packet Reduce</td><td><code>Slice = m![R # 2048 / 8]</code>, <code>Packet = m![R # 2048 % 8]</code></td><td>No</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="time-reduce-mode"><a class="header" href="#time-reduce-mode">Time Reduce Mode</a></h3>
-<p>In Time Reduce Mode, <code>R</code> does not appear in Packet and the VCG makes a binary valid-or-invalid decision per flit.</p>
-<h4 id="slice--time-standard"><a class="header" href="#slice--time-standard">Slice + Time (Standard)</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 4, R = 17, X = 32];
 
-// The most common pattern. Outer part of R → Slice, inner part → Time.
-//
-// R = 17, padded to 24 = 8 * 3.
-// R # 24 is split into:
-//   R # 24 / 3  (size 8, outer) → Slice
-//   R # 24 % 3  (size 3, inner) → Time
-// This follows the standard outer→Slice, inner→Time pattern.
-//
-// Slice = m![X, R # 24 / 3], Time = m![R # 24 % 3], Packet = m![A # 8]
-// |Slice| = X(32) * 8 = 256.
-// Time Reduce Mode: R does not appear in Packet. VCG gates flits by slice and time.
-//   Boundary slice = floor(17 / 3) = 5. Valid time steps in boundary = 17 mod 3 = 2.
-//   For each X group, R-slices 0-4: all 3 time steps valid.
-//   R-slice 5: 2 of 3 valid (boundary). R-slices 6-7: all invalid.
-fn reduce_slice_time&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 24 / 3], m![R # 24 % 3], m![A # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 24 / 3], m![1], m![A], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![A]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![A]&gt;(
-            IntraSliceReduceOpI32::AddSat,
-        )
-    // Output: Slice = m![X, R # 24 / 3], Time = m![1], Packet = m![A]
-    // R eliminated from Time. Boundary slice (R-slice #5) accumulated only their valid steps.
+impl VcgConfig {
+    fn valid_size(&amp;self, s: u64, t: u64) -&gt; u32 {
+        if self.time_filters.iter().all(|tf| tf.valid(s, t)) {
+            self.packet_clipper.valid_size(t)
+        } else {
+            0
+        }
+    }
+}</code></pre>
+<p>When all timers report valid for flit <code>(s, t)</code>, the packet clipper decides how many elements in that flit are real data.
+When any timer reports invalid, all elements in the flit are excluded regardless of what the packet clipper would say.
+The two components, <code>TimeFilterConfig</code> and <code>PacketClipperConfig</code>, are explained in the sections below.</p>
+<h3 id="time-filter"><a class="header" href="#time-filter">Time Filter</a></h3>
+<p>For each slice <code>s</code>, a time filter determines whether each time step <code>t</code> carries valid <code>R</code> data.
+The subsections below build up <code>fn valid()</code> step by step, starting from the simplest case and adding complexity.
+When <code>R</code> has no sub-expressions in <code>Time</code> or <code>Slice</code>, the time filter is disabled by setting <code>slice_mask = 0</code> and <code>slice_thres = 1</code>. Then <code>s &amp; 0 = 0 &lt; 1</code> for every <code>s</code>, hitting the <code>Less</code> arm so <code>fn valid()</code> always returns <code>true</code>. The choice of <code>slice_thres = 1</code> is conventional; any positive value works since <code>0</code> is always less than it.</p>
+<pre><code class="language-rust ignore">struct TimeFilterConfig {
+    // How R's index is reconstructed from t.
+    sequencer: Sequencer,
+
+    // Slice classification (see `R in Slice and Time`, `R in Time and Slice`).
+    slice_mask:  u32,
+    slice_thres: u32,
+    time_thres:  u32,
+    mode:        TimeFilterMode, // SliceMajor | TimeMajor
 }
-<span class="boring">}</span></code></pre>
-<details>
-<summary>Valid count trace for R = 17 (within one X group)</summary>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>R-slice</th><th>Group</th><th>t=0</th><th>t=1</th><th>t=2</th></tr>
-</thead>
-<tbody>
-<tr><td>0</td><td>all-valid</td><td>0</td><td>1</td><td>2</td></tr>
-<tr><td>1</td><td>all-valid</td><td>3</td><td>4</td><td>5</td></tr>
-<tr><td>2</td><td>all-valid</td><td>6</td><td>7</td><td>8</td></tr>
-<tr><td>3</td><td>all-valid</td><td>9</td><td>10</td><td>11</td></tr>
-<tr><td>4</td><td>all-valid</td><td>12</td><td>13</td><td>14</td></tr>
-<tr><td>5</td><td>boundary</td><td>15</td><td>16</td><td><strong>.</strong></td></tr>
-<tr><td>6</td><td>all-invalid</td><td><strong>.</strong></td><td><strong>.</strong></td><td><strong>.</strong></td></tr>
-<tr><td>7</td><td>all-invalid</td><td><strong>.</strong></td><td><strong>.</strong></td><td><strong>.</strong></td></tr>
-</tbody>
-</table>
-</div>
-<p>This pattern repeats identically for each of the 32 X groups (256 total slices).</p>
-</details>
-<h4 id="slice--time-r-split-into-multiple-sub-expressions-in-slice"><a class="header" href="#slice--time-r-split-into-multiple-sub-expressions-in-slice">Slice + Time (<code>R</code> Split Into Multiple Sub-Expressions in Slice)</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![R = 13, X = 32];
-// R can appear as multiple sub-expressions in Slice.
-//
-// R # 16 is first split into outer (/ 2) and inner (% 2) for Slice vs Time:
-//   R # 16 / 2  → Slice portion (size 8)
-//   R # 16 % 2  → Time portion (size 2)
-//
-// The Slice portion (R # 16 / 2, size 8) is further split into two sub-expressions:
-//   R # 16 / 8      stride = 8, size = 2  (outer)
-//   R # 16 / 2 % 4  stride = 2, size = 4  (inner)
-//
-// Slice = m![R # 16 / 8, X, R # 16 / 2 % 4], Time = m![R # 16 % 2], Packet = m![1 # 8]
-// Slice product = 2 * 32 * 4 = 256.
-//
-// Slice ordering check (ascending stride from inner to outer, see
-// [Distribution Rules for R](#distribution-rules-for-r)):
-//   R # 16 / 2 % 4  stride = 2  (inner)
-//   R # 16 / 8       stride = 8  (outer)
-//   2 &lt; 8 ✓
-//
-// Per-slice R indices (within one X group):
-//   S0: 0,1  S1: 2,3  S2: 4,5  S3: 6,7  S4: 8,9  S5: 10,11  S6: 12,13  S7: 14,15
-// Time Reduce Mode:
-//   Boundary slice = floor(13 / 2) = 6. Valid time steps = 13 mod 2 = 1.
-//   S0-S5: all-valid, S6: boundary (1 of 2), S7: all-invalid.
-fn reduce_multi_level&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 8, X, R # 16 / 2 % 4], m![R # 16 % 2], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 8, X, R # 16 / 2 % 4], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpI32::Min,
-        )
-}
-<span class="boring">}</span></code></pre>
-<h4 id="slice--time-transposed"><a class="header" href="#slice--time-transposed">Slice + Time (Transposed)</a></h4>
-<p>Transposed ordering reverses the standard Slice + Time mapping.
-The inner part of <code>R</code> goes to Slice and the outer part to Time, so the slice ID represents the inner index and the time step represents the outer index.
-Slices beyond the boundary still hold valid data at early time steps.</p>
-<p>Use this layout when the mapping forces <code>R</code> into the inner Slice position, for example when a non-reduce axis already occupies the outer Slice factor and cannot be moved without an extra transpose.
-On the hardware side, this placement is what triggers the <a href="#transposed-mode"><code>P_gd = 1</code> transposed gate mode</a>.</p>
-<p>The Time factor must cover exactly the rounded-up number of slice-sized chunks needed to span <code>|R|</code>.
-Over-allocating the Time factor would leave the gate’s “below” group claiming more valid time steps than the data has.
-Formally, given <code>R # p</code> split as <code>Slice = m![..., R # p % slice_size]</code>, <code>Time = m![R # p / slice_size, ...]</code> (where <code>slice_size</code> is the size of <code>R</code>’s portion in Slice), this mode is supported only when:</p>
-<p><a id="transposed-time-size-constraint"></a></p>
-<p>$$\text{time_size} = p / \text{slice_size} = \lceil |R| / \text{slice_size} \rceil$$</p>
-<ul>
-<li>\(|R|\): original axis size (before padding)</li>
-<li>\(\text{slice_size}\): the size of <code>R</code>’s portion in Slice (<code>R # p % slice_size</code>)</li>
-<li>\(\text{time_size}\): the size of <code>R</code>’s portion in Time (<code>R # p / slice_size</code>), which equals \(p / \text{slice_size}\)</li>
-</ul>
-<p>The hardware reason is that transposed mode’s “below” group always claims <code>time_size</code> all-valid steps (see <a href="#transposed-mode">Transposed mode</a>), so <code>time_size</code> must match the count of slice-sized chunks <code>|R|</code> spans, no more.</p>
-<p>The two examples below show the supported and unsupported variants.</p>
-<h5 id="transposed-supported"><a class="header" href="#transposed-supported">Transposed (Supported)</a></h5>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![R = 5, X = 64];
-// Transposed: inner part of R → Slice, outer part → Time.
-// (The reverse of standard Slice + Time.)
-//
-// R = 5, padded to 8 = 4 * 2.
-// R # 8 is split into:
-//   R # 8 % 4  (size 4, inner) → Slice  (transposed: inner goes to Slice)
-//   R # 8 / 4  (size 2, outer) → Time   (transposed: outer goes to Time)
-//
-// Slice = m![X, R # 8 % 4], Time = m![R # 8 / 4], Packet = m![1 # 8]
-// |Slice| = 64 * 4 = 256.
-//
-// time_size(2) == ceil(5 / 4) = 2 ✓
-//
-// Time Reduce Mode:
-//   Boundary slice = |R| mod slice_size = 5 mod 4 = 1.
-//   Valid time steps in boundary = floor(|R| / slice_size) = floor(5/4) = 1.
-//   R-slice 0   (&lt; boundary): all 2 time steps valid.
-//   R-slice 1   (= boundary): 1 of 2 time steps valid.
-//   R-slices 2-3 (&gt; boundary): also 1 of 2 time steps valid (transposed behavior).
-fn reduce_transposed&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 8 % 4], m![R # 8 / 4], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 8 % 4], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpI32::AddSat,
-        )
-    // Output: Slice = m![X, R # 8 % 4], Time = m![1], Packet = m![1 # 4]
-}
-<span class="boring">}</span></code></pre>
-<h5 id="transposed-not-supported"><a class="header" href="#transposed-not-supported">Transposed (Not Supported)</a></h5>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![R = 14, X = 64];
-// NOT supported: time_size is over-allocated.
-//
-// Slice = m![X, R # 20 % 4], Time = m![R # 20 / 4], Packet = m![1 # 8]
-// Slice = 64 * 4 = 256.
-//
-// R = 14, padded to 20 = 4 (S) * 5 (time_size).
-// time_size(5) != ceil(14 / 4) = 4 ✗
-//
-// R-slice 0 should have 4 valid time steps (indices 0, 4, 8, 12, all &lt; 14).
-// But the VCG classifies R-slice 0 as "all-valid" = 5 time steps. WRONG.
-//
-// a possible Fix: pad to 16 instead, so time_size = ceil(14/4) = 4:
-//   Slice = m![X, R # 16 % 4], Time = m![R # 16 / 4], Packet = m![1 # 8]
-fn reduce_transposed_wrong&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 20 % 4], m![R # 20 / 4], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 20 % 4], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpI32::AddSat,
-        )
-    // ✗ VCG will over-count valid time steps. Use R # 16 instead of R # 20.
-}
-<span class="boring">}</span></code></pre>
-<h4 id="time-only"><a class="header" href="#time-only">Time Only</a></h4>
+
+impl TimeFilterConfig {
+    /// Returns true if flit (s, t) carries valid R data.
+    fn valid(&amp;self, s: u64, t: u64) -&gt; bool {
+        let idx = self.sequencer.index(t);
+        match ((s &amp; self.slice_mask).cmp(&amp;self.slice_thres), self.mode) {
+            (Less,    _)          =&gt; true,
+            (Greater, SliceMajor) =&gt; false,
+            _                     =&gt; idx &lt; self.time_thres as u64,
+        }
+    }
+}</code></pre>
+<h4 id="r-as-time"><a class="header" href="#r-as-time"><code>R</code> as <code>Time</code></a></h4>
+<p>In the simplest case, <code>R</code> occupies all of <code>Time</code> with no other axes.
+Each time step <code>t</code> corresponds directly to one <code>R</code> index, and is valid when <code>t &lt; R::SIZE</code>.</p>
+<pre><code class="language-rust ignore">// The compiler emits roughly:
+TimeFilterConfig {
+    sequencer:   [R # PADDED_SIZE -&gt; size PADDED_SIZE : stride 1],  // idx = t
+    slice_mask:  0,           // no slice partitioning
+    slice_thres: 0,           // 0 cmp 0 = Equal -&gt; falls to `idx &lt; time_thres`
+    time_thres:  R::SIZE,     // valid when idx &lt; R::SIZE
+    mode:        SliceMajor,  // arbitrary; only the Equal arm is hit
+}</code></pre>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, R = 12, X = 64];
-// R exists only in Time. VCG gates excess time steps as invalid.
-// All slices see the same pattern.
-//
-// Slice = m![X, A / 2], Time = m![R # 16], Packet = m![A % 2 # 8]
-// Slice = 64 * 4 = 256.
-//
-// R = 12, padded to 16. Time Reduce Mode: time steps 0-11 valid, 12-15 invalid.
+
 fn reduce_time_only&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, A / 2], m![R # 16], m![A % 2 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, A / 2], m![1], m![A % 2 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, A / 4], m![R # 16], m![A % 4 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, A / 4], m![1], m![A % 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![A % 2 # 4]&gt;(
+        .vector_narrow_clip::&lt;m![A % 4]&gt;()
+        //   Slice     = m![X, A / 4]
+        //   Time      = m![R # 16]     (steps &lt; R::SIZE valid)
+        //   Packet    = m![A % 4]
+        //   OutTime   = m![1]          (R eliminated from Time)
+        //   OutPacket = m![A % 4]
+        .vector_intra_slice_reduce::&lt;R, m![1], m![A % 4]&gt;(
             IntraSliceReduceOpI32::AddSat,
         )
-    // Output: Slice = m![X, A / 2], Time = m![1], Packet = m![A % 2 # 4]
-    // R eliminated from Time. Time steps 12-15 were gated off.
 }
 <span class="boring">}</span></code></pre>
-<h4 id="time-flexible-ordering"><a class="header" href="#time-flexible-ordering">Time: Flexible Ordering</a></h4>
-<p>Multiple <code>R</code> sub-expressions in Time may appear in any order, and non-reduce axes may sit between them.
-This flexibility contrasts with Slice, where ordering must be ascending.</p>
+<p>In the example above, the sequencer iterates <code>R # 16</code> once with <code>size 16 : stride 1</code>, so <code>idx = t</code> for every time step.
+With <code>time_thres = R::SIZE = 12</code>, the first 12 time steps (<code>t = 0..11</code>) are valid and the remaining 4 (<code>t = 12..15</code>) are filtered out.
+The intra-slice reduce then folds exactly the 12 real <code>R</code> elements per slice.</p>
+<h4 id="r-in-time"><a class="header" href="#r-in-time"><code>R</code> in <code>Time</code></a></h4>
+<p>The VCG supports <code>Time</code> mappings where <code>R</code> shares space with other axes and appears as multiple sub-expressions, in any order.
+The time filter uses a <a href="../../moving-tensors/sequencer.html">Sequencer</a> to decompose <code>t</code> into per-sub-expression counters; summing <code>value × stride</code> over the <code>R</code>-assigned counters gives <code>idx</code>, which encodes <code>R</code>’s index for that time step.</p>
+<p>The following example uses <code>R = 10</code> padded to <code>R # 12</code>, where <code>A</code> sits between <code>R</code>’s two sub-expressions in <code>Time</code>.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 4, R = 45, X = 2, Y = 256];
-// R's Time portion can be split into multiple sub-expressions (order does not matter).
-//
-// R # 48 is split into outer (/ 8) and inner (% 8) for Time vs Packet:
-//   R # 48 / 8  → Time portion (size 6)
-//   R # 48 % 8  → Packet portion (size 8)
-//
-// The Time portion (R # 48 / 8, size 6) is further split:
-//   R # 48 / 8 / 2  (size 3)
-//   R # 48 / 8 % 2  (size 2)
-// These can appear in any order with non-reduce axes between them.
-//
-// Slice = m![Y], Time = m![R # 48 / 8 % 2, X, R # 48 / 8 / 2], Packet = m![A # 8]
-// |Slice| = 256.
-//
-// The VCG combines both R sub-expressions' positions to determine validity.
-// (Contrast with Slice, where ordering is strict.)
-fn reduce_time_split&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![Y], m![R # 48 / 8 % 2, X, R # 48 / 8 / 2], m![A # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![Y], m![X], m![A], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+</span>axes![A = 3, B = 4, R = 10, X = 64];
+
+// R = 10, padded to R # 12, split as (size 3, stride 4) × (size 4, stride 1).
+// time filter sums (R # 12 / 4 value) * 4 + (R # 12 % 4 value) * 1 to recover R index regardless of A.
+fn reduce_time_reordered&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X], m![A], m![B], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![A]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![X], m![A]&gt;(
-            IntraSliceReduceOpF32::Add,
+        .vector_narrow_clip::&lt;m![B]&gt;()
+        //   Slice     = m![X]
+        //   Time      = m![R # 12 / 4, A, R # 12 % 4]
+        //   Packet    = m![B]
+        //   OutTime   = m![A]    (R eliminated; A survives)
+        //   OutPacket = m![B]
+        .vector_intra_slice_reduce::&lt;R, m![A], m![B]&gt;(
+            IntraSliceReduceOpI32::AddSat,
         )
-    // Output: Slice = m![Y], Time = m![X], Packet = m![A]
-    // Both R sub-expressions eliminated from Time; X remains.
 }
 <span class="boring">}</span></code></pre>
-<h4 id="non-outerinner-ordering-not-supported"><a class="header" href="#non-outerinner-ordering-not-supported">Non-Outer/Inner Ordering (Not Supported)</a></h4>
+<p>The compiler configures the time filter for this placement as follows:</p>
+<pre><code class="language-rust ignore">TimeFilterConfig {
+    sequencer:   [R # 12 / 4 -&gt; size 3 : stride 4,   // assigned to time filter
+                  A          -&gt; size 3 : stride 0,   // not assigned (A's OutTime)
+                  R # 12 % 4 -&gt; size 4 : stride 1],  // assigned to time filter
+    slice_mask:  0,           // no slice partitioning (R is only in Time)
+    slice_thres: 0,           // every slice falls to the `idx &lt; time_thres` arm
+    time_thres:  R::SIZE,     // 10
+    mode:        SliceMajor,  // arbitrary; only the Equal arm is hit
+}</code></pre>
+<p>The <code>A</code> entry has stride 0, so it never contributes to <code>idx</code>, which means <code>A</code>’s position in <code>Time</code> has no effect on validity.
+The remaining two entries reconstruct <code>R</code> as <code>(R # 12 / 4 value) × 4 + (R # 12 % 4 value)</code>.</p>
+<p>For example:</p>
+<ul>
+<li>At <code>t = 13</code>, the sequencer state is <code>(R # 12 / 4, A, R # 12 % 4) = (1, 0, 1)</code>, giving <code>idx = 1 × 4 + 0 + 1 × 1 = 5</code>. <code>idx &lt; 10</code>, so valid.</li>
+<li>At <code>t = 27</code>, the sequencer state is <code>(2, 0, 3)</code>, giving <code>idx = 2 × 4 + 0 + 3 × 1 = 11</code>. <code>idx ≥ 10</code>, so invalid (it is one of the two padded <code>R</code> positions).</li>
+</ul>
+<h4 id="r-in-slice-and-time"><a class="header" href="#r-in-slice-and-time"><code>R</code> in <code>Slice</code> and <code>Time</code></a></h4>
+<p><code>SliceMajor</code> mode allows multiple <code>R</code> sub-expressions in both <code>Slice</code> and <code>Time</code>, with <code>Slice</code> sub-expressions more major (larger stride) than <code>Time</code> sub-expressions.
+Within <code>Slice</code>, sub-expressions must appear in descending stride order (major before minor), and each must have a power-of-2 size and a power-of-2 stride so that its bits occupy a contiguous run of <code>slice_mask</code>.
+Within <code>Time</code>, sub-expressions may appear in any order.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![R = 11, X = 32];
+
+fn reduce_slice_time_slicemajor&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 8, X, R # 16 / 4 % 2], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input
+        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        //   Slice     = m![R # 16 / 8, X, R # 16 / 4 % 2]   (major R sub-exprs, descending R-stride order required)
+        //   Time      = m![R # 16 % 2, R # 16 / 2 % 2]      (minor R sub-exprs, any order OK)
+        //   Packet    = m![1 # 4]
+        //   OutTime   = m![1]          (R eliminated)
+        //   OutPacket = m![1 # 4]
+        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
+            IntraSliceReduceOpI32::Min,
+        )
+}
+<span class="boring">}</span></code></pre>
+<p>The example places <code>R = 11</code> (padded to <code>R # 16</code>) across <code>Slice</code> and <code>Time</code> with the following sub-expressions.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Dimension</th><th>Sub-expression</th><th>Stride</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Slice</code></td><td><code>R # 16 / 8</code></td><td>8</td></tr>
+<tr><td><code>Slice</code></td><td><code>R # 16 / 4 % 2</code></td><td>4</td></tr>
+<tr><td><code>Time</code></td><td><code>R # 16 % 2</code></td><td>1</td></tr>
+<tr><td><code>Time</code></td><td><code>R # 16 / 2 % 2</code></td><td>2</td></tr>
+</tbody>
+</table>
+</div>
+<p>The example divides into 4 slice groups (one per <code>R</code> contribution from <code>Slice</code>: <code>0</code>, <code>4</code>, <code>8</code>, or <code>12</code>) and 4 time iterations per slice.
+The layout has three regimes: 2 slices are fully valid, 1 slice is partial, and 1 slice is fully invalid.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><code>R</code> contribution from <code>Slice</code></th><th><code>R</code> values across iterations</th><th>Valid time steps</th></tr>
+</thead>
+<tbody>
+<tr><td><code>0</code></td><td><code>0, 2, 1, 3</code></td><td>4 (all <code>&lt; R::SIZE</code>)</td></tr>
+<tr><td><code>4</code></td><td><code>4, 6, 5, 7</code></td><td>4 (all <code>&lt; R::SIZE</code>)</td></tr>
+<tr><td><code>8</code></td><td><code>8, 10, 9, 11</code></td><td>3 (<code>R = 11</code> invalid)</td></tr>
+<tr><td><code>12</code></td><td><code>12, 14, 13, 15</code></td><td>0 (all <code>≥ R::SIZE</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The compiler emits the time filter config below.</p>
+<pre><code class="language-rust ignore">TimeFilterConfig {
+    sequencer:   [R # 16 % 2     -&gt; size 2 : stride 1,
+                  R # 16 / 2 % 2 -&gt; size 2 : stride 2],
+    slice_mask:  0b1000001,  // bits 0 (R # 16 / 4 % 2) and 6 (R # 16 / 8) carry the R contribution
+    slice_thres: 64,         // masked id encoding the boundary R contribution (= 8)
+    time_thres:  3,          // = R::SIZE - boundary = 11 - 8
+    mode:        SliceMajor,
+}</code></pre>
+<p>Each field encodes one part of the validity decision:</p>
+<ul>
+<li><code>sequencer</code> records each <code>Time</code> sub-expression with its <code>R</code> stride, so the reconstructed <code>idx</code> equals the <code>R</code> contribution from <code>Time</code> at each time step <code>t</code>. For this example <code>idx</code> takes values in <code>{0, 1, 2, 3}</code> as <code>t</code> ranges over <code>[0, 4)</code>.</li>
+<li><code>slice_mask</code> extracts the bits of the slice id that carry the <code>R</code> contribution from <code>Slice</code>. For this example bit <code>0</code> carries <code>R # 16 / 4 % 2</code> and bit <code>6</code> carries <code>R # 16 / 8</code>, so <code>slice_mask = 0b1000001</code>.</li>
+<li><code>slice_thres</code> is the bit pattern within <code>slice_mask</code> that encodes the partial slice’s <code>R</code> contribution. From the table above, the partial slice has <code>R</code> contribution <code>8</code>, encoded by setting bit <code>6</code> (<code>R # 16 / 8 = 1</code>) and clearing bit <code>0</code> (<code>R # 16 / 4 % 2 = 0</code>). So <code>slice_thres = 64</code>.</li>
+<li><code>time_thres</code> is <code>R::SIZE</code> minus the partial slice’s <code>R</code> contribution. For this example <code>time_thres = 11 - 8 = 3</code>.</li>
+</ul>
+<p><code>fn valid</code> returns the correct validity for every flit. To verify, decompose the <code>R</code> index as <code>r = r_slice + idx</code>, where <code>r_slice</code> is the <code>R</code> contribution from <code>Slice</code> (encoded by <code>s &amp; slice_mask</code>) and <code>idx</code> is the contribution from <code>Time</code>, and consider the three cases of the slice comparison.</p>
+<ul>
+<li>When <code>(s &amp; slice_mask) &lt; slice_thres</code>, every time step is valid: <code>r_slice</code> is at least one slice spacing below the partial slice’s contribution, so <code>r = r_slice + idx &lt; R::SIZE</code> for every <code>idx</code>.</li>
+<li>When <code>(s &amp; slice_mask) = slice_thres</code>, a time step is valid iff <code>idx &lt; time_thres</code>. This is the partial slice, and by definition of <code>time_thres</code> its <code>r_slice = R::SIZE - time_thres</code>. So <code>r = r_slice + idx &lt; R::SIZE</code> exactly when <code>idx &lt; time_thres</code>.</li>
+<li>When <code>(s &amp; slice_mask) &gt; slice_thres</code>, no time step is valid: <code>r_slice</code> is at least one slice spacing above the partial slice’s contribution, so <code>r_slice ≥ R::SIZE</code>.</li>
+</ul>
+<h4 id="r-in-time-and-slice"><a class="header" href="#r-in-time-and-slice"><code>R</code> in <code>Time</code> and <code>Slice</code></a></h4>
+<p><code>TimeMajor</code> mode is the dual of <a href="#r-in-slice-and-time"><code>SliceMajor</code></a>: the major/minor roles are flipped, so <code>Time</code> sub-expressions carry the larger strides and <code>Slice</code> sub-expressions carry the smaller ones.
+The within-<code>Slice</code> and within-<code>Time</code> ordering rules and the power-of-2 size/stride requirement on <code>Slice</code> sub-expressions carry over unchanged from <code>SliceMajor</code>.</p>
+<p><code>TimeMajor</code> adds one extra constraint on top of these inherited rules.
+Recall that <code>PADDED_SIZE</code> decomposes as <code>slice_span × time_span</code>, where <code>slice_span</code> and <code>time_span</code> are the products of sizes of <code>R</code>’s sub-expressions in <code>Slice</code> and <code>Time</code> respectively.
+<code>TimeMajor</code> requires <code>PADDED_SIZE - R::SIZE ≤ slice_span</code>, meaning at most <code>slice_span</code> <code>R</code> positions may be over-padded.
+This constraint is essential, and placements that violate it are not supported by the VCG (see <a href="#r-in-time-and-slice-over-padded"><code>R</code> in <code>Time</code> and <code>Slice</code>, Over-padded</a>).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![R = 13, X = 32];
-// NOT supported: reordered sub-expressions in Slice break monotonic validity.
-// R's sub-expressions must form a clean outer/inner relationship across dimensions.
-// If reordered, the VCG cannot express the resulting validity pattern.
-//
-// Slice = m![X, R # 16 / 2 % 4, R # 16 / 8], Time = m![R # 16 % 2]
-// Slice = 32 * 4 * 2 = 256.
-//
-// Striped R indices per R-slice group:
-//   S0: 0,1  S1: 8,9  S2: 2,3  S3: 10,11  S4: 4,5  S5: 12,13  S6: 6,7  S7: 14,15
-//   Validity: valid, valid, valid, valid, valid, partial, valid, invalid
-//
-// Non-monotonic (S6 valid after S5 partial). The VCG cannot express this.
-//
-// Fix: use standard ordering instead:
-//   Slice = m![X, R # 16 / 8, R # 16 / 2 % 4], Time = m![R # 16 % 2]
-fn reduce_wrong_ordering&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4, R # 16 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+
+fn reduce_time_slice_timemajor&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 2 % 2, X, R # 16 % 2], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
+        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        //   Slice     = m![R # 16 / 2 % 2, X, R # 16 % 2]
+        //   Time      = m![R # 16 / 4 % 2, R # 16 / 8]
+        //   Packet    = m![1 # 4]
+        //   OutTime   = m![1]          (R eliminated)
+        //   OutPacket = m![1 # 4]
         .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpI32::Min,
+            IntraSliceReduceOpI32::AddSat,
         )
-    // ✗ Non-monotonic slice validity. VCG cannot express this pattern.
 }
 <span class="boring">}</span></code></pre>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![R = 13, X = 64];
-// NOT supported: Time-Slice-Time interleave.
-// Slice = m![X, R # 16 / 2 % 4], Time = m![R # 16 / 8, R # 16 % 2]
-// Slice = 64 * 4 = 256.
-//
-// The interleave causes different R-slices to need different valid time step counts:
-//   S0: R indices 0,1,8,9   -&gt; 4/4 valid
-//   S1: R indices 2,3,10,11 -&gt; 4/4 valid
-//   S2: R indices 4,5,12,13 -&gt; 3/4 valid
-//   S3: R indices 6,7,14,15 -&gt; 2/4 valid
-//
-// The VCG has a single threshold, so it cannot express per-slice values.
-//
-// Fix: standard Slice outer, Time inner:
-//   Slice = m![X, R # 16 / 4], Time = m![R # 16 % 4]
-fn reduce_wrong_interleave&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpI32::Min,
-        )
-    // ✗ Per-slice V values needed. VCG cannot express this pattern.
+<p>The example places <code>R = 13</code> (padded to <code>R # 16</code>) across <code>Slice</code> and <code>Time</code> with the following sub-expressions.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Dimension</th><th>Sub-expression</th><th>Stride</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Time</code></td><td><code>R # 16 / 4 % 2</code></td><td>4</td></tr>
+<tr><td><code>Time</code></td><td><code>R # 16 / 8</code></td><td>8</td></tr>
+<tr><td><code>Slice</code></td><td><code>R # 16 / 2 % 2</code></td><td>2</td></tr>
+<tr><td><code>Slice</code></td><td><code>R # 16 % 2</code></td><td>1</td></tr>
+</tbody>
+</table>
+</div>
+<p>These sub-expressions give <code>slice_span = 4</code>, <code>time_span = 4</code>, and over-padding <code>PADDED_SIZE - R::SIZE = 3</code>, which satisfies the constraint <code>3 ≤ 4</code>.
+Each of the 4 slices, distinguished by its <code>R</code> contribution from <code>Slice</code> (<code>0</code>, <code>1</code>, <code>2</code>, or <code>3</code>), sweeps through 4 <code>R</code> values across the 4 time iterations.
+The layout has two regimes: 1 slice is fully valid, and 3 are partial (each losing one iteration).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><code>R</code> contribution from <code>Slice</code></th><th><code>R</code> values across iterations</th><th>Valid time steps</th></tr>
+</thead>
+<tbody>
+<tr><td><code>0</code></td><td><code>0, 8, 4, 12</code></td><td>4 (all <code>&lt; R::SIZE</code>)</td></tr>
+<tr><td><code>1</code></td><td><code>1, 9, 5, 13</code></td><td>3 (<code>R = 13</code> invalid)</td></tr>
+<tr><td><code>2</code></td><td><code>2, 10, 6, 14</code></td><td>3 (<code>R = 14</code> invalid)</td></tr>
+<tr><td><code>3</code></td><td><code>3, 11, 7, 15</code></td><td>3 (<code>R = 15</code> invalid)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The compiler emits the time filter config below.</p>
+<pre><code class="language-rust ignore">TimeFilterConfig {
+    sequencer:   [R # 16 / 4 % 2 -&gt; size 2 : stride 1,    // 1 = 4 / slice_span
+                  R # 16 / 8     -&gt; size 2 : stride 2],   // 2 = 8 / slice_span
+    slice_mask:  0b1000001,  // bits 0 (R # 16 % 2) and 6 (R # 16 / 2 % 2) carry the R contribution
+    slice_thres: 1,          // masked id encoding r_slice = 1
+    time_thres:  3,          // = time_span - 1 (partial slices drop the over-padded last iteration)
+    mode:        TimeMajor,
+}</code></pre>
+<p>The config differs from <code>SliceMajor</code> in three fields (<code>slice_mask</code> follows the same pattern):</p>
+<ul>
+<li><code>sequencer</code>: every <code>Time</code> sub-expression stride is divided by <code>slice_span</code> first. For this example strides <code>4</code> and <code>8</code> become <code>1</code> and <code>2</code>.</li>
+<li><code>slice_thres</code>: encodes the partial slice’s <code>r_slice = slice_span - (PADDED_SIZE - R::SIZE)</code>. For this example the target value is <code>4 - 3 = 1</code>, encoded with bit <code>0</code> set (<code>R # 16 % 2 = 1</code>) and bit <code>6</code> clear (<code>R # 16 / 2 % 2 = 0</code>), giving <code>slice_thres = 1</code>.</li>
+<li><code>time_thres</code>: always <code>time_span - 1</code>. For this example <code>time_thres = 3</code>.</li>
+</ul>
+<p><code>fn valid</code> returns the correct validity for every flit. To verify, decompose the <code>R</code> index as <code>r = idx * slice_span + r_slice</code>, where <code>r_slice</code> is the slice’s <code>R</code> contribution decoded from <code>s &amp; slice_mask</code>, and consider the two cases of the slice comparison.</p>
+<ul>
+<li>When <code>(s &amp; slice_mask) &lt; slice_thres</code>, every time step is valid: <code>r_slice &lt; slice_span - (PADDED_SIZE - R::SIZE)</code>, so <code>r ≤ (time_span - 1) * slice_span + r_slice &lt; R::SIZE</code> for every <code>idx</code>.</li>
+<li>When <code>(s &amp; slice_mask) ≥ slice_thres</code>, a time step is valid iff <code>idx &lt; time_thres = time_span - 1</code>. The slice’s <code>r_slice ≥ slice_span - (PADDED_SIZE - R::SIZE)</code>. For <code>idx ≤ time_span - 2</code>, <code>r ≤ (time_span - 2) * slice_span + (slice_span - 1) &lt; (time_span - 1) * slice_span ≤ R::SIZE</code>. For <code>idx = time_span - 1</code>, <code>r ≥ (time_span - 1) * slice_span + slice_span - (PADDED_SIZE - R::SIZE) = R::SIZE</code>.</li>
+</ul>
+<p>Unlike <code>SliceMajor</code>, <code>TimeMajor</code> has no “all invalid” regime. The padding constraint <code>PADDED_SIZE - R::SIZE ≤ slice_span</code> caps over-padding tightly enough that no slice becomes fully invalid.</p>
+<h3 id="packet-clipper"><a class="header" href="#packet-clipper">Packet Clipper</a></h3>
+<p>For each flit, the packet clipper computes <code>valid_size(t)</code>, which depends only on <code>t</code> (not on the slice <code>s</code>), so all slices receive the same count at the same time step.
+This slice-independence constrains which placements the VCG can express.
+The subsections below build up <code>fn valid_size()</code> step by step.
+When <code>R</code> has no sub-expression in <code>Packet</code>, the packet clipper is disabled by setting <code>axis_size = packet_span = 8</code> with an empty sequencer, making <code>fn valid_size()</code> always return <code>8</code> (the full flit).</p>
+<pre><code class="language-rust ignore">struct PacketClipperConfig {
+    sequencer:   Sequencer,
+    axis_size:   u32, // R::SIZE
+    packet_span: u32, // R positions per flit
 }
-<span class="boring">}</span></code></pre>
-<h3 id="packet-reduce-mode"><a class="header" href="#packet-reduce-mode">Packet Reduce Mode</a></h3>
-<p>In Packet Reduce Mode, <code>R</code> appears in Packet and the VCG assigns a per-packet <code>valid_count</code> (0-8) that varies by time step.</p>
-<h4 id="packet-only"><a class="header" href="#packet-only">Packet Only</a></h4>
+
+impl PacketClipperConfig {
+    /// Returns the valid element count for the flit at time step t.
+    fn valid_size(&amp;self, t: u64) -&gt; u32 {
+        let idx = self.sequencer.index(t);
+        (self.axis_size - idx).clamp(0, self.packet_span)
+    }
+}</code></pre>
+<p>The packet clipper requires <code>Packet = m![R # PADDED_SIZE % packet_span # 8]</code>.
+Any other axis sharing <code>Packet</code> with <code>R</code>, or <code>R</code> being split into multiple sub-expressions within <code>Packet</code>, breaks the contiguous-prefix property that <code>fn valid_size()</code> relies on (see <a href="#inexpressible-patterns">Inexpressible Patterns</a>).</p>
+<h4 id="r-as-packet"><a class="header" href="#r-as-packet"><code>R</code> as <code>Packet</code></a></h4>
+<p>In the simplest case, <code>R</code> fits in a single flit (<code>R::SIZE ≤ 8</code>), so every flit has the same <code>valid_size = R::SIZE</code> regardless of time step or slice.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, R = 3, X = 64];
-// R exists only in Packet. Every packet gets the same constant valid_count = |R|.
-//
-// Slice = m![X, A / 2], Time = m![1], Packet = m![R # 8]
-// Slice = 64 * 4 = 256.
-//
-// R = 3, padded to 8. Packet Reduce Mode: every packet has vc = 3.
-// No slice or time variation needed.
+
 fn reduce_packet_only&lt;'l, const T: Tu&gt;(
     input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![R # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![R]&gt;()
+        .vector_narrow_clip::&lt;m![R # 4]&gt;()
+        //   Slice     = m![X, A / 2]
+        //   Time      = m![1]
+        //   Packet    = m![R # 4]
+        //   OutTime   = m![1]
+        //   OutPacket = m![1 # 4]  (R eliminated from Packet)
         .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
             IntraSliceReduceOpF32::Add,
         )
-    // Output: Slice = m![X, A / 2], Time = m![1], Packet = m![1 # 4]
-    // R eliminated from Packet. All 3 of 8 elements were counted as valid.
 }
 <span class="boring">}</span></code></pre>
-<h4 id="time--packet"><a class="header" href="#time--packet">Time + Packet</a></h4>
+<p>The example above places <code>R = 3</code> (padded to <code>R # 8</code>) entirely in <code>Packet</code> with a single sub-expression.
+The compiler configures the packet clipper as follows:</p>
+<pre><code class="language-rust ignore">PacketClipperConfig {
+    sequencer:   [],   // empty: a single flit holds all of R
+    axis_size:   3,    // R::SIZE
+    packet_span: 8,    // R fits in 8 flit positions
+}</code></pre>
+<p>Every flit has <code>valid_size = clamp(3 - 0, 0, 8) = 3</code> (constant across time steps and slices).</p>
+<h4 id="r-in-time-and-packet"><a class="header" href="#r-in-time-and-packet"><code>R</code> in <code>Time</code> and <code>Packet</code></a></h4>
+<p>The VCG supports <code>R</code> with sub-expressions in both <code>Time</code> and <code>Packet</code>.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 8, R = 19, X = 64];
-// R spans both Time and Packet.
-// VCG produces full packets first, then a partial packet at the tail.
-//
-// Slice = m![X, A / 2], Time = m![R # 24 / 8], Packet = m![R # 24 % 8]
-// Slice = 64 * 4 = 256.
-//
-// R = 19, padded to 24 = 3 (Time) * 8 (Packet).
-// Packet Reduce Mode: R fills all 8 Packet positions.
-//   t=0: vc = 8 (all valid)
-//   t=1: vc = 8 (all valid)
-//   t=2: vc = 3 (first 3 valid, last 5 are padding)
-// All slices see the same [8, 8, 3] pattern.
+</span>axes![A = 8, R = 10, X = 64];
+
 fn reduce_time_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![R # 24 / 8], m![R # 24 % 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_trim::&lt;m![R # 24 % 4]&gt;()
+        .vector_narrow_clip::&lt;m![R # 16 % 4]&gt;()
+        //   Slice     = m![X, A / 2]
+        //   Time      = m![R # 16 / 4]
+        //   Packet    = m![R # 16 % 4 # 8]
+        //   OutTime   = m![1]          (R eliminated)
+        //   OutPacket = m![1 # 4]
         .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
             IntraSliceReduceOpF32::Add,
         )
-    // Output: Slice = m![X, A / 2], Time = m![1], Packet = m![1 # 4]
-    // R eliminated from both Time and Packet.
 }
 <span class="boring">}</span></code></pre>
-<h4 id="time--packet-packet-not-innermost-not-supported"><a class="header" href="#time--packet-packet-not-innermost-not-supported">Time + Packet (Packet Not Innermost, Not Supported)</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 8, R = 19, X = 64];
-// NOT supported: the OUTER part of R is in Packet. Outer part in Packet
-// breaks prefix contiguity. See the Packet rule in
-// [Distribution Rules for R](#distribution-rules-for-r) for why the
-// innermost % k must own the Packet prefix.
-//
-// R = 19, padded to 24 = 3 * 8. Sub-expressions are swapped:
-//   R # 24 / 8 (outer) → Packet (wrong)
-//   R # 24 % 8 (inner) → Time   (wrong)
-//
-// Slice = m![X, A / 2], Time = m![R # 24 % 8], Packet = m![R # 24 / 8 # 8]
-// |Slice| = 64 * 4 = 256.
-//
-// Fix: put the inner part in Packet and the outer part in Time:
-//   Time = m![R # 24 / 8], Packet = m![R # 24 % 8]
-fn reduce_wrong_packet_outer&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![R # 24 / 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpF32::Add,
-        )
-    // ✗ Outer part in Packet violates innermost requirement.
-}
-<span class="boring">}</span></code></pre>
-<h4 id="time--packet-r-fills-fewer-than-8-positions"><a class="header" href="#time--packet-r-fills-fewer-than-8-positions">Time + Packet (R Fills Fewer Than 8 Positions)</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 8, R = 7, X = 64];
-// When R fills fewer than 8 Packet positions, the remaining must be padding, not another axis.
-// The valid count is capped at the size of R in Packet.
-//
-// Slice = m![X, A / 2], Time = m![R # 8 / 4], Packet = m![R # 8 % 4 # 8]
-// Slice = 64 * 4 = 256.
-//
-// R = 7, padded to 8 = 2 * 4. R fills 4 Packet positions, padded to 8-way.
-// Packet Reduce Mode: valid count capped at 4 (the size of R in Packet).
-//   t=0: vc = 4 (positions 0-3 valid, 4-7 are padding)
-//   t=1: vc = 3 (positions 0-2 valid)
-// All slices see the same [4, 3] pattern.
-//
-// Supported: R solely occupies the prefix; positions 4-7 are padding, not another axis.
-fn reduce_time_packet_partial&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![R # 8 / 4], m![R # 8 % 4 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![R # 8 % 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpF32::Add,
-        )
-    // Output: Slice = m![X, A / 2], Time = m![1], Packet = m![1 # 4]
-}
-<span class="boring">}</span></code></pre>
-<h4 id="time--packet-mixed-packet-axes-not-supported"><a class="header" href="#time--packet-mixed-packet-axes-not-supported">Time + Packet (Mixed Packet Axes, Not Supported)</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 2, R = 19, X = 256];
-// NOT supported. R must be the sole occupant of the Packet prefix.
-// If another axis shares the Packet, the prefix-based count marks that axis's data as padding.
-//
-// Slice = m![X], Time = m![R # 24 / 4], Packet = m![R # 24 % 4, A # 8]
-// Slice = 256.
-//
-// R fills positions 0-3, A fills positions 4-5 (padded to 8).
-// Packet Reduce Mode: valid count applies to the whole packet as a prefix.
-//   vc = 3 means "positions 0-2 valid", but A's real data at positions 4-5
-//   is ALWAYS treated as invalid, regardless of A's actual size.
-//   The reduce result silently loses A's contributions.
-//
-// Fix: put A outside Packet, or pad R to fill all 8 positions:
-//   Time = m![R # 24 / 8], Packet = m![R # 24 % 8]
-fn reduce_wrong_mixed_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X], m![R # 24 / 4], m![R # 24 % 4, A # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X], m![1], m![A # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![R # 24 % 4, A]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![A # 4]&gt;(
-            IntraSliceReduceOpF32::Add,
-        )
-    // ✗ A's data at positions 4-5 silently excluded by prefix-based vc.
-}
-<span class="boring">}</span></code></pre>
-<h4 id="time--packet-perfectly-aligned"><a class="header" href="#time--packet-perfectly-aligned">Time + Packet (Perfectly Aligned)</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 8, R = 24, X = 64];
-// When |R| is exactly divisible by the size of R in Packet,
-// every packet is full and the VCG is not needed.
-//
-// Slice = m![X, A / 2], Time = m![R / 8], Packet = m![R % 8]
-// Slice = 64 * 4 = 256.
-//
-// R = 24, no padding needed! 24 = 3 * 8.
-// Every element is real data. All vc = 8.
-fn reduce_time_packet_aligned&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![R / 8], m![R % 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![R % 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpF32::Add,
-        )
-    // Output: Slice = m![X, A / 2], Time = m![1], Packet = m![1 # 4]
-}
-<span class="boring">}</span></code></pre>
-<h4 id="slice--packet-not-supported"><a class="header" href="#slice--packet-not-supported">Slice + Packet (Not Supported)</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![R = 2045];
-// NOT supported. Worked example of the Slice + Packet conflict.
-// For the formula-based reason, see "Slice + Packet (Not Supported)" under Implementation.
-//
-// Slice = m![R # 2048 / 8], Time = m![1], Packet = m![R # 2048 % 8]
-// Slice = 2048 / 8 = 256.
-//
-// R = 2045, padded to 2048 = 256 (Slice) * 8 (Packet).
-// Slices 0-254 need vc = 8 (full); slice 255 needs vc = 5. The VCG cannot
-// produce two partial counts at the same time step.
-//
-// Fix: add R to Time so R spans Slice + Time instead:
-//   Slice = m![R # 2048 / 8], Time = m![R # 2048 % 8], Packet = m![A # 8]
-// Another possible fix: if R's size was 2048, no padding is introduced, which does not need VCG at all:
-//   Slice = m![R: 2048 / 8], Time: m![1], Packet: m![R % 8]
-fn reduce_wrong_slice_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![R # 2048 / 8], m![1], m![R # 2048 % 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 2048 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
-{
-    input
-        .vector_narrow_trim::&lt;m![R # 2048 % 4]&gt;()
-        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
-            IntraSliceReduceOpI32::AddSat,
-        )
-    // ✗ Slice-varying vc needed. VCG cannot express this pattern.
-}
-<span class="boring">}</span></code></pre>
-<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
-<p>The following sections explain the hardware mechanics behind the rules and examples above. Readers who only need the API can stop here.</p>
-<p>The Valid Count Generator (VCG) hardware computes <code>vc(s, t)</code>, the number of valid (non-padding) elements in the flit at slice <code>s</code> and time step <code>t</code>.
-This document describes what the hardware can express, independent of mapping expressions or tensor shapes.
-The <a href="./intra-slice-reduce.html">Intra-Slice Reduce stage</a> consumes VCG tags to exclude padding from reductions.
-For how mapping expressions control VCG behavior (supported placements, constraints, and examples), see the <a href="#distribution-rules-for-r">Distribution Rules</a> and <a href="#examples">Examples</a> sections above.</p>
-<p>Throughout this page, capitalized <code>Slice</code>, <code>Time</code>, and <code>Packet</code> name mapping dimensions, while lowercase <code>slice</code> and <code>time step</code> name individual runtime instances (one slice is one of the 256 hardware slices, one time step is one flit in that slice’s sequence).</p>
-<h3 id="data-model"><a class="header" href="#data-model">Data Model</a></h3>
-<p>Data flows into the Vector Engine as a stream of flits, each containing 8 elements.
-The VCG operates at the Vector Engine’s input, tagging each 8-way flit with a valid count.
-For the 4-way halving downstream, see <a href="#downstream-4-way-operations">Downstream 4-Way Operations</a>.</p>
-<p>Two coordinates identify a flit.
-A <em>slice</em> corresponds to the Slice dimension in the mapping, and a <em>time step</em> indexes sequential flits within that slice.</p>
+<p>The example above places <code>R = 10</code> (padded to <code>R # 16</code>) across <code>Time</code> and <code>Packet</code>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Coordinate</th><th>Range</th><th>Meaning</th></tr>
+<tr><th>Dimension</th><th>Sub-expression</th><th>Stride</th></tr>
 </thead>
 <tbody>
-<tr><td><code>s</code> (slice number)</td><td><code>[0, num_slices)</code></td><td>Which slice processes this flit</td></tr>
-<tr><td><code>t</code> (time step)</td><td><code>[0, num_flits)</code></td><td>Sequential position within a slice</td></tr>
+<tr><td><code>Time</code></td><td><code>R # 16 / 4</code></td><td>4</td></tr>
+<tr><td><code>Packet</code></td><td><code>R # 16 % 4 # 8</code></td><td>1</td></tr>
 </tbody>
 </table>
 </div>
-<p>The VCG assigns a <em>valid count</em> (abbreviated <code>vc</code> in formulas and diagrams) to each flit:</p>
-<p>$$\text{vc}(s, t) \in {0, 1, \ldots, 8}$$</p>
-<p>Element <code>p</code> (with <code>p</code> in <code>[0, 8)</code>) within flit <code>(s, t)</code> is valid if and only if <code>p &lt; vc(s, t)</code>.
-Valid elements always form a <em>contiguous prefix</em>, a fundamental hardware constraint.
-The VCG cannot express “elements 0, 1, 3 are valid but 2 is not.”</p>
-<h3 id="valid-count-formula"><a class="header" href="#valid-count-formula">Valid Count Formula</a></h3>
-<p>The VCG computes <code>vc(s, t)</code> in three stages.
-The Sequencer decomposes time index <code>t</code> into counters, Original Dimensions maps counters to per-dimension indices, and the Validity Decision combines a packet count with binary gates.</p>
-<p>$$t \overset{\text{Sequencer}}{\longrightarrow} (c_0, c_1, \ldots, c_{k-1}) \overset{\text{Original Dims}}{\longrightarrow} \text{idx}(t) \overset{\text{Validity}}{\longrightarrow} \text{vc}(s, t)$$</p>
-<ol>
-<li><strong><a href="#sequencer">Sequencer</a></strong>: The flat time index <code>t</code> is decomposed into counter values \((c_0, c_1, \ldots, c_{k-1})\) via mixed-radix decomposition.</li>
-<li><strong><a href="#original-dimensions">Original Dimensions</a></strong>: Each counter is assigned to one of 4 dimensions (packet dim or gate dim 0-2).
-Per-dimension indices are computed as \(\text{idx}(t) = \sum_{i} c_i \cdot \sigma _ i\), where \(\sigma_i\) is the counter’s stride.</li>
-<li><strong><a href="#validity-decision">Validity Decision</a></strong>:
-<ul>
-<li><a href="#packet-dim-packet-level-valid-count">Packet Dim</a>: produces a packet-level valid count \(\text{packet_vc}(t) = \min(\text{stride}_p,; \max(0,; V_p - \text{idx}_p(t)))\).</li>
-<li><a href="#gate-dims-per-flit-binary-validity">Gate Dims</a>: each produces a binary gate \(\text{gate}_d(s, t) \in {0, 1}\) based on slice classification (below/boundary/above a threshold) and the per-dim index.</li>
-</ul>
-</li>
-</ol>
-<p>The final valid count combines these components:</p>
-<p>$$\text{vc}(s, t) = \text{packet_vc}(t) \times \text{gate}_0(s, t) \times \text{gate}_1(s, t) \times \text{gate}_2(s, t)$$</p>
-<pre><code class="language-text">vc(s,t) = packet_vc(t)  ×  gate_0(s,t)  ×  gate_1(s,t)  ×  gate_2(s,t)
-          ───────────      ───────────      ───────────      ───────────
-          packet dim       gate dim 0       gate dim 1       gate dim 2
-          (count 0-8)      (gate 0/1)       (gate 0/1)       (gate 0/1)
+<p>The compiler configures the packet clipper as follows:</p>
+<pre><code class="language-rust ignore">PacketClipperConfig {
+    sequencer:   [R # 16 / 4 -&gt; size 4 : stride 4],
+    axis_size:   10,   // R::SIZE
+    packet_span: 4,    // 4 R positions per flit (the trailing 4 flit positions are always padding)
+}</code></pre>
+<p>With this config, the sequencer reconstructs <code>idx(t)</code>, the <code>Time</code> contribution to the <code>R</code> index (see <a href="#r-in-time"><code>R</code> in <code>Time</code></a>).
+After <code>Time</code> covers <code>idx(t)</code> of the <code>axis_size = 10</code> elements, <code>axis_size - idx(t)</code> remain.
+The packet clipper fits as many of these into the flit as it can, capped at <code>packet_span = 4</code>.
+So <code>fn valid_size(t) = clamp(10 - idx(t), 0, 4)</code>, with the trailing 4 flit positions always padding and the last flit carrying a partial count when <code>R::SIZE</code> is not a multiple of <code>packet_span</code>:</p>
+<pre><code class="language-text">  flit 0: idx =  0  →  clamp(10 -  0, 0, 4) = 4  [████    ]
+  flit 1: idx =  4  →  clamp(10 -  4, 0, 4) = 4  [████    ]
+  flit 2: idx =  8  →  clamp(10 -  8, 0, 4) = 2  [██      ]
+  flit 3: idx = 12  →  clamp(10 - 12, 0, 4) = 0  [        ]
 </code></pre>
-<ul>
-<li>If <strong>all</strong> gates are open (= 1), the flit gets <code>packet_vc(t)</code> valid elements.</li>
-<li>If <strong>any</strong> gate is closed (= 0), <code>vc = 0</code> (entire flit is invalid, regardless of packet dim’s count).</li>
-</ul>
-<h3 id="vcg-configuration"><a class="header" href="#vcg-configuration">VCG Configuration</a></h3>
-<p>VCG configuration is organized around two concepts.
-Counters drive the sequencer, and original dimensions decide validity.
-Counters produce a flit sequence, and each dim uses its assigned counters to compute an index and decide validity.</p>
-<p>The table below lists the configurable parameters, and later sections explain each in detail.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Field</th><th>Scope</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td>Counter limits \(L_0 \ldots L_7\)</td><td>per counter (up to 8)</td><td>Sequencer counter limits</td></tr>
-<tr><td>Original dim assignment</td><td>per counter</td><td>Which dim (packet / gate 0-2) each counter belongs to</td></tr>
-<tr><td>stride \(\sigma_i\)</td><td>per counter</td><td>stride for index computation</td></tr>
-<tr><td>\(\text{mask}_{gd}\)</td><td>per gate dim</td><td>Slice-id bitmask</td></tr>
-<tr><td>\(\text{match}_{gd}\)</td><td>per gate dim</td><td>Threshold for slice classification</td></tr>
-<tr><td>\(V_p\) / \(V_{gd}\)</td><td>packet dim / per gate dim</td><td>Valid count / threshold</td></tr>
-<tr><td>\(P_{gd}\)</td><td>per gate dim</td><td>Standard (0) vs transposed (1)</td></tr>
-</tbody>
-</table>
-</div>
-<p>Unassigned counters and disabled gate dims (\(\text{mask}_{gd} = 0, \text{match}_{gd} = 1\)) effectively pass through as “all valid.”</p>
-<h3 id="sequencer"><a class="header" href="#sequencer">Sequencer</a></h3>
-<p>The sequencer interprets the flat time index <code>t</code> as a multi-dimensional counter.</p>
-<h4 id="counter-structure"><a class="header" href="#counter-structure">Counter Structure</a></h4>
-<p>Up to 8 nested counters iterate together to produce the flit sequence:</p>
-<p>$$t \to (c_0, c_1, \ldots, c_{k-1})$$</p>
-<p>where \(c_0\) is the fastest (innermost) and \(c_{k-1}\) is the slowest (outermost).</p>
-<p>Each counter \(c_i\) carries a <strong>limit</strong> \(L_i\) (cycling through \(0, 1, \ldots, L_i - 1\)) and a <strong>stride</strong> \(\sigma_i\) that scales the counter’s contribution to the dimension index (see <a href="#original-dimensions">Original Dimensions</a>).
-The total flits per slice equal \(L_0 \times L_1 \times \cdots \times L_{k-1}\).</p>
-<details>
-<summary>Example: 3 counters with limits [3, 2, 2]</summary>
-<p>This produces 3 * 2 * 2 = 12 flits per slice.
-The counters cycle as:</p>
-<pre><code class="language-text">t=0:  (c_0=0, c_1=0, c_2=0)
-t=1:  (c_0=1, c_1=0, c_2=0)
-t=2:  (c_0=2, c_1=0, c_2=0)
-t=3:  (c_0=0, c_1=1, c_2=0)   &lt;- c_0 wraps, c_1 increments
-t=4:  (c_0=1, c_1=1, c_2=0)
-t=5:  (c_0=2, c_1=1, c_2=0)
-t=6:  (c_0=0, c_1=0, c_2=1)   &lt;- c_1 wraps, c_2 increments
-t=7:  (c_0=1, c_1=0, c_2=1)
-t=8:  (c_0=2, c_1=0, c_2=1)
-t=9:  (c_0=0, c_1=1, c_2=1)
-t=10: (c_0=1, c_1=1, c_2=1)
-t=11: (c_0=2, c_1=1, c_2=1)
-</code></pre>
-<p><code>c_0</code> changes every flit, <code>c_1</code> every 3 flits, <code>c_2</code> every 6 flits, just like digits in a mixed-radix number.</p>
-</details>
-<p>The sequencer produces counter values, which the next step maps to <a href="#original-dimensions">original dimensions</a> and then feeds the <a href="#validity-decision">validity decision</a>.</p>
-<h4 id="original-dimensions"><a class="header" href="#original-dimensions">Original Dimensions</a></h4>
-<p>Each counter assigns to one of 4 <strong>original dimensions</strong> (packet dim or gate dim 0-2), or stays unassigned.</p>
-<p>Let \(D_d\) be the set of counters assigned to original dimension <code>d</code>.
-Each counter contributes to its assigned dimension’s index by multiplying its current value by its stride.
-Summing all contributions gives the current position within that dimension’s data:</p>
-<p>$$\text{idx}_d(t) = \sum _ {i \in D_d} c_i(t) \cdot \sigma_i$$</p>
-<p>This index tracks the position within that dimension’s original data range.
-Multiple counters may assign to the same dim, with their contributions summed.</p>
-<details>
-<summary>Example: Counters mapped to original dimensions</summary>
-<p>Suppose 3 counters are configured as follows:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Counter</th><th>Limit</th><th>stride</th><th>Assigned to</th></tr>
-</thead>
-<tbody>
-<tr><td>c_0</td><td>3</td><td>8</td><td>packet dim (W axis)</td></tr>
-<tr><td>c_1</td><td>2</td><td>1</td><td>gate dim 0 (C axis)</td></tr>
-<tr><td>c_2</td><td>2</td><td>1</td><td>gate dim 1 (H axis)</td></tr>
-</tbody>
-</table>
-</div>
-<p>At time step t=4, which gives (c_0=1, c_1=1, c_2=0):</p>
-<ul>
-<li><code>idx_p = 1 * 8 = 8</code>, position 8 along W</li>
-<li><code>idx_g0 = 1 * 1 = 1</code>, position 1 along C</li>
-<li><code>idx_g1 = 0 * 1 = 0</code>, position 0 along H</li>
-</ul>
-<p>Each dim uses its index independently to decide validity.</p>
-</details>
-<h3 id="validity-decision"><a class="header" href="#validity-decision">Validity Decision</a></h3>
-<p>The validity decision combines the packet-dim count and up to three binary gates into the final <code>vc(s, t)</code> via multiplication.
-The diagram below traces the pipeline from time index to final valid count, with each stage explained in the subsections that follow.</p>
-<pre><code class="language-text">t (flat time index)
-│
-├─ mixed-radix decomposition (see Sequencer above)
-▼
-(c_0, c_1, ..., c_{k-1})              ← counter values
-│
-├─ each counter assigned to a dim, multiplied by stride σ_i
-│  (see Original Dimensions above)
-▼
-idx_p(t), idx_g0(t), idx_g1(t), idx_g2(t)  ← per-dim indices
-│
-├─ packet dim: packet_vc = min(stride_p, max(0, V_p - idx_p))
-├─ gate dim 0: gate_0 = f(masked_id(s), idx_g0, match_g0, V_g0)
-├─ gate dim 1: gate_1 = f(masked_id(s), idx_g1, match_g1, V_g1)
-├─ gate dim 2: gate_2 = f(masked_id(s), idx_g2, match_g2, V_g2)
-│
-▼
-vc(s,t) = packet_vc(t) × gate_0(s,t) × gate_1(s,t) × gate_2(s,t)
-</code></pre>
-<p>Packet dim and gate dims make qualitatively different judgments:</p>
-<ul>
-<li><strong>Packet dim</strong> answers: “how many elements in this flit are valid?” (a count, 0-8)</li>
-<li><strong>Gate dims</strong> each answer: “is this flit valid at all?” (a binary gate, yes or no)</li>
-</ul>
-<p>Gate dims act as gates, so packet dim’s count takes effect only when all three report “valid”.
-If any gate reports “invalid”, the entire flit gets valid count = 0.</p>
-<h4 id="packet-dim-packet-level-valid-count"><a class="header" href="#packet-dim-packet-level-valid-count">Packet Dim (Packet-Level Valid Count)</a></h4>
-<p>Packet dim tracks how many of the 8 elements in the current flit are real data versus padding.
-As the sequencer steps through <code>R</code>, the count starts full, stays full for the bulk of the data, then drops to a partial count at the tail, producing a repeating sawtooth as the pattern restarts.
-The formula below makes that pattern precise.</p>
-<p>Two parameters control the packet-level valid count:</p>
-<ul>
-<li>\(V_p\): the <strong>original valid count</strong> for packet dim, the unpadded size of the data along this dimension.</li>
-<li>\(\text{stride}_p\): the <strong>stride of the innermost counter assigned to packet dim</strong>, representing how many flit elements belong to the axis tracked by packet dim.</li>
-</ul>
-<p>The per-packet valid count is:</p>
-<p>$$\text{packet_vc}(t) = \min(\text{stride}_p, \max(0, V_p - \text{idx}_p(t)))$$</p>
-<pre><code class="language-text">packet_vc(t) = min( stride_p,         max(0, V_p - idx_p(t) ))
-                    ─────────              ─────────────────
-                    HW width cap           remaining valid data
-</code></pre>
-<p>When the axis fills all 8 flit positions, \(\text{stride}_p = 8\) and the formula reduces to \(\min(8, \ldots)\).
-When the axis occupies only \(k &lt; 8\) positions (with the remaining positions padded), \(\text{stride}_p = k\) caps the valid count so that only the axis’s portion of the flit counts as valid.</p>
-<p>Hardware constraints:</p>
-<ul>
-<li>The innermost Packet counter must always assign to packet dim.</li>
-<li>Other counters may also assign to packet dim (e.g., a Time counter for the same axis).</li>
-<li>When no axis assigns to packet dim, <code>packet_vc</code> is always 8 (full flit) or 0 (empty flit), making packet dim behave as a binary gate.</li>
-</ul>
-<p>As the sequencer advances, \(\text{idx}_p\) increases and <code>packet_vc</code> decreases, producing a repeating <em>sawtooth</em> pattern:</p>
-<pre><code class="language-text">Example 1: V_p = 19, stride_p = 8, counter stride=8, limit=3  (axis fills full 8-way)
-
-flit 0: idx_p =  0 -&gt; packet_vc = min(8, 19 -  0) = 8  (full)
-flit 1: idx_p =  8 -&gt; packet_vc = min(8, 19 -  8) = 8  (full)
-flit 2: idx_p = 16 -&gt; packet_vc = min(8, 19 - 16) = 3  (partial)
-
-Example 2: V_p = 11, stride_p = 4, counter stride=4, limit=3  (axis fills 4 of 8 positions)
-
-flit 0: idx_p =  0 -&gt; packet_vc = min(4, 11 -  0) = 4  (full within stride)
-flit 1: idx_p =  4 -&gt; packet_vc = min(4, 11 -  4) = 4  (full within stride)
-flit 2: idx_p =  8 -&gt; packet_vc = min(4, 11 -  8) = 3  (partial)
-</code></pre>
-<p>In Example 2, positions 4-7 in each flit are padding, and the \(\text{stride}_p = 4\) cap automatically excludes them.</p>
-<p>One key property is that <code>packet_vc</code> depends only on the sequencer state <code>t</code>, not on the slice <code>s</code>.
-All slices receive the same packet valid count at the same time step.</p>
-<details>
-<summary>Example: Why packet_vc is slice-independent</summary>
-<p>If \(V_p = 19\), \(\text{stride}_p = 8\), and the packet counter cycles [0, 8, 16], then:</p>
-<ul>
-<li>At t=2 (idx_p=16): packet_vc = 3 for every slice.</li>
-<li>Slice 0 gets vc=3, slice 5 gets vc=3, slice 15 gets vc=3, all the same.</li>
-</ul>
-<p>This is because packet dim’s formula \(\min(\text{stride}_p, V_p - \text{idx}_p)\) has no <code>s</code> term.
-Gate dims can still make certain slices’ final vc = 0 (by reporting invalid),
-but they cannot change the packet_vc value itself.</p>
-</details>
-<h4 id="gate-dims-per-flit-binary-validity"><a class="header" href="#gate-dims-per-flit-binary-validity">Gate Dims (Per-Flit Binary Validity)</a></h4>
-<p>Each gate dim classifies slices into groups by extracting a subset of the slice-id bits via a bitmask and comparing the result against a threshold.
-The bitmask \(\text{mask}_{gd}\) selects which bits of the slice-id this gate dim tracks:</p>
-<p>$$\text{masked_id} (s) = s \mathbin{\&amp;} \text{mask}_{gd}$$</p>
-<pre><code class="language-text">Example: 16 slices (4-bit slice_id), mask_g0 = 0b1100
-
-slice_id (4 bits):   [ b3  b2  b1  b0 ]
-mask_g0 = 0b1100:    [  1   1   0   0 ]
-                      ─────────────────
-masked_id:           [ b3  b2   0   0 ]  → extracts the upper 2 bits
-</code></pre>
-<p>Slices fall into three groups based on comparing \(\text{masked_id}\) with \(\text{match}_{gd}\):</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Group</th><th>Condition</th><th>Meaning</th></tr>
-</thead>
-<tbody>
-<tr><td><strong>Below</strong></td><td>\(\text{masked_id}(s) &lt; \text{match}_{gd}\)</td><td>All time steps valid</td></tr>
-<tr><td><strong>Boundary</strong></td><td>\(\text{masked_id}(s) = \text{match}_{gd}\)</td><td>Valid when \(\text{idx}_{gd}(t) &lt; V_{gd}\)</td></tr>
-<tr><td><strong>Above</strong></td><td>\(\text{masked_id}(s) &gt; \text{match}_{gd}\)</td><td>Depends on mode (see below)</td></tr>
-</tbody>
-</table>
-</div>
-<p>The \(P_{gd}\) flag selects between two modes that differ only in the “above” group:</p>
-<h5 id="standard-mode"><a class="header" href="#standard-mode">Standard mode (\(P_{gd} = 0\))</a></h5>
-<p>$$\text{gate}_d(s, t) = \begin{cases} 1 &amp; \text{masked_id}(s) &lt; \text{match}_{gd} \\ [\text{idx}_{gd}(t) &lt; V_{gd}] &amp; \text{masked_id}(s) = \text{match}_{gd} \\ 0 &amp; \text{masked_id}(s) &gt; \text{match}_{gd} \end{cases}$$</p>
-<p>Above-threshold slices are <strong>entirely invalid</strong>.
-This is the common case, since the Slice factor lays out in ascending order and slices beyond the boundary contain no valid data.</p>
-<h5 id="transposed-mode"><a class="header" href="#transposed-mode">Transposed mode (\(P_{gd} = 1\))</a></h5>
-<p>$$\text{gate}_d(s, t) = \begin{cases} 1 &amp; \text{masked_id}(s) &lt; \text{match}_{gd} \\ [\text{idx}_{gd}(t) &lt; V_{gd}] &amp; \text{masked_id}(s) \ge \text{match}_{gd} \end{cases}$$</p>
-<p>Above-threshold slices get the <strong>same</strong> \(V_{gd}\) check as the boundary, so they are not entirely invalid.
-This handles the transposed case where the slice ID encodes the <em>inner</em> index.
-Slices beyond the boundary still contain valid data at early time steps (the outer index is small enough), and they run out of valid data at the same point as the boundary slice.</p>
-<p>To disable a gate dim (make it always valid), set \(\text{mask}_{gd} = 0, \text{match}_{gd} = 1\).
-Then \(\text{masked_id} = 0 &lt; 1\) for all slices, placing every slice in the “below” group.</p>
-<details>
-<summary>Example: Standard mode, H=5 split into Ho=4 (slice) × Hi=2 (time)</summary>
-<p>H=5 is split into <code>Ho × Hi = 4 × 2</code> (padded from 5 to 8).
-<code>Ho</code> is the Slice factor (encoded in slice-id bits), <code>Hi</code> is the Time factor (sequencer counter).
-Axis index = <code>Ho * 2 + Hi</code>.
-Valid when index &lt; 5.</p>
-<p>Gate dim 0 config: <code>mask=0b1100</code> (extracts 2 bits for Ho), <code>match=2</code>, <code>V_g0=1</code>, standard mode.</p>
-<p>16 slices, where <code>masked_id = (slice_id &amp; 0b1100) &gt;&gt; 2</code> gives Ho:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Ho</th><th>masked_id</th><th>Group</th><th>Hi=0</th><th>Hi=1</th></tr>
-</thead>
-<tbody>
-<tr><td>0</td><td>0</td><td>below (&lt; 2)</td><td>valid</td><td>valid</td></tr>
-<tr><td>1</td><td>1</td><td>below (&lt; 2)</td><td>valid</td><td>valid</td></tr>
-<tr><td>2</td><td>2</td><td>boundary (= 2)</td><td>valid (idx=0 &lt; 1)</td><td>invalid (idx=1 &gt;= 1)</td></tr>
-<tr><td>3</td><td>3</td><td>above (&gt; 2)</td><td>invalid</td><td>invalid</td></tr>
-</tbody>
-</table>
-</div>
-<p>Ho=0,1: both time steps valid (index 0-3, all &lt; 5).
-Ho=2: only first time step (index 4 &lt; 5), second invalid (index 5 &gt;= 5).
-Ho=3: fully invalid (index 6, 7 &gt;= 5).</p>
-</details>
-<details>
-<summary>Example: Transposed mode, H=5 split into Ho=4 (slice, inner) × Hi=2 (time, outer)</summary>
-<p>H=5 is split into <code>Ho × Hi = 4 × 2</code> (padded from 5 to 8), but transposed: Ho is the inner factor, Hi is the outer factor.
-Axis index = <code>Hi * 4 + Ho</code>.
-Valid when index &lt; 5.</p>
-<p>Gate dim 0 config: <code>match=1</code> (= 5 mod 4), <code>V_g0=1</code> (= floor(5/4)), transposed mode.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Ho</th><th>masked_id</th><th>Group</th><th>Hi=0</th><th>Hi=1</th></tr>
-</thead>
-<tbody>
-<tr><td>0</td><td>0</td><td>below (&lt; 1)</td><td>valid</td><td>valid</td></tr>
-<tr><td>1</td><td>1</td><td>boundary (= 1)</td><td>valid (idx=0 &lt; 1)</td><td>invalid (idx=1 &gt;= 1)</td></tr>
-<tr><td>2</td><td>2</td><td>above (&gt; 1)</td><td>valid (idx=0 &lt; 1)</td><td>invalid (idx=1 &gt;= 1)</td></tr>
-<tr><td>3</td><td>3</td><td>above (&gt; 1)</td><td>valid (idx=0 &lt; 1)</td><td>invalid (idx=1 &gt;= 1)</td></tr>
-</tbody>
-</table>
-</div>
-<p>Verify: Ho=0, Hi=0: 0 &lt; 5, Hi=1: 4 &lt; 5, so 2 steps.
-Ho=1, Hi=0: 1 &lt; 5, Hi=1: 5 &gt;= 5, so 1 step.
-Ho=2, Hi=0: 2 &lt; 5, Hi=1: 6 &gt;= 5, so 1 step.
-Ho=3, Hi=0: 3 &lt; 5, Hi=1: 7 &gt;= 5, so 1 step.</p>
-<p>Unlike standard mode, the “above” group (Ho=2,3) still gets V_g0=1 valid time steps, not zero.</p>
-</details>
-<details>
-<summary>Example: Full VCG computation for [H=5, C=5, W=19], step-by-step build-up</summary>
-<p>This example builds up from one axis to three, so each dimension’s contribution is clear.</p>
+<h2 id="putting-it-all-together"><a class="header" href="#putting-it-all-together">Putting It All Together</a></h2>
+<p>The previous sections covered a single <code>R</code> sub-expression placed in one or two dimensions.
+In practice, an Intra-Slice Reduce takes a single <code>REDUCE_LABEL</code> (<code>R</code>) plus extra padded non-reduce axes, and the VCG tracks all of them: each padded axis (whether <code>R</code> or another) occupies one time filter slot, and <code>R</code>’s <code>Packet</code> part occupies the packet clipper.
+This example builds up from one axis to three, so each dimension’s contribution is clear.</p>
 <p>Original shape <code>[H, C, W] = [5, 5, 19]</code>.
-Each axis is split into a slice part (slice_id) and a time part (sequencer):</p>
-<pre><code class="language-text">H = 5  -&gt;  Ho(slice) * Hi(time) = 4 * 2    (padded from 5 to 8)
-C = 5  -&gt;  Co(slice) * Ci(time) = 4 * 2    (padded from 5 to 8)
-W = 19 -&gt;  Wi(packet)            = 3 * 8    (padded from 19 to 24)
-</code></pre>
-<h5 id="step-1-w19-only-packet-dim-no-gates"><a class="header" href="#step-1-w19-only-packet-dim-no-gates">Step 1: W=19 only (packet dim, no gates)</a></h5>
+Each axis is split into slice/time/packet parts depending on its placement:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Axis</th><th>Padded</th><th>Slice</th><th>Time</th><th>Packet</th></tr>
+</thead>
+<tbody>
+<tr><td><code>H</code></td><td><code># 8</code></td><td><code>H # 8 / 2</code> (size 4)</td><td><code>H # 8 % 2</code> (size 2)</td><td>-</td></tr>
+<tr><td><code>C</code></td><td><code># 8</code></td><td><code>C # 8 / 2</code> (size 4)</td><td><code>C # 8 % 2</code> (size 2)</td><td>-</td></tr>
+<tr><td><code>W</code></td><td><code># 24</code></td><td>-</td><td><code>W # 24 / 8</code> (size 3)</td><td><code>W # 24 % 8</code> (size 8)</td></tr>
+</tbody>
+</table>
+</div>
+<p>For brevity in the following steps, we use <code>Ho</code>/<code>Co</code>/<code>Wo</code> and <code>Hi</code>/<code>Ci</code>/<code>Wi</code> as shorthands: <code>*o</code> is the leftmost factor in the table row (slice for <code>H</code>/<code>C</code>, time for <code>W</code>), <code>*i</code> is the next one to its right.</p>
+<h3 id="step-1-w19-only-packet-clipper-no-time-filters"><a class="header" href="#step-1-w19-only-packet-clipper-no-time-filters">Step 1: <code>W=19</code> only (packet clipper, no time filters)</a></h3>
 <p>Ignore H and C for now.
-Disable gate dims 0 and 1.
-Every slice processes 3 flits (Wi limit=3), and packet dim produces the sawtooth:</p>
-<pre><code class="language-text">packet_vc:  8, 8, 3
+Disable time filters 0 and 1 (<code>slice_mask=0, slice_thres=1</code>).
+Every slice processes 3 flits (<code>Wo</code> size 3), and packet clipper produces the sawtooth:</p>
+<pre><code class="language-text">valid_size: 8, 8, 3
               ^     ^
             full   19 - 16 = 3 (partial)
 </code></pre>
-<p>Since there are no gates, <strong>every slice gets this exact same pattern</strong>:</p>
+<p>Since there are no time filters, every slice gets this exact same pattern:</p>
 <pre><code class="language-text">All slices, all flits:
-flit 0: ████████  (vc=8)
-flit 1: ████████  (vc=8)
-flit 2: ███       (vc=3)
+flit 0: ████████  (valid_size=8)
+flit 1: ████████  (valid_size=8)
+flit 2: ███       (valid_size=3)
 </code></pre>
-<h5 id="step-2-add-c5-packet-dim--gate-dim-0"><a class="header" href="#step-2-add-c5-packet-dim--gate-dim-0">Step 2: Add C=5 (packet dim + gate dim 0)</a></h5>
-<p>Now enable the C-axis gate (gate dim 0).
-C=5 is split into Co(slice, 4 values) * Ci(time, limit 2).
-The C-gate uses: <code>mask=0b0011</code> (extracts Co from slice_id), <code>match=2</code>, <code>V_g0=1</code>, standard mode.</p>
-<p>Each slice now runs 6 flits: Ci (limit 2) * Wi (limit 3).
-The C-gate classifies slices by their Co value:</p>
+<h3 id="step-2-add-c5-packet-clipper--time-filter-0"><a class="header" href="#step-2-add-c5-packet-clipper--time-filter-0">Step 2: Add <code>C=5</code> (packet clipper + time filter 0)</a></h3>
+<p>Now enable the <code>C</code>-axis timer (time filter 0).
+<code>C=5</code> is split into <code>Co</code> (slice, size 4) × <code>Ci</code> (time, size 2).
+The <code>C</code> time filter config: <code>slice_mask=0b0011</code> (extracts <code>Co</code> from <code>slice_id</code>), <code>slice_thres=2</code>, <code>time_thres=1</code>, <code>SliceMajor</code>.</p>
+<p>Each slice now runs 6 flits: <code>Ci</code> size 2 × <code>Wo</code> size 3.
+The <code>C</code> time filter classifies slices by their <code>Co</code> value:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Co</th><th>Group</th><th>Effect</th></tr>
+<tr><th><code>Co</code></th><th>Group</th><th>Effect</th></tr>
 </thead>
 <tbody>
-<tr><td>0</td><td>below (&lt; 2)</td><td>gate open: all 6 flits get packet dim’s pattern</td></tr>
-<tr><td>1</td><td>below (&lt; 2)</td><td>gate open: same</td></tr>
-<tr><td>2</td><td>boundary (= 2)</td><td>gate open for Ci=0, closed for Ci=1</td></tr>
-<tr><td>3</td><td>above (&gt; 2)</td><td>gate closed: all 6 flits get vc=0</td></tr>
+<tr><td>0</td><td>below (<code>&lt; 2</code>)</td><td>all 6 flits pass packet clipper’s pattern</td></tr>
+<tr><td>1</td><td>below (<code>&lt; 2</code>)</td><td>same</td></tr>
+<tr><td>2</td><td>boundary (<code>= 2</code>)</td><td>valid for <code>Ci=0</code>, invalid for <code>Ci=1</code></td></tr>
+<tr><td>3</td><td>above (<code>&gt; 2</code>)</td><td>all 6 flits have <code>valid_size = 0</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>Result per slice (6 flits = 2 Ci groups * 3 Wi flits):</p>
-<pre><code class="language-text">Co=0:  [8,8,3, 8,8,3]    &lt;- both Ci steps valid
-Co=1:  [8,8,3, 8,8,3]    &lt;- same
-Co=2:  [8,8,3, 0,0,0]    &lt;- Ci=0 valid, Ci=1 gated off
-Co=3:  [0,0,0, 0,0,0]    &lt;- entirely gated off
+<p>Result per slice (6 flits = <code>Ci</code> size 2 × <code>Wo</code> size 3):</p>
+<pre><code class="language-text">Co=0:  [8,8,3, 8,8,3]   (both Ci steps valid)
+Co=1:  [8,8,3, 8,8,3]   (same)
+Co=2:  [8,8,3, 0,0,0]   (Ci=0 valid, Ci=1 invalid)
+Co=3:  [0,0,0, 0,0,0]   (all invalid)
 </code></pre>
-<p>Notice the gate’s effect.
+<p>Notice the timer’s effect.
 Some slices go entirely to zero, and the boundary slice loses its second half.
-But within the valid flits, the <code>[8,8,3]</code> pattern from packet dim is unchanged.</p>
-<h5 id="step-3-add-h5-full-3-axis-packet-dim--gate-dim-0--gate-dim-1"><a class="header" href="#step-3-add-h5-full-3-axis-packet-dim--gate-dim-0--gate-dim-1">Step 3: Add H=5 (full 3-axis, packet dim + gate dim 0 + gate dim 1)</a></h5>
-<p>Now enable the H-axis gate (gate dim 1).
-H=5 is split into Ho(slice, 4 values) * Hi(time, limit 2).
-The H-gate uses: <code>mask=0b1100</code> (extracts Ho from slice_id), <code>match=0b1000</code>, <code>V_g1=1</code>, standard mode.</p>
-<p>Slice ID encodes both slice factors: <code>slice_id = Ho * 4 + Co</code>, giving 16 slices.
-Each slice now runs 12 flits: Hi (limit 2) * Ci (limit 2) * Wi (limit 3).</p>
+But within the valid flits, the <code>[8,8,3]</code> pattern from packet clipper is unchanged.</p>
+<h3 id="step-3-add-h5-packet-clipper--time-filter-0--time-filter-1"><a class="header" href="#step-3-add-h5-packet-clipper--time-filter-0--time-filter-1">Step 3: Add <code>H=5</code> (packet clipper + time filter 0 + time filter 1)</a></h3>
+<p>Now enable the <code>H</code>-axis timer (time filter 1).
+<code>H=5</code> is split into <code>Ho</code> (slice, size 4) × <code>Hi</code> (time, size 2).
+The <code>H</code> time filter config: <code>slice_mask=0b1100</code> (extracts <code>Ho</code> from <code>slice_id</code>), <code>slice_thres=0b1000</code>, <code>time_thres=1</code>, <code>SliceMajor</code>.</p>
+<p>The slice id encodes both slice factors as <code>slice_id = Ho * 4 + Co</code>, giving 16 slices.
+Each slice now runs 12 flits: <code>Hi</code> size 2 × <code>Ci</code> size 2 × <code>Wo</code> size 3.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Dim</th><th>Axis</th><th>What it tracks</th><th>VCG config</th></tr>
+<tr><th>Component</th><th>Axis</th><th>Tracks</th><th>Config</th></tr>
 </thead>
 <tbody>
-<tr><td>packet</td><td>W=19</td><td>element count in packet</td><td>V_p=19, stride_p=8, counter stride=8, limit=3</td></tr>
-<tr><td>gate 0</td><td>C=5</td><td>gate: is Co within valid range?</td><td>mask=0b0011, match=2, V_g0=1, standard</td></tr>
-<tr><td>gate 1</td><td>H=5</td><td>gate: is Ho within valid range?</td><td>mask=0b1100, match=0b1000, V_g1=1, standard</td></tr>
+<tr><td>packet clipper</td><td><code>W=19</code></td><td>per-flit <code>R</code> count</td><td><code>axis_size=19</code>, <code>packet_span=8</code>, sequencer = <code>[Wo -&gt; size 3 : stride 8]</code></td></tr>
+<tr><td>time filter 0</td><td><code>C=5</code></td><td>per-slice <code>Co</code> validity</td><td><code>slice_mask=0b0011</code>, <code>slice_thres=2</code>, <code>time_thres=1</code>, <code>SliceMajor</code></td></tr>
+<tr><td>time filter 1</td><td><code>H=5</code></td><td>per-slice <code>Ho</code> validity</td><td><code>slice_mask=0b1100</code>, <code>slice_thres=0b1000</code>, <code>time_thres=1</code>, <code>SliceMajor</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>The H-gate classifies slices by Ho, same logic as C-gate by Co:</p>
+<p>The <code>H</code> time filter classifies slices by <code>Ho</code>, same logic as <code>C</code> time filter by <code>Co</code>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Ho</th><th>Group</th><th>Effect</th></tr>
+<tr><th><code>Ho</code></th><th>Group</th><th>Effect</th></tr>
 </thead>
 <tbody>
-<tr><td>0</td><td>below</td><td>H-gate open</td></tr>
-<tr><td>1</td><td>below</td><td>H-gate open</td></tr>
-<tr><td>2</td><td>boundary</td><td>H-gate open for Hi=0, closed for Hi=1</td></tr>
-<tr><td>3</td><td>above</td><td>H-gate closed</td></tr>
+<tr><td>0</td><td>below</td><td>open</td></tr>
+<tr><td>1</td><td>below</td><td>open</td></tr>
+<tr><td>2</td><td>boundary</td><td>open for <code>Hi=0</code>, closed for <code>Hi=1</code></td></tr>
+<tr><td>3</td><td>above</td><td>closed</td></tr>
 </tbody>
 </table>
 </div>
-<p>The <strong>final vc</strong> for each flit is <code>packet_vc(t) * C_gate(s,t) * H_gate(s,t)</code>.
-Both gates must be open for packet dim’s count to survive.</p>
-<p>The complete heatmap (16 slices * 12 flits).
-Columns are slices grouped by Ho.
-Rows are flits grouped by (Hi, Ci).
-Right-side annotations show which gates are active for each row.</p>
-<p>A way to read this without getting lost is to scan the right-side <code>H:</code> / <code>C:</code> annotations first to predict which row × column blocks should be all-zero (any gate <code>x</code>) versus carry data.
-Then read the cells to confirm that data-carrying blocks repeat the same <code>[8, 8, 3]</code> packet-dim sawtooth.</p>
+<p>The final <code>valid_size</code> is the packet clipper’s count when both time filters return <code>true</code>, or <code>0</code> if either returns <code>false</code>.</p>
+<p>The complete heatmap below has 16 slices (columns, grouped by <code>Ho</code>) by 12 flits (rows, grouped by <code>(Hi, Ci)</code>).
+Right-side annotations (<code>H:</code>, <code>C:</code>) label which timers are active for each row: <code>v</code> = valid, <code>&gt;</code> = boundary, <code>x</code> = invalid.
+Scan these annotations first to predict which row × column blocks should be all-zero (any timer <code>x</code>) versus carry data, then read the cells to confirm the <code>[8, 8, 3]</code> packet-dim sawtooth.</p>
 <pre><code class="language-text">                     Ho=0       |Ho=1       |Ho=2       |Ho=3
                 Co:  0  1  2  3 | 0  1  2  3| 0  1  2  3| 0  1  2  3
-  H-gate:            v  v  v  v | v  v  v  v| &gt;  &gt;  &gt;  &gt;| x  x  x  x
-  C-gate:            v  v  &gt;  x | v  v  &gt;  x| v  v  &gt;  x| v  v  &gt;  x
+     H time filter: v  v  v  v  | v  v  v  v| &gt;  &gt;  &gt;  &gt;| x  x  x  x
+     C time filter: v  v  &gt;  x  | v  v  &gt;  x| v  v  &gt;  x| v  v  &gt;  x
 --------------------------------------------------------------------------------
  t= 0  Hi=0,Ci=0  W  8  8  8  0 | 8  8  8  0| 8  8  8  0| 0  0  0  0  H:v C:v
  t= 1             |  8  8  8  0 | 8  8  8  0| 8  8  8  0| 0  0  0  0
@@ -1225,213 +707,235 @@ Then read the cells to confirm that data-carrying blocks repeat the same <code>[
  t=10             |  8  8  0  0 | 8  8  0  0| 0  0  0  0| 0  0  0  0
  t=11             |  3  3  0  0 | 3  3  0  0| 0  0  0  0| 0  0  0  0
 
-v = open (below threshold)   &gt; = boundary (partial)   x = closed (above)
+Legend: `v` = below (all valid), `&gt;` = boundary (partial), `x` = above (all invalid)
 </code></pre>
-<p>Reading the patterns:</p>
 <ul>
-<li><strong>Ho=3 columns</strong> (rightmost 4): all 0.
-H-gate <code>x</code> (above threshold, always closed).</li>
-<li><strong>Co=3 columns</strong> (every 4th): all 0.
-C-gate <code>x</code>.</li>
-<li><strong>Co=2 columns</strong> (H:v C:<code>&gt;</code>): C-gate is boundary, so only rows with Ci=0 pass.
-Compare Co=1 vs Co=2 to see the gate’s effect.</li>
-<li><strong>Ho=2 columns</strong> (H:<code>&gt;</code> C:v): H-gate is boundary, so only rows with Hi=0 pass.
-Compare Ho=1 vs Ho=2.</li>
-<li><strong>Ho=2 * Co=2</strong> (both <code>&gt;</code>): only (Hi=0, Ci=0) rows pass, the intersection of both boundaries.</li>
-<li><strong>Within valid cells</strong>: the <code>[8, 8, 3]</code> sawtooth from packet dim always appears, the same regardless of slice.</li>
+<li><code>Ho=3</code> columns (rightmost 4): all 0 (<code>H</code> time filter <code>x</code>, always closed).</li>
+<li><code>Co=3</code> columns (every 4th): all 0 (<code>C</code> time filter <code>x</code>).</li>
+<li><code>Co=2</code> columns (<code>H:v C:&gt;</code>): <code>C</code> time filter is boundary, so only rows with <code>Ci=0</code> pass. Compare <code>Co=1</code> vs <code>Co=2</code>.</li>
+<li><code>Ho=2</code> columns (<code>H:&gt; C:v</code>): <code>H</code> time filter is boundary, so only rows with <code>Hi=0</code> pass. Compare <code>Ho=1</code> vs <code>Ho=2</code>.</li>
+<li><code>Ho=2 × Co=2</code> (both <code>&gt;</code>): only <code>(Hi=0, Ci=0)</code> rows pass, the intersection of both boundaries.</li>
+<li>Within valid cells, the <code>[8, 8, 3]</code> sawtooth from packet clipper always appears, the same regardless of slice.</li>
 </ul>
-</details>
-<h3 id="what-patterns-are-expressible"><a class="header" href="#what-patterns-are-expressible">What Patterns Are Expressible</a></h3>
-<p>The <a href="#valid-count-formula">valid count formula</a> is a product of four independent terms, and that multiplicative structure determines which <code>vc(s, t)</code> functions the hardware produces.</p>
+<h2 id="inexpressible-patterns"><a class="header" href="#inexpressible-patterns">Inexpressible Patterns</a></h2>
+<p>The following placements cannot be expressed by the VCG.
+Each subsection shows the placement and explains why.</p>
+<h3 id="r-in-slice-out-of-order"><a class="header" href="#r-in-slice-out-of-order"><code>R</code> in <code>Slice</code>, Out of Order</a></h3>
+<p>When <code>R</code> has multiple sub-expressions in <code>Slice</code>, each outer sub-expression must have a larger stride than the inner ones.
+Reversing this order produces non-monotonic per-slice <code>R</code> index ranges that a single <code>slice_thres</code> cannot capture.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![R = 13, X = 32];
+
+// NOT supported: inner sub-expression (/ 2 % 4, stride 2) placed outside major (/ 8, stride 8) in Slice.
+// Produces non-monotonic slice validity (S6 valid after S5 partial); VCG cannot express this.
+fn reduce_wrong_ordering&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4, R # 16 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input
+        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        //   Slice     = m![X, R # 16 / 2 % 4, R # 16 / 8]
+        //   Time      = m![R # 16 % 2]
+        //   Packet    = m![1 # 8]
+        //   OutTime   = m![1]          (R eliminated)
+        //   OutPacket = m![1 # 4]
+        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
+            IntraSliceReduceOpI32::Min,
+        )
+}
+<span class="boring">}</span></code></pre>
+<h3 id="r-in-slice-and-time-interleaved"><a class="header" href="#r-in-slice-and-time-interleaved"><code>R</code> in <code>Slice</code> and <code>Time</code>, Interleaved</a></h3>
+<p>When <code>R</code>’s sub-expressions are distributed such that a Slice factor falls between two Time factors, different slices end up needing different numbers of valid time steps.
+A single <code>slice_thres</code> cannot express this per-slice variation.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![R = 13, X = 64];
+
+// NOT supported: Time-Slice-Time interleave.
+// Different slices need different valid step counts (e.g., S2: 3/4, S3: 2/4); single threshold cannot express this.
+fn reduce_wrong_interleave&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input
+        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        //   Slice     = m![X, R # 16 / 2 % 4]
+        //   Time      = m![R # 16 / 8, R # 16 % 2]
+        //   Packet    = m![1 # 8]
+        //   OutTime   = m![1]          (R eliminated)
+        //   OutPacket = m![1 # 4]
+        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
+            IntraSliceReduceOpI32::Min,
+        )
+}
+<span class="boring">}</span></code></pre>
+<h3 id="r-in-slice-and-time-over-padded"><a class="header" href="#r-in-slice-and-time-over-padded"><code>R</code> in <code>Slice</code> and <code>Time</code>, Over-padded</a></h3>
+<p><code>TimeMajor</code> mode requires <code>PADDED_SIZE - R::SIZE ≤ slice_span</code>. At most <code>slice_span</code> <code>R</code> positions are over-padded.
+Padding beyond this point causes slices below <code>slice_thres</code> (which <code>fn valid()</code> always reports valid) to silently include padding in the reduction.</p>
+<p>In the example below, <code>R = 14</code>, <code>Slice = m![X, R # 20 % 4]</code> (<code>slice_span = 4</code>), and <code>Time = m![A, R # 20 / 4]</code> with <code>A = 3</code> (so <code>time_span = 5</code> from <code>R # 20 / 4</code>, while <code>Time::SIZE = A × time_span = 15</code>).
+The constraint is on <code>time_span</code>, not <code>Time::SIZE</code>: non-<code>R</code> axes in <code>Time</code> like <code>A</code> cycle without changing <code>R</code>’s index, so they do not affect the constraint.
+The correct padding is <code>R # 16</code> (since <code>16 - 14 = 2 ≤ slice_span = 4</code>), giving <code>time_span = 4</code>.
+Using <code>R # 20</code> over-pads <code>R</code>, making <code>time_span = 5</code> and adding an extra <code>Time</code> iteration that contains no real data.
+For slices below <code>slice_thres</code> (slice contribution = 0), the sequencer-reconstructed <code>idx</code> reaches <code>4 × 4 = 16</code> when <code>R # 20 / 4 = 4</code>, giving <code>R</code> index 16 ≥ <code>R::SIZE</code>: padding, should be invalid.
+But <code>fn valid()</code> sees <code>s &amp; self.slice_mask = 0 &lt; slice_thres = 2</code> and returns <code>true</code> regardless of <code>idx</code>.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 3, R = 14, X = 64];
+
+fn reduce_time_major_wrong&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 20 % 4], m![A], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input
+        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        //   Slice     = m![X, R # 20 % 4]
+        //   Time      = m![A, R # 20 / 4]   (A is non-R; time_span = 5 from R # 20 / 4)
+        //   Packet    = m![1 # 8]
+        //   OutTime   = m![A]              (R eliminated; A survives)
+        //   OutPacket = m![1 # 4]
+        // NOT supported: R # 20 over-pads (20 - 14 = 6 &gt; slice_span = 4).
+        // time_span = 5 &gt; 4. Below-group slices include time steps where R # 20 / 4 = 4 (R = 16 padding).
+        .vector_intra_slice_reduce::&lt;R, m![A], m![1 # 4]&gt;(
+            IntraSliceReduceOpI32::AddSat,
+        )
+}
+<span class="boring">}</span></code></pre>
+<h3 id="r-in-packet-complex"><a class="header" href="#r-in-packet-complex"><code>R</code> in <code>Packet</code>, Complex</a></h3>
+<p>The packet clipper requires <code>Packet = m![R # PADDED_SIZE % packet_span # 8]</code>.
+Other forms break the contiguous-prefix property that <code>fn valid_size()</code> relies on.</p>
+<p>The first example places <code>R</code>’s major part in <code>Packet</code> (form <code>R # 24 / 8</code> instead of <code>R # 24 % 8</code>), so the prefix mixes positions from different <code>R</code>-strides rather than holding <code>R</code>’s next contiguous run.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 8, R = 19, X = 64];
+
+fn reduce_wrong_packet_outer&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input
+        .vector_narrow_clip::&lt;m![R # 24 / 4]&gt;()
+        //   Slice     = m![X, A / 2]
+        //   Time      = m![R # 24 % 8]
+        //   Packet    = m![R # 24 / 8 # 8]   (NOT supported: major R in Packet)
+        //   OutTime   = m![1]          (R eliminated)
+        //   OutPacket = m![1 # 4]
+        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
+            IntraSliceReduceOpF32::Add,
+        )
+}
+<span class="boring">}</span></code></pre>
+<p>The second example has <code>R</code> sharing <code>Packet</code> with another axis <code>A</code>, so <code>A</code>’s elements occupy positions that the prefix-based count treats as padding.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 2, R = 19, X = 256];
+
+fn reduce_wrong_mixed_packet&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1], m![X], m![R # 24 / 4], m![R # 24 % 4, A # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X], m![1], m![A # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input
+        .vector_narrow_clip::&lt;m![R # 24 % 4, A]&gt;()
+        //   Slice     = m![X]
+        //   Time      = m![R # 24 / 4]
+        //   Packet    = m![R # 24 % 4, A # 8]   (NOT supported: A shares Packet with R)
+        //   OutTime   = m![1]          (R eliminated; A silently excluded by prefix valid_size)
+        //   OutPacket = m![A # 4]
+        .vector_intra_slice_reduce::&lt;R, m![1], m![A # 4]&gt;(
+            IntraSliceReduceOpF32::Add,
+        )
+}
+<span class="boring">}</span></code></pre>
+<h3 id="r-in-slice-and-packet"><a class="header" href="#r-in-slice-and-packet"><code>R</code> in <code>Slice</code> and <code>Packet</code></a></h3>
+<p><code>R</code> splits between <code>Slice</code> and <code>Packet</code>.
+To see why this is inexpressible, consider <code>R = 2045</code> (padded to <code>R # 2048</code>) split as <code>Slice = m![R # 2048 / 8]</code> (256 slices) and <code>Packet = m![R # 2048 % 8]</code> (8-element flits).
+At the only time step <code>t = 0</code>, <code>fn valid_size</code> computes <code>clamp(2045 - 0, 0, 8) = 8</code> for every slice.
+But slice 255’s flit holds <code>R</code> indices 2040–2047, of which only five are real data:</p>
+<p>At <code>t = 0</code>, <code>slice = 255</code>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Placement</th><th>Dim</th><th>Supported?</th><th>Key constraint</th></tr>
+<tr><th>flit position</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr>
 </thead>
 <tbody>
-<tr><td>Packet only</td><td>packet</td><td>✅</td><td>none</td></tr>
-<tr><td>Time only</td><td>gate</td><td>✅</td><td>none</td></tr>
-<tr><td>Slice only</td><td>gate</td><td>✅</td><td>none</td></tr>
-<tr><td>Slice + Time (standard)</td><td>gate</td><td>✅</td><td>none</td></tr>
-<tr><td>Slice + Time (transposed)</td><td>gate</td><td>✅</td><td><code>time_count = ⌈n / slice_count⌉</code></td></tr>
-<tr><td>Packet + Time</td><td>packet</td><td>✅</td><td>none</td></tr>
-<tr><td>Slice + Packet</td><td>packet + gate</td><td>❌</td><td><code>packet_vc(t)</code> cannot vary by slice</td></tr>
-<tr><td>Slice + Time + Packet</td><td>packet + gate</td><td>❌</td><td>same as Slice + Packet</td></tr>
+<tr><td><code>R</code> index</td><td>2040</td><td>2041</td><td>2042</td><td>2043</td><td>2044</td><td>2045</td><td>2046</td><td>2047</td></tr>
+<tr><td>valid?</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>[pad]</td><td>[pad]</td><td>[pad]</td></tr>
 </tbody>
 </table>
 </div>
-<p>The sections below explain why each boundary exists.</p>
-<h4 id="why-limitations-arise"><a class="header" href="#why-limitations-arise">Why Limitations Arise</a></h4>
-<p>Each limitation traces back to a specific part of the formula.</p>
-<ul>
-<li>
-<p><strong>Packet dim cannot see slice-id</strong>: The <a href="#packet-dim-packet-level-valid-count">packet dim formula</a> <code>packet_vc(t) = min(stride_p, max(0, V_p − idx_p(t)))</code> depends only on <code>t</code>.
-If two slices need different partial counts at the same time step, packet dim cannot produce both:</p>
-<pre><code class="language-text">Suppose we need:  vc(s=0, t=0) = 8,  vc(s=1, t=0) = 3
-                                       ───────────────
-                                       packet dim would need to output
-                                       both 8 and 3 at t=0, impossible
-</code></pre>
-</li>
-<li>
-<p><strong>Each gate classifies slices by a single threshold after masking</strong>: <a href="#gate-dims-per-flit-binary-validity">Gate dims</a> first apply a bitmask to the slice-id (<code>masked_id = slice_id &amp; mask</code>), then compare against one value <code>match</code>.
-This produces three contiguous groups (below, boundary, above).
-A gate cannot express “slices 0, 3, 7 are valid but 1, 2 are not”.
-It represents only contiguous ranges of <code>masked_id</code>.
-The mask selects which bits of the slice-id to inspect, letting one gate track a specific axis even when the slice-id encodes multiple axes.</p>
-</li>
-<li>
-<p><strong>At most 4 independent checks</strong>: one packet count (packet dim) plus three binary gates (gate dims) gives 4 orthogonal dimensions total.</p>
-</li>
-</ul>
-<h4 id="single-axis-scenarios"><a class="header" href="#single-axis-scenarios">Single-Axis Scenarios</a></h4>
-<p>A padded axis (original size <code>n</code>, padded to <code>n' &gt; n</code>) occupies some combination of three positions, namely <strong>Packet</strong> (<a href="#packet-dim-packet-level-valid-count">packet dim</a>), <strong>Time</strong> (<a href="#sequencer">sequencer</a>), and <strong>Slice</strong> (<a href="#gate-dims-per-flit-binary-validity">gate dims</a> via slice-id bits).</p>
-<h5 id="single-position-packet-time-or-slice"><a class="header" href="#single-position-packet-time-or-slice">Single Position (Packet, Time, or Slice)</a></h5>
-<p>An axis in a single position maps directly to one VCG component, and all three single-position placements are always supported.</p>
-<ul>
-<li><strong>Packet only</strong> → packet dim handles the sawtooth (see <a href="#packet-dim-packet-level-valid-count">Packet Dim examples</a>).</li>
-<li><strong>Time only</strong> → <a href="#gate-dims-per-flit-binary-validity">gate dim</a> with <code>mask=0, match=0</code> (all slices are boundary, binary validity by time step).</li>
-<li><strong>Slice only</strong> → <a href="#gate-dims-per-flit-binary-validity">gate dim</a> with appropriate mask/match (all time steps within a valid slice pass, invalid slices are fully gated).</li>
-</ul>
-<h5 id="slice--time"><a class="header" href="#slice--time">Slice + Time</a></h5>
-<p>One axis splits between slice-id bits and sequencer counters.
-Slice + Time is the typical use of <a href="#gate-dims-per-flit-binary-validity">gate dims</a>, making it the most common VCG configuration.</p>
-<p>In <strong>standard</strong> ordering (slice outer, time inner), axis index = <code>Ho × time_count + Hi</code>.</p>
-<details>
-<summary>Example: H=14, Ho=8 (slice) × Hi=3 (time), standard mode</summary>
-<p>Gate dim config: <code>match = ⌊14/3⌋ = 4</code>, <code>V = 14 mod 3 = 2</code>.</p>
-<pre><code class="language-text">Ho  masked_id  group       Hi=0         Hi=1         Hi=2
-──  ─────────  ─────────   ──────────   ──────────   ──────────
-0   0          below       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  always ✅
-1   1          below       always ✅     always ✅     always ✅
-2   2          below       always ✅     always ✅     always ✅
-3   3          below       always ✅     always ✅     always ✅
-4   4          boundary    idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
-5   5          above       ❌            ❌            ❌
-6   6          above       ❌            ❌            ❌
-7   7          above       ❌            ❌            ❌
-</code></pre>
-<p>“Below” is genuinely all-valid because <code>Ho × 3 + Hi &lt; 4 × 3 = 12 ≤ 14</code> for all <code>Hi ∈ [0,3)</code>.
-Standard mode tolerates over-allocated <code>time_count</code>, and the “below” interpretation remains correct.</p>
-</details>
-<p>In <strong>transposed</strong> ordering (time outer, slice inner), the gate dim uses <a href="#transposed-mode">transposed mode</a> and the worked example below illustrates the resulting validity pattern.</p>
-<details>
-<summary>Example: H=19, Ho=8 (slice, inner) × Hi=3 (time, outer), transposed mode</summary>
-<p>Gate dim config: <code>match = 19 mod 8 = 3</code>, <code>V = ⌊19/8⌋ = 2</code>, transposed mode.</p>
-<pre><code class="language-text">Ho  masked_id  group       Hi=0         Hi=1         Hi=2
-──  ─────────  ─────────   ──────────   ──────────   ──────────
-0   0          below       always ✅     always ✅     always ✅
-1   1          below       always ✅     always ✅     always ✅
-2   2          below       always ✅     always ✅     always ✅
-3   3          boundary    idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
-4   4          above       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
-5   5          above       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
-6   6          above       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
-7   7          above       idx=0 &lt; 2 ✅  idx=1 &lt; 2 ✅  idx=2 &lt; 2 ❌
-</code></pre>
-<p>Verify against real data (axis index = <code>Hi × 8 + Ho</code>, valid when &lt; 19):</p>
-<ul>
-<li>Ho=0, Hi=2: <code>2×8 + 0 = 16 &lt; 19</code> ✅, “below” gives all-valid = 3 steps, need <code>V+1 = 3</code> steps ✅</li>
-<li>Ho=3, Hi=2: <code>2×8 + 3 = 19 ≥ 19</code> ❌, boundary gives 2 steps ✅</li>
-<li>Ho=7, Hi=1: <code>1×8 + 7 = 15 &lt; 19</code> ✅, “above” gives V=2 steps, actual need is 2 steps ✅</li>
-</ul>
-<p>The “below” group gets <code>time_count</code> valid steps from the HW “all-valid” interpretation, so <code>time_count</code> must equal <code>V + 1 = ⌈n / slice_count⌉</code>.
-For the user-facing statement of this constraint, see <a href="#transposed-time-size-constraint">transposed time_size constraint</a>.</p>
-</details>
-<h5 id="packet--time"><a class="header" href="#packet--time">Packet + Time</a></h5>
-<p>When an axis spans both Packet and Time, both factors assign to <strong>packet dim</strong>, and multiple counters then contribute to <code>idx_p(t)</code> as described in <a href="#original-dimensions">Original Dimensions</a>.</p>
-<details>
-<summary>Example: n=50, two counters on packet dim, contiguous (`stride_outer = 8 × 3 = 24`)</summary>
-<pre><code class="language-text">c_inner (limit=3, stride=8):  packet counter
-c_outer (limit=3, stride=24): time counter     (24 = 8 × 3 ✅ contiguous)
+<p>Slices 0–254 legitimately need <code>valid_size = 8</code>, but slice 255 needs <code>valid_size = 5</code>.
+<code>fn valid_size(t)</code> can only return one value for a given <code>t</code>, so no single configuration works.</p>
+<p>The degenerate sub-case where <code>R::SIZE % packet_span = 0</code> (every packet is full or empty) reduces to Slice only and is supported.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![R = 2045];
 
-idx_p = c_outer × 24 + c_inner × 8
-
-          c_inner=0    c_inner=1    c_inner=2
-          ─────────    ─────────    ─────────
-c_outer=0  idx_p=0→8   idx_p=8→8    idx_p=16→8
-c_outer=1  idx_p=24→8  idx_p=32→8   idx_p=40→8
-c_outer=2  idx_p=48→2  idx_p=56→0   idx_p=64→0
-                  ↑
-                  min(8, 50-48)=2
-</code></pre>
-<p>Packet dim handles both the within-flit and across-flit boundaries.</p>
-</details>
-<h5 id="slice--packet-not-supported-1"><a class="header" href="#slice--packet-not-supported-1">Slice + Packet (Not Supported)</a></h5>
-<p>One axis splits between <strong>slice</strong> (gate dim) and <strong>packet</strong> (packet dim).
-This directly violates the <strong>slice-independent packet count</strong> constraint (see the <a href="#packet-dim-packet-level-valid-count">Packet Dim</a> key property).</p>
-<p><code>packet_vc(t)</code> depends only on <code>t</code>, but the boundary slice (the one where only some of <code>R</code> is valid) needs a different partial count than all-valid slices.
-The gate multiplies by 0 or 1, so it fully closes a flit but <strong>cannot change the partial count</strong>.</p>
-<details>
-<summary>Example: n=10, stride_p=8, slice_count=2</summary>
-<pre><code class="language-text">What we need:
-  Ho=0: elements 0-7,   all valid     →  vc = 8
-  Ho=1: elements 8-15,  first 2 valid →  vc = 2
-                                           ─
-                                           partial count, different from 8
-
-Attempt 1: set `V_p = 10`:
-  packet_vc = min(8, 10-0) = 8         for ALL slices
-  Ho=0:  vc = 8 × 1 = 8  ✅
-  Ho=1:  vc = 8 × 1 = 8  ❌  (need 2, not 8)
-         vc = 8 × 0 = 0  ❌  (gate can close to 0, not to 2)
-
-Attempt 2: set `V_p = 2`:
-  packet_vc = min(8, 2-0) = 2          for ALL slices
-  Ho=0:  vc = 2 × 1 = 2  ❌  (need 8, not 2)
-
-No single V_p works.  Packet dim produces one value, and the gate can only multiply by 0 or 1.
-</code></pre>
-</details>
-<p>Two degenerate cases avoid this conflict.
-When <code>n % stride_p = 0</code>, every packet is either fully valid or fully invalid, so packet dim produces no partial counts and a gate alone handles validity.
-This reduces to <strong>Slice only</strong>, not a true Slice + Packet scenario.
-Similarly, <code>n &lt;= stride_p</code> means a single flit covers the entire axis, reducing to <strong>Packet only</strong>.</p>
-<p>When the VCG cannot express the required pattern, <a href="./intra-slice-reduce.html#padding-strategy">Padding Strategy</a> provides alternatives.</p>
-<h5 id="slice--time--packet-not-supported"><a class="header" href="#slice--time--packet-not-supported">Slice + Time + Packet (Not Supported)</a></h5>
-<p>The axis spans all three positions.
-The Slice + Packet conflict carries over, since the boundary slice still needs a different partial count than all-valid slices, and <code>packet_vc(t)</code> still cannot vary by slice.</p>
-<p>The same degenerate exception applies, where <code>n % stride_p = 0</code> eliminates partial counts and reduces this case to <strong>Slice + Time</strong> (packet dim unused).</p>
-<h4 id="multiple-axes"><a class="header" href="#multiple-axes">Multiple Axes</a></h4>
-<p>Each padded axis that needs validity tracking consumes one <a href="#original-dimensions">original dimension</a> slot.
-The reduce axis <code>R</code> always needs a slot, and any non-reduce axis that is padded also needs one so the VCG can gate out its padding before the reduction sees it.
-Intra-slice reduce takes a single <code>REDUCE_LABEL</code>, so multi-axis here means one reduce axis plus extra padded non-reduce axes, not multiple reductions in one Tensor Unit invocation.</p>
+// NOT supported: R = 2045 split across Slice (/ 8, 256 slices) and Packet (% 8).
+// Slices 0-254 need valid_size = 8; slice 255 needs valid_size = 5. fn valid_size(t) cannot vary by slice.
+fn reduce_wrong_slice_packet&lt;'l, const T: Tu&gt;(
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1], m![R # 2048 / 8], m![1], m![R # 2048 % 8], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 2048 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
+{
+    input
+        .vector_narrow_clip::&lt;m![R # 2048 % 4]&gt;()
+        //   Slice     = m![R # 2048 / 8]
+        //   Time      = m![1]
+        //   Packet    = m![R # 2048 % 8]
+        //   OutTime   = m![1]          (R eliminated)
+        //   OutPacket = m![1 # 4]
+        .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(
+            IntraSliceReduceOpI32::AddSat,
+        )
+}
+<span class="boring">}</span></code></pre>
+<h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Resource</th><th>Capacity</th><th>Notes</th></tr>
+<tr><th>Component</th><th>Capacity</th></tr>
 </thead>
 <tbody>
-<tr><td><strong><a href="#packet-dim-packet-level-valid-count">Packet Dim</a></strong> (packet count)</td><td>1 slot</td><td>Innermost counter determines <code>stride_p</code></td></tr>
-<tr><td><strong><a href="#gate-dims-per-flit-binary-validity">Gate Dims</a></strong> (binary gates)</td><td>3 slots</td><td>One gate per padded axis</td></tr>
-<tr><td><strong>Unpadded axes</strong></td><td>free</td><td>No dim needed (<code>mask=0, match=1</code>)</td></tr>
+<tr><td>Packet clippers</td><td>1 instance</td></tr>
+<tr><td>Time filters</td><td>3 instances</td></tr>
+<tr><td>Sequencer entries per time filter / packet clipper</td><td>8 (see <a href="../../moving-tensors/sequencer.html">Sequencer</a>)</td></tr>
 </tbody>
 </table>
 </div>
-<p>When the packet axis is fully aligned (<code>n % stride_p = 0</code>), <code>packet_vc</code> is constant and packet dim is effectively unused, so it can be repurposed as a gate for another axis.</p>
-<h4 id="summary"><a class="header" href="#summary">Summary</a></h4>
-<p>A valid count function <code>vc(s, t)</code> is VCG-expressible if and only if:</p>
-<ol>
-<li><strong>Prefix property</strong>: Valid elements form a contiguous prefix <code>[0, vc)</code> within each flit.</li>
-<li><strong>Slice-independent packet count</strong>: <code>packet_vc(t)</code> is the same across all slices at the same <code>t</code>.
-Slices can be gated to <code>vc = 0</code>, but cannot receive a different partial count.</li>
-<li><strong>Monotonic slice ordering</strong>: Each gate dim classifies slices by a single threshold on <code>masked_id</code>.</li>
-<li><strong>At most 4 orthogonal dimensions</strong>: 1 packet count plus 3 binary gates.</li>
-</ol>
-<p>For mapping-level code examples of each placement, see <a href="#examples">Examples</a>.
-For unsupported cases, see <a href="./intra-slice-reduce.html#padding-strategy">Padding Strategy</a>.</p>
-<h3 id="downstream-4-way-operations"><a class="header" href="#downstream-4-way-operations">Downstream 4-Way Operations</a></h3>
-<p>The VCG assigns valid counts per 8-way flit, but the intra-slice pipeline operates on 4-way halves after a <code>Narrow</code> stage.</p>
+<p>Each padded axis that needs validity tracking occupies one time filter or the packet clipper.
+At most 4 axes can be tracked in one invocation (1 packet clipper + 3 time filters).
+Unpadded axes need no slot (<code>slice_mask=0, slice_thres=1</code> disables the time filter, making it always return <code>true</code>).</p>
+<p>Intra-slice reduce takes a single <code>REDUCE_LABEL</code>, so “multi-axis” means one reduce axis <code>R</code> plus extra padded non-reduce axes, not multiple simultaneous reductions.</p>
+<h2 id="downstream-4-way-operations"><a class="header" href="#downstream-4-way-operations">Downstream 4-Way Operations</a></h2>
+<p>The VCG produces <code>valid_size</code> per 8-way flit before any narrowing.
+A downstream <code>Narrow</code> stage splits each 8-way flit into 4-way halves, and the way the narrow is applied determines how each <code>valid_size</code> is split between the halves.</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Operation</th><th>Input</th><th>Output</th><th>Valid Count Transformation</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>split_way4</strong></td><td>8-way flit (vc = v)</td><td>two 4-way flits</td><td><code>vc_low = min(v, 4)</code>, <code>vc_high = max(v - 4, 0)</code></td></tr>
-<tr><td><strong>trim_way4</strong></td><td>8-way flit (vc = v)</td><td>one 4-way flit</td><td><code>vc = v</code> (requires v &lt;= 4)</td></tr>
-<tr><td><strong>concat_way8</strong></td><td>two 4-way flits</td><td>8-way flit</td><td><code>vc = vc_low + vc_high</code></td></tr>
-<tr><td><strong>pad_way8</strong></td><td>4-way flit</td><td>8-way flit</td><td><code>vc</code> unchanged</td></tr>
+<tr><td><strong>split_way4</strong></td><td>8-way flit (<code>valid_size = v</code>)</td><td>two 4-way flits</td><td>low: <code>min(v, 4)</code>, high: <code>max(v - 4, 0)</code></td></tr>
+<tr><td><strong>trim_way4</strong></td><td>8-way flit (<code>valid_size = v</code>)</td><td>one 4-way flit</td><td><code>min(v, 4)</code></td></tr>
+<tr><td><strong>concat_way8</strong></td><td>two 4-way flits (<code>v_low</code>, <code>v_high</code>)</td><td>8-way flit</td><td><code>v_low + v_high</code></td></tr>
+<tr><td><strong>pad_way8</strong></td><td>4-way flit</td><td>8-way flit</td><td>unchanged</td></tr>
 </tbody>
 </table>
 </div>

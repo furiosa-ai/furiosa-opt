@@ -55,17 +55,17 @@
 <a href=#55 id=55 data-nosnippet>55</a>    );
 <a href=#56 id=56 data-nosnippet>56</a>}
 <a href=#57 id=57 data-nosnippet>57</a>
-<a href=#58 id=58 data-nosnippet>58</a><span class="doccomment">/// Verify vector_narrow_trim: Packet (size 8) → Packet2 (size 4, front half only).
+<a href=#58 id=58 data-nosnippet>58</a><span class="doccomment">/// Verify vector_narrow_clip: Packet (size 8) → Packet2 (size 4, front half only).
 <a href=#59 id=59 data-nosnippet>59</a>///
 <a href=#60 id=60 data-nosnippet>60</a>/// Checks that the back 4 of Packet are dummy,
 <a href=#61 id=61 data-nosnippet>61</a>/// and that Packet2 matches the front 4 of Packet.
-<a href=#62 id=62 data-nosnippet>62</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>verify_vector_narrow_trim&lt;Packet: M, Packet2: M&gt;() {
+<a href=#62 id=62 data-nosnippet>62</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>verify_vector_narrow_clip&lt;Packet: M, Packet2: M&gt;() {
 <a href=#63 id=63 data-nosnippet>63</a>    <span class="macro">assert_eq!</span>(
 <a href=#64 id=64 data-nosnippet>64</a>        Packet::SIZE,
 <a href=#65 id=65 data-nosnippet>65</a>        <span class="number">8</span>,
-<a href=#66 id=66 data-nosnippet>66</a>        <span class="string">"vector_narrow_trim: input Packet must have 8 elements (one flit), got {}. \
-<a href=#67 id=67 data-nosnippet>67</a>         vector_narrow_trim is used to strip the back-4 dummy lanes before float operations. \
-<a href=#68 id=68 data-nosnippet>68</a>         If Packet is already 4, you don't need vector_narrow_trim."</span>,
+<a href=#66 id=66 data-nosnippet>66</a>        <span class="string">"vector_narrow_clip: input Packet must have 8 elements (one flit), got {}. \
+<a href=#67 id=67 data-nosnippet>67</a>         vector_narrow_clip is used to strip the back-4 dummy lanes before float operations. \
+<a href=#68 id=68 data-nosnippet>68</a>         If Packet is already 4, you don't need vector_narrow_clip."</span>,
 <a href=#69 id=69 data-nosnippet>69</a>        Packet::SIZE,
 <a href=#70 id=70 data-nosnippet>70</a>    );
 <a href=#71 id=71 data-nosnippet>71</a>    <span class="kw">let </span>Tuple2(packet_outer, packet_inner) = Packet::to_value().factorize().split_at(<span class="number">4</span>);
@@ -74,21 +74,21 @@
 <a href=#74 id=74 data-nosnippet>74</a>    </span><span class="macro">assert_eq!</span>(
 <a href=#75 id=75 data-nosnippet>75</a>        packet_outer.clone().normalize(),
 <a href=#76 id=76 data-nosnippet>76</a>        &lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">2</span>]&gt;::to_value().factorize(),
-<a href=#77 id=77 data-nosnippet>77</a>        <span class="string">"vector_narrow_trim: the back 4 lanes of the packet must be dummy (padding), \
+<a href=#77 id=77 data-nosnippet>77</a>        <span class="string">"vector_narrow_clip: the back 4 lanes of the packet must be dummy (padding), \
 <a href=#78 id=78 data-nosnippet>78</a>         but got: {packet_outer}. \
-<a href=#79 id=79 data-nosnippet>79</a>         If the back 4 lanes contain real data, use vector_narrow_split() instead of vector_narrow_trim()."
+<a href=#79 id=79 data-nosnippet>79</a>         If the back 4 lanes contain real data, use vector_narrow_split() instead of vector_narrow_clip()."
 <a href=#80 id=80 data-nosnippet>80</a>    </span>);
 <a href=#81 id=81 data-nosnippet>81</a>    <span class="comment">// Output must be the front 4
 <a href=#82 id=82 data-nosnippet>82</a>    </span><span class="macro">assert_eq!</span>(
 <a href=#83 id=83 data-nosnippet>83</a>        Packet2::SIZE,
 <a href=#84 id=84 data-nosnippet>84</a>        <span class="number">4</span>,
-<a href=#85 id=85 data-nosnippet>85</a>        <span class="string">"vector_narrow_trim: output Packet2 must have 4 elements, got {}."</span>,
+<a href=#85 id=85 data-nosnippet>85</a>        <span class="string">"vector_narrow_clip: output Packet2 must have 4 elements, got {}."</span>,
 <a href=#86 id=86 data-nosnippet>86</a>        Packet2::SIZE,
 <a href=#87 id=87 data-nosnippet>87</a>    );
 <a href=#88 id=88 data-nosnippet>88</a>    <span class="macro">assert_eq!</span>(
 <a href=#89 id=89 data-nosnippet>89</a>        packet_inner,
 <a href=#90 id=90 data-nosnippet>90</a>        Packet2::to_value().factorize(),
-<a href=#91 id=91 data-nosnippet>91</a>        <span class="string">"vector_narrow_trim: Packet2 must match the front 4 of Packet. \
+<a href=#91 id=91 data-nosnippet>91</a>        <span class="string">"vector_narrow_clip: Packet2 must match the front 4 of Packet. \
 <a href=#92 id=92 data-nosnippet>92</a>         Expected: {packet_inner}, got: {}."</span>,
 <a href=#93 id=93 data-nosnippet>93</a>        Packet2::to_value().factorize(),
 <a href=#94 id=94 data-nosnippet>94</a>    );
@@ -101,8 +101,8 @@
 <a href=#101 id=101 data-nosnippet>101</a>    <span class="macro">assert_eq!</span>(
 <a href=#102 id=102 data-nosnippet>102</a>        Packet::SIZE,
 <a href=#103 id=103 data-nosnippet>103</a>        <span class="number">4</span>,
-<a href=#104 id=104 data-nosnippet>104</a>        <span class="string">"vector_widen_pad: input Packet must have 4 elements (after vector_narrow_trim), got {}. \
-<a href=#105 id=105 data-nosnippet>105</a>         vector_widen_pad restores the back-4 dummy lanes stripped by vector_narrow_trim."</span>,
+<a href=#104 id=104 data-nosnippet>104</a>        <span class="string">"vector_widen_pad: input Packet must have 4 elements (after vector_narrow_clip), got {}. \
+<a href=#105 id=105 data-nosnippet>105</a>         vector_widen_pad restores the back-4 dummy lanes stripped by vector_narrow_clip."</span>,
 <a href=#106 id=106 data-nosnippet>106</a>        Packet::SIZE,
 <a href=#107 id=107 data-nosnippet>107</a>    );
 <a href=#108 id=108 data-nosnippet>108</a>    <span class="macro">assert_eq!</span>(

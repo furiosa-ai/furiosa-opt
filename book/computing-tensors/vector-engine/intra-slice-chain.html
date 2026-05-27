@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-85db366b.js";
+            window.path_to_searchindex_js = "../../searchindex-6c04c645.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-0b46deb9.js"></script>
@@ -201,7 +201,7 @@ fn staged_pipeline&lt;'l, const T: Tu&gt;(
     // i32 → f32 (fixed-point, int_width = 31)
     .vector_fxp_to_fp(31)
     // Way8 → Way4 for the float path
-    .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()
+    .vector_narrow_clip::&lt;m![A % 2 # 4]&gt;()
     // sigmoid(input + 100)
     .vector_fp_unary(FpUnaryOp::Sigmoid)
     // Way4 → Way8
@@ -239,7 +239,7 @@ Per-stage detail is in <a href="#stages">Stages</a> below.</p>
 <tr><td>2</td><td>Logic</td><td><code>vector_logic()</code></td><td>Way8</td><td>yes</td><td>yes</td></tr>
 <tr><td>3</td><td>Fxp</td><td><code>vector_fxp()</code></td><td>Way8</td><td>yes</td><td>yes</td></tr>
 <tr><td>4</td><td>FxpToFp</td><td><code>vector_fxp_to_fp()</code></td><td>Way8</td><td>–</td><td>yes</td></tr>
-<tr><td>5</td><td>Narrow</td><td><code>vector_narrow_split()</code> / <code>vector_narrow_trim()</code></td><td>Way8 → Way4</td><td>–</td><td>–</td></tr>
+<tr><td>5</td><td>Narrow</td><td><code>vector_narrow_split()</code> / <code>vector_narrow_clip()</code></td><td>Way8 → Way4</td><td>–</td><td>–</td></tr>
 <tr><td>6</td><td>Float</td><td><code>vector_fp_unary/binary/ternary()</code></td><td>Way4</td><td>yes</td><td>–</td></tr>
 <tr><td>7</td><td>IntraSliceReduce</td><td><code>vector_intra_slice_reduce()</code></td><td>Way4</td><td>–</td><td>–</td></tr>
 <tr><td>8</td><td>FpDiv</td><td><code>vector_fp_div()</code></td><td>Way4</td><td>yes</td><td>–</td></tr>
@@ -252,8 +252,8 @@ Per-stage detail is in <a href="#stages">Stages</a> below.</p>
 </div>
 <p>Stages run either 8-way (8 elements per cycle) or 4-way (4 elements per cycle).
 The floating-point cluster runs 4-way to amortize its half-throughput ALUs against the rest of the chain.
-A chain that uses the float path therefore enters 8-way, calls <code>Narrow</code> (<code>vector_narrow_split</code> or <code>vector_narrow_trim</code>) before the float stages, and calls <code>Widen</code> (<code>vector_widen_concat</code> or <code>vector_widen_pad</code>) afterward to return to 8-way.
-The example does exactly this: <code>vector_narrow_trim</code> then <code>vector_fp_unary(Sigmoid)</code> then <code>vector_widen_pad</code>.</p>
+A chain that uses the float path therefore enters 8-way, calls <code>Narrow</code> (<code>vector_narrow_split</code> or <code>vector_narrow_clip</code>) before the float stages, and calls <code>Widen</code> (<code>vector_widen_concat</code> or <code>vector_widen_pad</code>) afterward to return to 8-way.
+The example does exactly this: <code>vector_narrow_clip</code> then <code>vector_fp_unary(Sigmoid)</code> then <code>vector_widen_pad</code>.</p>
 <p><a id="transitioning-to-the-inter-slice-reducer"></a></p>
 <p>The chain exits via <code>vector_final()</code> (as in the example) or <code>vector_inter_slice_reduce()</code> (handing off to the <a href="./inter-slice-reducer.html">Inter-Slice Reducer</a>).
 Both exits require 8-way, so any active 4-way stage must pass through <code>Widen</code> first.</p>
@@ -333,7 +333,7 @@ Under the hood, <code>vector_intra_slice_unzip()</code> uses <code>TagMode::Axis
 <p>Stages during the paired phase fall into two flavors:</p>
 <ul>
 <li><strong>Common stages</strong> (<code>vector_fxp_to_fp</code>, <code>vector_narrow_split</code>, <code>vector_widen_concat</code>, <code>vector_fp_to_fxp</code>) act on both groups uniformly.
-<code>vector_narrow_trim</code> and <code>vector_widen_pad</code> are not available on pairs; use the <code>_split</code> / <code>_concat</code> variants instead.</li>
+<code>vector_narrow_clip</code> and <code>vector_widen_pad</code> are not available on pairs; use the <code>_split</code> / <code>_concat</code> variants instead.</li>
 <li><strong>Per-group ops</strong> take one argument per group:
 <ul>
 <li>Binary and ternary (<code>vector_fxp</code>, <code>vector_fp_binary</code>, <code>vector_fp_ternary</code>, <code>vector_clip</code>, etc.) accept <code>()</code> on a side to skip it, or different operands on each side.</li>
@@ -480,7 +480,7 @@ Narrowing halves throughput on the float and reduce path, so the same logical te
 </thead>
 <tbody>
 <tr><td><code>vector_narrow_split()</code></td><td>both halves contain real data</td><td>split one 8-way flit into a front-4 and back-4 packet, updating <code>Time</code> and <code>Packet</code></td></tr>
-<tr><td><code>vector_narrow_trim()</code></td><td>back 4 elements are already padding or irrelevant</td><td>keep only the front 4 elements</td></tr>
+<tr><td><code>vector_narrow_clip()</code></td><td>back 4 elements are already padding or irrelevant</td><td>keep only the front 4 elements</td></tr>
 </tbody>
 </table>
 </div>
@@ -504,7 +504,7 @@ fn trim_way4_semantics&lt;'l, const T: Tu&gt;(
     input: VectorBranchTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;,
 ) -&gt; VectorNarrowTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
-    input.vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()
+    input.vector_narrow_clip::&lt;m![A % 2 # 4]&gt;()
     // shape semantics: [T], [P] -&gt; [T], [P = 4]
 }
 <span class="boring">}</span></code></pre>
@@ -607,7 +607,7 @@ Later stages (<code>FpToFxp</code>, <code>Clip</code>, <code>Filter</code>, <cod
 </thead>
 <tbody>
 <tr><td><code>vector_widen_concat()</code></td><td>reversing a prior <code>vector_narrow_split()</code></td><td>merge two 4-way packets back into one 8-way flit</td></tr>
-<tr><td><code>vector_widen_pad()</code></td><td>reversing a prior <code>vector_narrow_trim()</code></td><td>pad a 4-way packet back to 8 elements with invalid fillers</td></tr>
+<tr><td><code>vector_widen_pad()</code></td><td>reversing a prior <code>vector_narrow_clip()</code></td><td>pad a 4-way packet back to 8 elements with invalid fillers</td></tr>
 </tbody>
 </table>
 </div>
@@ -712,7 +712,7 @@ fn add_constant&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">}</span></code></pre>
 <h3 id="f32-pipeline"><a class="header" href="#f32-pipeline"><code>f32</code> Pipeline</a></h3>
-<p><code>vector_narrow_trim()</code> is the <code>Narrow</code> step that converts the tensor from 8-way to 4-way before the float operation.
+<p><code>vector_narrow_clip()</code> is the <code>Narrow</code> step that converts the tensor from 8-way to 4-way before the float operation.
 <code>vector_widen_pad()</code> is the <code>Widen</code> step that converts back to 8-way afterward.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -727,7 +727,7 @@ fn sigmoid&lt;'l, const T: Tu&gt;(
     input
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;() // Narrow: Way8 -&gt; Way4
+        .vector_narrow_clip::&lt;m![A % 2 # 4]&gt;() // Narrow: Way8 -&gt; Way4
         .vector_fp_unary(FpUnaryOp::Sigmoid)
         .vector_widen_pad::&lt;m![A % 2 # 8]&gt;() // Widen: Way4 -&gt; Way8
         .vector_final()
@@ -789,7 +789,7 @@ fn residual_max&lt;'l, const T: Tu&gt;(
         .vector_init()                                        // enter VE
         .vector_intra_slice_tag(TagMode::Zero) // start the intra-slice path
         .vector_stash()                                       // save original x
-        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()                  // narrow to Way4
+        .vector_narrow_clip::&lt;m![A % 2 # 4]&gt;()                  // narrow to Way4
         .vector_fp_binary(FpBinaryOp::MulF(FpMulAlu::Mul0), 2.0f32) // compute 2 * x
         .vector_widen_pad::&lt;m![A % 2 # 8]&gt;()                   // widen back to Way8
         .vector_clip(ClipBinaryOpF32::Max, Stash)             // max(2 * x, x)
@@ -835,7 +835,7 @@ fn stash_across_narrow_widen&lt;'l, const T: Tu&gt;(
         .vector_init()                                     // enter VE
         .vector_intra_slice_tag(TagMode::Zero) // start the intra-slice path
         .vector_stash()                                    // save x (Way8)
-        .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()               // narrow to Way4
+        .vector_narrow_clip::&lt;m![A % 2 # 4]&gt;()               // narrow to Way4
         .vector_fp_unary(FpUnaryOp::Sigmoid)               // compute sigmoid(x) in Way4
         .vector_widen_pad::&lt;m![A % 2 # 8]&gt;()                // widen back to Way8
         .vector_clip(ClipBinaryOpF32::Max, Stash)          // compute max(sigmoid(x), x)

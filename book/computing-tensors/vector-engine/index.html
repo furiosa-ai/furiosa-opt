@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-85db366b.js";
+            window.path_to_searchindex_js = "../../searchindex-6c04c645.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-0b46deb9.js"></script>
@@ -335,7 +335,7 @@ fn full_sum&lt;'l, const T: Tu&gt;(
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         // Way8 → Way4 (back 4 packet positions were padding)
-        .vector_narrow_trim::&lt;m![R % 4]&gt;()
+        .vector_narrow_clip::&lt;m![R % 4]&gt;()
         // sum over R's Time and Packet portions
         .vector_intra_slice_reduce::&lt;R, m![1], m![1 # 4]&gt;(IntraSliceReduceOpI32::AddSat)
         // Way4 → Way8
