@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-0b46deb9.js"></script>
+        <script src="../toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -237,13 +237,13 @@ The mapping <code>m![A]</code> maps 8 buffer indices linearly to tensor indices 
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate furiosa_mapping;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span><span class="boring">axes![A = 8];
 </span><span class="boring">
 </span>type E = m![A]; // Symbol&lt;Ident::A, 8&gt;
 
-#[test]
 fn test_symbol() {
     assert_eq!(E::map(0), Some(i![A: 0]));
     assert_eq!(E::map(1), Some(i![A: 1]));
@@ -253,7 +253,9 @@ fn test_symbol() {
     }
     assert_eq!(E::map(E::SIZE), None);
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">test_symbol();
+</span><span class="boring">}</span></code></pre>
 <pre><code class="language-rust ignore">impl&lt;S: AxisName&gt; M for Symbol&lt;S&gt; {
     const SIZE: usize = S::SIZE;
 
@@ -267,8 +269,7 @@ fn test_symbol() {
     fn map(i: usize) -&gt; Option&lt;Index&gt; {
         (i &lt; S::SIZE).then(|| {
             let mut index = Index::new();
-            Index::add_term(
-                &amp;mut index,
+            index.add_term(
                 Term {
                     inner: Atom::Symbol {
                         symbol: S::NAME,
@@ -295,13 +296,13 @@ The size is <code>L::SIZE * R::SIZE</code>, and the mapping uses floor division 
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate furiosa_mapping;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span><span class="boring">axes![A = 8, B = 512];
 </span><span class="boring">
 </span>type E = m![A, B]; // Pair&lt;m![A], m![B]&gt;
 
-#[test]
 fn test_pair() {
     // First 512 elements hold A=0, next 512 hold A=1
     assert_eq!(E::map(0),   Some(i![A: 0, B: 0]));
@@ -313,7 +314,9 @@ fn test_pair() {
     }
     assert_eq!(E::map(E::SIZE), None);
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">test_pair();
+</span><span class="boring">}</span></code></pre>
 <pre><code class="language-rust ignore">impl&lt;L, R&gt; M for Pair&lt;L, R&gt;
 where
     L: M,
@@ -331,7 +334,7 @@ where
     fn map(i: usize) -&gt; Option&lt;Index&gt; {
         let mut l = L::map(i / R::SIZE)?;
         let r = R::map(i % R::SIZE)?;
-        Index::add(&amp;mut l, r);
+        l.add(r);
         Some(l)
     }
 }</code></pre>
@@ -341,27 +344,20 @@ It serves as the identity element for <code>Pair</code>: <code>m![1, A]</code> a
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate furiosa_mapping;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span>type E = m![1]; // Identity
 
-#[test]
 fn test_identity() {
     assert_eq!(E::map(0), Some(i![]));
     assert_eq!(E::map(1), None);
 }
-<span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">impl M for Identity {
-    const SIZE: usize = 1;
-
-    fn to_value() -&gt; Mapping {
-        Mapping::Identity
-    }
-
-    fn map(i: usize) -&gt; Option&lt;Index&gt; {
-        if i == 0 { Some(Index::new()) } else { None }
-    }
-}</code></pre>
+<span class="boring">
+</span><span class="boring">test_identity();
+</span><span class="boring">}</span></code></pre>
+<pre><code class="language-rust ignore">/// The identity mapping (size-1 broadcast), the unit written `m![1]`.
+pub type Identity = Broadcast&lt;1&gt;;</code></pre>
 <h3 id="padding"><a class="header" href="#padding">Padding</a></h3>
 <p>Padding aligns data to hardware requirements by adding unused buffer space.
 For example, the DMA engine requires rows to start on 64-byte boundaries.
@@ -370,13 +366,13 @@ With <code>axes![C = 13, D = 61]</code>, <code>m![C, D]</code> creates misaligne
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate furiosa_mapping;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span>axes![C = 13, D = 61];
 
 type E = m![C, D # 64]; // Pair&lt;m![C], Padding&lt;m![D], 64&gt;&gt;
 
-#[test]
 fn test_padding() {
     assert_eq!(E::map(0),  Some(i![C: 0, D: 0]));
     assert_eq!(E::map(60), Some(i![C: 0, D: 60]));
@@ -385,8 +381,10 @@ fn test_padding() {
     assert_eq!(E::map(63), None); // padding
     assert_eq!(E::map(64), Some(i![C: 1, D: 0]));
 }
-<span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize&gt; M for Padding&lt;L, SIZE&gt;
+<span class="boring">
+</span><span class="boring">test_padding();
+</span><span class="boring">}</span></code></pre>
+<pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize, const KIND: PaddingKind&gt; M for Padding&lt;L, SIZE, KIND&gt;
 where
     L: M,
 {
@@ -396,7 +394,7 @@ where
         Mapping::Padding {
             inner: RBox::new(L::to_value()),
             padding: SIZE,
-            kind: PaddingKind::Top,
+            kind: KIND,
         }
     }
 
@@ -404,6 +402,22 @@ where
         L::map(i)
     }
 }</code></pre>
+<p>The padded slots’ content is part of the type, not just their count.
+Three kinds are tracked.</p>
+<ul>
+<li><code>m![A # m]</code> (or <code>m![A #{*} m]</code>) is top padding to size <code>m</code>.
+Slots are accessible but hold arbitrary values.
+Raw DM tensors carry this. <code>#</code> is the shorthand; <code>#{*}</code> spells the kind out explicitly.</li>
+<li><code>m![A #{0} m]</code> is zero-filled padding to size <code>m</code>.
+Slots are accessible and known to hold zero.
+The Fetch Adapter’s <a href="../computing-tensors/fetch-adapter.html#masking">masking</a> stage produces this from <code># m</code>.</li>
+<li><code>m![A #{!} m]</code> is bottom padding to size <code>m</code>.
+Slots are inaccessible and reads/writes are undefined behavior.
+This models addresses the compiler must avoid.</li>
+</ul>
+<p><code>#</code> defaults to top kind.
+The Rust type level mirrors this via a const generic of <code>PaddingKind</code> on <code>Padding&lt;L, SIZE, KIND&gt;</code>.
+<code>Padding&lt;L, N&gt;</code> is <code>KIND = PaddingKind::Top</code>, <code>Padding&lt;L, N, { PaddingKind::Zero }&gt;</code> is the zero-filled variant, and <code>Padding&lt;L, N, { PaddingKind::Bottom }&gt;</code> is inaccessible.</p>
 <h3 id="resize"><a class="header" href="#resize">Resize</a></h3>
 <p>Resize constrains a mapping to a smaller logical size by truncating indices beyond the new size, discarding elements outside that range.
 Unlike padding, which expands the buffer, Resize shrinks the logical view.
@@ -411,12 +425,12 @@ The mapping <code>m![D = 2]</code> takes only the first 2 elements of axis <code
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate furiosa_mapping;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">
 </span>axes![C = 2, D = 3];
 type E = m![C, D = 2]; // Pair&lt;m![C], Resize&lt;m![D], 2&gt;&gt;
 
-#[test]
 fn test_resize() {
     assert_eq!(E::map(0), Some(i![C: 0, D: 0]));
     assert_eq!(E::map(1), Some(i![C: 0, D: 1]));
@@ -424,7 +438,9 @@ fn test_resize() {
     assert_eq!(E::map(3), Some(i![C: 1, D: 1]));
     assert_eq!(E::map(4), None);
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">test_resize();
+</span><span class="boring">}</span></code></pre>
 <pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize&gt; M for Resize&lt;L, SIZE&gt;
 where
     L: M,
@@ -452,20 +468,18 @@ The <code>.tile()</code> method extracts a tile by resizing one dimension to the
 </span><span class="boring">
 </span><span class="boring">axes![A = 8, B = 512];
 </span><span class="boring">
-</span><span class="boring">fn tiles() {
 </span>let tensor = unsafe { HbmTensor::&lt;bf16, m![1], m![A, B]&gt;::from_addr(0) };
 let view = tensor.view(); // HbmTensorView::&lt;'_, bf16, m![1], m![A, B]&gt;
-let tile01 = view.tile::&lt;m![B], 2, m![A, B = 2 # 4]&gt;(0); // HbmTensorView::&lt;'_, bf16, m![1], m![A, B = 2 # 4]&gt;
-let tile23 = view.tile::&lt;m![B], 2, m![A, B = 2 # 4]&gt;(2); // HbmTensorView::&lt;'_, bf16, m![1], m![A, B = 2 # 4]&gt;
-<span class="boring">}
-</span><span class="boring">}</span></code></pre>
+let tile01 = view.tile::&lt;m![B], 2, m![A, B = 2 # 512]&gt;(0); // HbmTensorView::&lt;'_, bf16, m![1], m![A, B = 2 # 512]&gt;
+let tile23 = view.tile::&lt;m![B], 2, m![A, B = 2 # 512]&gt;(2); // HbmTensorView::&lt;'_, bf16, m![1], m![A, B = 2 # 512]&gt;
+<span class="boring">}</span></code></pre>
 <p>The <code>.tile()</code> method takes three type parameters and one value parameter.</p>
 <ul>
 <li>The <em>tile dimension</em> <code>m![B]</code> specifies which dimension to divide along.</li>
 <li>The <em>tile size</em> <code>2</code> specifies the number of elements per tile.</li>
-<li>The <em>tile mapping</em> <code>m![A, B = 2 # 4]</code> defines the resulting view’s mapping.
-The mapping <code>B = 2 # 4</code> signifies that dimension <code>B</code> has a logical size of <code>2</code> within the view but exists within a physical footprint of <code>4</code>.
-Without <code># 4</code>, the stride between tiles would be 2 instead of 4, causing the view to read from wrong buffer positions.</li>
+<li>The <em>tile mapping</em> <code>m![A, B = 2 # 512]</code> defines the resulting view’s mapping.
+The mapping <code>B = 2 # 512</code> signifies that dimension <code>B</code> has a logical size of <code>2</code> within the view but exists within a physical footprint of <code>512</code>.
+Without <code># 512</code>, the stride between tiles would be 2 instead of 512, causing the view to read from wrong buffer positions.</li>
 <li>The <em>starting index</em> specifies which tile to extract.
 Passing <code>0</code> captures the range <code>0..2</code> for <code>tile01</code>, while passing <code>2</code> captures the range <code>2..4</code> for <code>tile23</code>.</li>
 </ul>
@@ -476,6 +490,7 @@ The mapping <code>m![B / 64, B % 64]</code> creates an 8 × 64 grid where the fi
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate furiosa_mapping;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">axes![A = 8, B = 512];
 </span>type D1 = m![B / 64]; // stride with size 8
@@ -483,7 +498,6 @@ type D2 = m![B % 64]; // modulo with size 64
 
 type E = m![B / 64, B % 64]; // equivalent to `m![B]`
 
-#[test]
 fn test_stride_modulo() {
     assert_eq!(E::map(130), Some(i![B / 64: 2, B % 64: 2])); // block 2, position 2: B = 64*2 + 2 = 130
     assert_eq!(E::map(130), &lt;m![B]&gt;::map(130));               // same result as flat m![B]
@@ -508,7 +522,9 @@ fn test_stride_modulo() {
     }
     assert_eq!(E::map(512), None);
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">test_stride_modulo();
+</span><span class="boring">}</span></code></pre>
 <pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize&gt; M for Stride&lt;L, SIZE&gt;
 where
     L: M,
@@ -576,13 +592,13 @@ The following example splits <code>B</code> into three dimensions where the buff
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate furiosa_mapping;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">axes![A = 8, B = 512];
 </span>// B's bits: 6 - 8,  0 - 4,          5
 // Values:   0 - 7, 0 - 31,      0 - 1
 type E = m![B / 64, B % 32, B / 32 % 2];
 
-#[test]
 fn test_nested_stride() {
     assert_eq!(E::map(67), Some(i![B: 97])); // 67 = 64*1 + 2*1 + 1 (i=1,j=1,k=1) → B = 64*1 + 1 + 32*1 = 97
     // Verify B=97 round-trips: 97/64=1, 97%32=1, (97/32)%2=1
@@ -604,7 +620,9 @@ fn test_nested_stride() {
     }
     assert_eq!(E::map(512), None);
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">test_nested_stride();
+</span><span class="boring">}</span></code></pre>
 <p>This kind of bit rearrangement maps naturally to hardware memory layouts where address bits are reordered for bank interleaving or cache efficiency.
 In binary, this rearranges bit positions: buffer <code>001_00001_1</code> becomes <code>B = 001_1_00001</code>.
 The buffer groups bits as <code>[8:6]_[5:1]_[0]</code> while <code>B</code> groups them as <code>[8:6]_[5]_[4:0]</code>.</p>
@@ -638,13 +656,14 @@ With separate mappings <code>L = m![A]</code> and <code>R = m![B]</code>, combin
 type R = m![B];
 type E = m![{ L }, { R }]; // equivalent to `m![A, B]`
 
-#[test]
 fn test_escape() {
     for i in 0..E::SIZE {
         assert_eq!(E::map(i), &lt;m![A, B]&gt;::map(i));
     }
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">test_escape();
+</span><span class="boring">}</span></code></pre>
 <p>This escape syntax breaks down complex mappings into named, reusable components.</p>
 <h3 id="advanced-constructors"><a class="header" href="#advanced-constructors">Advanced Constructors</a></h3>
 <h4 id="skewed-axis"><a class="header" href="#skewed-axis">Skewed axis</a></h4>

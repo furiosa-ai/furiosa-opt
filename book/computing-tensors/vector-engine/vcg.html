@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-0b46deb9.js"></script>
+        <script src="../../toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -265,7 +265,7 @@ fn reduce_time_only&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, A / 4], m![1], m![A % 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![A % 4]&gt;()
+        .vector_narrow_trim::&lt;m![A % 4]&gt;()
         //   Slice     = m![X, A / 4]
         //   Time      = m![R # 16]     (steps &lt; R::SIZE valid)
         //   Packet    = m![A % 4]
@@ -297,7 +297,7 @@ fn reduce_time_reordered&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X], m![A], m![B], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![B]&gt;()
+        .vector_narrow_trim::&lt;m![B]&gt;()
         //   Slice     = m![X]
         //   Time      = m![R # 12 / 4, A, R # 12 % 4]
         //   Packet    = m![B]
@@ -341,7 +341,7 @@ fn reduce_slice_time_slicemajor&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 8, X, R # 16 / 4 % 2], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
         //   Slice     = m![R # 16 / 8, X, R # 16 / 4 % 2]   (major R sub-exprs, descending R-stride order required)
         //   Time      = m![R # 16 % 2, R # 16 / 2 % 2]      (minor R sub-exprs, any order OK)
         //   Packet    = m![1 # 4]
@@ -422,7 +422,7 @@ fn reduce_time_slice_timemajor&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 16 / 2 % 2, X, R # 16 % 2], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
         //   Slice     = m![R # 16 / 2 % 2, X, R # 16 % 2]
         //   Time      = m![R # 16 / 4 % 2, R # 16 / 8]
         //   Packet    = m![1 # 4]
@@ -518,7 +518,7 @@ fn reduce_packet_only&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![R # 4]&gt;()
+        .vector_narrow_trim::&lt;m![R # 4]&gt;()
         //   Slice     = m![X, A / 2]
         //   Time      = m![1]
         //   Packet    = m![R # 4]
@@ -551,7 +551,7 @@ fn reduce_time_packet&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![R # 16 % 4]&gt;()
+        .vector_narrow_trim::&lt;m![R # 16 % 4]&gt;()
         //   Slice     = m![X, A / 2]
         //   Time      = m![R # 16 / 4]
         //   Packet    = m![R # 16 % 4 # 8]
@@ -737,7 +737,7 @@ fn reduce_wrong_ordering&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4, R # 16 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
         //   Slice     = m![X, R # 16 / 2 % 4, R # 16 / 8]
         //   Time      = m![R # 16 % 2]
         //   Packet    = m![1 # 8]
@@ -765,7 +765,7 @@ fn reduce_wrong_interleave&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 16 / 2 % 4], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
         //   Slice     = m![X, R # 16 / 2 % 4]
         //   Time      = m![R # 16 / 8, R # 16 % 2]
         //   Packet    = m![1 # 8]
@@ -797,7 +797,7 @@ fn reduce_time_major_wrong&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![X, R # 20 % 4], m![A], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![1 # 4]&gt;()
+        .vector_narrow_trim::&lt;m![1 # 4]&gt;()
         //   Slice     = m![X, R # 20 % 4]
         //   Time      = m![A, R # 20 / 4]   (A is non-R; time_span = 5 from R # 20 / 4)
         //   Packet    = m![1 # 8]
@@ -826,7 +826,7 @@ fn reduce_wrong_packet_outer&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X, A / 2], m![1], m![1 # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![R # 24 / 4]&gt;()
+        .vector_narrow_trim::&lt;m![R # 24 / 4]&gt;()
         //   Slice     = m![X, A / 2]
         //   Time      = m![R # 24 % 8]
         //   Packet    = m![R # 24 / 8 # 8]   (NOT supported: major R in Packet)
@@ -850,7 +850,7 @@ fn reduce_wrong_mixed_packet&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1], m![X], m![1], m![A # 4], f32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![R # 24 % 4, A]&gt;()
+        .vector_narrow_trim::&lt;m![R # 24 % 4, A]&gt;()
         //   Slice     = m![X]
         //   Time      = m![R # 24 / 4]
         //   Packet    = m![R # 24 % 4, A # 8]   (NOT supported: A shares Packet with R)
@@ -895,7 +895,7 @@ fn reduce_wrong_slice_packet&lt;'l, const T: Tu&gt;(
 ) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1], m![R # 2048 / 8], m![1], m![1 # 4], i32, NoTensor, { stage::VeOrder::IntraFirst }&gt;
 {
     input
-        .vector_narrow_clip::&lt;m![R # 2048 % 4]&gt;()
+        .vector_narrow_trim::&lt;m![R # 2048 % 4]&gt;()
         //   Slice     = m![R # 2048 / 8]
         //   Time      = m![1]
         //   Packet    = m![R # 2048 % 8]
@@ -932,15 +932,15 @@ A downstream <code>Narrow</code> stage splits each 8-way flit into 4-way halves,
 <tr><th>Operation</th><th>Input</th><th>Output</th><th>Valid Count Transformation</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>split_way4</strong></td><td>8-way flit (<code>valid_size = v</code>)</td><td>two 4-way flits</td><td>low: <code>min(v, 4)</code>, high: <code>max(v - 4, 0)</code></td></tr>
-<tr><td><strong>trim_way4</strong></td><td>8-way flit (<code>valid_size = v</code>)</td><td>one 4-way flit</td><td><code>min(v, 4)</code></td></tr>
-<tr><td><strong>concat_way8</strong></td><td>two 4-way flits (<code>v_low</code>, <code>v_high</code>)</td><td>8-way flit</td><td><code>v_low + v_high</code></td></tr>
-<tr><td><strong>pad_way8</strong></td><td>4-way flit</td><td>8-way flit</td><td>unchanged</td></tr>
+<tr><td><code>vector_narrow_split</code></td><td>8-way flit (<code>valid_size = v</code>)</td><td>two 4-way flits</td><td>low: <code>min(v, 4)</code>, high: <code>max(v - 4, 0)</code></td></tr>
+<tr><td><code>vector_narrow_trim</code></td><td>8-way flit (<code>valid_size = v</code>)</td><td>one 4-way flit</td><td><code>min(v, 4)</code></td></tr>
+<tr><td><code>vector_widen_concat</code></td><td>two 4-way flits (<code>v_low</code>, <code>v_high</code>)</td><td>8-way flit</td><td><code>v_low + v_high</code></td></tr>
+<tr><td><code>vector_widen_pad</code></td><td>4-way flit</td><td>8-way flit</td><td>unchanged</td></tr>
 </tbody>
 </table>
 </div>
-<p>Split and concat preserve the prefix property.
-For trim_way4, the mapping must statically guarantee <code>v &lt;= 4</code>.
+<p><code>vector_narrow_split</code> and <code>vector_widen_concat</code> preserve the prefix property.
+For <code>vector_narrow_trim</code>, the mapping must statically guarantee <code>v &lt;= 4</code>.
 If the upper 4 elements could be valid, trimming them would lose data.</p>
 
                     </main>

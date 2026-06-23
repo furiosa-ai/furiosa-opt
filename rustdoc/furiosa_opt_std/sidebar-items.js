@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["diag","prelude","pseudo","runtime"],"struct":["BufferConvertError","OnceCell"],"trait":["Cast"]};
+window.SIDEBAR_ITEMS = {"mod":["diag","prelude","pseudo","runtime"],"struct":["BufferConvertError","OnceCell"]};

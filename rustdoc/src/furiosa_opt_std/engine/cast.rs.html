@@ -65,20 +65,19 @@
 <a href=#65 id=65 data-nosnippet>65</a>    <span class="kw">let </span>out_flit_elements = OutD::length_from_bytes(FLIT_BYTES);
 <a href=#66 id=66 data-nosnippet>66</a>
 <a href=#67 id=67 data-nosnippet>67</a>    <span class="comment">// Cast elements and pad to 32 bytes.
-<a href=#68 id=68 data-nosnippet>68</a>    </span><span class="kw">let </span>in_packet = InPacket::to_value().factorize();
-<a href=#69 id=69 data-nosnippet>69</a>    <span class="kw">let </span>expected_packet = in_packet.pad(out_flit_elements).normalize();
-<a href=#70 id=70 data-nosnippet>70</a>
-<a href=#71 id=71 data-nosnippet>71</a>    <span class="comment">// Output packet must be exactly one flit.
-<a href=#72 id=72 data-nosnippet>72</a>    </span><span class="kw">let </span>out_packet = OutPacket::to_value().factorize();
-<a href=#73 id=73 data-nosnippet>73</a>    <span class="macro">assert_eq!</span>(
-<a href=#74 id=74 data-nosnippet>74</a>        OutD::size_in_bytes_from_length(OutPacket::SIZE),
-<a href=#75 id=75 data-nosnippet>75</a>        FLIT_BYTES,
-<a href=#76 id=76 data-nosnippet>76</a>        <span class="string">"Cast output packet must be exactly {FLIT_BYTES} bytes (one flit). \
-<a href=#77 id=77 data-nosnippet>77</a>         Expected: {expected_packet}, got: {out_packet}"</span>,
-<a href=#78 id=78 data-nosnippet>78</a>    );
-<a href=#79 id=79 data-nosnippet>79</a>    <span class="macro">assert_eq!</span>(
-<a href=#80 id=80 data-nosnippet>80</a>        expected_packet, out_packet,
-<a href=#81 id=81 data-nosnippet>81</a>        <span class="string">"Cast packet mismatch. Expected: {expected_packet}, got: {out_packet}"</span>,
-<a href=#82 id=82 data-nosnippet>82</a>    );
-<a href=#83 id=83 data-nosnippet>83</a>}
+<a href=#68 id=68 data-nosnippet>68</a>    </span><span class="kw">let </span>expected_packet = InPacket::to_value().replace_padding(out_flit_elements).normalize();
+<a href=#69 id=69 data-nosnippet>69</a>
+<a href=#70 id=70 data-nosnippet>70</a>    <span class="comment">// Output packet must be exactly one flit.
+<a href=#71 id=71 data-nosnippet>71</a>    </span><span class="kw">let </span>out_packet = OutPacket::to_value().normalize();
+<a href=#72 id=72 data-nosnippet>72</a>    <span class="macro">assert_eq!</span>(
+<a href=#73 id=73 data-nosnippet>73</a>        OutD::size_in_bytes_from_length(OutPacket::SIZE),
+<a href=#74 id=74 data-nosnippet>74</a>        FLIT_BYTES,
+<a href=#75 id=75 data-nosnippet>75</a>        <span class="string">"Cast output packet must be exactly {FLIT_BYTES} bytes (one flit). \
+<a href=#76 id=76 data-nosnippet>76</a>         Expected: {expected_packet}, got: {out_packet}"</span>,
+<a href=#77 id=77 data-nosnippet>77</a>    );
+<a href=#78 id=78 data-nosnippet>78</a>    <span class="macro">assert_eq!</span>(
+<a href=#79 id=79 data-nosnippet>79</a>        expected_packet, out_packet,
+<a href=#80 id=80 data-nosnippet>80</a>        <span class="string">"Cast packet mismatch. Expected: {expected_packet}, got: {out_packet}"</span>,
+<a href=#81 id=81 data-nosnippet>81</a>    );
+<a href=#82 id=82 data-nosnippet>82</a>}
 </code></pre></div></section></main></body></html>

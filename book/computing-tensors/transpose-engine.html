@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-0b46deb9.js"></script>
+        <script src="../toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -194,23 +194,23 @@ The <code>VectorFinalTensor</code> entry point feeds the Transpose Engine direct
     }
 }</code></pre>
 <p>The kernel writer chooses <code>OutTime</code> and <code>OutPacket</code> (the output dimension layouts), and the compiler verifies the result against the hardware constraints listed under <a href="#parameters">Parameters</a>.</p>
-<p>The example below transposes a fully-utilized 8×8 <code>i8</code> matrix.
+<p>The example below transposes an 8×16 <code>i8</code> matrix whose 16-wide rows are each gathered from two input packets (<code>D = 2</code>).
 It is reused as the running example throughout the rest of this page.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![P = 256, C = 8, D = 8, E = 8];
+</span>axes![P = 256, B = 2, C = 8, D = 2, E = 8];
 
 fn basic_transpose&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i8, m![1], m![1], m![P], m![C, D], m![E # 32]&gt;,
-) -&gt; TransposeTensor&lt;'l, T, i8, m![1], m![1], m![P], m![C, E], m![D # 32]&gt; {
+    input: CollectTensor&lt;'l, T, i8, m![1], m![1], m![P], m![B, C, D], m![E # 32]&gt;,
+) -&gt; TransposeTensor&lt;'l, T, i8, m![1], m![1], m![P], m![B, D, E], m![C # 32]&gt; {
     input.transpose()
 }
 <span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
-<p>The four transpose stages below are illustrated using the running example from <a href="#interface">Interface</a>.</p>
+<p>The five transpose stages below are illustrated using the running example from <a href="#interface">Interface</a>.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <p><code>valid_size</code> is the number of valid elements the Transpose Engine reads per cycle from its 32-byte input bus, and every input flit arrives in <code>bit-width × valid_size</code> form, with any remaining bytes of the 32-byte flit treated as padding and discarded by the Unpack stage.
 Data reaches the Transpose Engine via <code>CollectTensor::transpose()</code> (after <code>Fetch → [Switch →] Collect → [Cast →] Transpose</code>) or <code>VectorFinalTensor::transpose()</code> (directly from the <a href="./vector-engine/index.html">Vector Engine</a>).
@@ -237,9 +237,9 @@ All four are constrained by the element size:</p>
 <tr><th>Parameter</th><th>Value</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>in_cols</code></td><td>8</td><td><code>E::SIZE</code></td></tr>
-<tr><td><code>in_rows</code></td><td>8</td><td><code>D::SIZE</code></td></tr>
-<tr><td><code>out_rows</code></td><td>8</td><td><code>E::SIZE</code></td></tr>
+<tr><td><code>in_cols</code></td><td>16</td><td><code>D = 2</code> packets gathered × <code>valid_size = 8</code></td></tr>
+<tr><td><code>in_rows</code></td><td>8</td><td><code>C::SIZE</code></td></tr>
+<tr><td><code>out_rows</code></td><td>16</td><td><code>D·E</code> (= <code>in_cols</code>, fully utilized)</td></tr>
 </tbody>
 </table>
 </div>
@@ -253,29 +253,32 @@ All four are constrained by the element size:</p>
                 data_in                      data_out
 </code></pre>
 <h3 id="unpack"><a class="header" href="#unpack">Unpack</a></h3>
-<p>Each 32-byte input packet carries <code>valid_size</code> valid elements, and the Unpack stage discards the rest as padding.
-The packets from each time step combine into a row of width <code>in_cols</code> (a multiple of <code>valid_size</code>).
-Across <code>in_rows</code> time steps, these rows stack into the <code>[in_rows × in_cols]</code> input matrix.</p>
-<p>In the running example: <code>[D, E # 32]</code> → <code>[D, E]</code>.</p>
+<p>Each 32-byte input packet carries <code>valid_size</code> valid elements; the Unpack stage discards the rest of the flit as padding.</p>
+<p>In the running example: <code>[C, D, E # 32]</code> → <code>[C, D, E]</code>.</p>
+<h3 id="gather"><a class="header" href="#gather">Gather</a></h3>
+<p>One row of the input matrix is <code>in_cols = packets_per_col × valid_size</code> elements wide, assembled from <code>packets_per_col</code> consecutive packets — the innermost time steps.
+The Gather stage concatenates those packets into a single row, and <code>in_rows</code> further time steps stack into the <code>[in_rows × in_cols]</code> input matrix.
+(Unpack and Gather both happen as the engine reads its input — they are not separate buffered passes.)</p>
+<p>In the running example, the innermost <code>D = 2</code> packets each contribute <code>valid_size = 8</code>, forming <code>in_cols = 16</code>-wide rows, and the <code>C = 8</code> time steps above them stack into the <code>[8 × 16]</code> input matrix.</p>
 <h3 id="transpose"><a class="header" href="#transpose">Transpose</a></h3>
 <p>The matrix is transposed: <code>[in_rows × in_cols]</code> → <code>[in_cols × in_rows]</code>.</p>
-<p>In the running example: <code>[D, E]</code> → <code>[E, D]</code>.</p>
+<p>In the running example: <code>[C, D, E]</code> → <code>[D, E, C]</code>.</p>
 <h3 id="trim"><a class="header" href="#trim">Trim</a></h3>
 <p>When some input packets carry fewer valid elements than <code>valid_size</code>, the transposed matrix has padded rows.
 The Trim stage drops those rows, producing <code>[out_rows × in_rows]</code> where <code>out_rows ≤ in_cols</code>.</p>
-<p>In the running example: <code>[E, D]</code> → <code>[E, D]</code> (the input is fully utilized, so no rows are trimmed).
+<p>In the running example: <code>[D, E, C]</code> → <code>[D, E, C]</code> (the input is fully utilized, so no rows are trimmed).
 See the <a href="#small-matrix">Small Matrix</a> example for a case where Trim actually discards rows.</p>
 <h3 id="align"><a class="header" href="#align">Align</a></h3>
 <p>The transposed rows are <code>in_rows</code> elements wide, but DM packets must be 32 bytes.
 The Align stage pads each row to a 32-byte flit, producing shape <code>[out_rows × (in_rows # F)]</code> where <code>F</code> is chosen so that <code>D[F]</code> is 32 bytes.</p>
-<p>In the running example: <code>[E, D]</code> → <code>[E, D # 32]</code>.</p>
+<p>In the running example: <code>[D, E, C]</code> → <code>[D, E, C # 32]</code>.</p>
 <h3 id="latency"><a class="header" href="#latency">Latency</a></h3>
 <blockquote class="blockquote-tag blockquote-tag-note">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
 <p>Read <a href="#performance">Performance</a> first for the formulas.</p>
 </blockquote>
-<p>For the running example, <code>in_cols = 8 ≤ 16</code> selects double buffering.
-With <code>in_flits = 8</code>, <code>out_rows = 8</code>, and <code>n = 8</code>, the total latency is <code>8 + 7 × max(8, 8) + 8 = 72</code> cycles.</p>
+<p>For the running example, <code>in_cols = 16 ≤ 16</code> selects double buffering.
+With <code>in_flits = 16</code>, <code>out_rows = 16</code>, and <code>n = 2</code>, the total latency is <code>16 + 1 × max(16, 16) + 16 = 48</code> cycles.</p>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
 <h3 id="small-matrix"><a class="header" href="#small-matrix">Small Matrix</a></h3>
 <p>This example demonstrates the Trim stage discarding padded rows when <code>out_rows &lt; in_cols</code>:</p>
@@ -308,6 +311,7 @@ fn small_transpose&lt;'l, const T: Tu&gt;(
 <p>Stages:</p>
 <ul>
 <li><strong>Unpack</strong>: <code>[A, B # 32]</code> → <code>[A, B # 8]</code>.</li>
+<li><strong>Gather</strong>: <code>[A, B # 8]</code> → <code>[A, B # 8]</code> (<code>packets_per_col = 1</code>, so each packet is already a full <code>in_cols = 8</code> row).</li>
 <li><strong>Transpose</strong>: <code>[A, B # 8]</code> → <code>[B # 8, A]</code>.</li>
 <li><strong>Trim</strong>: <code>[B # 8, A]</code> → <code>[B, A]</code> (6 padded rows trimmed).</li>
 <li><strong>Align</strong>: <code>[B, A]</code> → <code>[B, A # 32]</code>.</li>
@@ -345,6 +349,7 @@ fn large_col_transpose&lt;'l, const T: Tu&gt;(
 <p>Stages:</p>
 <ul>
 <li><strong>Unpack</strong>: <code>[C, D, E # 32]</code> → <code>[C, D, E]</code>.</li>
+<li><strong>Gather</strong>: the innermost <code>D = 4</code> packets form each <code>in_cols = 32</code> row, and the <code>C = 8</code> time steps stack into the <code>[8 × 32]</code> input matrix.</li>
 <li><strong>Transpose</strong>: <code>[C, D, E]</code> → <code>[D, E, C]</code>.</li>
 <li><strong>Trim</strong>: <code>[D, E, C]</code> → <code>[D, E, C]</code> (no rows trimmed).</li>
 <li><strong>Align</strong>: <code>[D, E, C]</code> → <code>[D, E, C # 32]</code>.</li>
@@ -382,6 +387,7 @@ fn bf16_transpose&lt;'l, const T: Tu&gt;(
 <p>Stages:</p>
 <ul>
 <li><strong>Unpack</strong>: <code>[D, E # 16]</code> → <code>[D, E]</code>.</li>
+<li><strong>Gather</strong>: <code>[D, E]</code> → <code>[D, E]</code> (<code>packets_per_col = 1</code>; each packet is already a full <code>in_cols = 8</code> row).</li>
 <li><strong>Transpose</strong>: <code>[D, E]</code> → <code>[E, D]</code>.</li>
 <li><strong>Trim</strong>: <code>[E, D]</code> → <code>[E, D]</code> (no rows trimmed).</li>
 <li><strong>Align</strong>: <code>[E, D]</code> → <code>[E, D # 16]</code>.</li>
@@ -419,6 +425,7 @@ fn i4_transpose&lt;'l, const T: Tu&gt;(
 <p>Stages:</p>
 <ul>
 <li><strong>Unpack</strong>: <code>[C, E # 64]</code> → <code>[C, E]</code>.</li>
+<li><strong>Gather</strong>: <code>[C, E]</code> → <code>[C, E]</code> (<code>packets_per_col = 1</code>; each packet is already a full <code>in_cols = 16</code> row).</li>
 <li><strong>Transpose</strong>: <code>[C, E]</code> → <code>[E, C]</code>.</li>
 <li><strong>Trim</strong>: <code>[E, C]</code> → <code>[E, C]</code> (no rows trimmed).</li>
 <li><strong>Align</strong>: <code>[E, C]</code> → <code>[E, C # 64]</code>.</li>
@@ -457,6 +464,7 @@ fn f32_transpose&lt;'l, const T: Tu&gt;(
 <p>Stages:</p>
 <ul>
 <li><strong>Unpack</strong>: <code>[D, E # 8]</code> → <code>[D, E]</code>.</li>
+<li><strong>Gather</strong>: <code>[D, E]</code> → <code>[D, E]</code> (<code>packets_per_col = 1</code>; each packet is already a full <code>in_cols = 8</code> row).</li>
 <li><strong>Transpose</strong>: <code>[D, E]</code> → <code>[E, D]</code>.</li>
 <li><strong>Trim</strong>: <code>[E, D]</code> → <code>[E, D]</code> (no rows trimmed).</li>
 <li><strong>Align</strong>: <code>[E, D]</code> → <code>[E, D # 8]</code>.</li>
@@ -488,7 +496,7 @@ Both buffers are used together, so input and output add together each iteration.
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../scheduler.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../computing-tensors/commit-adapter.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -502,7 +510,7 @@ Both buffers are used together, so input and output add together each iteration.
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../scheduler.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../computing-tensors/commit-adapter.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

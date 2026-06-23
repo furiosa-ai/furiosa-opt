@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-0b46deb9.js"></script>
+        <script src="../toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -291,13 +291,49 @@ fn broadcasting_read&lt;'l&gt;(
 }
 
 /// Broadcasting write: write broadcast stream back to buffer.
+/// This is rejected as each `Buf` slot must have exactly one source position in `(Time, Packet)`
+/// This code will panic when run
 fn broadcasting_write(
     buf: &amp;mut BufTensor&lt;i8, m![A]&gt;,
     stream: StreamTensor&lt;i8, m![T, A], m![P]&gt;,
 ) {
     buf.write(stream)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;bf16, m![A, B]&gt;::from_buf(vec![bf16::from_f32(1f32); 8 * 512]);
+</span><span class="boring">let mut buf_write = BufTensor::&lt;bf16, m![A, B]&gt;::from_buf(vec![bf16::from_f32(1f32); 8 * 512]);
+</span><span class="boring">
+</span><span class="boring">let stream = strided_read(&amp;buf_read);
+</span><span class="boring">strided_write(&amp;mut buf_write, stream);
+</span><span class="boring">
+</span><span class="boring">// -----------------------------------------------------------------------------------
+</span><span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;bf16, m![N, C, H, W]&gt;::from_buf(vec![bf16::from_f32(1f32); 4 * 3 * 8 * 8]);
+</span><span class="boring">let mut buf_write = BufTensor::&lt;bf16, m![N, C, H, W]&gt;::from_buf(vec![bf16::from_f32(0f32); 4 * 3 * 8 * 8]);
+</span><span class="boring">
+</span><span class="boring">let stream = axis_reordering_read(&amp;buf_read);
+</span><span class="boring">axis_reordering_write(&amp;mut buf_write, stream);
+</span><span class="boring">
+</span><span class="boring">// -----------------------------------------------------------------------------------
+</span><span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B, C # 8]&gt;::from_buf(vec![1i8; 8 * 512 * 8]);
+</span><span class="boring">let mut buf_write = BufTensor::&lt;i8, m![A, B, C # 8]&gt;::from_buf(vec![0i8; 8 * 512 * 8]);
+</span><span class="boring">
+</span><span class="boring">let stream = tiling_read(&amp;buf_read);
+</span><span class="boring">tiling_write(&amp;mut buf_write, stream);
+</span><span class="boring">
+</span><span class="boring">// -----------------------------------------------------------------------------------
+</span><span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A]&gt;::from_buf(vec![1i8; 8 ]);
+</span><span class="boring">let mut buf_write = BufTensor::&lt;i8, m![A]&gt;::from_buf(vec![0i8; 8 ]);
+</span><span class="boring">
+</span><span class="boring">let stream = broadcasting_read(&amp;buf_read);
+</span><span class="boring">let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+</span><span class="boring">    broadcasting_write(&amp;mut buf_write, stream);
+</span><span class="boring">}));
+</span><span class="boring">assert!(result.is_err()); 
+</span><span class="boring">
+</span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
 <p>Each sequencer call is compiled from its input and output tensor mappings into a nested-loop configuration that the sequencer hardware executes.
 Each configuration takes the form <code>[size_0 : stride_0, size_1 : stride_1, ...] : packet_size</code>, where subscript 0 is the outermost loop:</p>
@@ -320,10 +356,10 @@ struct Entry {
 <p>Each entry encodes one dimension of tensor traversal.
 The <code>size</code> field determines how many times this loop iterates, while the <code>stride</code> field determines the memory offset between consecutive iterations.</p>
 <h3 id="access-size"><a class="header" href="#access-size">Access Size</a></h3>
-<p><code>access_size = gcd(Packet::SIZE, contiguous_run)</code> is the number of elements per hardware access.</p>
+<p><code>max_access_size = gcd(Packet::SIZE, contiguous_run)</code> is the number of elements per hardware access.</p>
 <p>Here, <code>contiguous_run</code> is the element count of the innermost physically contiguous run of <code>Config</code> entries.
-A larger <code>access_size</code> means fewer accesses per packet.
-The following shows how <code>access_size</code> is computed from a <code>Config</code>:</p>
+A larger <code>max_access_size</code> means fewer accesses per packet.
+The following shows how <code>max_access_size</code> is computed from a <code>Config</code>:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">struct Config { entries: Vec&lt;Entry&gt;, packet_size: usize }
@@ -345,19 +381,30 @@ The following shows how <code>access_size</code> is computed from a <code>Config
         contiguous_run
     }
 
-    fn access_size(&amp;self) -&gt; usize {
+    fn max_access_size(&amp;self) -&gt; usize {
         gcd(self.packet_size, self.contiguous_run())
     }
 }
-<span class="boring">}</span></code></pre>
-<p>In most cases the packet layout is fully contiguous in DM and <code>access_size == Packet::SIZE</code>.
-See <a href="#non-contiguous-packets">Non-Contiguous Packets</a> for a case where <code>access_size &lt; Packet::SIZE</code>.</p>
+<span class="boring">
+</span><span class="boring">let config = Config {
+</span><span class="boring">    entries: vec![
+</span><span class="boring">        Entry { size: 4, stride: 192 },
+</span><span class="boring">        Entry { size: 3, stride: 64 },
+</span><span class="boring">        Entry { size: 8, stride: 8 },
+</span><span class="boring">        Entry { size: 8, stride: 1 },
+</span><span class="boring">    ],
+</span><span class="boring">    packet_size: 8,
+</span><span class="boring">};
+</span><span class="boring">
+</span><span class="boring">assert_eq!(config.contiguous_run(), 768);
+</span><span class="boring">assert_eq!(config.max_access_size(), 8);
+</span><span class="boring">}</span></code></pre>
+<p>In most cases the packet layout is fully contiguous in DM and <code>max_access_size == Packet::SIZE</code>.
+See <a href="#non-contiguous-packets">Non-Contiguous Packets</a> for a case where <code>max_access_size &lt; Packet::SIZE</code>.</p>
 <h3 id="how-it-works"><a class="header" href="#how-it-works">How It Works</a></h3>
 <p>The <code>Config</code> for <code>m![N, C, H, W]</code> → <code>m![W, H, C, N]</code> has one entry per axis in the stream, each with a stride equal to that axis’s span in the source buffer.
-Since <code>Packet = m![1]</code>, <code>Packet::SIZE = access_size = 1</code> and the sequencer issues one DM access per loop iteration.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_opt_std;
+Since <code>Packet = m![1]</code>, <code>Packet::SIZE = max_access_size = 1</code> and the sequencer issues one DM access per loop iteration.</p>
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span><span class="boring">struct Config {
@@ -414,8 +461,7 @@ fn write_whcn_nchw(buf: &amp;mut BufTensor&lt;bf16, m![N, C, H, W]&gt;,
             }
         }
     }
-}
-<span class="boring">}</span></code></pre>
+}</code></pre>
 <h2 id="configurations"><a class="header" href="#configurations">Configurations</a></h2>
 <p>The following patterns cover most configurations a kernel writer is likely to encounter.</p>
 <h3 id="transposing-axes"><a class="header" href="#transposing-axes">Transposing Axes</a></h3>
@@ -432,7 +478,10 @@ fn read_rearranging&lt;'l&gt;(
 ) -&gt; StreamTensor&lt;'l, i8, m![B, A], m![C # 16]&gt; {  // Time, Packet
     buf.read()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B, C # 32]&gt;::from_buf(vec![1i8; 8 * 8 * 32]);
+</span><span class="boring">let _stream = read_rearranging(&amp;buf_read);
+</span><span class="boring">}</span></code></pre>
 <p>The compiler generates configuration entries by processing the combined mapping <code>m![B, A, C # 16]</code> term by term, transforming <code>Buf</code> along the way.
 For each term, the entry size equals the term size, and the stride equals the volume that term occupies within the current <code>Buf</code>.
 After processing a term, <code>Buf</code> is updated to reflect that the axis has been consumed:</p>
@@ -448,7 +497,7 @@ After processing a term, <code>Buf</code> is updated to reflect that the axis ha
 </tbody>
 </table>
 </div>
-<p><code>Packet::SIZE = access_size = 16</code>.
+<p><code>Packet::SIZE = max_access_size = 16</code>.
 The innermost entry <code>16 : 1</code> is contiguous, so the hardware transfers the full packet in one access.</p>
 <h3 id="splitting-axes"><a class="header" href="#splitting-axes">Splitting Axes</a></h3>
 <p>Tiling breaks a logical axis into sub-blocks for cache efficiency or to match tensor unit buffer sizes, and the compiler achieves this by splitting the axis into multiple entries.</p>
@@ -464,7 +513,10 @@ fn read_splitting&lt;'l&gt;(
 ) -&gt; StreamTensor&lt;'l, i8, m![A % 2, B % 4, A / 2, B / 4], m![C # 32]&gt; {  // Time, Packet
     buf.read()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B, C # 8]&gt;::from_buf(vec![1i8; 8 * 8 * 8]);
+</span><span class="boring">let _stream = read_splitting(&amp;buf_read);
+</span><span class="boring">}</span></code></pre>
 <p>Expressions like <code>A % 2</code> and <code>A / 2</code> split axis <code>A</code> into separate entries.
 The compiler processes <code>m![A % 2, B % 4, A / 2, B / 4, C # 32]</code> term by term:</p>
 <div class="table-wrapper">
@@ -481,12 +533,10 @@ The compiler processes <code>m![A % 2, B % 4, A / 2, B / 4, C # 32]</code> term 
 </tbody>
 </table>
 </div>
-<p><code>Packet::SIZE = access_size = 32</code>.</p>
+<p><code>Packet::SIZE = max_access_size = 32</code>.</p>
 <h3 id="slicing-axes"><a class="header" href="#slicing-axes">Slicing Axes</a></h3>
 <p>Slicing reads only a partial range of indices from the memory layout, a condition that arises when an indexed view selects a subset of the original tensor.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_opt_std;
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
 </span>axes![A = 16, B = 8, C = 8];
@@ -496,7 +546,9 @@ fn read_slicing&lt;'l&gt;(
 ) -&gt; StreamTensor&lt;'l, i8, m![A / 4, A % 4 = 3, B / 4, B % 4 = 2], m![C]&gt; {  // Time, Packet
     buf.read()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B, C]&gt;::from_buf(vec![1i8; 16 * 8 * 8]);
+</span><span class="boring">let _stream = read_slicing(&amp;buf_read);</span></code></pre>
 <p>The <code>= 3</code> notation limits <code>A % 4</code> to only 3 iterations instead of 4, restricting the hardware to a sub-region of the tensor.
 The compiler processes <code>m![A / 4, A % 4 = 3, B / 4, B % 4 = 2, C]</code> term by term:</p>
 <div class="table-wrapper">
@@ -513,7 +565,7 @@ The compiler processes <code>m![A / 4, A % 4 = 3, B / 4, B % 4 = 2, C]</code> te
 </tbody>
 </table>
 </div>
-<p><code>Packet::SIZE = access_size = 8</code>.</p>
+<p><code>Packet::SIZE = max_access_size = 8</code>.</p>
 <h3 id="broadcasting-axes"><a class="header" href="#broadcasting-axes">Broadcasting Axes</a></h3>
 <p>Broadcasting replicates an element across multiple packets or time steps when the stream visits axes that <code>Buf</code> does not carry.
 Any axis (or partial-axis fragment like <code>N / 512</code>) present in <code>Time</code> or <code>Packet</code> but absent from <code>Buf</code> becomes a broadcast entry, shown as <code>: 0</code> in the stride table (the hardware revisits the same address on each iteration).</p>
@@ -529,7 +581,10 @@ fn read_broadcasting&lt;'l&gt;(
 ) -&gt; StreamTensor&lt;'l, i8, m![T, A], m![P]&gt; {  // Time, Packet
     buf.read()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A]&gt;::from_buf(vec![1i8; 16]);
+</span><span class="boring">let _stream = read_broadcasting(&amp;buf_read);
+</span><span class="boring">}</span></code></pre>
 <p>The compiler processes <code>m![T, A, P]</code> term by term:</p>
 <div class="table-wrapper">
 <table>
@@ -543,7 +598,7 @@ fn read_broadcasting&lt;'l&gt;(
 </tbody>
 </table>
 </div>
-<p><code>Packet::SIZE = access_size = 4</code>.
+<p><code>Packet::SIZE = max_access_size = 4</code>.
 <code>P</code> is broadcast, so the same element is replicated across the packet (spatial broadcast).
 <code>T</code> is broadcast, so the same data is repeated across time steps (temporal broadcast).</p>
 <p>The same rule applies when <code>Time</code> or <code>Packet</code> references a fragment of an axis that <code>Buf</code> does not carry.
@@ -563,7 +618,10 @@ fn read_merging&lt;'l&gt;(
 ) -&gt; StreamTensor&lt;'l, i8, m![W / 16, H % 2, H / 2, C / 2, C % 2, N / 2, N % 2, W / 8 % 2], m![W % 8]&gt; {  // Time, Packet
     buf.read()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![N, C, H, W]&gt;::from_buf(vec![1i8; 8 * 8 * 8 * 32]);
+</span><span class="boring">let _stream = read_merging(&amp;buf_read);
+</span><span class="boring">}</span></code></pre>
 <p>The compiler processes <code>m![W / 16, H % 2, H / 2, C / 2, C % 2, N / 2, N % 2, W / 8 % 2, W % 8]</code> term by term, producing 9 initial entries:</p>
 <div class="table-wrapper">
 <table>
@@ -602,9 +660,9 @@ The last merge crosses the time/packet boundary: <code>W/8%2 (2:8)</code> and <c
 </tbody>
 </table>
 </div>
-<p><code>Packet::SIZE = access_size = 8</code>.</p>
+<p><code>Packet::SIZE = max_access_size = 8</code>.</p>
 <h3 id="non-contiguous-packets"><a class="header" href="#non-contiguous-packets">Non-Contiguous Packets</a></h3>
-<p>When the DM layout has stride discontinuities within the packet span, <code>access_size &lt; Packet::SIZE</code> and the hardware issues one access per contiguous sub-block rather than one per packet.
+<p>When the DM layout has stride discontinuities within the packet span, <code>max_access_size &lt; Packet::SIZE</code> and the hardware issues one access per contiguous sub-block rather than one per packet.
 The example below writes a packet of 32 elements (<code>m![A, B]</code>) to a buffer where each B row is padded to 16 slots in DM.
 A’s stride is 16 rather than 8, so the packet span is not contiguous and the hardware issues 4 accesses instead of 1:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
@@ -624,12 +682,17 @@ fn write_padded(
     // ] : 32
     buf.write(stream)
 }
-<span class="boring">}</span></code></pre>
-<p><code>Packet::SIZE = 32</code>, <code>contiguous_run = 8</code>, <code>access_size = 8</code>.</p>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B]&gt;::from_buf(vec![1i8; 4 * 8]);
+</span><span class="boring">let mut buf_write = BufTensor::&lt;i8, m![A, B # 16]&gt;::from_buf(vec![0i8; 4 * 16]);
+</span><span class="boring">let stream = buf_read.read();
+</span><span class="boring">write_padded(&amp;mut buf_write, stream);
+</span><span class="boring">}</span></code></pre>
+<p><code>Packet::SIZE = 32</code>, <code>contiguous_run = 8</code>, <code>max_access_size = 8</code>.</p>
 <p>Non-contiguous strides also arise when <code>Packet</code> contains non-adjacent axes from the source layout.
 The example below reads the same <code>m![N, C, H, W]</code> buffer with two different <code>Packet</code> choices.
-Placing only the innermost axis <code>W</code> in <code>Packet</code> gives <code>access_size = Packet::SIZE = 8</code>, one access per packet.
-Placing <code>m![N, H, W]</code> in <code>Packet</code> skips <code>C</code>, so N’s stride in source (96) does not equal H×W (32): <code>contiguous_run = 32</code>, <code>access_size = 32</code>, and the hardware issues 4 accesses per packet instead of 1.</p>
+Placing only the innermost axis <code>W</code> in <code>Packet</code> gives <code>max_access_size = Packet::SIZE = 8</code>, one access per packet.
+Placing <code>m![N, H, W]</code> in <code>Packet</code> skips <code>C</code>, so N’s stride in source (96) does not equal H×W (32): <code>contiguous_run = 32</code>, <code>max_access_size = 32</code>, and the hardware issues 4 accesses per packet instead of 1.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
@@ -644,13 +707,16 @@ Placing <code>m![N, H, W]</code> in <code>Packet</code> skips <code>C</code>, so
 //   W -&gt; 8 : 1,    (packet dimension)
 // ] : 8
 // contiguous_run = 8 (W); ×4 (H): 8==8×1 ✓; ×3 (C): 32==4×8 ✓; ×4 (N): 96==3×32 ✓; all axes contiguous
-// access_size = gcd(packet_size, contiguous_run) = packet_size = 8
+// max_access_size = gcd(packet_size, contiguous_run) = packet_size = 8
 fn read_contiguous&lt;'l&gt;(
     buf: &amp;'l BufTensor&lt;i8, m![N, C, H, W]&gt;,
 ) -&gt; StreamTensor&lt;'l, i8, m![N, C, H], m![W]&gt; {
     buf.read()
 }
-
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![N, C, H, W]&gt;::from_buf(vec![1i8; 4 * 3 * 4 * 8]);
+</span><span class="boring">let _stream = read_contiguous(&amp;buf_read);
+</span>
 // Compiler-generated configuration: [
 //   C -&gt; 3 : 32,   (time dimension)
 //   N -&gt; 4 : 96,   (96 != 4 × 8 = 32, NOT contiguous — C axis interspersed)
@@ -658,13 +724,16 @@ fn read_contiguous&lt;'l&gt;(
 //   W -&gt; 8 : 1,    (packet dimension)
 // ] : 128
 // contiguous_run = 8 (W); ×4 (H): 8==8×1 ✓ → 32; ×4 (N): 96!=4×8 ✗ stop → 32
-// access_size = gcd(128, 32) = 32; hardware issues 128/32 = 4 accesses per packet
+// max_access_size = gcd(128, 32) = 32; hardware issues 128/32 = 4 accesses per packet
 fn read_non_contiguous&lt;'l&gt;(
     buf: &amp;'l BufTensor&lt;i8, m![N, C, H, W]&gt;,
 ) -&gt; StreamTensor&lt;'l, i8, m![C], m![N, H, W]&gt; {
     buf.read()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![N, C, H, W]&gt;::from_buf(vec![1i8; 4 * 3 * 4 * 8]);
+</span><span class="boring">let _stream = read_non_contiguous(&amp;buf_read);
+</span><span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
 <p>In RNGD, exceeding any of the following hardware limits causes a compilation error:</p>
 <ul>
@@ -695,7 +764,11 @@ fn read_incompatible&lt;'l&gt;(
 ) -&gt; StreamTensor&lt;'l, i8, m![1], m![A % 3, A / 3]&gt; {  // Time, Packet
     buf.read() // Compilation error: incompatible decomposition
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A % 5, A / 5]&gt;::from_buf(vec![1i8; 15]);
+</span><span class="boring">let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { read_incompatible(&amp;buf_read) }));
+</span><span class="boring">assert!(result.is_err());
+</span><span class="boring">}</span></code></pre>
 <p><code>Buf</code> decomposes <code>A</code> as <code>5 × 3</code> while the stream decomposes it as <code>3 × 5</code>.
 Since <code>gcd(5, 3) = 1</code>, neither decomposition refines the other: the compiler cannot consume <code>A % 3</code> from a <code>Buf</code> that has already committed to a 5-block split.</p>
 <h2 id="indirect-access"><a class="header" href="#indirect-access">Indirect Access</a></h2>

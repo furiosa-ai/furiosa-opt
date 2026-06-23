@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["kernel_path"],"struct":["Buffer","Kernel","Npu","NpuDesc"]};
+window.SIDEBAR_ITEMS = {"fn":["kernel_path","set_device"],"struct":["Buffer","Kernel","Npu","NpuDesc"],"trait":["ExtendBuffers"]};

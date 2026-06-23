@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-0b46deb9.js"></script>
+        <script src="../toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -224,9 +224,13 @@ fn transpose_simple(
     // Step 2: [A, C, B] → [C, A, B]
     intermediate.to_hbm(&amp;mut ctx.tdma, 0x1000)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let in_hbm = unsafe { HbmTensor::&lt;f32, m![1], m![A, B, C]&gt;::from_addr(0) };
+</span><span class="boring">let _out_hbm = transpose_simple(&amp;mut ctx, &amp;in_hbm);
+</span><span class="boring">}</span></code></pre>
 <p>A transfer that crosses tiers also takes a layout transformation through the destination type’s mapping.
-For an HBM-to-DM transfer, the destination DM tensor adds <code>Cluster</code> and <code>Slice</code> axes that distribute the tensor across hardware partitions.</p>
+For an HBM-to-DM transfer, the destination DM tensor adds <code>Cluster</code> and <code>Slice</code> axes that distribute and broadcast the tensor across hardware partitions.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
@@ -239,7 +243,11 @@ fn hbm_to_dm(
 ) -&gt; DmTensor&lt;i8, m![1], m![1 # 2], m![A / 8], m![A % 8]&gt; {
     input.to_dm::&lt;m![1 # 2], m![A / 8], m![A % 8]&gt;(&amp;mut ctx.tdma, 0)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let in_hbm = unsafe { HbmTensor::&lt;i8, m![1], m![A]&gt;::from_addr(0) };
+</span><span class="boring">let _out_dm = hbm_to_dm(&amp;mut ctx, &amp;in_hbm);
+</span><span class="boring">}</span></code></pre>
 <p>Here the 2,048-element vector is distributed as 256 elements per slice (<code>Slice = m![A / 8]</code>) with 8 elements per slice (<code>Element = m![A % 8]</code>), spread across 2 clusters.</p>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
 <p>Each RNGD chip holds 8 DMA Engines, one per pair of DMNs, running up to 8 independent transfers in parallel.
@@ -654,7 +662,10 @@ fn cluster_shuffle(
     // Shuffle pattern [1, 0]: cluster 0 ↔ cluster 1
     input.view().dm_cluster_shuffle::&lt;2&gt;(&amp;mut ctx.tdma, &amp;[1, 0])
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let input_dm = unsafe { DmTensor::&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt;::from_addr(0) };
+</span><span class="boring">let _output_dm = cluster_shuffle(&amp;mut ctx, &amp;input_dm);
+</span><span class="boring">}</span></code></pre>
 <p>Inter-chip shuffles use the system-wide global chip IDs.
 <code>hbm_chip_shuffle</code> is generic over the DMA context (<code>tdma</code> or <code>pdma</code>) because the cross-chip operation is HBM ↔ HBM, and HBM ↔ HBM is the one DMA pair that both Tensor DMA and PCIe DMA support.
 The other shuffle methods, and DMA pairs like HBM ↔ DM and DM ↔ DM in general, are not context-generic.</p>
@@ -662,9 +673,8 @@ The other shuffle methods, and DMA pairs like HBM ↔ DM and DM ↔ DM in genera
 <p>Scatter and gather move tensor elements at addresses computed from an index tensor rather than at fixed strides.</p>
 <p><code>DmTensor::dma_scatter</code> writes DM values to HBM at indices given by an index tensor.
 <code>HbmTensor::dma_gather</code> reads HBM rows into DM at indices given by an index tensor.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_opt_std;
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![K = 512, D = 128, C = 612];
 
@@ -686,7 +696,18 @@ fn gather_minimal(
 ) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![C / 2], m![C % 2, D]&gt; {
     table.dma_gather::&lt;m![1 # 2], m![C / 2], m![C % 2, D], _&gt;(index, 0x0, true)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() {
+</span><span class="boring">    let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">    let index = &amp;(HostTensor::&lt;i32, m![K]&gt;::zero().to_hbm(&amp;mut ctx.pdma, 0).await);
+</span><span class="boring">    let data = unsafe { HbmTensor::&lt;bf16, m![1], m![K, D]&gt;::from_addr(0) };
+</span><span class="boring">    let mut output_hbm = unsafe { HbmTensor::&lt;bf16, m![1], m![C, D]&gt;::from_addr(0) };
+</span><span class="boring">
+</span><span class="boring">    scatter_minimal(&amp;mut ctx, &amp;data, &amp;index, &amp;mut output_hbm);
+</span><span class="boring">    gather_minimal(&amp;data, &amp;(HostTensor::&lt;i32, m![C]&gt;::zero().to_hbm(&amp;mut ctx.pdma, 0).await));
+</span><span class="boring">}</span></code></pre>
 <p><code>scaled</code> matches <code>dma_scatter</code>’s convention.
 <code>true</code> treats index values as byte-offsets along the gather axis (divided internally to recover the row position).
 <code>false</code> treats index values as raw row positions.</p>

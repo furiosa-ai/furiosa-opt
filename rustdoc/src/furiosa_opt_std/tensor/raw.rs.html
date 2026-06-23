@@ -16,8 +16,8 @@
 <a href=#16 id=16 data-nosnippet>16</a>
 <a href=#17 id=17 data-nosnippet>17</a></span><span class="kw">use </span>std::fmt::Debug;
 <a href=#18 id=18 data-nosnippet>18</a>
-<a href=#19 id=19 data-nosnippet>19</a><span class="kw">use </span>abi_stable::std_types::{RResult, RSlice};
-<a href=#20 id=20 data-nosnippet>20</a><span class="kw">use </span>furiosa_mapping::{FMapping, FMappingExt, Index, IndexExt, M, Term};
+<a href=#19 id=19 data-nosnippet>19</a><span class="kw">use </span>abi_stable::std_types::RResult;
+<a href=#20 id=20 data-nosnippet>20</a><span class="kw">use </span>furiosa_mapping::{Atom, Index, IndexExt, M, Mapping, MappingExt, Term};
 <a href=#21 id=21 data-nosnippet>21</a><span class="kw">use </span>ndarray::IxDyn;
 <a href=#22 id=22 data-nosnippet>22</a>
 <a href=#23 id=23 data-nosnippet>23</a><span class="kw">use </span><span class="kw">crate</span>::engine::vector::operand::OperandTag;
@@ -91,181 +91,198 @@
 <a href=#91 id=91 data-nosnippet>91</a>    /// storage is the wire-format buffer); `PhantomRawTensor` returns `Vec::new()`.
 <a href=#92 id=92 data-nosnippet>92</a>    </span><span class="kw">fn </span>to_buf&lt;Mapping: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;D&gt;;
 <a href=#93 id=93 data-nosnippet>93</a>
-<a href=#94 id=94 data-nosnippet>94</a>    <span class="doccomment">/// Constructs a raw tensor by applying `f` to each (axes, multi-dim coordinate) pair.
-<a href=#95 id=95 data-nosnippet>95</a>    ///
-<a href=#96 id=96 data-nosnippet>96</a>    /// The default body walks every generated index, materializes its multi-dim coordinate, and
-<a href=#97 id=97 data-nosnippet>97</a>    /// routes the producer's result through [`Self::write_index`]. `BufRawTensor` and
-<a href=#98 id=98 data-nosnippet>98</a>    /// `MathRawTensor` both inherit this body; `PhantomRawTensor` overrides it with a
-<a href=#99 id=99 data-nosnippet>99</a>    /// short-circuit because there is no buffer to fill.
-<a href=#100 id=100 data-nosnippet>100</a>    </span><span class="kw">fn </span>from_fn&lt;F&gt;(axes: Vec&lt;Term&gt;, <span class="kw-2">mut </span>f: F) -&gt; <span class="self">Self
-<a href=#101 id=101 data-nosnippet>101</a>    </span><span class="kw">where
-<a href=#102 id=102 data-nosnippet>102</a>        </span>F: FnMut(<span class="kw-2">&amp;</span>Vec&lt;Term&gt;, <span class="kw-2">&amp;</span>IxDyn) -&gt; Opt&lt;D&gt;,
-<a href=#103 id=103 data-nosnippet>103</a>    {
-<a href=#104 id=104 data-nosnippet>104</a>        <span class="kw">let </span><span class="kw-2">mut </span>tensor = <span class="self">Self</span>::uninit_from_axes(axes.clone());
-<a href=#105 id=105 data-nosnippet>105</a>        <span class="kw">for </span>index <span class="kw">in </span>Index::new().gen_indexes(FMapping::from_axes(RSlice::from(axes.as_slice()))) {
-<a href=#106 id=106 data-nosnippet>106</a>            <span class="kw">let </span>coords = finalize_coords(<span class="kw-2">&amp;</span>axes, index.clone()).expect(<span class="string">"generated index must be valid"</span>);
-<a href=#107 id=107 data-nosnippet>107</a>            tensor.write_index(index, f(<span class="kw-2">&amp;</span>axes, <span class="kw-2">&amp;</span>IxDyn(<span class="kw-2">&amp;</span>coords)));
-<a href=#108 id=108 data-nosnippet>108</a>        }
-<a href=#109 id=109 data-nosnippet>109</a>        tensor
-<a href=#110 id=110 data-nosnippet>110</a>    }
-<a href=#111 id=111 data-nosnippet>111</a>
-<a href=#112 id=112 data-nosnippet>112</a>    <span class="doccomment">/// Element-wise map into another raw-tensor storage chosen by `Output`.
-<a href=#113 id=113 data-nosnippet>113</a>    ///
-<a href=#114 id=114 data-nosnippet>114</a>    /// `Tensor::map` relays here with `Output = B::RawTensor&lt;D2&gt;`, so backends stay in the same
-<a href=#115 id=115 data-nosnippet>115</a>    /// storage family while the logic itself remains purely storage-level.
-<a href=#116 id=116 data-nosnippet>116</a>    </span><span class="kw">fn </span>map&lt;D2: Scalar, Output: RawTensor&lt;D2&gt;, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, f: F) -&gt; Output
-<a href=#117 id=117 data-nosnippet>117</a>    <span class="kw">where
-<a href=#118 id=118 data-nosnippet>118</a>        </span>F: FnMut(<span class="kw-2">&amp;</span>Opt&lt;D&gt;) -&gt; Opt&lt;D2&gt;;
-<a href=#119 id=119 data-nosnippet>119</a>
-<a href=#120 id=120 data-nosnippet>120</a>    <span class="doccomment">/// Reduces the factors of `Src` that are absent in `Dst`. `Dst` must be an exact factor of
-<a href=#121 id=121 data-nosnippet>121</a>    /// `Src` (i.e., `Src::divide(Dst)` must `exact_check`); the missing factors form the
-<a href=#122 id=122 data-nosnippet>122</a>    /// reduction residue. Passing the source mapping explicitly preserves the per-factor
-<a href=#123 id=123 data-nosnippet>123</a>    /// distinction that `self.axes`'s consolidated form would otherwise lose (e.g., when a
-<a href=#124 id=124 data-nosnippet>124</a>    /// single symbol appears as multiple sub-factors and only some are reduced).
-<a href=#125 id=125 data-nosnippet>125</a>    </span><span class="kw">fn </span>reduce&lt;Src: M, Dst: M, Reduce&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, reduce_fn: Reduce, identity: Opt&lt;D&gt;) -&gt; <span class="self">Self
-<a href=#126 id=126 data-nosnippet>126</a>    </span><span class="kw">where
-<a href=#127 id=127 data-nosnippet>127</a>        </span>Reduce: Fn(Opt&lt;D&gt;, Opt&lt;D&gt;) -&gt; Opt&lt;D&gt;;
+<a href=#94 id=94 data-nosnippet>94</a>    <span class="doccomment">/// Like [`Self::to_buf`], but yields `D::zero()` for positions the storage cannot represent
+<a href=#95 id=95 data-nosnippet>95</a>    /// (padding / `Opt::Uninit`) instead of panicking. The default clones the native buffer via
+<a href=#96 id=96 data-nosnippet>96</a>    /// [`Self::to_buf`] — correct for `BufRawTensor` (Npu/Emulation), whose dense staging buffer is
+<a href=#97 id=97 data-nosnippet>97</a>    /// zero-initialized and has no `Opt::Uninit` notion. `MathRawTensor` overrides this to zero-fill
+<a href=#98 id=98 data-nosnippet>98</a>    /// its logical `Opt::Uninit` slots; `PhantomRawTensor` inherits the default (an empty buffer).
+<a href=#99 id=99 data-nosnippet>99</a>    </span><span class="kw">fn </span>to_buf_or_default&lt;Mapping: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;D&gt; {
+<a href=#100 id=100 data-nosnippet>100</a>        <span class="self">self</span>.to_buf::&lt;Mapping&gt;()
+<a href=#101 id=101 data-nosnippet>101</a>    }
+<a href=#102 id=102 data-nosnippet>102</a>
+<a href=#103 id=103 data-nosnippet>103</a>    <span class="doccomment">/// Constructs a raw tensor by applying `f` to each (axes, multi-dim coordinate) pair.
+<a href=#104 id=104 data-nosnippet>104</a>    ///
+<a href=#105 id=105 data-nosnippet>105</a>    /// The default body walks every generated index, materializes its multi-dim coordinate, and
+<a href=#106 id=106 data-nosnippet>106</a>    /// routes the producer's result through [`Self::write_index`]. `BufRawTensor` and
+<a href=#107 id=107 data-nosnippet>107</a>    /// `MathRawTensor` both inherit this body; `PhantomRawTensor` overrides it with a
+<a href=#108 id=108 data-nosnippet>108</a>    /// short-circuit because there is no buffer to fill.
+<a href=#109 id=109 data-nosnippet>109</a>    </span><span class="kw">fn </span>from_fn&lt;F&gt;(axes: Vec&lt;Term&gt;, <span class="kw-2">mut </span>f: F) -&gt; <span class="self">Self
+<a href=#110 id=110 data-nosnippet>110</a>    </span><span class="kw">where
+<a href=#111 id=111 data-nosnippet>111</a>        </span>F: FnMut(<span class="kw-2">&amp;</span>Vec&lt;Term&gt;, <span class="kw-2">&amp;</span>IxDyn) -&gt; Opt&lt;D&gt;,
+<a href=#112 id=112 data-nosnippet>112</a>    {
+<a href=#113 id=113 data-nosnippet>113</a>        <span class="kw">let </span><span class="kw-2">mut </span>tensor = <span class="self">Self</span>::uninit_from_axes(axes.clone());
+<a href=#114 id=114 data-nosnippet>114</a>        <span class="kw">for </span>index <span class="kw">in </span>Index::new().gen_indexes(Mapping::from_terms(axes.iter().cloned())) {
+<a href=#115 id=115 data-nosnippet>115</a>            <span class="kw">let </span>coords = finalize_coords(<span class="kw-2">&amp;</span>axes, index.clone()).expect(<span class="string">"generated index must be valid"</span>);
+<a href=#116 id=116 data-nosnippet>116</a>            tensor.write_index(index, f(<span class="kw-2">&amp;</span>axes, <span class="kw-2">&amp;</span>IxDyn(<span class="kw-2">&amp;</span>coords)));
+<a href=#117 id=117 data-nosnippet>117</a>        }
+<a href=#118 id=118 data-nosnippet>118</a>        tensor
+<a href=#119 id=119 data-nosnippet>119</a>    }
+<a href=#120 id=120 data-nosnippet>120</a>
+<a href=#121 id=121 data-nosnippet>121</a>    <span class="doccomment">/// Element-wise map into another raw-tensor storage chosen by `Output`.
+<a href=#122 id=122 data-nosnippet>122</a>    ///
+<a href=#123 id=123 data-nosnippet>123</a>    /// `Tensor::map` relays here with `Output = B::RawTensor&lt;D2&gt;`, so backends stay in the same
+<a href=#124 id=124 data-nosnippet>124</a>    /// storage family while the logic itself remains purely storage-level.
+<a href=#125 id=125 data-nosnippet>125</a>    </span><span class="kw">fn </span>map&lt;D2: Scalar, Output: RawTensor&lt;D2&gt;, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, f: F) -&gt; Output
+<a href=#126 id=126 data-nosnippet>126</a>    <span class="kw">where
+<a href=#127 id=127 data-nosnippet>127</a>        </span>F: FnMut(<span class="kw-2">&amp;</span>Opt&lt;D&gt;) -&gt; Opt&lt;D2&gt;;
 <a href=#128 id=128 data-nosnippet>128</a>
-<a href=#129 id=129 data-nosnippet>129</a>    <span class="doccomment">/// Reduces, then broadcasts the result up to `Dst`'s full shape.
-<a href=#130 id=130 data-nosnippet>130</a>    </span><span class="kw">fn </span>reduce_then_broadcast&lt;Src: M, Dst: M, Reduce&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, reduce_fn: Reduce, identity: Opt&lt;D&gt;) -&gt; <span class="self">Self
-<a href=#131 id=131 data-nosnippet>131</a>    </span><span class="kw">where
-<a href=#132 id=132 data-nosnippet>132</a>        </span>Reduce: Fn(Opt&lt;D&gt;, Opt&lt;D&gt;) -&gt; Opt&lt;D&gt;;
-<a href=#133 id=133 data-nosnippet>133</a>
-<a href=#134 id=134 data-nosnippet>134</a>    <span class="doccomment">/// Reshape from `Mapping`-shaped raw to `Mapping2`-shaped raw, reinterpreting the underlying
-<a href=#135 id=135 data-nosnippet>135</a>    /// physical buffer (C-major order over `Mapping` → C-major order over `Mapping2`).
-<a href=#136 id=136 data-nosnippet>136</a>    /// Identity (`Mapping == Mapping2`) is a fast-path returning `self` unchanged.
-<a href=#137 id=137 data-nosnippet>137</a>    </span><span class="kw">fn </span>reshape&lt;Mapping: M, Mapping2: M&gt;(<span class="self">self</span>) -&gt; <span class="self">Self</span>;
-<a href=#138 id=138 data-nosnippet>138</a>
-<a href=#139 id=139 data-nosnippet>139</a>    <span class="doccomment">/// Writes a transposed/broadcast view of `src` into `self`. `src_offset` and `dst_offset`
-<a href=#140 id=140 data-nosnippet>140</a>    /// allow operating on partial views.
-<a href=#141 id=141 data-nosnippet>141</a>    </span><span class="kw">fn </span>write_transpose&lt;Src: M, Dst: M&gt;(
-<a href=#142 id=142 data-nosnippet>142</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#143 id=143 data-nosnippet>143</a>        src: <span class="kw-2">&amp;</span><span class="self">Self</span>,
-<a href=#144 id=144 data-nosnippet>144</a>        src_offset: <span class="kw-2">&amp;</span>Index,
-<a href=#145 id=145 data-nosnippet>145</a>        dst_offset: <span class="kw-2">&amp;</span>Index,
-<a href=#146 id=146 data-nosnippet>146</a>        allow_broadcast: bool,
-<a href=#147 id=147 data-nosnippet>147</a>    );
-<a href=#148 id=148 data-nosnippet>148</a>
-<a href=#149 id=149 data-nosnippet>149</a>    <span class="doccomment">/// Element-wise zip of `self` and `rhs` by `f`. Output storage is `Output: RawTensor&lt;D3&gt;`,
-<a href=#150 id=150 data-nosnippet>150</a>    /// chosen by the caller — `Tensor::zip_with` passes `B::RawTensor&lt;D3&gt;` so the result stays
-<a href=#151 id=151 data-nosnippet>151</a>    /// in the same backend storage family.
-<a href=#152 id=152 data-nosnippet>152</a>    </span><span class="kw">fn </span>zip_with&lt;D2, D3, Other, Output, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, rhs: <span class="kw-2">&amp;</span>Other, f: F) -&gt; Output
-<a href=#153 id=153 data-nosnippet>153</a>    <span class="kw">where
-<a href=#154 id=154 data-nosnippet>154</a>        </span>D2: Scalar,
-<a href=#155 id=155 data-nosnippet>155</a>        D3: Scalar,
-<a href=#156 id=156 data-nosnippet>156</a>        Other: RawTensor&lt;D2&gt;,
-<a href=#157 id=157 data-nosnippet>157</a>        Output: RawTensor&lt;D3&gt;,
-<a href=#158 id=158 data-nosnippet>158</a>        F: Fn(Opt&lt;D&gt;, Opt&lt;D2&gt;) -&gt; Opt&lt;D3&gt;;
-<a href=#159 id=159 data-nosnippet>159</a>
-<a href=#160 id=160 data-nosnippet>160</a>    <span class="doccomment">/// Scatter values from `self` (with mapping `Src`) into `dst` (with mapping `Dst`) at
-<a href=#161 id=161 data-nosnippet>161</a>    /// positions read from `index` (with mapping `Idx`). `Key` is the scatter key axis; `scaled`
-<a href=#162 id=162 data-nosnippet>162</a>    /// selects between byte-stride (`true`) and element-stride (`false`) index decoding.
-<a href=#163 id=163 data-nosnippet>163</a>    </span><span class="kw">fn </span>write_scatter&lt;Src, Key, Dst, Idx, IdxRaw&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, dst: <span class="kw-2">&amp;mut </span><span class="self">Self</span>, index: <span class="kw-2">&amp;</span>IdxRaw, scaled: bool)
-<a href=#164 id=164 data-nosnippet>164</a>    <span class="kw">where
-<a href=#165 id=165 data-nosnippet>165</a>        </span>Src: M,
-<a href=#166 id=166 data-nosnippet>166</a>        Key: M,
-<a href=#167 id=167 data-nosnippet>167</a>        Dst: M,
-<a href=#168 id=168 data-nosnippet>168</a>        Idx: M,
-<a href=#169 id=169 data-nosnippet>169</a>        IdxRaw: RawTensor&lt;i32&gt;;
-<a href=#170 id=170 data-nosnippet>170</a>
-<a href=#171 id=171 data-nosnippet>171</a>    <span class="doccomment">/// Gather values from `self` (table, with mapping `Src`) into `dst` (output, with mapping
-<a href=#172 id=172 data-nosnippet>172</a>    /// `Dst`) at positions read from `index` (with mapping `Idx`). Inverse of
-<a href=#173 id=173 data-nosnippet>173</a>    /// [`Self::write_scatter`].
-<a href=#174 id=174 data-nosnippet>174</a>    ///
-<a href=#175 id=175 data-nosnippet>175</a>    /// The gather-axis (the indexed axis in the table) is derived implicitly: the payload
-<a href=#176 id=176 data-nosnippet>176</a>    /// (= `dst ÷ idx`) determines which `dst` axes are non-indexed; the remaining single
-<a href=#177 id=177 data-nosnippet>177</a>    /// term in `src ÷ payload` is the indexed axis on the table side. `scaled` selects
-<a href=#178 id=178 data-nosnippet>178</a>    /// between byte-stride (`true`) and element-stride (`false`) index decoding (matching
-<a href=#179 id=179 data-nosnippet>179</a>    /// `write_scatter`'s semantics).
-<a href=#180 id=180 data-nosnippet>180</a>    </span><span class="kw">fn </span>write_gather&lt;Src, Dst, Idx, IdxRaw&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, dst: <span class="kw-2">&amp;mut </span><span class="self">Self</span>, index: <span class="kw-2">&amp;</span>IdxRaw, scaled: bool)
-<a href=#181 id=181 data-nosnippet>181</a>    <span class="kw">where
-<a href=#182 id=182 data-nosnippet>182</a>        </span>Src: M,
-<a href=#183 id=183 data-nosnippet>183</a>        Dst: M,
-<a href=#184 id=184 data-nosnippet>184</a>        Idx: M,
-<a href=#185 id=185 data-nosnippet>185</a>        IdxRaw: RawTensor&lt;i32&gt;;
-<a href=#186 id=186 data-nosnippet>186</a>
-<a href=#187 id=187 data-nosnippet>187</a>    <span class="doccomment">/// VE branch-conditional update. Iterates every real position of `Mapping`, reads `eid`
-<a href=#188 id=188 data-nosnippet>188</a>    /// at each position, and for each operand whose `tag_filter()` matches the eid runs
-<a href=#189 id=189 data-nosnippet>189</a>    /// `update`. Returns a tensor with the per-position results applied to a clone of `self`.
-<a href=#190 id=190 data-nosnippet>190</a>    ///
-<a href=#191 id=191 data-nosnippet>191</a>    /// Lives on the trait specifically so `PhantomRawTensor` can short-circuit the iteration
-<a href=#192 id=192 data-nosnippet>192</a>    /// entirely (Typecheck has no values to update); pushing it out to a free fn would force
-<a href=#193 id=193 data-nosnippet>193</a>    /// Phantom through the full position loop unnecessarily.
-<a href=#194 id=194 data-nosnippet>194</a>    </span><span class="kw">fn </span>apply_branch_operands&lt;Mapping, Operand, TagRaw, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, tag: <span class="kw-2">&amp;</span>TagRaw, operands: <span class="kw-2">&amp;</span>[Operand], update: F) -&gt; <span class="self">Self
-<a href=#195 id=195 data-nosnippet>195</a>    </span><span class="kw">where
-<a href=#196 id=196 data-nosnippet>196</a>        </span>D: VeScalar,
-<a href=#197 id=197 data-nosnippet>197</a>        Mapping: M,
-<a href=#198 id=198 data-nosnippet>198</a>        TagRaw: RawTensor&lt;u8&gt;,
-<a href=#199 id=199 data-nosnippet>199</a>        Operand: OperandTag&lt;D, Mapping&gt;,
-<a href=#200 id=200 data-nosnippet>200</a>        F: FnMut(<span class="kw-2">&amp;</span>Index, <span class="kw-2">&amp;</span>Operand, <span class="kw-2">&amp;mut </span><span class="self">Self</span>);
-<a href=#201 id=201 data-nosnippet>201</a>}
-<a href=#202 id=202 data-nosnippet>202</a>
-<a href=#203 id=203 data-nosnippet>203</a><span class="doccomment">/// Storage-level extension for raw tensors that support logical [`Opt&lt;D&gt;`] values.
-<a href=#204 id=204 data-nosnippet>204</a>///
-<a href=#205 id=205 data-nosnippet>205</a>/// Implemented by `MathRawTensor` (real `Opt&lt;D&gt;` host buffer) and `PhantomRawTensor`
-<a href=#206 id=206 data-nosnippet>206</a>/// (no buffer; reads return `Opt::Uninit`). `BufRawTensor` deliberately does **not**
-<a href=#207 id=207 data-nosnippet>207</a>/// implement this trait — its `Vec&lt;D&gt;` staging buffer has no `Opt::Uninit` representation,
-<a href=#208 id=208 data-nosnippet>208</a>/// and the wider `Tensor` / `HostTensor` Opt-buffer surface should not be reachable on
-<a href=#209 id=209 data-nosnippet>209</a>/// Npu / Emulation.
-<a href=#210 id=210 data-nosnippet>210</a>///
-<a href=#211 id=211 data-nosnippet>211</a>/// Each backend whose `Backend::RawTensor&lt;D&gt;` implements `RawTensorOpt&lt;D&gt;` automatically
-<a href=#212 id=212 data-nosnippet>212</a>/// surfaces the `Tensor::{from_opt_buf, try_from_opt_buf, to_buf_opt}` and matching
-<a href=#213 id=213 data-nosnippet>213</a>/// `HostTensor` constructors via a generic `where`-bound on the storage type.
-<a href=#214 id=214 data-nosnippet>214</a></span><span class="kw">pub trait </span>RawTensorOpt&lt;D: Scalar&gt;: RawTensor&lt;D&gt; {
-<a href=#215 id=215 data-nosnippet>215</a>    <span class="doccomment">/// Construct from a logical `Opt&lt;D&gt;` buffer in physical layout. Padding positions in
-<a href=#216 id=216 data-nosnippet>216</a>    /// the input are dropped where the storage doesn't represent them.
-<a href=#217 id=217 data-nosnippet>217</a>    </span><span class="kw">fn </span>from_opt_buf&lt;Mapping: M&gt;(data: <span class="kw">impl </span>IntoIterator&lt;Item = Opt&lt;D&gt;&gt;) -&gt; <span class="self">Self</span>;
-<a href=#218 id=218 data-nosnippet>218</a>
-<a href=#219 id=219 data-nosnippet>219</a>    <span class="doccomment">/// Validates the input length matches `Mapping::SIZE` then constructs via
-<a href=#220 id=220 data-nosnippet>220</a>    /// [`Self::from_opt_buf`]. Default impl is pure plumbing (mirrors [`RawTensor::try_from_buf`]);
-<a href=#221 id=221 data-nosnippet>221</a>    /// `PhantomRawTensor` overrides to skip the length check (Typecheck doesn't represent buffer
-<a href=#222 id=222 data-nosnippet>222</a>    /// values, so any length is acceptable).
-<a href=#223 id=223 data-nosnippet>223</a>    </span><span class="kw">fn </span>try_from_opt_buf&lt;Mapping: M&gt;(data: <span class="kw">impl </span>IntoIterator&lt;Item = Opt&lt;D&gt;&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BufferConvertError&gt;
-<a href=#224 id=224 data-nosnippet>224</a>    <span class="kw">where
-<a href=#225 id=225 data-nosnippet>225</a>        </span><span class="self">Self</span>: Sized,
-<a href=#226 id=226 data-nosnippet>226</a>    {
-<a href=#227 id=227 data-nosnippet>227</a>        <span class="kw">let </span>data: Vec&lt;Opt&lt;D&gt;&gt; = data.into_iter().collect();
-<a href=#228 id=228 data-nosnippet>228</a>        <span class="kw">if </span>data.len() != Mapping::SIZE {
-<a href=#229 id=229 data-nosnippet>229</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(BufferConvertError::length_mismatch(Mapping::SIZE, data.len()));
-<a href=#230 id=230 data-nosnippet>230</a>        }
-<a href=#231 id=231 data-nosnippet>231</a>        <span class="prelude-val">Ok</span>(<span class="self">Self</span>::from_opt_buf::&lt;Mapping&gt;(data))
-<a href=#232 id=232 data-nosnippet>232</a>    }
-<a href=#233 id=233 data-nosnippet>233</a>
-<a href=#234 id=234 data-nosnippet>234</a>    <span class="doccomment">/// Serialize to a logical `Opt&lt;D&gt;` buffer in physical layout. `MathRawTensor` reads
-<a href=#235 id=235 data-nosnippet>235</a>    /// each slot; `PhantomRawTensor` returns an empty `Vec` since there's no buffer to
-<a href=#236 id=236 data-nosnippet>236</a>    /// surface.
-<a href=#237 id=237 data-nosnippet>237</a>    </span><span class="kw">fn </span>to_opt_buf&lt;Mapping: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;Opt&lt;D&gt;&gt;;
-<a href=#238 id=238 data-nosnippet>238</a>}
-<a href=#239 id=239 data-nosnippet>239</a>
-<a href=#240 id=240 data-nosnippet>240</a><span class="doccomment">/// Generates axes from a mapping.
-<a href=#241 id=241 data-nosnippet>241</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>gen_axes&lt;Mapping: M&gt;() -&gt; Vec&lt;Term&gt; {
-<a href=#242 id=242 data-nosnippet>242</a>    <span class="kw">let </span><span class="kw-2">mut </span>index = Index::new();
-<a href=#243 id=243 data-nosnippet>243</a>    index.add_mapping::&lt;Mapping&gt;(<span class="number">0</span>);
-<a href=#244 id=244 data-nosnippet>244</a>    index
-<a href=#245 id=245 data-nosnippet>245</a>        .finalize()
-<a href=#246 id=246 data-nosnippet>246</a>        .expect(<span class="string">"Invalid mapping"</span>)
-<a href=#247 id=247 data-nosnippet>247</a>        .into_iter()
-<a href=#248 id=248 data-nosnippet>248</a>        .map(|(term, <span class="kw">_</span>)| term)
-<a href=#249 id=249 data-nosnippet>249</a>        .collect()
-<a href=#250 id=250 data-nosnippet>250</a>}
-<a href=#251 id=251 data-nosnippet>251</a>
-<a href=#252 id=252 data-nosnippet>252</a><span class="doccomment">/// Resolves an `Index` to a multi-dim coordinate vector against `axes`. Returns `None` when the
-<a href=#253 id=253 data-nosnippet>253</a>/// index lands in a padding slot.
-<a href=#254 id=254 data-nosnippet>254</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>finalize_coords(axes: <span class="kw-2">&amp;</span>[Term], index: Index) -&gt; <span class="prelude-ty">Option</span>&lt;Vec&lt;usize&gt;&gt; {
-<a href=#255 id=255 data-nosnippet>255</a>    <span class="kw">let </span>RResult::ROk(index) = index.finalize() <span class="kw">else </span>{
-<a href=#256 id=256 data-nosnippet>256</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#257 id=257 data-nosnippet>257</a>    };
-<a href=#258 id=258 data-nosnippet>258</a>    <span class="macro">assert!</span>(
-<a href=#259 id=259 data-nosnippet>259</a>        axes.iter().zip(index.iter()).all(|(a, (b, <span class="kw">_</span>))| a == b),
-<a href=#260 id=260 data-nosnippet>260</a>        <span class="string">"Index terms ({:?}) do not match tensor axes ({:?})."</span>,
-<a href=#261 id=261 data-nosnippet>261</a>        index,
-<a href=#262 id=262 data-nosnippet>262</a>        axes
-<a href=#263 id=263 data-nosnippet>263</a>    );
-<a href=#264 id=264 data-nosnippet>264</a>    <span class="prelude-val">Some</span>(index.into_iter().map(|(<span class="kw">_</span>, value)| value).collect())
+<a href=#129 id=129 data-nosnippet>129</a>    <span class="doccomment">/// Reduces the factors of `Src` that are absent in `Dst`. `Dst` must be an exact factor of
+<a href=#130 id=130 data-nosnippet>130</a>    /// `Src` (i.e., `Src::divide(Dst)` must `exact_check`); the missing factors form the
+<a href=#131 id=131 data-nosnippet>131</a>    /// reduction residue. Passing the source mapping explicitly preserves the per-factor
+<a href=#132 id=132 data-nosnippet>132</a>    /// distinction that `self.axes`'s consolidated form would otherwise lose (e.g., when a
+<a href=#133 id=133 data-nosnippet>133</a>    /// single symbol appears as multiple sub-factors and only some are reduced).
+<a href=#134 id=134 data-nosnippet>134</a>    </span><span class="kw">fn </span>reduce&lt;Src: M, Dst: M, Reduce&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, reduce_fn: Reduce, identity: Opt&lt;D&gt;) -&gt; <span class="self">Self
+<a href=#135 id=135 data-nosnippet>135</a>    </span><span class="kw">where
+<a href=#136 id=136 data-nosnippet>136</a>        </span>Reduce: Fn(Opt&lt;D&gt;, Opt&lt;D&gt;) -&gt; Opt&lt;D&gt;;
+<a href=#137 id=137 data-nosnippet>137</a>
+<a href=#138 id=138 data-nosnippet>138</a>    <span class="doccomment">/// Reduces, then broadcasts the result up to `Dst`'s full shape.
+<a href=#139 id=139 data-nosnippet>139</a>    </span><span class="kw">fn </span>reduce_then_broadcast&lt;Src: M, Dst: M, Reduce&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, reduce_fn: Reduce, identity: Opt&lt;D&gt;) -&gt; <span class="self">Self
+<a href=#140 id=140 data-nosnippet>140</a>    </span><span class="kw">where
+<a href=#141 id=141 data-nosnippet>141</a>        </span>Reduce: Fn(Opt&lt;D&gt;, Opt&lt;D&gt;) -&gt; Opt&lt;D&gt;;
+<a href=#142 id=142 data-nosnippet>142</a>
+<a href=#143 id=143 data-nosnippet>143</a>    <span class="doccomment">/// Reshape from `Mapping`-shaped raw to `Mapping2`-shaped raw, reinterpreting the underlying
+<a href=#144 id=144 data-nosnippet>144</a>    /// physical buffer (C-major order over `Mapping` → C-major order over `Mapping2`).
+<a href=#145 id=145 data-nosnippet>145</a>    /// Identity (`Mapping == Mapping2`) is a fast-path returning `self` unchanged.
+<a href=#146 id=146 data-nosnippet>146</a>    </span><span class="kw">fn </span>reshape&lt;Mapping: M, Mapping2: M&gt;(<span class="self">self</span>) -&gt; <span class="self">Self</span>;
+<a href=#147 id=147 data-nosnippet>147</a>
+<a href=#148 id=148 data-nosnippet>148</a>    <span class="doccomment">/// Writes a transposed/broadcast view of `src` into `self`. `src_offset` and `dst_offset`
+<a href=#149 id=149 data-nosnippet>149</a>    /// allow operating on partial views.
+<a href=#150 id=150 data-nosnippet>150</a>    </span><span class="kw">fn </span>write_transpose&lt;Src: M, Dst: M&gt;(
+<a href=#151 id=151 data-nosnippet>151</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#152 id=152 data-nosnippet>152</a>        src: <span class="kw-2">&amp;</span><span class="self">Self</span>,
+<a href=#153 id=153 data-nosnippet>153</a>        src_offset: <span class="kw-2">&amp;</span>Index,
+<a href=#154 id=154 data-nosnippet>154</a>        dst_offset: <span class="kw-2">&amp;</span>Index,
+<a href=#155 id=155 data-nosnippet>155</a>        allow_broadcast: bool,
+<a href=#156 id=156 data-nosnippet>156</a>    );
+<a href=#157 id=157 data-nosnippet>157</a>
+<a href=#158 id=158 data-nosnippet>158</a>    <span class="doccomment">/// Element-wise zip of `self` and `rhs` by `f`. Output storage is `Output: RawTensor&lt;D3&gt;`,
+<a href=#159 id=159 data-nosnippet>159</a>    /// chosen by the caller — `Tensor::zip_with` passes `B::RawTensor&lt;D3&gt;` so the result stays
+<a href=#160 id=160 data-nosnippet>160</a>    /// in the same backend storage family.
+<a href=#161 id=161 data-nosnippet>161</a>    </span><span class="kw">fn </span>zip_with&lt;D2, D3, Other, Output, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, rhs: <span class="kw-2">&amp;</span>Other, f: F) -&gt; Output
+<a href=#162 id=162 data-nosnippet>162</a>    <span class="kw">where
+<a href=#163 id=163 data-nosnippet>163</a>        </span>D2: Scalar,
+<a href=#164 id=164 data-nosnippet>164</a>        D3: Scalar,
+<a href=#165 id=165 data-nosnippet>165</a>        Other: RawTensor&lt;D2&gt;,
+<a href=#166 id=166 data-nosnippet>166</a>        Output: RawTensor&lt;D3&gt;,
+<a href=#167 id=167 data-nosnippet>167</a>        F: Fn(Opt&lt;D&gt;, Opt&lt;D2&gt;) -&gt; Opt&lt;D3&gt;;
+<a href=#168 id=168 data-nosnippet>168</a>
+<a href=#169 id=169 data-nosnippet>169</a>    <span class="doccomment">/// Scatter values from `self` (with mapping `Src`) into `dst` (with mapping `Dst`) at
+<a href=#170 id=170 data-nosnippet>170</a>    /// positions read from `index` (with mapping `Idx`). `Key` is the scatter key axis; `scaled`
+<a href=#171 id=171 data-nosnippet>171</a>    /// selects between byte-stride (`true`) and element-stride (`false`) index decoding.
+<a href=#172 id=172 data-nosnippet>172</a>    </span><span class="kw">fn </span>write_scatter&lt;Src, Key, Dst, Idx, IdxRaw&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, dst: <span class="kw-2">&amp;mut </span><span class="self">Self</span>, index: <span class="kw-2">&amp;</span>IdxRaw, scaled: bool)
+<a href=#173 id=173 data-nosnippet>173</a>    <span class="kw">where
+<a href=#174 id=174 data-nosnippet>174</a>        </span>Src: M,
+<a href=#175 id=175 data-nosnippet>175</a>        Key: M,
+<a href=#176 id=176 data-nosnippet>176</a>        Dst: M,
+<a href=#177 id=177 data-nosnippet>177</a>        Idx: M,
+<a href=#178 id=178 data-nosnippet>178</a>        IdxRaw: RawTensor&lt;i32&gt;;
+<a href=#179 id=179 data-nosnippet>179</a>
+<a href=#180 id=180 data-nosnippet>180</a>    <span class="doccomment">/// Gather values from `self` (table, with mapping `Src`) into `dst` (output, with mapping
+<a href=#181 id=181 data-nosnippet>181</a>    /// `Dst`) at positions read from `index` (with mapping `Idx`). Inverse of
+<a href=#182 id=182 data-nosnippet>182</a>    /// [`Self::write_scatter`].
+<a href=#183 id=183 data-nosnippet>183</a>    ///
+<a href=#184 id=184 data-nosnippet>184</a>    /// The gather-axis (the indexed axis in the table) is derived implicitly: the payload
+<a href=#185 id=185 data-nosnippet>185</a>    /// (= `dst ÷ idx`) determines which `dst` axes are non-indexed; the remaining single
+<a href=#186 id=186 data-nosnippet>186</a>    /// term in `src ÷ payload` is the indexed axis on the table side. `scaled` selects
+<a href=#187 id=187 data-nosnippet>187</a>    /// between byte-stride (`true`) and element-stride (`false`) index decoding (matching
+<a href=#188 id=188 data-nosnippet>188</a>    /// `write_scatter`'s semantics).
+<a href=#189 id=189 data-nosnippet>189</a>    </span><span class="kw">fn </span>write_gather&lt;Src, Dst, Idx, IdxRaw&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, dst: <span class="kw-2">&amp;mut </span><span class="self">Self</span>, index: <span class="kw-2">&amp;</span>IdxRaw, scaled: bool)
+<a href=#190 id=190 data-nosnippet>190</a>    <span class="kw">where
+<a href=#191 id=191 data-nosnippet>191</a>        </span>Src: M,
+<a href=#192 id=192 data-nosnippet>192</a>        Dst: M,
+<a href=#193 id=193 data-nosnippet>193</a>        Idx: M,
+<a href=#194 id=194 data-nosnippet>194</a>        IdxRaw: RawTensor&lt;i32&gt;;
+<a href=#195 id=195 data-nosnippet>195</a>
+<a href=#196 id=196 data-nosnippet>196</a>    <span class="doccomment">/// VE branch-conditional update. Iterates every real position of `Mapping`, reads `eid`
+<a href=#197 id=197 data-nosnippet>197</a>    /// at each position, and for each operand whose `tag_filter()` matches the eid runs
+<a href=#198 id=198 data-nosnippet>198</a>    /// `update`. Returns a tensor with the per-position results applied to a clone of `self`.
+<a href=#199 id=199 data-nosnippet>199</a>    ///
+<a href=#200 id=200 data-nosnippet>200</a>    /// Lives on the trait specifically so `PhantomRawTensor` can short-circuit the iteration
+<a href=#201 id=201 data-nosnippet>201</a>    /// entirely (Typecheck has no values to update); pushing it out to a free fn would force
+<a href=#202 id=202 data-nosnippet>202</a>    /// Phantom through the full position loop unnecessarily.
+<a href=#203 id=203 data-nosnippet>203</a>    </span><span class="kw">fn </span>apply_branch_operands&lt;Mapping, Operand, TagRaw, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, tag: <span class="kw-2">&amp;</span>TagRaw, operands: <span class="kw-2">&amp;</span>[Operand], update: F) -&gt; <span class="self">Self
+<a href=#204 id=204 data-nosnippet>204</a>    </span><span class="kw">where
+<a href=#205 id=205 data-nosnippet>205</a>        </span>D: VeScalar,
+<a href=#206 id=206 data-nosnippet>206</a>        Mapping: M,
+<a href=#207 id=207 data-nosnippet>207</a>        TagRaw: RawTensor&lt;u8&gt;,
+<a href=#208 id=208 data-nosnippet>208</a>        Operand: OperandTag&lt;D, Mapping&gt;,
+<a href=#209 id=209 data-nosnippet>209</a>        F: FnMut(<span class="kw-2">&amp;</span>Index, <span class="kw-2">&amp;</span>Operand, <span class="kw-2">&amp;mut </span><span class="self">Self</span>);
+<a href=#210 id=210 data-nosnippet>210</a>}
+<a href=#211 id=211 data-nosnippet>211</a>
+<a href=#212 id=212 data-nosnippet>212</a><span class="doccomment">/// Storage-level extension for raw tensors that support logical [`Opt&lt;D&gt;`] values.
+<a href=#213 id=213 data-nosnippet>213</a>///
+<a href=#214 id=214 data-nosnippet>214</a>/// Implemented by `MathRawTensor` (real `Opt&lt;D&gt;` host buffer) and `PhantomRawTensor`
+<a href=#215 id=215 data-nosnippet>215</a>/// (no buffer; reads return `Opt::Uninit`). `BufRawTensor` deliberately does **not**
+<a href=#216 id=216 data-nosnippet>216</a>/// implement this trait — its `Vec&lt;D&gt;` staging buffer has no `Opt::Uninit` representation,
+<a href=#217 id=217 data-nosnippet>217</a>/// and the wider `Tensor` / `HostTensor` Opt-buffer surface should not be reachable on
+<a href=#218 id=218 data-nosnippet>218</a>/// Npu / Emulation.
+<a href=#219 id=219 data-nosnippet>219</a>///
+<a href=#220 id=220 data-nosnippet>220</a>/// Each backend whose `Backend::RawTensor&lt;D&gt;` implements `RawTensorOpt&lt;D&gt;` automatically
+<a href=#221 id=221 data-nosnippet>221</a>/// surfaces the `Tensor::{from_opt_buf, try_from_opt_buf, to_buf_opt}` and matching
+<a href=#222 id=222 data-nosnippet>222</a>/// `HostTensor` constructors via a generic `where`-bound on the storage type.
+<a href=#223 id=223 data-nosnippet>223</a></span><span class="kw">pub trait </span>RawTensorOpt&lt;D: Scalar&gt;: RawTensor&lt;D&gt; {
+<a href=#224 id=224 data-nosnippet>224</a>    <span class="doccomment">/// Construct from a logical `Opt&lt;D&gt;` buffer in physical layout. Padding positions in
+<a href=#225 id=225 data-nosnippet>225</a>    /// the input are dropped where the storage doesn't represent them.
+<a href=#226 id=226 data-nosnippet>226</a>    </span><span class="kw">fn </span>from_opt_buf&lt;Mapping: M&gt;(data: <span class="kw">impl </span>IntoIterator&lt;Item = Opt&lt;D&gt;&gt;) -&gt; <span class="self">Self</span>;
+<a href=#227 id=227 data-nosnippet>227</a>
+<a href=#228 id=228 data-nosnippet>228</a>    <span class="doccomment">/// Validates the input length matches `Mapping::SIZE` then constructs via
+<a href=#229 id=229 data-nosnippet>229</a>    /// [`Self::from_opt_buf`]. Default impl is pure plumbing (mirrors [`RawTensor::try_from_buf`]);
+<a href=#230 id=230 data-nosnippet>230</a>    /// `PhantomRawTensor` overrides to skip the length check (Typecheck doesn't represent buffer
+<a href=#231 id=231 data-nosnippet>231</a>    /// values, so any length is acceptable).
+<a href=#232 id=232 data-nosnippet>232</a>    </span><span class="kw">fn </span>try_from_opt_buf&lt;Mapping: M&gt;(data: <span class="kw">impl </span>IntoIterator&lt;Item = Opt&lt;D&gt;&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BufferConvertError&gt;
+<a href=#233 id=233 data-nosnippet>233</a>    <span class="kw">where
+<a href=#234 id=234 data-nosnippet>234</a>        </span><span class="self">Self</span>: Sized,
+<a href=#235 id=235 data-nosnippet>235</a>    {
+<a href=#236 id=236 data-nosnippet>236</a>        <span class="kw">let </span>data: Vec&lt;Opt&lt;D&gt;&gt; = data.into_iter().collect();
+<a href=#237 id=237 data-nosnippet>237</a>        <span class="kw">if </span>data.len() != Mapping::SIZE {
+<a href=#238 id=238 data-nosnippet>238</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(BufferConvertError::length_mismatch(Mapping::SIZE, data.len()));
+<a href=#239 id=239 data-nosnippet>239</a>        }
+<a href=#240 id=240 data-nosnippet>240</a>        <span class="prelude-val">Ok</span>(<span class="self">Self</span>::from_opt_buf::&lt;Mapping&gt;(data))
+<a href=#241 id=241 data-nosnippet>241</a>    }
+<a href=#242 id=242 data-nosnippet>242</a>
+<a href=#243 id=243 data-nosnippet>243</a>    <span class="doccomment">/// Serialize to a logical `Opt&lt;D&gt;` buffer in physical layout. `MathRawTensor` reads
+<a href=#244 id=244 data-nosnippet>244</a>    /// each slot; `PhantomRawTensor` returns an empty `Vec` since there's no buffer to
+<a href=#245 id=245 data-nosnippet>245</a>    /// surface.
+<a href=#246 id=246 data-nosnippet>246</a>    </span><span class="kw">fn </span>to_opt_buf&lt;Mapping: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;Opt&lt;D&gt;&gt;;
+<a href=#247 id=247 data-nosnippet>247</a>
+<a href=#248 id=248 data-nosnippet>248</a>    <span class="doccomment">/// [`RawTensor::to_buf_or_default`] for `Opt`-bearing storage: serializes via
+<a href=#249 id=249 data-nosnippet>249</a>    /// [`Self::to_opt_buf`] and replaces each `Opt::Uninit` slot with `D::zero()`. The concrete
+<a href=#250 id=250 data-nosnippet>250</a>    /// `RawTensor::to_buf_or_default` override just delegates here.
+<a href=#251 id=251 data-nosnippet>251</a>    </span><span class="kw">fn </span>to_buf_or_default_opt&lt;Mapping: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;D&gt; {
+<a href=#252 id=252 data-nosnippet>252</a>        <span class="self">self</span>.to_opt_buf::&lt;Mapping&gt;()
+<a href=#253 id=253 data-nosnippet>253</a>            .into_iter()
+<a href=#254 id=254 data-nosnippet>254</a>            .map(|x| <span class="kw">match </span>x {
+<a href=#255 id=255 data-nosnippet>255</a>                Opt::Init(value) =&gt; value,
+<a href=#256 id=256 data-nosnippet>256</a>                Opt::Uninit =&gt; D::zero(),
+<a href=#257 id=257 data-nosnippet>257</a>            })
+<a href=#258 id=258 data-nosnippet>258</a>            .collect()
+<a href=#259 id=259 data-nosnippet>259</a>    }
+<a href=#260 id=260 data-nosnippet>260</a>}
+<a href=#261 id=261 data-nosnippet>261</a>
+<a href=#262 id=262 data-nosnippet>262</a><span class="doccomment">/// Generates axes from a mapping.
+<a href=#263 id=263 data-nosnippet>263</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>gen_axes&lt;Mapping: M&gt;() -&gt; Vec&lt;Term&gt; {
+<a href=#264 id=264 data-nosnippet>264</a>    Mapping::to_value().axes()
 <a href=#265 id=265 data-nosnippet>265</a>}
 <a href=#266 id=266 data-nosnippet>266</a>
-<a href=#267 id=267 data-nosnippet>267</a><span class="doccomment">/// Returns the per-axis modulus list (i.e. the dense buffer shape implied by `axes`).
-<a href=#268 id=268 data-nosnippet>268</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>shape_from_axes(axes: <span class="kw-2">&amp;</span>[Term]) -&gt; Vec&lt;usize&gt; {
-<a href=#269 id=269 data-nosnippet>269</a>    axes.iter().map(|term| term.modulo).collect()
-<a href=#270 id=270 data-nosnippet>270</a>}
+<a href=#267 id=267 data-nosnippet>267</a><span class="doccomment">/// Resolves an `Index` to a multi-dim coordinate vector against `axes`. Returns `None` when the
+<a href=#268 id=268 data-nosnippet>268</a>/// index lands in a padding slot. `finalize` gives each symbol's absolute coordinate; recover this
+<a href=#269 id=269 data-nosnippet>269</a>/// axis's digit by its stride/modulo, since an axis may be a sub-factor of its symbol (`A % 4`).
+<a href=#270 id=270 data-nosnippet>270</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>finalize_coords(axes: <span class="kw-2">&amp;</span>[Term], index: Index) -&gt; <span class="prelude-ty">Option</span>&lt;Vec&lt;usize&gt;&gt; {
+<a href=#271 id=271 data-nosnippet>271</a>    <span class="kw">let </span>RResult::ROk(coords) = index.finalize() <span class="kw">else </span>{
+<a href=#272 id=272 data-nosnippet>272</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#273 id=273 data-nosnippet>273</a>    };
+<a href=#274 id=274 data-nosnippet>274</a>    <span class="prelude-val">Some</span>(
+<a href=#275 id=275 data-nosnippet>275</a>        axes.iter()
+<a href=#276 id=276 data-nosnippet>276</a>            .map(|axis| <span class="kw">match </span>axis.inner {
+<a href=#277 id=277 data-nosnippet>277</a>                Atom::Symbol { symbol, .. } =&gt; (coords.get(<span class="kw-2">&amp;</span>symbol).copied().unwrap_or(<span class="number">0</span>) / axis.stride) % axis.modulo,
+<a href=#278 id=278 data-nosnippet>278</a>                Atom::Composite(<span class="kw">_</span>) =&gt; <span class="macro">panic!</span>(<span class="string">"tensor axis must be a resolved symbol, got {axis:?}"</span>),
+<a href=#279 id=279 data-nosnippet>279</a>            })
+<a href=#280 id=280 data-nosnippet>280</a>            .collect(),
+<a href=#281 id=281 data-nosnippet>281</a>    )
+<a href=#282 id=282 data-nosnippet>282</a>}
+<a href=#283 id=283 data-nosnippet>283</a>
+<a href=#284 id=284 data-nosnippet>284</a><span class="doccomment">/// Returns the per-axis modulus list (i.e. the dense buffer shape implied by `axes`).
+<a href=#285 id=285 data-nosnippet>285</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>shape_from_axes(axes: <span class="kw-2">&amp;</span>[Term]) -&gt; Vec&lt;usize&gt; {
+<a href=#286 id=286 data-nosnippet>286</a>    axes.iter().map(|term| term.modulo).collect()
+<a href=#287 id=287 data-nosnippet>287</a>}
 </code></pre></div></section></main></body></html>

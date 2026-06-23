@@ -17,14 +17,14 @@
 <a href=#17 id=17 data-nosnippet>17</a>    <span class="kw">let </span>rhs: TrfTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">16</span>], <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A / <span class="number">8 </span>% <span class="number">2</span>, B, A % <span class="number">8</span>]&gt; = ctx
 <a href=#18 id=18 data-nosnippet>18</a>        .sub
 <a href=#19 id=19 data-nosnippet>19</a>        .begin(rhs.view())
-<a href=#20 id=20 data-nosnippet>20</a>        .fetch::&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A / <span class="number">8 </span>% <span class="number">2</span>, B, A % <span class="number">8</span>]&gt;()
+<a href=#20 id=20 data-nosnippet>20</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A / <span class="number">8 </span>% <span class="number">2</span>, B, A % <span class="number">8</span>]&gt;()
 <a href=#21 id=21 data-nosnippet>21</a>        .collect::&lt;<span class="macro">m!</span>[A / <span class="number">8 </span>% <span class="number">2</span>, B / <span class="number">4</span>], <span class="macro">m!</span>[B % <span class="number">4</span>, A % <span class="number">8</span>]&gt;()
 <a href=#22 id=22 data-nosnippet>22</a>        .to_trf(TrfAddress::Full);
 <a href=#23 id=23 data-nosnippet>23</a>
 <a href=#24 id=24 data-nosnippet>24</a>    <span class="kw">let </span>matmul_result: DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">256</span>], <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>]&gt; = ctx
 <a href=#25 id=25 data-nosnippet>25</a>        .main
 <a href=#26 id=26 data-nosnippet>26</a>        .begin(lhs.view())
-<a href=#27 id=27 data-nosnippet>27</a>        .fetch::&lt;i8, <span class="macro">m!</span>[A / <span class="number">8 </span>% <span class="number">2</span>], <span class="macro">m!</span>[B, A % <span class="number">8</span>]&gt;()
+<a href=#27 id=27 data-nosnippet>27</a>        .fetch::&lt;<span class="macro">m!</span>[A / <span class="number">8 </span>% <span class="number">2</span>], <span class="macro">m!</span>[B, A % <span class="number">8</span>]&gt;()
 <a href=#28 id=28 data-nosnippet>28</a>        .collect::&lt;<span class="macro">m!</span>[A / <span class="number">8 </span>% <span class="number">2</span>, B / <span class="number">4</span>], <span class="macro">m!</span>[B % <span class="number">4</span>, A % <span class="number">8</span>]&gt;()
 <a href=#29 id=29 data-nosnippet>29</a>        .contract_outer::&lt;<span class="macro">m!</span>[A / <span class="number">8 </span>% <span class="number">2</span>], <span class="macro">m!</span>[B % <span class="number">8</span>, A % <span class="number">8</span>], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>rhs)
 <a href=#30 id=30 data-nosnippet>30</a>        .contract_packet::&lt;<span class="macro">m!</span>[<span class="number">1</span>]&gt;()
@@ -34,9 +34,10 @@
 <a href=#34 id=34 data-nosnippet>34</a>        .vector_inter_slice_reduce::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">256</span>], <span class="macro">m!</span>[<span class="number">1</span>]&gt;(InterSliceReduceOpI32::Add)
 <a href=#35 id=35 data-nosnippet>35</a>        .vector_final()
 <a href=#36 id=36 data-nosnippet>36</a>        .cast::&lt;i8, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">32</span>]&gt;()
-<a href=#37 id=37 data-nosnippet>37</a>        .commit(<span class="number">0</span>);
-<a href=#38 id=38 data-nosnippet>38</a>
-<a href=#39 id=39 data-nosnippet>39</a>    <span class="comment">// write back to HBM.
-<a href=#40 id=40 data-nosnippet>40</a>    </span>matmul_result.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x3000</span>)
-<a href=#41 id=41 data-nosnippet>41</a>}
+<a href=#37 id=37 data-nosnippet>37</a>        .commit_trim::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>]&gt;()
+<a href=#38 id=38 data-nosnippet>38</a>        .commit(<span class="number">0</span>);
+<a href=#39 id=39 data-nosnippet>39</a>
+<a href=#40 id=40 data-nosnippet>40</a>    <span class="comment">// write back to HBM.
+<a href=#41 id=41 data-nosnippet>41</a>    </span>matmul_result.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x3000</span>)
+<a href=#42 id=42 data-nosnippet>42</a>}
 </code></pre></div></section></main></body></html>

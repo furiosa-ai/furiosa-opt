@@ -37,10 +37,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0b46deb9.js"></script>
+        <script src="toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -270,7 +270,7 @@ If <code>main</code> needs operands that <code>sub</code> is still fetching, <co
 <p>Both contexts share the same flat on-chip SRAM, so the programmer must explicitly assign DM addresses (e.g., the <code>addr</code> argument in <code>.to_dm()</code>, <code>.commit()</code>) to prevent tensors from overlapping.
 Addresses must not collide, but they can be non-contiguous.</p>
 <p>In type signatures, the const-generic <code>Tu</code> identifies which context a tensor flows through (<code>{ Tu::Main }</code> or <code>{ Tu::Sub }</code>).</p>
-<p>See <a href="./scheduler.html">Scheduler</a> for <code>ctx.main</code>, <code>ctx.sub</code>, <code>launch()</code>, and how operations are scheduled and run in parallel across contexts.</p>
+<p>See <a href="./scheduling.html">Scheduling</a> for <code>ctx.main</code>, <code>ctx.sub</code>, <code>launch()</code>, and how operations are scheduled and run in parallel across contexts.</p>
 <h2 id="kernel-examples"><a class="header" href="#kernel-examples">Kernel Examples</a></h2>
 <h3 id="constant-addition"><a class="header" href="#constant-addition">Constant Addition</a></h3>
 <p>The first kernel takes a vector of integers and adds the constant <code>1</code> to each element.
@@ -310,7 +310,7 @@ pub fn constant_add_kernel(ctx: &amp;mut Context, input: &amp;HbmTensor&lt;i32, 
         .main
         .begin(dm.view())
         // Fetch: stream 8-element packets from DM into the pipeline
-        .fetch::&lt;i32, m![1], m![A % 8]&gt;()
+        .fetch::&lt;m![1], m![A % 8]&gt;()
         // Collect: normalize the stream into 32-byte flits (8 × i32)
         .collect::&lt;m![1], m![A % 8]&gt;()
         // Vector Engine: enter pipeline and arm unconditionally
@@ -318,8 +318,10 @@ pub fn constant_add_kernel(ctx: &amp;mut Context, input: &amp;HbmTensor&lt;i32, 
         .vector_intra_slice_tag(TagMode::Zero)
         // Add the scalar constant 1 to every element
         .vector_fxp(FxpBinaryOp::AddFxp, 1)
-        // Exit VE and commit: write results back to DM
+        // Exit VE and commit: trim the packet to the commit width, then write
+        // results back to DM
         .vector_final()
+        .commit_trim::&lt;m![A % 8]&gt;()
         .commit::&lt;m![A % 8]&gt;(1 &lt;&lt; 12);
 
     // DM → HBM
@@ -422,7 +424,7 @@ pub fn elementwise_mul_kernel(
     let rhs_vrf: VrfTensor&lt;i32, Chip, Cluster, Slice, m![A % 8]&gt; = ctx
         .sub
         .begin(rhs_dm.view())
-        .fetch::&lt;i32, m![1], m![A % 8]&gt;()
+        .fetch::&lt;m![1], m![A % 8]&gt;()
         .collect::&lt;m![A % 8 / 8], m![A % 8 % 8]&gt;()
         .to_vrf(0);
 
@@ -430,13 +432,14 @@ pub fn elementwise_mul_kernel(
     let result = ctx
         .main
         .begin(lhs_dm.view())
-        .fetch::&lt;i32, m![1], m![A % 8]&gt;()
+        .fetch::&lt;m![1], m![A % 8]&gt;()
         .collect::&lt;m![1], m![A % 8]&gt;()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         // Each slice multiplies its 8 lhs elements by the matching 8 rhs elements in VRF
         .vector_fxp(FxpBinaryOp::MulInt, &amp;rhs_vrf)
         .vector_final()
+        .commit_trim::&lt;m![A % 8]&gt;()
         .commit::&lt;m![A % 8]&gt;(1 &lt;&lt; 13);
 
     result.to_hbm(&amp;mut ctx.tdma, 1 &lt;&lt; 28)
@@ -525,7 +528,7 @@ pub fn dot_product_kernel(
     let rhs: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![A]&gt; = ctx
         .sub
         .begin(rhs.view())
-        .fetch::&lt;bf16, Time, m![A]&gt;()
+        .fetch::&lt;Time, m![A]&gt;()
         .collect::&lt;m![{ Time }, A / 16], m![A % 16]&gt;()
         .to_trf(TrfAddress::Full);
 
@@ -533,7 +536,7 @@ pub fn dot_product_kernel(
     let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1 # 8]&gt; = ctx
         .main
         .begin(lhs.view())
-        .fetch::&lt;bf16, Time, m![A]&gt;()
+        .fetch::&lt;Time, m![A]&gt;()
         .collect::&lt;m![A / 16], m![A % 16]&gt;()
         // Pair consecutive 32-byte flits into 64-byte packets, halving time steps (A/16 → A/32)
         .contract_outer::&lt;m![A / 32], m![A % 32], _, _&gt;(&amp;rhs)
@@ -541,7 +544,8 @@ pub fn dot_product_kernel(
         .contract_time::&lt;m![1]&gt;()
         .contract_lane::&lt;m![1], m![1 # 8]&gt;(LaneMode::Interleaved)
         .cast::&lt;bf16, m![1 # 16]&gt;() // cast f32 accumulator output back to bf16
-        .commit::&lt;m![1 # 8]&gt;(1 &lt;&lt; 13);
+        .commit_trim::&lt;m![1 # 8]&gt;()
+        .commit(1 &lt;&lt; 13);
 
     // DM → HBM
     result.to_hbm(&amp;mut ctx.tdma, 2 &lt;&lt; 28)
@@ -605,26 +609,6 @@ mod tests {
 <h3 id="gemv"><a class="header" href="#gemv">GEMV</a></h3>
 <p>GEMV \(IJ, J \rightarrow I\) distributes the output dimension <code>I</code> across slices: each slice computes one row \(y_i = \sum_j A_{ij} x_j\).
 Unlike the dot product (where all slices reduce along the same axis and no redistribution is needed), here each slice needs the full vector to contract against its row, so data must be broadcast across slices before the contraction.</p>
-<p>The <a href="./computing-tensors/switch-engine.html">Switch Engine</a> performs that broadcast: <code>SwitchConfig::Broadcast01</code> distributes the vector to all <code>I</code> slices between Fetch and Collect, as shown in the pseudocode below.
-Once the vector is broadcast, the contraction over <code>J</code> proceeds in tiles: <code>Time</code> indexes the tile iterations and <code>Packet</code> indexes elements within each tile.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![I = 256, J = 2048];
-
-// GEMV: broadcast the vector across all I slices.
-fn switch_gemv&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, bf16, m![1], m![1], m![1 # 256], m![1], m![J]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, bf16, m![1], m![1], m![I], m![1 # 256], m![J]&gt; {
-    input.switch(SwitchConfig::Broadcast01 {
-        slice1: 256,
-        slice0: 1,
-        time0: 1,
-    })
-}
-<span class="boring">}</span></code></pre>
 <p>Kernel (<a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/base-template/src/kernel/gemv_kernel.rs"><code>src/kernel/gemv_kernel.rs</code></a>):</p>
 <pre><code class="language-rust ignore">use furiosa_opt_std::prelude::*;
 
@@ -648,11 +632,10 @@ pub fn gemv_kernel(
     let vector: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = vector.to_dm(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
 
     // Load vector into TRF
-    // The Switch Engine automatically broadcasts the vector to all `I` slices
     let vector_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![J]&gt; = ctx
         .sub
         .begin(vector.view())
-        .fetch::&lt;bf16, m![1], m![J]&gt;()
+        .fetch::&lt;m![1], m![J]&gt;()
         // Collect Engine: split into 32-byte flits.
         .collect::&lt;m![J / 16], m![J % 16]&gt;()
         .to_trf(TrfAddress::Full);
@@ -662,13 +645,14 @@ pub fn gemv_kernel(
     let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1 # 4]&gt; = ctx
         .main
         .begin(matrix.view())
-        .fetch::&lt;bf16, m![J / 16], m![J % 16]&gt;()
+        .fetch::&lt;m![J / 16], m![J % 16]&gt;()
         .collect::&lt;m![J / 16], m![J % 16]&gt;()
         .contract_outer::&lt;Time, Packet, _, _&gt;(&amp;vector_trf)
         .contract_packet::&lt;m![1]&gt;()
         .contract_time::&lt;m![1]&gt;()
         .contract_lane::&lt;m![1], m![1 # 8]&gt;(LaneMode::Interleaved)
         .cast::&lt;bf16, m![1 # 16]&gt;()
+        .commit_trim::&lt;m![1 # 4]&gt;()
         .commit(0);
 
     // Transfer result to HBM
@@ -770,7 +754,7 @@ pub fn gemm_kernel(
     let b_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![J / 8 % 4, K]&gt; = ctx
         .sub
         .begin(b.view())
-        .fetch::&lt;bf16, m![J % 8, J / 8 % 4], m![K]&gt;()
+        .fetch::&lt;m![J % 8, J / 8 % 4], m![K]&gt;()
         .collect::&lt;m![J % 8, J / 8 % 4, K / 16], m![K % 16]&gt;()
         .to_trf(TrfAddress::Full);
 
@@ -780,13 +764,14 @@ pub fn gemm_kernel(
     let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, J % 32]&gt; = ctx
         .main
         .begin(a.view())
-        .fetch::&lt;bf16, m![I % 32, J / 8 % 4], m![K]&gt;()
+        .fetch::&lt;m![I % 32, J / 8 % 4], m![K]&gt;()
         .collect::&lt;m![I % 32, J / 8 % 4, K / 16], m![K % 16]&gt;()
         .contract_outer::&lt;m![I % 32, J / 8 % 4, K / 32], m![K % 32], _, _&gt;(&amp;b_trf)
         .contract_packet::&lt;m![1]&gt;()
         .contract_time::&lt;m![I % 32, J / 8 % 4]&gt;()
         .contract_lane::&lt;m![I % 32, J / 8 % 4], m![J % 8]&gt;(LaneMode::Interleaved)
         .cast::&lt;bf16, m![J % 8 # 16]&gt;()
+        .commit_trim::&lt;m![J % 8]&gt;()
         .commit(0);
 
     // Transfer result to HBM

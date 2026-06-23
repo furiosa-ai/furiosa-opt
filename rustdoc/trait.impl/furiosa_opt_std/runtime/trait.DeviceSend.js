@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["furiosa_opt_examples",[["impl&lt;'a&gt; <a class=\"trait\" href=\"furiosa_opt_std/runtime/trait.DeviceSend.html\" title=\"trait furiosa_opt_std::runtime::DeviceSend\">DeviceSend</a> for <a class=\"struct\" href=\"furiosa_opt_examples/param/struct.Inputs.html\" title=\"struct furiosa_opt_examples::param::Inputs\">Inputs</a>&lt;'a&gt;<div class=\"where\">where\n    &amp;'a <a class=\"struct\" href=\"furiosa_opt_std/tensor/memory/struct.HbmTensor.html\" title=\"struct furiosa_opt_std::tensor::memory::HbmTensor\">HbmTensor</a>&lt;<a class=\"primitive\" href=\"https://doc.rust-lang.org/nightly/std/primitive.i8.html\">i8</a>, <a class=\"struct\" href=\"furiosa_mapping_types/dsl/struct.Broadcast.html\" title=\"struct furiosa_mapping_types::dsl::Broadcast\">Broadcast</a>&lt;1usize&gt;, <a class=\"struct\" href=\"furiosa_mapping_types/dsl/struct.Pair.html\" title=\"struct furiosa_mapping_types::dsl::Pair\">Pair</a>&lt;<a class=\"struct\" href=\"furiosa_mapping_types/dsl/struct.Symbol.html\" title=\"struct furiosa_mapping_types::dsl::Symbol\">Symbol</a>&lt;<a class=\"struct\" href=\"furiosa_opt_examples/param/struct.A.html\" title=\"struct furiosa_opt_examples::param::A\">A</a>&gt;, <a class=\"struct\" href=\"furiosa_mapping_types/dsl/struct.Symbol.html\" title=\"struct furiosa_mapping_types::dsl::Symbol\">Symbol</a>&lt;<a class=\"struct\" href=\"furiosa_opt_examples/param/struct.B.html\" title=\"struct furiosa_opt_examples::param::B\">B</a>&gt;&gt;&gt;: <a class=\"trait\" href=\"furiosa_opt_std/runtime/trait.DeviceSend.html\" title=\"trait furiosa_opt_std::runtime::DeviceSend\">DeviceSend</a>,</div>",0]]],["furiosa_opt_std",[]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[1625,23]}

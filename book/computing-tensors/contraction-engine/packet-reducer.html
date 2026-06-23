@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-0b46deb9.js"></script>
+        <script src="../../toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -240,9 +240,9 @@ OutPacket    = ReducePacket        if ReducePacket::SIZE ≤ 32
 At depth 0, the tree leaves hold the input Packet’s elements, and each subsequent depth sums pairs, halving the element count.
 The maximum tree depth is <code>log2(Packet::SIZE)</code>, so 7 for <code>i4</code> (<code>Packet::SIZE = 128</code>), 6 for <code>i8</code> / <code>f8</code> (64), 5 for <code>bf16</code> (32).
 Given the user’s <code>OutPacket</code>, the compiler derives the tree depth <code>d</code>, and the tree consumes the innermost <code>2^d</code> elements to produce <code>ReducePacket</code>.</p>
-<p>The Packet Reducer then clips <code>ReducePacket</code> to <code>OutPacket</code>, whose size is capped at 32 elements because the downstream Time Reducer’s per-lane accumulator only has 32 columns.
-When <code>ReducePacket::SIZE &gt; 32</code>, the outer dummy is sliced and only the innermost 32 elements survive.
-For example, <code>i4</code> arrives as a 128-element Packet, so <code>d ∈ {0, 1}</code> produce a 128- or 64-element <code>ReducePacket</code>, both clipped to <code>OutPacket::SIZE = 32</code>.</p>
+<p>The Packet Reducer then trims <code>ReducePacket</code> to <code>OutPacket</code>, whose size is capped at 32 elements because the downstream Time Reducer’s per-lane accumulator only has 32 columns.
+When <code>ReducePacket::SIZE &gt; 32</code>, the outer dummy is trimmed and only the innermost 32 elements survive.
+For example, <code>i4</code> arrives as a 128-element Packet, so <code>d ∈ {0, 1}</code> produce a 128- or 64-element <code>ReducePacket</code>, both trimmed to <code>OutPacket::SIZE = 32</code>.</p>
 <h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
 <p>Latency depends on tree depth: 7 cycles for <code>i4</code>, 6 for <code>i8</code>/<code>f8</code>, 5 for <code>bf16</code>.
 Wider element types reduce depth because fewer elements fit in each Packet.

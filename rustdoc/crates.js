@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["cargo_furiosa_opt","furiosa_mapping","furiosa_mapping_macro","furiosa_mapping_types","furiosa_opt_driver","furiosa_opt_examples","furiosa_opt_macro","furiosa_opt_std"];
-//{"start":21,"fragment_lengths":[19,18,24,24,21,23,20,18]}
+window.ALL_CRATES = ["cargo_furiosa_opt","furiosa_mapping","furiosa_mapping_macro","furiosa_mapping_types","furiosa_opt_driver","furiosa_opt_examples","furiosa_opt_lower","furiosa_opt_lower_types","furiosa_opt_macro","furiosa_opt_std"];
+//{"start":21,"fragment_lengths":[19,18,24,24,21,23,20,26,20,18]}

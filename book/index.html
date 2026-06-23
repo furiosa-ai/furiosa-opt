@@ -37,10 +37,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0b46deb9.js"></script>
+        <script src="toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -201,9 +201,9 @@ See <a href="https://doc.rust-lang.org/book/">the language manual</a> if needed.
 <p>The same channel is pinned in <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/rust-toolchain.toml"><code>rust-toolchain.toml</code></a>; cargo activates it automatically when you cd into a project that includes that file.</p>
 </li>
 <li>
-<p><strong><code>cargo-furiosa-opt</code></strong>: the cargo subcommand that injects the right <code>--cfg backend="..."</code> and (for NPU) pre-compiles kernels.</p>
-<pre><code class="language-bash">cargo install cargo-binstall
-cargo binstall cargo-furiosa-opt
+<p><strong><code>cargo-furiosa-opt</code></strong>: the cargo subcommand that injects the right <code>--cfg backend="..."</code> and pre-compiles kernels for NPU.</p>
+<pre><code class="language-bash">cargo +nightly-2026-05-01 install cargo-binstall
+cargo +nightly-2026-05-01 binstall cargo-furiosa-opt
 </code></pre>
 </li>
 <li>
@@ -213,7 +213,7 @@ cargo binstall cargo-furiosa-opt
 </li>
 </ol>
 <h2 id="your-first-program"><a class="header" href="#your-first-program">Your First Program</a></h2>
-<p>Use <a href="https://cargo-generate.github.io/cargo-generate/"><code>cargo-generate</code></a> to scaffold a fresh project from the <code>base-template</code> starter, which ships with the five worked examples covered in the next chapter:</p>
+<p>Use <a href="https://cargo-generate.github.io/cargo-generate/"><code>cargo-generate</code></a> to scaffold a fresh project from the <code>base-template</code> starter, which ships with the five worked examples covered in the <a href="./quick-start.html">Quick Start</a> chapter:</p>
 <pre><code class="language-bash">cargo install cargo-generate
 cargo generate furiosa-ai/furiosa-opt base-template
 cd base-template
@@ -221,6 +221,7 @@ cd base-template
 <h3 id="layout"><a class="header" href="#layout">Layout</a></h3>
 <pre><code class="language-text">base-template/
 ├── Cargo.toml
+├── README.md
 ├── rust-toolchain.toml
 └── src/
     ├── furiosa-opt.tag                       # marker the rustc plugin scans for; must sit at src/
@@ -232,13 +233,21 @@ cd base-template
     │   ├── dot_product_kernel.rs
     │   ├── gemv_kernel.rs
     │   └── gemm_kernel.rs
-    ├── constant_add.rs                       # `#[tokio::main]` host program; `launch(constant_add_kernel, ...)`
+    ├── constant_add.rs                       # host binary that `launch()`es its kernel
     ├── elementwise_mul.rs
     ├── dot_product.rs
     ├── gemv.rs
     └── gemm.rs
 </code></pre>
-<p>The five <code>#[device]</code> kernels all live under <code>src/kernel/</code> and are re-exported by <code>src/lib.rs</code>. Each <code>src/*.rs</code> (next to <code>lib.rs</code>) is registered as its own <code>[[bin]]</code> in <code>Cargo.toml</code>, with <code>path = "src/&lt;name&gt;.rs"</code> placing the binary’s source directly under <code>src/</code> — the rustc plugin scans cargo targets rooted at <code>src/</code> and silently skips anything under <code>src/bin/</code>, <code>examples/</code>, or <code>tests/</code>, so the explicit <code>[[bin]]</code> paths in <code>Cargo.toml</code> are load-bearing. Each binary’s <code>main()</code> only does <code>launch(kernel, ...)</code>; the value comparison against a host-side reference lives in a <code>#[cfg(test)] mod tests</code> block inside the same file.</p>
+<p>Keep these layout rules intact:</p>
+<ul>
+<li><code>src/furiosa-opt.tag</code> is a marker file. It must stay directly under <code>src/</code>.</li>
+<li>Host programs should live as direct <code>src/*.rs</code> files and are registered with explicit <code>[[bin]] path = "src/&lt;name&gt;.rs"</code> entries in <code>Cargo.toml</code>.</li>
+<li>Do not move host programs into <code>src/bin/</code>, <code>examples/</code>, or <code>tests/</code>; the rustc plugin scans cargo targets rooted at <code>src/</code> and skips those other locations.</li>
+</ul>
+<p>All five kernel examples live under <code>src/kernel/</code> and are re-exported through <code>src/kernel/mod.rs</code> and <code>src/lib.rs</code>.
+Each binary’s <code>main()</code> only calls <code>launch(kernel, ...)</code>.
+The value comparison against a host-side reference lives in a <code>#[cfg(test)] mod tests</code> block inside the same file.</p>
 <h3 id="run-a-worked-example"><a class="header" href="#run-a-worked-example">Run a worked example</a></h3>
 <pre><code class="language-bash"># Host-side simulation (default; no NPU hardware required).
 cargo furiosa-opt run --release --bin gemm
@@ -257,7 +266,14 @@ cargo furiosa-opt test --release --bin gemm
 # phantom-empty Vec, so the per-element assertion has zero iterations.
 cargo furiosa-opt --backend typecheck test --release --bin gemm
 </code></pre>
-<p>Read the <a href="./quick-start.html">Quick Start</a> chapter alongside the source. Add your own kernel by dropping a new file into <code>src/kernel/</code>, appending a <code>pub mod ...;</code> line to <code>src/kernel/mod.rs</code>, writing a host program under <code>src/</code>, and declaring a matching <code>[[bin]] path = "src/&lt;name&gt;.rs"</code> in <code>Cargo.toml</code>.</p>
+<h3 id="add-a-kernel"><a class="header" href="#add-a-kernel">Add a Kernel</a></h3>
+<ol>
+<li>Drop <code>src/kernel/&lt;name&gt;_kernel.rs</code> with a <code>#[device(...)] pub fn &lt;name&gt;_kernel(...)</code>.</li>
+<li>Append <code>pub mod &lt;name&gt;_kernel;</code> to <code>src/kernel/mod.rs</code>.</li>
+<li>Add <code>src/&lt;name&gt;.rs</code> as the host program that calls <code>launch(&lt;name&gt;_kernel, ...)</code>.</li>
+<li>Register a matching <code>[[bin]]</code> entry in <code>Cargo.toml</code> with <code>path = "src/&lt;name&gt;.rs"</code>.</li>
+<li>Run your kernel with <code>cargo furiosa-opt run --release --bin &lt;name&gt;</code>.</li>
+</ol>
 <h2 id="development-tools"><a class="header" href="#development-tools">Development Tools</a></h2>
 <p>The Furiosa IR Optimizer provides utilities for developing, testing, and optimizing vISA programs on TCP devices.
 It complements the <a href="https://developer.furiosa.ai/latest/en/overview/software_stack.html#furiosa-compiler">Furiosa SDK’s compiler</a> by giving developers fine-grained control over program behavior, whether the programmer writes vISA by hand or a compiler generates it.</p>
@@ -293,6 +309,10 @@ cargo furiosa-opt --backend npu test # cargo test on real NPU
 <p><code>furiosa-rust-analyzer-proxy</code> is a proxy for <code>rust-analyzer</code> that provides standard Rust IDE features with enhanced support for mapping expressions.
 It keeps the usual <code>rust-analyzer</code> experience while simplifying verbose types like <code>Stride&lt;Symbol&lt;A&gt;, 8&gt;</code> into readable mapping expressions like <code>m![A / 8]</code>.</p>
 <p>For installation and configuration, see the <a href="./appendix/language-server.html">Language Server appendix</a>.</p>
+<h3 id="schedule-viewer"><a class="header" href="#schedule-viewer">Schedule Viewer</a></h3>
+<p>The Schedule Viewer visualizes the execution timeline to help identify performance bottlenecks.
+Use <code>furiosa-opt</code> to export a schedule JSON file, then open it with <code>furiosa-schedule-viewer</code>.</p>
+<p>For installation and usage, see the <a href="./appendix/schedule-viewer.html">Schedule Viewer appendix</a>.</p>
 <h2 id="book-organization"><a class="header" href="#book-organization">Book Organization</a></h2>
 <p>Each chapter builds on the previous: mapping and moving tensors establish the data model, computing tensors covers the pipeline engines, and scheduling and kernel examples show how to compose them into real programs.</p>
 <ul>
@@ -300,7 +320,7 @@ It keeps the usual <code>rust-analyzer</code> experience while simplifying verbo
 <li><strong><a href="./mapping-tensors/index.html">Mapping Tensors</a></strong>: How logical tensors map to physical memory: axis layout, stride, padding, and tiling.</li>
 <li><strong><a href="./moving-tensors/index.html">Moving Tensors</a></strong>: How data moves between memory tiers (HBM, DM) and the Tensor Unit via Fetch, Commit, and DMA engines.</li>
 <li><strong><a href="./computing-tensors/index.html">Computing Tensors</a></strong>: How the Tensor Unit pipeline (Switch, Collect, Contraction, Vector, Cast, Transpose) transforms data each cycle.</li>
-<li><strong><a href="./scheduler.html">Scheduler</a></strong>: How to control the order and concurrency of operations across contexts.</li>
+<li><strong><a href="./scheduling.html">Scheduling</a></strong>: How operations are ordered and executed concurrently across contexts.</li>
 <li><strong><a href="./kernel-examples/index.html">Kernel Examples</a></strong>: End-to-end examples showing how mapping, movement, computation, and scheduling combine into real kernels.</li>
 </ul>
 <h2 id="license"><a class="header" href="#license">License</a></h2>

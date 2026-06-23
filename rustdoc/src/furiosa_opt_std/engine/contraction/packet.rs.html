@@ -70,62 +70,61 @@
 <a href=#70 id=70 data-nosnippet>70</a>        OutPacket::SIZE
 <a href=#71 id=71 data-nosnippet>71</a>    );
 <a href=#72 id=72 data-nosnippet>72</a>
-<a href=#73 id=73 data-nosnippet>73</a>    <span class="kw">let </span>packet = Packet::to_value().factorize();
-<a href=#74 id=74 data-nosnippet>74</a>    <span class="kw">let </span>out_packet = OutPacket::to_value().factorize().remove_padding();
+<a href=#73 id=73 data-nosnippet>73</a>    <span class="kw">let </span>packet = Packet::to_value();
+<a href=#74 id=74 data-nosnippet>74</a>    <span class="kw">let </span>out_packet = OutPacket::to_value().remove_padding().normalize();
 <a href=#75 id=75 data-nosnippet>75</a>
 <a href=#76 id=76 data-nosnippet>76</a>    <span class="macro">assert!</span>(
 <a href=#77 id=77 data-nosnippet>77</a>        (<span class="number">0</span>..=Packet::SIZE.trailing_zeros()).rev().any(|depth| {
 <a href=#78 id=78 data-nosnippet>78</a>            <span class="kw">let </span>split = <span class="number">1 </span>&lt;&lt; depth;
-<a href=#79 id=79 data-nosnippet>79</a>            <span class="kw">let </span>outer = packet.clone().stride(split);
-<a href=#80 id=80 data-nosnippet>80</a>            outer.remove_padding() == out_packet.clone()
-<a href=#81 id=81 data-nosnippet>81</a>        }),
-<a href=#82 id=82 data-nosnippet>82</a>        <span class="string">"OutPacket {out_packet} is not a valid contraction of Packet {packet}"</span>,
-<a href=#83 id=83 data-nosnippet>83</a>    );
-<a href=#84 id=84 data-nosnippet>84</a>}
-<a href=#85 id=85 data-nosnippet>85</a>
-<a href=#86 id=86 data-nosnippet>86</a><span class="attr">#[cfg(test)]
-<a href=#87 id=87 data-nosnippet>87</a></span><span class="kw">mod </span>tests {
-<a href=#88 id=88 data-nosnippet>88</a>    <span class="kw">use </span>super::<span class="kw-2">*</span>;
-<a href=#89 id=89 data-nosnippet>89</a>    <span class="kw">use </span><span class="kw">crate</span>::scalar::bf16;
-<a href=#90 id=90 data-nosnippet>90</a>
-<a href=#91 id=91 data-nosnippet>91</a>    <span class="macro">axes!</span>[A = <span class="number">4</span>, B = <span class="number">2</span>, C = <span class="number">4</span>, D = <span class="number">32</span>, K = <span class="number">64</span>, M = <span class="number">4</span>, N = <span class="number">8</span>, O = <span class="number">2</span>, P = <span class="number">8</span>];
-<a href=#92 id=92 data-nosnippet>92</a>
-<a href=#93 id=93 data-nosnippet>93</a>    <span class="attr">#[test]
-<a href=#94 id=94 data-nosnippet>94</a>    </span><span class="kw">fn </span>valid_full_reduction() {
-<a href=#95 id=95 data-nosnippet>95</a>        verify_contract_packet::&lt;i8, <span class="macro">m!</span>[K], <span class="macro">m!</span>[<span class="number">1</span>]&gt;();
-<a href=#96 id=96 data-nosnippet>96</a>    }
-<a href=#97 id=97 data-nosnippet>97</a>
-<a href=#98 id=98 data-nosnippet>98</a>    <span class="attr">#[test]
-<a href=#99 id=99 data-nosnippet>99</a>    </span><span class="kw">fn </span>valid_partial_reduction() {
-<a href=#100 id=100 data-nosnippet>100</a>        <span class="comment">// K % 4 reduced
-<a href=#101 id=101 data-nosnippet>101</a>        </span>verify_contract_packet::&lt;i8, <span class="macro">m!</span>[K], <span class="macro">m!</span>[K / <span class="number">4</span>]&gt;();
-<a href=#102 id=102 data-nosnippet>102</a>    }
-<a href=#103 id=103 data-nosnippet>103</a>
-<a href=#104 id=104 data-nosnippet>104</a>    <span class="attr">#[test]
-<a href=#105 id=105 data-nosnippet>105</a>    </span><span class="kw">fn </span>valid_partial_reduction_multi_axis() {
-<a href=#106 id=106 data-nosnippet>106</a>        <span class="comment">// `D / 2 % 4` is reduced, retained_packet is `[A, D / 8]`.
-<a href=#107 id=107 data-nosnippet>107</a>        </span>verify_contract_packet::&lt;i8, <span class="macro">m!</span>[A, D / <span class="number">2</span>], <span class="macro">m!</span>[A, D / <span class="number">8</span>]&gt;();
-<a href=#108 id=108 data-nosnippet>108</a>    }
-<a href=#109 id=109 data-nosnippet>109</a>
-<a href=#110 id=110 data-nosnippet>110</a>    <span class="attr">#[test]
-<a href=#111 id=111 data-nosnippet>111</a>    </span><span class="kw">fn </span>valid_padded_packet_inner_reduction() {
-<a href=#112 id=112 data-nosnippet>112</a>        verify_contract_packet::&lt;i8, <span class="macro">m!</span>[A # <span class="number">16</span>, C], <span class="macro">m!</span>[A]&gt;();
-<a href=#113 id=113 data-nosnippet>113</a>    }
-<a href=#114 id=114 data-nosnippet>114</a>
-<a href=#115 id=115 data-nosnippet>115</a>    <span class="attr">#[test]
-<a href=#116 id=116 data-nosnippet>116</a>    </span><span class="kw">fn </span>valid_padded_packet_inner_reduction_with_padding() {
-<a href=#117 id=117 data-nosnippet>117</a>        verify_contract_packet::&lt;i8, <span class="macro">m!</span>[A # <span class="number">16</span>, C], <span class="macro">m!</span>[A # <span class="number">16</span>]&gt;();
-<a href=#118 id=118 data-nosnippet>118</a>    }
-<a href=#119 id=119 data-nosnippet>119</a>
-<a href=#120 id=120 data-nosnippet>120</a>    <span class="attr">#[test]
-<a href=#121 id=121 data-nosnippet>121</a>    </span><span class="kw">fn </span>valid_padded_packet_split() {
-<a href=#122 id=122 data-nosnippet>122</a>        verify_contract_packet::&lt;i8, <span class="macro">m!</span>[B # <span class="number">8</span>, N], <span class="macro">m!</span>[B]&gt;();
-<a href=#123 id=123 data-nosnippet>123</a>    }
-<a href=#124 id=124 data-nosnippet>124</a>
-<a href=#125 id=125 data-nosnippet>125</a>    <span class="attr">#[test]
-<a href=#126 id=126 data-nosnippet>126</a>    </span><span class="kw">fn </span>valid_no_spatial_reduction_bf16() {
-<a href=#127 id=127 data-nosnippet>127</a>        <span class="comment">// Tree depth 0: all 32 bf16 elements pass through, no reduction.
-<a href=#128 id=128 data-nosnippet>128</a>        </span>verify_contract_packet::&lt;bf16, <span class="macro">m!</span>[D], <span class="macro">m!</span>[D]&gt;();
-<a href=#129 id=129 data-nosnippet>129</a>    }
-<a href=#130 id=130 data-nosnippet>130</a>}
+<a href=#79 id=79 data-nosnippet>79</a>            packet.clone().split_at(split).<span class="number">0</span>.remove_padding().normalize() == out_packet
+<a href=#80 id=80 data-nosnippet>80</a>        }),
+<a href=#81 id=81 data-nosnippet>81</a>        <span class="string">"OutPacket {out_packet} is not a valid contraction of Packet {packet}"</span>,
+<a href=#82 id=82 data-nosnippet>82</a>    );
+<a href=#83 id=83 data-nosnippet>83</a>}
+<a href=#84 id=84 data-nosnippet>84</a>
+<a href=#85 id=85 data-nosnippet>85</a><span class="attr">#[cfg(test)]
+<a href=#86 id=86 data-nosnippet>86</a></span><span class="kw">mod </span>tests {
+<a href=#87 id=87 data-nosnippet>87</a>    <span class="kw">use </span>super::<span class="kw-2">*</span>;
+<a href=#88 id=88 data-nosnippet>88</a>    <span class="kw">use </span><span class="kw">crate</span>::scalar::bf16;
+<a href=#89 id=89 data-nosnippet>89</a>
+<a href=#90 id=90 data-nosnippet>90</a>    <span class="macro">axes!</span>[A = <span class="number">4</span>, B = <span class="number">2</span>, C = <span class="number">4</span>, D = <span class="number">32</span>, K = <span class="number">64</span>, M = <span class="number">4</span>, N = <span class="number">8</span>, O = <span class="number">2</span>, P = <span class="number">8</span>];
+<a href=#91 id=91 data-nosnippet>91</a>
+<a href=#92 id=92 data-nosnippet>92</a>    <span class="attr">#[test]
+<a href=#93 id=93 data-nosnippet>93</a>    </span><span class="kw">fn </span>valid_full_reduction() {
+<a href=#94 id=94 data-nosnippet>94</a>        verify_contract_packet::&lt;i8, <span class="macro">m!</span>[K], <span class="macro">m!</span>[<span class="number">1</span>]&gt;();
+<a href=#95 id=95 data-nosnippet>95</a>    }
+<a href=#96 id=96 data-nosnippet>96</a>
+<a href=#97 id=97 data-nosnippet>97</a>    <span class="attr">#[test]
+<a href=#98 id=98 data-nosnippet>98</a>    </span><span class="kw">fn </span>valid_partial_reduction() {
+<a href=#99 id=99 data-nosnippet>99</a>        <span class="comment">// K % 4 reduced
+<a href=#100 id=100 data-nosnippet>100</a>        </span>verify_contract_packet::&lt;i8, <span class="macro">m!</span>[K], <span class="macro">m!</span>[K / <span class="number">4</span>]&gt;();
+<a href=#101 id=101 data-nosnippet>101</a>    }
+<a href=#102 id=102 data-nosnippet>102</a>
+<a href=#103 id=103 data-nosnippet>103</a>    <span class="attr">#[test]
+<a href=#104 id=104 data-nosnippet>104</a>    </span><span class="kw">fn </span>valid_partial_reduction_multi_axis() {
+<a href=#105 id=105 data-nosnippet>105</a>        <span class="comment">// `D / 2 % 4` is reduced, retained_packet is `[A, D / 8]`.
+<a href=#106 id=106 data-nosnippet>106</a>        </span>verify_contract_packet::&lt;i8, <span class="macro">m!</span>[A, D / <span class="number">2</span>], <span class="macro">m!</span>[A, D / <span class="number">8</span>]&gt;();
+<a href=#107 id=107 data-nosnippet>107</a>    }
+<a href=#108 id=108 data-nosnippet>108</a>
+<a href=#109 id=109 data-nosnippet>109</a>    <span class="attr">#[test]
+<a href=#110 id=110 data-nosnippet>110</a>    </span><span class="kw">fn </span>valid_padded_packet_inner_reduction() {
+<a href=#111 id=111 data-nosnippet>111</a>        verify_contract_packet::&lt;i8, <span class="macro">m!</span>[A # <span class="number">16</span>, C], <span class="macro">m!</span>[A]&gt;();
+<a href=#112 id=112 data-nosnippet>112</a>    }
+<a href=#113 id=113 data-nosnippet>113</a>
+<a href=#114 id=114 data-nosnippet>114</a>    <span class="attr">#[test]
+<a href=#115 id=115 data-nosnippet>115</a>    </span><span class="kw">fn </span>valid_padded_packet_inner_reduction_with_padding() {
+<a href=#116 id=116 data-nosnippet>116</a>        verify_contract_packet::&lt;i8, <span class="macro">m!</span>[A # <span class="number">16</span>, C], <span class="macro">m!</span>[A # <span class="number">16</span>]&gt;();
+<a href=#117 id=117 data-nosnippet>117</a>    }
+<a href=#118 id=118 data-nosnippet>118</a>
+<a href=#119 id=119 data-nosnippet>119</a>    <span class="attr">#[test]
+<a href=#120 id=120 data-nosnippet>120</a>    </span><span class="kw">fn </span>valid_padded_packet_split() {
+<a href=#121 id=121 data-nosnippet>121</a>        verify_contract_packet::&lt;i8, <span class="macro">m!</span>[B # <span class="number">8</span>, N], <span class="macro">m!</span>[B]&gt;();
+<a href=#122 id=122 data-nosnippet>122</a>    }
+<a href=#123 id=123 data-nosnippet>123</a>
+<a href=#124 id=124 data-nosnippet>124</a>    <span class="attr">#[test]
+<a href=#125 id=125 data-nosnippet>125</a>    </span><span class="kw">fn </span>valid_no_spatial_reduction_bf16() {
+<a href=#126 id=126 data-nosnippet>126</a>        <span class="comment">// Tree depth 0: all 32 bf16 elements pass through, no reduction.
+<a href=#127 id=127 data-nosnippet>127</a>        </span>verify_contract_packet::&lt;bf16, <span class="macro">m!</span>[D], <span class="macro">m!</span>[D]&gt;();
+<a href=#128 id=128 data-nosnippet>128</a>    }
+<a href=#129 id=129 data-nosnippet>129</a>}
 </code></pre></div></section></main></body></html>

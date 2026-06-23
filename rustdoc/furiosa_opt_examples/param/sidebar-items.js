@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["struct_passthrough","tuple_passthrough"],"struct":["A","B","Inputs","StructPassthrough","TuplePassthrough"]};

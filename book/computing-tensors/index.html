@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-6c04c645.js";
+            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-0b46deb9.js"></script>
+        <script src="../toc-bf8d000f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -179,11 +179,11 @@
                         <h1 id="computing-tensors"><a class="header" href="#computing-tensors">Computing Tensors</a></h1>
 <h2 id="tensor-unit"><a class="header" href="#tensor-unit">Tensor Unit</a></h2>
 <p>The Tensor Unit is the on-chip compute pipeline.
-It reads tensor data from DM, transforms it through eight engines, and writes results back to DM.</p>
+It reads tensor data from DM, transforms it through ten engines, and writes results back to DM.</p>
 <p>Each tensor flows through the pipeline as a stream of packets, one packet per cycle.
 The engines consume and produce these streams, reshaping the per-cycle layout and the iteration order along the way.
 The Collect Engine normalizes incoming packets to 32-byte <em>flits</em>.
-Every downstream engine (<a href="./contraction-engine/index.html">Contraction</a>, <a href="./vector-engine/index.html">Vector</a>, <a href="./cast-engine.html">Cast</a>, <a href="./transpose-engine.html">Transpose</a>, <a href="../moving-tensors/commit-engine.html">Commit</a>) operates on these flits.</p>
+Every downstream engine (<a href="./contraction-engine/index.html">Contraction</a>, <a href="./vector-engine/index.html">Vector</a>, <a href="./cast-engine.html">Cast</a>, <a href="./transpose-engine.html">Transpose</a>, <a href="./commit-adapter.html">Commit Adapter</a>, <a href="../moving-tensors/commit-engine.html">Commit</a>) operates on these flits.</p>
 <pre class="mermaid">flowchart TB
     subgraph SRAM
         DM[(DM)] &amp; TRF[(TRF)] &amp; VRF[(VRF)]
@@ -191,7 +191,7 @@ Every downstream engine (<a href="./contraction-engine/index.html">Contraction</
 
     subgraph TU[Tensor Unit]
         direction LR
-        FE[Fetch] --&gt; SW[Switching] --&gt; CO[Collect] --&gt; CE[Contraction] --&gt; VE[Vector] --&gt; CA[Cast] --&gt; TR[Transpose] --&gt; CM[Commit]
+        FE[Fetch] --&gt; FA[Fetch Adapter] --&gt; SW[Switching] --&gt; CO[Collect] --&gt; CE[Contraction] --&gt; VE[Vector] --&gt; CA[Cast] --&gt; TR[Transpose] --&gt; CMA[Commit Adapter] --&gt; CM[Commit]
     end
 
     DM --&gt; FE
@@ -200,12 +200,14 @@ Every downstream engine (<a href="./contraction-engine/index.html">Contraction</
     CO --&gt; VRF --&gt; VE
 
     click FE "../moving-tensors/fetch-engine.html" "Fetch Engine"
+    click FA "./fetch-adapter.html" "Fetch Adapter"
     click SW "./switch-engine.html" "Switch Engine"
     click CO "./collect-engine.html" "Collect Engine"
     click CE "./contraction-engine/index.html" "Contraction Engine"
     click VE "./vector-engine/index.html" "Vector Engine"
     click CA "./cast-engine.html" "Cast Engine"
     click TR "./transpose-engine.html" "Transpose Engine"
+    click CMA "./commit-adapter.html" "Commit Adapter"
     click CM "../moving-tensors/commit-engine.html" "Commit Engine"
 </pre>
 
@@ -216,12 +218,14 @@ Every downstream engine (<a href="./contraction-engine/index.html">Contraction</
 </thead>
 <tbody>
 <tr><td><a href="../moving-tensors/fetch-engine.html">Fetch</a></td><td>Load data from DM into the pipeline</td><td>Packet must be 8-byte aligned; <code>Slice</code> is unchanged</td></tr>
+<tr><td><a href="./fetch-adapter.html">Fetch Adapter</a></td><td>Per-element transforms after fetch (mask, table lookup, cast)</td><td>Optional; identity if skipped</td></tr>
 <tr><td><a href="./switch-engine.html">Switching</a></td><td>Move data across slices</td><td>Ring network, <code>Slice</code> can change</td></tr>
 <tr><td><a href="./collect-engine.html">Collect</a></td><td>Normalize packets to 32-byte flits</td><td>Output = exactly one flit</td></tr>
 <tr><td><a href="./contraction-engine/index.html">Contraction</a></td><td>Einsum: matmul, convolution, attention</td><td>One operand resident in TRF; the other streams</td></tr>
 <tr><td><a href="./vector-engine/index.html">Vector</a></td><td>Elementwise, binary, reduce operations</td><td>Only i32/f32 input</td></tr>
 <tr><td><a href="./cast-engine.html">Cast</a></td><td>Precision lowering with batching</td><td>Output = exactly one flit</td></tr>
 <tr><td><a href="./transpose-engine.html">Transpose</a></td><td>Reorder elements within a flit</td><td>Within-flit only</td></tr>
+<tr><td><a href="./commit-adapter.html">Commit Adapter</a></td><td>Per-element transforms before commit (cast, ReLU, valid count packing, trim) plus the <a href="./commit-adapter.html#generate-mode">Generate Mode</a> sub-context bypass</td><td>Optional; chained before <code>.commit()</code></td></tr>
 <tr><td><a href="../moving-tensors/commit-engine.html">Commit</a></td><td>Write results back to DM</td><td>Flit-aligned writes</td></tr>
 </tbody>
 </table>
@@ -237,8 +241,8 @@ The Collect Engine writes into TRF via <code>.to_trf()</code> and into VRF via <
 For an end-to-end example using both files, see <a href="../quick-start.html">Quick Start</a>.</p>
 <p>Fetch reads from DM and Commit writes back to DM.
 Their detailed sequencer behavior is documented in <a href="../moving-tensors/index.html">Moving Tensors</a> rather than here.</p>
-<h2 id="scheduling-execution-contexts"><a class="header" href="#scheduling-execution-contexts">Scheduling Execution Contexts</a></h2>
-<p>The <a href="../scheduler.html">Scheduler</a> treats each <em>execution context</em> as an independent stream of operations.
+<h2 id="execution-context"><a class="header" href="#execution-context">Execution Context</a></h2>
+<p>The <a href="../scheduling.html">scheduler</a> treats each <em>execution context</em> as an independent stream of operations.
 The hardware exposes three:</p>
 <ul>
 <li><strong>Main</strong> drives the Tensor Unit pipeline for the kernel’s primary computation.</li>
@@ -251,7 +255,7 @@ The sub context drops the Contraction Engine and a handful of other features; ev
 For example, sub prefetches the next operand batch into TRF / VRF while main computes the current one (<em>double-buffering</em>), and the DMA Engine moves bulk data between HBM and DM / SPM independently of either Tensor Unit context (<em>overlap</em>).</p>
 <p>Some Tensor Unit engines form a single unit of scheduling that can be driven by only one context at a time.
 For example, the Vector Engine and the Cast Engine form one such unit of scheduling.
-So when sub is running Vector Engine work, main runs its type casting through <a href="../moving-tensors/commit-engine.html#type-casting">Commit Engine type casting</a> instead of the Cast Engine, to avoid serializing with sub.</p>
+So when sub is running Vector Engine work, main runs its type casting through the <a href="./commit-adapter.html#type-casting">Commit Adapter’s Type Casting stage</a> instead of the Cast Engine, to avoid serializing with sub.</p>
 <p>The scheduler may also assign a Tensor Unit operation to the DMA context defensively when its DM access pattern would otherwise risk a hardware-level memory conflict (see <a href="../moving-tensors/memory-performance.html">Memory Performance</a> for the rules that trigger this).</p>
 
                     </main>
@@ -262,7 +266,7 @@ So when sub is running Vector Engine work, main runs its type casting through <a
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../computing-tensors/switch-engine.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../computing-tensors/fetch-adapter.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -276,7 +280,7 @@ So when sub is running Vector Engine work, main runs its type casting through <a
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../computing-tensors/switch-engine.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../computing-tensors/fetch-adapter.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

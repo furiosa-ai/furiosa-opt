@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["COMMIT_VALID_PACKET_SIZES","FETCH_ALIGN_BYTES","MAX_SEQUENCER_ENTRIES"],"enum":["CommitError","FetchError","SwitchConfig"],"struct":["DivideTerm","FactorLeaf","RelaxedDivision","StreamSequencerConfig","TransposeConfig"]};
