@@ -15,9 +15,39 @@ namespace device_runtime {
 
 #define VERSION 1
 
-typedef struct Buffer Buffer;
+/**
+ * DMA-aligned host buffer backed by [`BufferPool`].
+ *
+ * Backed by a pool. Dropped buffers return to the freelist. The pool holds
+ * backing memory until every outstanding `Arc<dyn Proxy>` (including
+ * [`CpuBufferGuard`]) is released. Zero-size buffers use a sentinel pointer
+ * of `u64::MAX` and never participate in DMA.
+ *
+ * # Concurrency
+ *
+ * `state` is a bidirectional access counter:
+ *
+ * - `> 0`: io-uring operations in flight; CPU access blocked.
+ * - `= 0`: idle.
+ * - `< 0`: CPU read/write slice active; io-uring submissions blocked. `count =
+ *   -state`.
+ *
+ * Transitions are atomic (compare-exchange) and guarantee that the two view
+ * kinds never coexist.
+ */
+typedef struct CpuBuffer CpuBuffer;
 
 typedef struct Kernel Kernel;
+
+/**
+ * Symmetric NPU buffer: the same offset and size live on every chip in a
+ * TpGroup.
+ *
+ * `NpuBuffer` is cheap to clone — it holds an `Arc<dyn Proxy>` so cloning a
+ * handle is `O(1)`. Deallocation happens **exactly once**, when the final
+ * clone drops (via the internal `NpuProxy`).
+ */
+typedef struct NpuBuffer NpuBuffer;
 
 typedef struct Runtime Runtime;
 
@@ -61,9 +91,9 @@ struct Kernel *furiosa_kernel_load(const struct Runtime *rt, const uint8_t *edf,
  */
 int32_t furiosa_kernel_run(const struct Kernel *k,
                            const struct Runtime *rt,
-                           const struct Buffer *const *inputs,
+                           const struct NpuBuffer *const *inputs,
                            size_t n_in,
-                           const struct Buffer *const *outputs,
+                           const struct NpuBuffer *const *outputs,
                            size_t n_out);
 
 /**
@@ -76,9 +106,9 @@ void furiosa_kernel_free(struct Kernel *k);
  * # Safety
  * `rt` must be a valid pointer returned by `furiosa_runtime_init`.
  */
-struct Buffer *furiosa_buffer_npu(const struct Runtime *rt, size_t size);
+struct NpuBuffer *furiosa_npu_buffer(const struct Runtime *rt, size_t size);
 
-struct Buffer *furiosa_buffer_cpu(size_t size);
+struct CpuBuffer *furiosa_cpu_buffer(size_t size);
 
 /**
  * # Safety
@@ -86,53 +116,78 @@ struct Buffer *furiosa_buffer_cpu(size_t size);
  * `addr` must be a valid NPU device address, and `len` must not exceed the
  * allocation.
  */
-struct Buffer *furiosa_buffer_from_npu(const struct Runtime *rt, uint64_t addr, size_t len);
+struct NpuBuffer *furiosa_npu_buffer_from(const struct Runtime *rt, uint64_t offset, size_t len);
 
 /**
  * # Safety
  * `addr` must be a valid host address, and `len` must not exceed the
  * allocation.
  */
-struct Buffer *furiosa_buffer_from_cpu(uint64_t addr, size_t len);
+struct CpuBuffer *furiosa_cpu_buffer_from(uint64_t addr, size_t len);
 
 /**
  * # Safety
- * `buf` must be a valid pointer to a `Buffer`.
+ * `buf` must be a valid pointer to a `CpuBuffer`.
  */
-uint64_t furiosa_buffer_addr(const struct Buffer *buf);
+uint64_t furiosa_cpu_buffer_addr(const struct CpuBuffer *buf);
 
 /**
  * # Safety
- * `buf` must be a valid pointer to a `Buffer`.
+ * `buf` must be a valid pointer to a `NpuBuffer`.
  */
-size_t furiosa_buffer_len(const struct Buffer *buf);
+uint64_t furiosa_npu_buffer_offset(const struct NpuBuffer *buf);
 
 /**
  * # Safety
- * `buf` must be a valid pointer to a `Buffer`.
+ * `buf` must be a valid pointer to a `CpuBuffer`.
  */
-struct Buffer *furiosa_buffer_clone(const struct Buffer *buf);
+size_t furiosa_cpu_buffer_len(const struct CpuBuffer *buf);
 
 /**
  * # Safety
- * `buf` must be a pointer returned by a `furiosa_buffer_*` constructor, or
+ * `buf` must be a valid pointer to a `NpuBuffer`.
+ */
+size_t furiosa_npu_buffer_len(const struct NpuBuffer *buf);
+
+/**
+ * # Safety
+ * `buf` must be a valid pointer to a `CpuBuffer`.
+ */
+struct CpuBuffer *furiosa_cpu_buffer_clone(const struct CpuBuffer *buf);
+
+/**
+ * # Safety
+ * `buf` must be a valid pointer to a `NpuBuffer`.
+ */
+struct NpuBuffer *furiosa_npu_buffer_clone(const struct NpuBuffer *buf);
+
+/**
+ * # Safety
+ * `buf` must be a pointer returned by a `furiosa_cpu_buffer_*` constructor, or
  * null.
  */
-void furiosa_buffer_free(struct Buffer *buf);
+void furiosa_cpu_buffer_free(struct CpuBuffer *buf);
+
+/**
+ * # Safety
+ * `buf` must be a pointer returned by a `furiosa_npu_buffer_*` constructor, or
+ * null.
+ */
+void furiosa_npu_buffer_free(struct NpuBuffer *buf);
 
 /**
  * # Safety
  * `rt` must be a valid pointer returned by `furiosa_runtime_init`.
  * `src` and `dst` must be valid pointers to `Buffer`.
  */
-int32_t furiosa_write(const struct Runtime *rt, const struct Buffer *src, const struct Buffer *dst);
+int32_t furiosa_write(const struct Runtime *rt, const struct CpuBuffer *src, const struct NpuBuffer *dst);
 
 /**
  * # Safety
  * `rt` must be a valid pointer returned by `furiosa_runtime_init`.
  * `src` and `dst` must be valid pointers to `Buffer`.
  */
-int32_t furiosa_read(const struct Runtime *rt, const struct Buffer *src, const struct Buffer *dst);
+int32_t furiosa_read(const struct Runtime *rt, const struct NpuBuffer *src, const struct CpuBuffer *dst);
 
 #ifdef __cplusplus
 }  // extern "C"

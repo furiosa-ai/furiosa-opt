@@ -1,6 +1,8 @@
 //! Transpose Engine: packet-level transpose.
+//!
+//! Shape verification runs through the `verify_transpose` FFI entry below; this
+//! module only carries the engine entry point and its typestate.
 
-use abi_stable::std_types::Tuple2;
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
@@ -9,27 +11,6 @@ use crate::engine::CanApplyTranspose;
 use crate::runtime::{Backend, CurrentBackend};
 use crate::scalar::*;
 use crate::tensor::tu::{Position, TuTensor};
-
-/// Transpose engine input packet size in bytes.
-const TRANSPOSE_INPUT_BYTES: usize = 32;
-
-/// Transpose engine output packet size in bytes.
-const TRANSPOSE_OUTPUT_BYTES: usize = 32;
-
-/// Number of elements fetched per transpose packet for non 4-bit types.
-const TRANSPOSE_ELEMENTS_PER_PACKET_NON_4BIT: usize = 8;
-
-/// Number of elements fetched per transpose packet for 4-bit types.
-const TRANSPOSE_ELEMENTS_PER_PACKET_4BIT: usize = 16;
-
-/// Maximum size for transpose `in_rows` in bytes.
-const TRANSPOSE_MAX_IN_ROWS_BYTES: usize = 8;
-
-/// Valid `in_cols` values for the transpose engine (non 4-bit types).
-const TRANSPOSE_VALID_IN_COLS: &[usize] = &[8, 16, 32];
-
-/// Valid `in_cols` values for the transpose engine (4-bit types).
-const TRANSPOSE_VALID_IN_COLS_4BIT: &[usize] = &[16, 32];
 
 /// After the transpose engine.
 #[derive(Debug)]
@@ -56,163 +37,164 @@ impl<'l, const T: Tu, P: CanApplyTranspose, D: Scalar, Chip: M, Cluster: M, Slic
 }
 // ANCHOR_END: transpose_impl
 
-/// Validates hardware constraints for the transpose engine.
-///
-/// Constraints checked:
-/// 1. `Packet` and `OutPacket` must be 32 bytes
-/// 2. `in_rows` * sizeof(D) <= 8 bytes
-/// 3. `in_cols` must be 8, 16, or 32 (4-bit: 16 or 32 only)
-/// 4. `out_rows` <= `in_cols`
+/// Verifies a transpose op, panicking if the requested `(OutTime, OutPacket)`
+/// is not realizable from `(Time, Packet)` on the transpose engine. The
+/// implementation is linked through `furiosa-opt-lower`'s archive; the resolved
+/// parameters are discarded here, only success or the rendered error matters.
 pub(crate) fn verify_transpose<D: Scalar, Time: M, Packet: M, OutTime: M, OutPacket: M>() {
-    // Packet must be TRANSPOSE_INPUT_BYTES bytes.
-    let packet_bytes = D::size_in_bytes_from_length(Packet::SIZE);
-    assert_eq!(
-        packet_bytes, TRANSPOSE_INPUT_BYTES,
-        "Transpose input packet must be {TRANSPOSE_INPUT_BYTES} bytes, got {packet_bytes}"
-    );
-
-    // OutPacket must be TRANSPOSE_OUTPUT_BYTES bytes.
-    let out_packet_bytes = D::size_in_bytes_from_length(OutPacket::SIZE);
-    assert_eq!(
-        out_packet_bytes, TRANSPOSE_OUTPUT_BYTES,
-        "Transpose output packet must be {TRANSPOSE_OUTPUT_BYTES} bytes, got {out_packet_bytes}",
-    );
-
-    // OutPacket is `[in_rows # padding]`.
-    // `in_rows` * sizeof(D) <= 8 bytes
-    let in_rows = OutPacket::to_value().factorize().remove_padding();
-    let in_rows_bytes = D::size_in_bytes_from_length(in_rows.size());
-    assert!(
-        in_rows_bytes <= TRANSPOSE_MAX_IN_ROWS_BYTES,
-        "Transpose `in_rows` must be <= {TRANSPOSE_MAX_IN_ROWS_BYTES} bytes, got {in_rows_bytes}"
-    );
-
-    // `Time = [..., in_rows, packets_per_col]`
-    // Check that `in_rows` matches OutPacket `in_rows`.
-    let time = Time::to_value().factorize();
-    let in_rows_division = time
-        .clone()
-        .divide(in_rows.clone())
-        .exact_checked()
-        .unwrap_or_else(|_| panic!("Transpose `in_rows` ({in_rows}) must be present in the input Time ({time})"));
-
-    // `in_cols` = `packets_per_col` * `elements_per_packet` must be in {8, 16, 32} (4-bit: {16, 32})
-    let Tuple2(time_outer, packets_per_col) = time.split_at(in_rows_division.division_terms[0].dividend_stride);
-    let Tuple2(time_outer, _) = time_outer.split_at(in_rows.size());
-    let (elements_per_packet, valid_in_cols) = match D::BITS {
-        4 => (TRANSPOSE_ELEMENTS_PER_PACKET_4BIT, TRANSPOSE_VALID_IN_COLS_4BIT),
-        _ => (TRANSPOSE_ELEMENTS_PER_PACKET_NON_4BIT, TRANSPOSE_VALID_IN_COLS),
-    };
-    let in_cols = packets_per_col.size() * elements_per_packet;
-    assert!(
-        valid_in_cols.contains(&in_cols),
-        "Transpose `in_cols` size ({in_cols}) must be one of {valid_in_cols:?} for {}-bit type",
+    furiosa_opt_lower::config_transpose(
+        &Time::to_value(),
+        &Packet::to_value(),
+        &OutTime::to_value(),
+        &OutPacket::to_value(),
         D::BITS,
-    );
-
-    let elements_per_packet = Packet::to_value().factorize().pad(elements_per_packet);
-    let out_time = OutTime::to_value().factorize();
-
-    // `OutTime = [time_outer, packets_per_col, elements_per_packet]`.
-    // `elements_per_packet` may be sliced: `[in_cols x in_rows] → [out_rows x in_rows]`.
-    // Make sure only padding is removed.
-    let Tuple2(out_time_outer, out_time_elements_per_packet) = if packets_per_col.size() > 1 {
-        let ppc_division = out_time
-            .clone()
-            .divide(packets_per_col.clone())
-            .exact_checked()
-            .unwrap_or_else(|_| {
-                panic!("Transpose `packets_per_col` ({packets_per_col}) not found in OutTime ({out_time})")
-            });
-        let Tuple2(outer, num_elems) = out_time.split_at(ppc_division.division_terms[0].dividend_stride);
-        let Tuple2(outer, _) = outer.split_at(packets_per_col.size());
-        Tuple2(outer, num_elems)
-    } else {
-        let out_rows = OutTime::SIZE / time_outer.size();
-        out_time.split_at(out_rows)
-    };
-    let out_rows = packets_per_col
-        .clone()
-        .mul(out_time_elements_per_packet.clone())
-        .normalize();
-    let in_cols = packets_per_col.mul(elements_per_packet.clone()).normalize();
-    assert!(
-        out_rows.size() <= in_cols.size(),
-        "Transpose `out_rows` ({}) must be <= `in_cols` ({})",
-        out_rows.size(),
-        in_cols.size(),
-    );
-    assert_eq!(
-        out_time_elements_per_packet.remove_padding(),
-        elements_per_packet.remove_padding(),
-        "Transpose `out_rows` ({out_rows}) must match `in_cols` ({in_cols}) (excluding padding)",
-    );
-
-    // Outer Time axes should match outer OutTime axes.
-    assert_eq!(
-        time_outer, out_time_outer,
-        "Transpose time mismatch: expected outer OutTime to be {time_outer}, got ({out_time_outer})"
-    );
+    )
+    .unwrap_or_else(|message| panic!("{message}"));
 }
 
 #[cfg(test)]
 mod tests {
+    //! These exercise the engine entry point through the verify FFI
+    //! (accept = no panic, reject = panic with the verifier's message). The
+    //! parameter-level forward-simulation oracle is kept with the verifier
+    //! implementation.
     use super::*;
     use crate::scalar::bf16;
 
     mod valid {
         use super::*;
-        axes![A = 4, B = 2, C = 8, D = 4, E = 8, F = 8, G = 2, X = 64, Y = 512];
+        axes![
+            A = 4,
+            B = 2,
+            C = 8,
+            D = 4,
+            E = 8,
+            F = 8,
+            G = 2,
+            X = 64,
+            Y = 512,
+            Esplit = 16,
+            PPC = 2,
+            IR = 8,
+            EP = 8,
+            EPHalf = 4,
+            Dummy1 = 1,
+            Esplit32 = 32,
+            BB = 4,
+            Cbig = 384,
+            Bbig = 96,
+            Dummy8 = 8
+        ];
 
         #[test]
-        fn basic() {
+        fn transpose_basic() {
             verify_transpose::<i8, m![C, F], m![E # 32], m![C, E], m![F # 32]>();
         }
 
         #[test]
-        fn small() {
-            // `elements_per_packet = B # 8` is sliced to `B`
+        fn transpose_small() {
             verify_transpose::<i8, m![A], m![B # 32], m![B], m![A # 32]>();
         }
 
         #[test]
-        fn small_no_slicing() {
+        fn transpose_small_no_slicing() {
             verify_transpose::<i8, m![A], m![B # 32], m![B # 8], m![A # 32]>();
         }
 
         #[test]
-        fn large_col() {
+        fn transpose_large_col() {
             verify_transpose::<i8, m![B, C, D], m![E # 32], m![B, D, E], m![C # 32]>();
         }
 
         #[test]
-        fn bf16() {
+        fn transpose_bf16() {
             verify_transpose::<bf16, m![C, D], m![E # 16], m![C, E], m![D # 16]>();
         }
-    }
 
-    mod input_packet {
-        use super::*;
-        axes![C = 8, D = 8, E = 4, F = 16];
-    }
+        #[test]
+        fn transpose_padding_only_in_rows() {
+            verify_transpose::<bf16, m![1], m![C % 8 # 16], m![C % 8], m![1 # 16]>();
+        }
 
-    mod output_packet {
-        use super::*;
-        axes![C = 8, D = 8, E = 8];
-    }
+        #[test]
+        fn transpose_split_symbol_time() {
+            verify_transpose::<i8, m![C, D, Esplit / 8], m![Esplit % 8 # 32], m![C, Esplit], m![D # 32]>();
+        }
 
-    mod in_rows {
-        use super::*;
-        axes![A = 4, C = 8, D = 8, E = 8, F = 32];
-    }
+        #[test]
+        fn transpose_packets_per_col_2_no_slice() {
+            verify_transpose::<i8, m![IR, PPC], m![EP # 32], m![PPC, EP], m![IR # 32]>();
+        }
 
-    mod in_cols {
-        use super::*;
-        axes![C = 8, D = 8, E = 8, F = 16, G = 4];
-    }
+        #[test]
+        fn transpose_padding_only_packets_per_col() {
+            verify_transpose::<i8, m![IR, 1 # 2], m![EP # 32], m![1 # 2, EP], m![IR # 32]>();
+        }
 
-    mod out_time {
-        use super::*;
-        axes![A = 2, B = 2, C = 4, D = 2, E = 8, F = 8, G = 16];
+        #[test]
+        fn transpose_size1_dummy_axis_as_in_rows() {
+            verify_transpose::<i8, m![D, Dummy1], m![A # 32], m![D, A], m![Dummy1 # 32]>();
+        }
+
+        #[test]
+        fn transpose_i4_basic() {
+            verify_transpose::<i4, m![A], m![BB # 64], m![BB], m![A # 64]>();
+        }
+
+        #[test]
+        fn transpose_f32_basic() {
+            verify_transpose::<f32, m![B], m![C # 8], m![C], m![B # 8]>();
+        }
+
+        #[test]
+        fn transpose_split_symbol_packets_per_col_4() {
+            verify_transpose::<i8, m![C, D, Esplit32 / 8], m![Esplit32 % 8 # 32], m![C, Esplit32], m![D # 32]>();
+        }
+
+        #[test]
+        fn transpose_packed_pair_in_rows() {
+            verify_transpose::<i8, m![(A, B) # 16], m![C # 32], m![1 # 2, C], m![(A, B) # 32]>();
+        }
+
+        #[test]
+        fn transpose_padded_strided_packets_per_col() {
+            verify_transpose::<i8, m![D, A # 16 / 8], m![A # 16 % 8 # 32], m![1 # 2, A # 8], m![D # 32]>();
+        }
+
+        #[test]
+        fn transpose_packed_pair_strided_packets_per_col() {
+            verify_transpose::<i8, m![D, (A, B) # 16 / 8], m![(A, B) # 16 % 8 # 32], m![1 # 2, (A, B)], m![D # 32]>();
+        }
+
+        #[test]
+        fn transpose_packed_pair_strided_bf16() {
+            verify_transpose::<bf16, m![D, (A, B) # 16 / 8], m![(A, B) # 16 % 8 # 16], m![1 # 2, (A, B)], m![D # 16]>();
+        }
+
+        #[test]
+        fn transpose_all_padding_no_terms() {
+            verify_transpose::<i8, m![1 # 4], m![1 # 32], m![1 # 32], m![1 # 32]>();
+        }
+
+        #[test]
+        fn transpose_mixed_padding_size_arithmetic() {
+            verify_transpose::<i8, m![A, 1 # 4], m![EP # 32], m![1 # 4, EP], m![A # 32]>();
+        }
+
+        #[test]
+        fn transpose_fc1_bias_prepared_split_dummy8() {
+            verify_transpose::<bf16, m![Dummy8], m![1 # 16], m![Dummy8 / 4], m![Dummy8 % 4 # 16]>();
+        }
+
+        #[test]
+        fn transpose_engine_14_bf16_multi_split() {
+            verify_transpose::<
+                bf16,
+                m![Cbig / 4 % 24, Cbig / 96, Bbig / 24, Bbig / 8 % 3, Cbig % 4],
+                m![Bbig % 8 # 16],
+                m![Cbig / 4 % 24, Cbig / 96, Bbig],
+                m![Cbig % 4 # 16],
+            >();
+        }
     }
 }

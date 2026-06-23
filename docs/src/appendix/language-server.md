@@ -7,7 +7,7 @@ The proxy runs `rust-analyzer` underneath, forwards normal Rust language-server 
 
 1. Ensure [`rust-analyzer`](https://rust-analyzer.github.io/book/rust_analyzer_binary.html) is installed and available in your `PATH`.
    The proxy launches this upstream `rust-analyzer` process to provide standard Rust IDE features.
-2. Download the [latest binary](https://github.com/furiosa-ai/furiosa-opt/releases/latest/download/furiosa-rust-analyzer-proxy-x86_64-unknown-linux-gnu) and make it executable:
+2. Download the `furiosa-rust-analyzer-proxy` binary from the [GitHub releases](https://github.com/furiosa-ai/furiosa-opt/releases/latest) and make it executable:
 
    ```bash
    curl -L -o furiosa-rust-analyzer-proxy \
@@ -50,35 +50,35 @@ The proxy delegates standard Rust IDE features to `rust-analyzer` and rewrites m
 Provides incoming and outgoing call hierarchy views.
 Function details shown in hierarchy entries are converted into mapping expressions.
 
-![Call Hierarchy Demo](language-server-call-hierarchy.png)
+![Call Hierarchy Demo](images/language-server-call-hierarchy.png)
 
 ### Code Actions
 
 Provides quick fixes, refactors, and other editor actions.
 Action title and text edits are converted into mapping expressions.
 
-![Code Action Demo](language-server-code-action.webp)
+![Code Action Demo](images/language-server-code-action.webp)
 
 ### Code Completions
 
 Provides completion items for names, methods, functions, types, and snippets.
 Completion labels, detail text, and text edits are converted into mapping expressions.
 
-![Code Completions Demo](language-server-code-completions.png)
+![Code Completions Demo](images/language-server-code-completions.png)
 
 ### Diagnostics
 
 Provides diagnostics from `rust-analyzer` and `rustc`.
 Diagnostic messages and related information are converted into mapping expressions.
 
-![Diagnostics Demo](language-server-diagnostics.png)
+![Diagnostics Demo](images/language-server-diagnostics.png)
 
 ### Hover
 
 Shows additional information when hovering over a symbol.
 Hover contents such as inferred types, function signatures, and documentation are converted into mapping expressions.
 
-![Hover Demo](language-server-hover.png)
+![Hover Demo](images/language-server-hover.png)
 
 ### Inlay Hints
 
@@ -89,14 +89,14 @@ Inlay hints are converted into mapping expressions.
 > For the most accurate conversion, set [`rust-analyzer.inlayHints.maxLength`](https://rust-analyzer.github.io/book/configuration.html#inlayHints.maxLength) to `null` (unlimited length).
 > This reduces how often long inlay hints are truncated into '_'.
 
-![Inlay Hints Demo](language-server-inlay-hints.png)
+![Inlay Hints Demo](images/language-server-inlay-hints.png)
 
 ### Signature Help
 
 Shows function signatures and the active parameter while writing a call.
 Signature labels, parameter labels, and documentation are rewritten to use mapping notation, including offset-based parameter labels returned by LSP clients.
 
-![Signature Help Demo](language-server-signature-help.webp)
+![Signature Help Demo](images/language-server-signature-help.webp)
 
 ## Caveats
 

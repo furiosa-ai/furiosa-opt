@@ -11,7 +11,6 @@ mod bindings {
 pub use bindings::NpuDesc;
 pub(crate) use bindings::*;
 
-use std::str::FromStr;
 use std::sync::{LazyLock, OnceLock};
 
 pub(crate) fn lib() -> &'static DeviceRuntime {
@@ -32,39 +31,10 @@ pub(crate) fn rt() -> *const Runtime {
 
     static RT: OnceLock<Handle> = OnceLock::new();
     RT.get_or_init(|| {
-        let NpuDescList(npus) = std::env::var("FURIOSA_OPT_NPUS")
-            .unwrap_or_default()
-            .parse()
-            .unwrap_or_else(|e| panic!("FURIOSA_OPT_NPUS: {e}"));
-        let ptr = unsafe { lib().furiosa_runtime_init(npus.as_ptr(), npus.len()) };
-        assert!(
-            !ptr.is_null(),
-            "failed to acquire NPU; set `FURIOSA_OPT_NPUS=<chip>[,<chip>...]` to use different chips",
-        );
-        Handle(ptr)
-    })
-    .0
-}
-
-/// Comma-separated chip IDs parsed from `FURIOSA_OPT_NPUS` (empty string defaults to chip 0).
-///
-/// Each chip binds both RNGD half-clusters — the only supported topology is logical `pe0-7` per chip
-/// (a 2×4-PE fusion via file handles `/dev/rngd{N}/pe{0-3,4-7}`); narrower fusions like `pe0-3` or
-/// `pe0-1` fail at runtime init with "Invalid device ID".
-struct NpuDescList(Vec<NpuDesc>);
-
-impl FromStr for NpuDescList {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let tokens: Vec<&str> = s.split(',').map(str::trim).filter(|t| !t.is_empty()).collect();
-        let tokens: &[&str] = if tokens.is_empty() { &["0"] } else { &tokens };
-        let npus = tokens
-            .iter()
-            .map(|t| t.parse::<u8>().map_err(|e| format!("invalid chip `{t}`: {e}")))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flat_map(|chip| {
-                [
+        let (chips, pes) = *DEVICE.get_or_init(|| (1, 8));
+        let npus: Vec<NpuDesc> = (0..chips)
+            .flat_map(|chip| match pes {
+                8 => vec![
                     NpuDesc {
                         chip,
                         pe_start: 0,
@@ -75,9 +45,26 @@ impl FromStr for NpuDescList {
                         pe_start: 4,
                         pe_end: 7,
                     },
-                ]
+                ],
+                n => vec![NpuDesc {
+                    chip,
+                    pe_start: 0,
+                    pe_end: n - 1,
+                }],
             })
             .collect();
-        Ok(Self(npus))
-    }
+        let ptr = unsafe { lib().furiosa_runtime_init(npus.as_ptr(), npus.len()) };
+        assert!(!ptr.is_null(), "failed to acquire NPU");
+        Handle(ptr)
+    })
+    .0
+}
+
+static DEVICE: OnceLock<(u8, u8)> = OnceLock::new();
+
+/// Sets the `#[device(chip, pe)]` the process runs on. First call wins; a conflicting one panics.
+pub fn set_device(chip: usize, pe: usize) {
+    let dev = (chip as u8, pe as u8);
+    let cur = *DEVICE.get_or_init(|| dev);
+    assert_eq!(cur, dev, "conflicting NPU device in one process: {cur:?} vs {dev:?}");
 }

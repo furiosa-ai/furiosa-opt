@@ -1,13 +1,12 @@
 //! Time Reducer (`contract_time`): accumulator reduce across `Time`, shrinking
 //! `Time` to `OutTime`.
 
-use std::collections::HashMap;
-
 use furiosa_mapping::*;
+use furiosa_opt_lower::{DivideTerm, config_divide_exact};
 use furiosa_opt_macro::primitive;
 
 use crate::context::*;
-use crate::engine::contraction::{ContractPacketTensor, ContractTimeTensor};
+use crate::engine::contraction::{ContractPacketTensor, ContractTimeTensor, padding_per_stride};
 use crate::runtime::Backend;
 use crate::scalar::*;
 
@@ -22,11 +21,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M
     pub fn contract_time<OutTime: M>(
         self,
     ) -> ContractTimeTensor<'l, T, D, Chip, Cluster, Slice, Lane, OutTime, Packet, B> {
-        verify_contract_time::<Time, OutTime>();
+        verify_contract_time(Time::to_value(), OutTime::to_value());
         ContractTimeTensor {
             ctx: self.ctx,
             inner: self.inner.reduce_add(),
-            pre_reduce_time: Time::to_value().factorize(),
+            pre_reduce_time: Time::to_value(),
         }
     }
 }
@@ -38,18 +37,14 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M
 /// relative order preserved. Axes present in `Time` but absent from `OutTime`
 /// are summed away by `reduce_add`. Retained axes must also preserve their
 /// padding from `Time`.
-pub(crate) fn verify_contract_time<Time: M, OutTime: M>() {
-    let time = Time::to_value().factorize();
-    let out_time = OutTime::to_value().factorize();
-
+pub(crate) fn verify_contract_time(time: Mapping, out_time: Mapping) {
     // The outer portion of `Time` should divide `Time`.
     // Some axes can be reduced in temporal accumulation.
-    let division = time.clone().divide(out_time.clone()).exact_checked().unwrap_or_else(|_| {
+    let division_terms = config_divide_exact(&time, &out_time).unwrap_or_else(|_| {
         panic!(
             "contract_time: OutTime mismatch. Some axes present in Time are not present in OutTime: {time}, {out_time}"
         )
     });
-    let division_terms = &division.division_terms;
     // Non-reduced axes must have their order preserved in `OutTime`.
     assert!(
         division_terms
@@ -58,35 +53,12 @@ pub(crate) fn verify_contract_time<Time: M, OutTime: M>() {
         "contract_time: OutTime axes must follow the same order as the Time axes"
     );
 
-    // Each retained axis in `out_time` must preserve its padding from `time`.
-    // We store `padding_size / stride` per term (always exact since padding
-    // aligns to stride boundaries) and verify that the stride boundaries between
-    // consecutive retained axes in `out_time` match the gaps produced by
-    // padding in `time`.
-    let mut time_padding_per_stride: HashMap<usize, usize> = HashMap::new();
-    let factors = time.factors();
-    let mut stride = 1;
-    for (i, factor) in factors.iter().enumerate() {
-        match factor {
-            Factor::Term { resize, .. } => {
-                time_padding_per_stride.insert(
-                    stride,
-                    if let Some(Factor::Padding { size, .. }) = factors.get(i + 1) {
-                        size / stride
-                    } else {
-                        *resize
-                    },
-                );
-                stride *= resize;
-            }
-            Factor::Padding { size, .. } => {
-                stride = *size;
-            }
-        }
-    }
+    // Each retained axis in `out_time` must preserve its padding from `time`: the padded extent at
+    // each cumulative stride (`padding_per_stride`) must line the retained axes up edge-to-edge.
+    let time_padding_per_stride = padding_per_stride(&time);
 
     // Sort retained axes inner-to-outer by their position in `out_time` (divisor).
-    let mut sorted_divisions: Vec<&DivisionTerm> = division_terms.iter().collect();
+    let mut sorted_divisions: Vec<&DivideTerm> = division_terms.iter().collect();
     sorted_divisions.sort_by_key(|d| d.divisor_stride);
 
     // The first divisor should have a stride of 1.
@@ -124,22 +96,23 @@ mod tests {
 
     mod contract_time_subset {
         use super::*;
+        use furiosa_mapping::M as _;
 
         #[test]
         fn valid_identity() {
-            verify_contract_time::<m![A, B], m![A, B]>();
+            verify_contract_time(<m![A, B]>::to_value(), <m![A, B]>::to_value());
         }
 
         #[test]
         fn valid_reduce_inner() {
-            verify_contract_time::<m![A, B], m![A]>();
+            verify_contract_time(<m![A, B]>::to_value(), <m![A]>::to_value());
         }
 
         #[test]
         fn valid_reduce_outer() {
             // Outer axis can be reduced too: verify_contract_lane handles cross-stage
             // checks; here we only verify the order/padding contract.
-            verify_contract_time::<m![A, B], m![B]>();
+            verify_contract_time(<m![A, B]>::to_value(), <m![B]>::to_value());
         }
     }
 }

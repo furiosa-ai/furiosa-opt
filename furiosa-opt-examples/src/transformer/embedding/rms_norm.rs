@@ -30,16 +30,18 @@ pub(super) fn rms_norm(
     let hidden_dm_1: DmTensor<bf16, Chip, Cluster, m![Y, S / 32, H / 224, S / 8 % 4], m![S % 32, H % 56 # 64]> = ctx
         .main
         .begin(hidden_dm_0.view())
-        .fetch::<bf16, m![S % 8, H / 56 % 4], m![H % 56]>()
+        .fetch::<m![S % 8, H / 56 % 4], m![H % 56]>()
         .collect::<m![S % 32], m![H % 56 # 64]>()
+        .commit_trim::<m![H % 56 # 64]>()
         .commit(0x1300);
 
     // Strip padded lanes and keep contiguous 56-wide channel blocks.
     let hidden_dm: DmTensor<bf16, Chip, Cluster, m![Y, S / 32, H / 224, S / 8 % 4], m![S % 32, H % 56]> = ctx
         .main
         .begin(hidden_dm_1.view())
-        .fetch::<bf16, m![S % 32], m![H % 56]>()
+        .fetch::<m![S % 32], m![H % 56]>()
         .collect::<m![S % 32], m![H % 56]>()
+        .commit_trim::<m![H % 56]>()
         .commit(0x500);
 
     // Load norm weights.
@@ -50,29 +52,32 @@ pub(super) fn rms_norm(
     let weight_dm_1: DmTensor<bf16, Chip, Cluster, m![X, H / 112, H / 56 % 2], m![1 # 2, H % 56 # 64]> = ctx
         .main
         .begin(weight_dm_0.view())
-        .fetch::<bf16, m![H / 56 % 2], m![H % 56]>()
+        .fetch::<m![H / 56 % 2], m![H % 56]>()
         .switch::<m![X, H / 112, H / 56 % 2], m![Z]>(SwitchConfig::InterTranspose {
             slice1: 2,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![Z], m![H % 56 # 64]>()
+        .commit_trim::<m![H % 56 # 64]>()
         .commit(0x100);
 
     // Channel padding strip pass.
     let weight_dm_2: DmTensor<bf16, Chip, Cluster, m![X, H / 112, H / 56 % 2], m![1 # 2, H % 56]> = ctx
         .main
         .begin(weight_dm_1.view())
-        .fetch::<bf16, m![Z], m![H % 56]>()
+        .fetch::<m![Z], m![H % 56]>()
         .collect::<m![Z], m![H % 56]>()
+        .commit_trim::<m![H % 56]>()
         .commit(0x0);
 
     // Dummy-lane strip pass for compact per-channel weights.
     let weight_dm_3: DmTensor<bf16, Chip, Cluster, m![X, H / 112, H / 56 % 2], m![H % 56]> = ctx
         .main
         .begin(weight_dm_2.view())
-        .fetch::<bf16, m![1], m![H % 56]>()
+        .fetch::<m![1], m![H % 56]>()
         .collect::<m![1], m![H % 56]>()
+        .commit_trim::<m![H % 56]>()
         .commit(0x100);
 
     // Reshape weight tiles to match the normalization pipeline's Slice decomposition.
@@ -83,7 +88,8 @@ pub(super) fn rms_norm(
     let weight_vrf: VrfTensor<f32, Chip, Cluster, m![Y, S / 32, H / 56], m![H % 56 # 64]> = ctx
         .sub
         .begin(weight_dm_3.view())
-        .fetch::<f32, m![H / 8 % 7 # 8], m![H % 8]>()
+        .fetch::<m![H / 8 % 7 # 8], m![H % 8]>()
+        .fetch_cast::<f32>()
         .collect::<m![H / 8 % 7 # 8], m![H % 8]>()
         .to_vrf(0);
 
@@ -102,7 +108,8 @@ pub(super) fn rms_norm(
     let variance: DmTensor<f32, Chip, Cluster, m![Y, S / 32, H / 56], m![S % 32]> = ctx
         .main
         .begin(hidden_dm.view())
-        .fetch::<f32, m![S % 32, H / 8 % 7], m![H % 8]>()
+        .fetch::<m![S % 32, H / 8 % 7], m![H % 8]>()
+        .fetch_cast::<f32>()
         .collect::<m![S % 32, H / 8 % 7], m![H % 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
@@ -115,13 +122,14 @@ pub(super) fn rms_norm(
         .vector_clip(ClipBinaryOpF32::Add, 6.25e-8f32) // TODO: use filter to move Time -> Packet
         .vector_inter_slice_reduce::<m![Y, S / 32, H / 56], m![1]>(InterSliceReduceOpF32::Add)
         .vector_final()
+        .commit_trim::<m![S % 32]>()
         .commit(0x2400);
 
     // Compute reciprocal RMS scale and keep it in VRF.
     let inv_rms_vrf: VrfTensor<f32, Chip, Cluster, m![Y, S / 32, H / 56], m![S % 32]> = ctx
         .main
         .begin(variance.view())
-        .fetch::<f32, m![S / 8 % 4], m![S % 8]>()
+        .fetch::<m![S / 8 % 4], m![S % 8]>()
         .collect::<m![S / 8 % 4], m![S % 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
@@ -140,7 +148,8 @@ pub(super) fn rms_norm(
     let result_dm_y: DmTensor<bf16, Chip, Cluster, m![Y, S / 32, H / 56], m![S % 32, H % 56]> = ctx
         .main
         .begin(hidden_copy.view())
-        .fetch::<f32, m![S % 32, H / 8 % 7], m![H % 8]>()
+        .fetch::<m![S % 32, H / 8 % 7], m![H % 8]>()
+        .fetch_cast::<f32>()
         .collect::<m![S % 32, H / 8 % 7], m![H % 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
@@ -150,13 +159,15 @@ pub(super) fn rms_norm(
         .vector_widen_concat::<m![S % 32, H / 8 % 7], m![H % 8]>()
         .vector_final()
         .cast::<bf16, m![H % 8 # 16]>()
+        .commit_trim::<m![H % 8]>()
         .commit(0x1300);
 
     let result_dm: DmTensor<bf16, Chip, Cluster, m![Y, S / 32, H / 56], m![S % 32, H % 56]> = ctx
         .main
         .begin(result_dm_y.view())
-        .fetch::<bf16, m![S % 32], m![H % 56]>()
+        .fetch::<m![S % 32], m![H % 56]>()
         .collect::<m![S % 32], m![H % 56]>()
+        .commit_trim::<m![H % 56]>()
         .commit(0x1300);
 
     result_dm

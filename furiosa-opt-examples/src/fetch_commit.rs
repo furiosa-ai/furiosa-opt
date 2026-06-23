@@ -19,8 +19,10 @@ pub fn fetch_commit_simple(
     let fetch_and_commit_tensor: DmTensor<i32, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![A / 8 % 2], m![A % 8, B]>()
+        .fetch::<m![A / 8 % 2], m![A % 8, B]>()
+        .fetch_cast::<i32>()
         .collect::<m![A / 8 % 2, A % 8], m![B]>()
+        .commit_trim::<m![B]>()
         .commit(0);
 
     fetch_and_commit_tensor.to_hbm(&mut ctx.tdma, 0x3000)

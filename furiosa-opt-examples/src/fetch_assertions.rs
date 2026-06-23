@@ -20,8 +20,10 @@ pub mod cluster_size {
         let result: DmTensor<i8, Chip, m![1 # 4], Slice, m![A, B]> = ctx
             .main
             .begin(input_dm.view())
-            .fetch::<i8, m![A], m![B]>()
+            .fetch::<m![A], m![B]>()
+            .fetch_cast::<i8>()
             .collect::<m![A], m![B]>()
+            .commit_trim::<m![B]>()
             .commit(0);
 
         result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
@@ -38,8 +40,10 @@ pub mod cluster_size {
         let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
             .main
             .begin(input_dm.view())
-            .fetch::<i8, m![A], m![B]>()
+            .fetch::<m![A], m![B]>()
+            .fetch_cast::<i8>()
             .collect::<m![A], m![B]>()
+            .commit_trim::<m![B]>()
             .commit(0);
 
         result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
@@ -60,8 +64,10 @@ pub mod slice_size {
         let result: DmTensor<i8, Chip, Cluster, m![1 # 512], m![A, B]> = ctx
             .main
             .begin(input_dm.view())
-            .fetch::<i8, m![A], m![B]>()
+            .fetch::<m![A], m![B]>()
+            .fetch_cast::<i8>()
             .collect::<m![A], m![B]>()
+            .commit_trim::<m![B]>()
             .commit(0);
 
         result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
@@ -78,8 +84,10 @@ pub mod slice_size {
         let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
             .main
             .begin(input_dm.view())
-            .fetch::<i8, m![A], m![B]>()
+            .fetch::<m![A], m![B]>()
+            .fetch_cast::<i8>()
             .collect::<m![A], m![B]>()
+            .commit_trim::<m![B]>()
             .commit(0);
 
         result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());

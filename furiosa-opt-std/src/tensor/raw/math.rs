@@ -1,11 +1,10 @@
-use abi_stable::std_types::RSlice;
 use ndarray::{ArrayD, IxDyn};
 
-use furiosa_mapping::{DivisionExt, FMapping, FMappingExt, Index, IndexExt, M, MappingExt, Term};
+use furiosa_mapping::{Index, IndexExt, M, Mapping, MappingExt, Term};
 
 use crate::engine::vector::operand::OperandTag;
 use crate::engine::vector::scalar::VeScalar;
-use crate::runtime::op_prep::{assert_zip, gather_params, scatter_params, transpose_broadcast};
+use crate::runtime::op_prep::{assert_zip, broadcast_axes, gather_params, scatter_params, transpose_broadcast};
 use crate::scalar::{Opt, Scalar};
 use crate::tensor::raw::{RawTensor, RawTensorOpt, finalize_coords, gen_axes, shape_from_axes};
 
@@ -15,7 +14,7 @@ use crate::tensor::raw::{RawTensor, RawTensorOpt, finalize_coords, gen_axes, sha
 /// moduli. Buffers in physical layout order (length = `Mapping::SIZE`, includes padding) are
 /// loaded position-by-position via [`Self::write_index`], which silently no-ops on padding
 /// positions. Constructors that want bulk-load from such a buffer should iterate
-/// `Index::new().gen_indexes(Mapping::to_value().factorize())` and call `write_index`.
+/// `Index::new().gen_indexes(Mapping::to_value())` and call `write_index`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[doc(hidden)]
 pub struct MathRawTensor<D: Scalar> {
@@ -49,18 +48,18 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
     }
 
     fn from_buf<Mapping: M>(data: impl IntoIterator<Item = D>) -> Self {
-        let fmapping = Mapping::to_value().factorize();
         let mut tensor = Self::uninit_from_axes(gen_axes::<Mapping>());
-        for (i, value) in data.into_iter().enumerate() {
-            tensor.write_index(fmapping.eval(i), Opt::Init(value));
+        for (index, value) in Mapping::to_value().indexes().into_iter().zip(data) {
+            tensor.write_index(index, Opt::Init(value));
         }
         tensor
     }
 
     fn to_buf<Mapping: M>(&self) -> Vec<D> {
-        let fmapping = Mapping::to_value().factorize();
-        (0..Mapping::SIZE)
-            .map(|i| match self.read_index(fmapping.eval(i)) {
+        Mapping::to_value()
+            .indexes()
+            .into_iter()
+            .map(|index| match self.read_index(index) {
                 Opt::Init(value) => value,
                 Opt::Uninit => panic!(
                     "MathRawTensor::to_buf called on a tensor containing Opt::Uninit slots; \
@@ -70,13 +69,17 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
             .collect()
     }
 
+    fn to_buf_or_default<Mapping: M>(&self) -> Vec<D> {
+        self.to_buf_or_default_opt::<Mapping>()
+    }
+
     fn map<D2: Scalar, Output: RawTensor<D2>, F>(&self, mut f: F) -> Output
     where
         F: FnMut(&Opt<D>) -> Opt<D2>,
     {
         let axes = self.axes.to_vec();
         let mut output = Output::uninit_from_axes(axes.clone());
-        for index in Index::new().gen_indexes(FMapping::from_axes(RSlice::from(axes.as_slice()))) {
+        for index in Index::new().gen_indexes(Mapping::from_terms(axes.iter().cloned())) {
             let value = self.read_index(index.clone());
             output.write_index(index, f(&value));
         }
@@ -87,24 +90,11 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
     where
         Reduce: Fn(Opt<D>, Opt<D>) -> Opt<D>,
     {
-        // Reduce residue = Src - Dst (per-factor algebra), derived structurally from the source
-        // mapping so partial-axis reductions survive `gen_axes` consolidation.
-        let reduce_residue = Src::to_value()
-            .divide(&Dst::to_value())
-            .exact_checked()
-            .unwrap_or_else(|e| {
-                panic!(
-                    "[reduce] Dst is not a factor of Src: {e:?}\n\
-                     Src: {:?}\n\
-                     Dst: {:?}",
-                    Src::to_value(),
-                    Dst::to_value()
-                )
-            })
-            .relaxed_residues()
-            .dividend_residue;
+        // Carve Dst out of Src for the reduced axes, derived structurally so a partial-axis reduction
+        // survives gen_axes consolidation.
+        let reduce_residue = Src::to_value().carve(&Dst::to_value());
         let mut output = Self::uninit_from_axes(gen_axes::<Dst>());
-        for dst_index in Index::new().gen_indexes(Dst::to_value().factorize()) {
+        for dst_index in Index::new().gen_indexes(Dst::to_value()) {
             let mut acc = identity;
             for src_index in dst_index.clone().gen_indexes(reduce_residue.clone()) {
                 acc = reduce_fn(acc, self.read_index(src_index));
@@ -118,42 +108,26 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
     where
         Reduce: Fn(Opt<D>, Opt<D>) -> Opt<D>,
     {
-        // `Src.divide(Dst)` decomposes the algebra; everything we need falls out as `remainder`s:
-        //   * remainder(Dividend) → factors to reduce  (Src − matched),
-        //   * remainder(Divisor)  → factors to broadcast (Dst − matched),
-        //   * Inter = Src.factorize() − reduce_residue, again via `remainder`.
-        // Going through `divide` rather than a `Term`-equality filter is what lets a single
-        // symbol's sub-factors line up correctly (e.g., `Src=K(1,128)` and `Dst=K(16,8)` where
-        // the K(1,16) sub-factor must be reduced and the K(16,8) sub-factor kept).
-        //
-        // No intermediate tensor: for each Inter position we accumulate from `self` over the
-        // reduce residue, then write the accumulator to every Dst position that shares this
-        // Inter (= broadcast residue × Inter).
-        let src_mapping = Src::to_value();
-        let division = src_mapping.divide(&Dst::to_value());
-        let reduce_residue = division
-            .remainder(furiosa_mapping::DivisionSide::Dividend)
-            .expect("[reduce_then_broadcast] reduce residue must be well-formed");
-        let broadcast_residue = division
-            .remainder(furiosa_mapping::DivisionSide::Divisor)
-            .expect("[reduce_then_broadcast] broadcast residue must be well-formed");
-        let inter_fmapping = src_mapping
-            .factorize()
-            .divide(reduce_residue.clone())
-            .remainder(furiosa_mapping::DivisionSide::Dividend)
-            .expect("[reduce_then_broadcast] inter = Src − reduce_residue must be well-formed");
+        let src = Src::to_value();
+        let dst = Dst::to_value();
+        // Broadcast axes: the Dst axes built from symbols absent in Src (a symbol-level split).
+        let broadcast = broadcast_axes(&src, &dst);
+        // Kept axes: what's left of Dst after carving the broadcast out.
+        let inter = dst.carve(&broadcast);
+        // Reduced axes: what's left of Src after carving the kept axes out.
+        let reduce_residue = src.carve(&inter);
 
-        let mut dst = Self::uninit_from_axes(gen_axes::<Dst>());
-        for inter_index in Index::new().gen_indexes(inter_fmapping) {
+        let mut output = Self::uninit_from_axes(gen_axes::<Dst>());
+        for inter_index in Index::new().gen_indexes(inter) {
             let mut acc = identity;
             for src_index in inter_index.clone().gen_indexes(reduce_residue.clone()) {
                 acc = reduce_fn(acc, self.read_index(src_index));
             }
-            for dst_index in inter_index.gen_indexes(broadcast_residue.clone()) {
-                dst.write_index(dst_index, acc);
+            for dst_index in inter_index.gen_indexes(broadcast.clone()) {
+                output.write_index(dst_index, acc);
             }
         }
-        dst
+        output
     }
 
     fn reshape<Mapping: M, Mapping2: M>(self) -> Self {
@@ -169,7 +143,7 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
         allow_broadcast: bool,
     ) {
         let broadcast = transpose_broadcast::<Src, Dst>(allow_broadcast);
-        for index in Index::new().gen_indexes(Src::to_value().factorize()) {
+        for index in Index::new().gen_indexes(Src::to_value()) {
             let mut src_index = index.clone();
             src_index.add(src_offset.clone());
             let value = src.read_index(src_index);
@@ -193,7 +167,7 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
         assert_zip(self.axes(), rhs.axes());
         let axes = self.axes().to_vec();
         let mut output = Output::uninit_from_axes(axes.clone());
-        for index in Index::new().gen_indexes(FMapping::from_axes(RSlice::from(axes.as_slice()))) {
+        for index in Index::new().gen_indexes(Mapping::from_terms(axes.iter().cloned())) {
             let l = self.read_index(index.clone());
             let r = rhs.read_index(index.clone());
             output.write_index(index, f(l, r));
@@ -209,19 +183,11 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
         Idx: M,
         IdxRaw: RawTensor<i32>,
     {
-        let src_fmapping = Src::to_value().factorize();
-        let dst_fmapping = Dst::to_value().factorize();
-        let key = Key::to_value().factorize();
+        let key = Key::to_value();
+        let (payload, dst_term) = scatter_params(&Src::to_value(), &Dst::to_value(), &key);
 
         let index_stride = if scaled {
-            let payload = src_fmapping
-                .clone()
-                .divide(key.clone())
-                .exact_checked()
-                .expect("Src must contain scatter key")
-                .relaxed_residues()
-                .dividend_residue;
-            payload.remove_padding().size() * std::mem::size_of::<D>()
+            payload.clone().remove_padding().size() * std::mem::size_of::<D>()
         } else {
             1
         };
@@ -238,7 +204,6 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
             })
             .collect();
 
-        let (payload, dst_term) = scatter_params(&src_fmapping, &dst_fmapping, &key);
         for payload_index in Index::new().gen_indexes(payload) {
             for (key_pos, key_index) in Index::new().gen_indexes(key.clone()).into_iter().enumerate() {
                 let mut src_index = payload_index.clone();
@@ -259,11 +224,7 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
         Idx: M,
         IdxRaw: RawTensor<i32>,
     {
-        let src_fmapping = Src::to_value().factorize();
-        let dst_fmapping = Dst::to_value().factorize();
-        let idx_fmapping = Idx::to_value().factorize();
-
-        let params = gather_params(&src_fmapping, &dst_fmapping, &idx_fmapping);
+        let params = gather_params(&Src::to_value(), &Dst::to_value(), &Idx::to_value());
 
         let index_stride = if scaled {
             params.payload.clone().remove_padding().size() * std::mem::size_of::<D>()
@@ -314,7 +275,7 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
         F: FnMut(&Index, &Operand, &mut Self),
     {
         let mut output = self.clone();
-        for index in Index::new().gen_indexes(Mapping::to_value().factorize()) {
+        for index in Index::new().gen_indexes(Mapping::to_value()) {
             let eid = tag.read_index(index.clone());
             let Opt::Init(_) = eid else {
                 continue;
@@ -332,20 +293,22 @@ impl<D: Scalar> RawTensor<D> for MathRawTensor<D> {
 
 impl<D: Scalar> RawTensorOpt<D> for MathRawTensor<D> {
     fn from_opt_buf<Mapping: M>(data: impl IntoIterator<Item = Opt<D>>) -> Self {
-        // Physical-layout iteration: padding positions land at an index whose `finalize()`
-        // returns `RErr`, so `write_index` silently no-ops there. The corresponding `data[i]`
-        // value (typically `Opt::Uninit` for padding slots) is dropped, matching
-        // `MathRawTensor`'s padding-stripped `ArrayD` representation.
-        let fmapping = Mapping::to_value().factorize();
+        // Physical-layout iteration: a padding position's finalized index is `RErr`, so
+        // `write_index` silently no-ops there. The corresponding `data` value (typically
+        // `Opt::Uninit` for padding slots) is dropped, matching `MathRawTensor`'s
+        // padding-stripped `ArrayD` representation.
         let mut tensor = Self::uninit_from_axes(gen_axes::<Mapping>());
-        for (i, value) in data.into_iter().enumerate() {
-            tensor.write_index(fmapping.eval(i), value);
+        for (index, value) in Mapping::to_value().indexes().into_iter().zip(data) {
+            tensor.write_index(index, value);
         }
         tensor
     }
 
     fn to_opt_buf<Mapping: M>(&self) -> Vec<Opt<D>> {
-        let fmapping = Mapping::to_value().factorize();
-        (0..Mapping::SIZE).map(|i| self.read_index(fmapping.eval(i))).collect()
+        Mapping::to_value()
+            .indexes()
+            .into_iter()
+            .map(|index| self.read_index(index))
+            .collect()
     }
 }

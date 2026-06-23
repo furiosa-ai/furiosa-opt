@@ -2,9 +2,9 @@
 //!
 //! The Outer stage runs three sub-stages in series:
 //!
-//! - [`stream_adapter`]: validates the stream (`CollectTensor`) side and
+//! - `stream_adapter`: validates the stream (`CollectTensor`) side and
 //!   transposes it into the joint computation mapping.
-//! - [`trf_sequencer`]: transposes the TRF into the joint computation mapping.
+//! - `trf_sequencer`: transposes the TRF into the joint computation mapping.
 //! - Multiplier: elementwise multiplies the two aligned operands. Inputs widen
 //!   to the contraction output type (`i4`/`i8` -> `i32`, `f8`/`bf16` -> `f32`)
 //!   before multiplication, matching the DPE accumulator type.
@@ -17,6 +17,7 @@ pub(super) mod stream_adapter;
 pub(super) mod trf_sequencer;
 
 use furiosa_mapping::*;
+use furiosa_opt_lower::config_divide_exact;
 use furiosa_opt_macro::primitive;
 
 use crate::cast::{Cast, ContractionCast};
@@ -104,18 +105,12 @@ fn verify_contract_outer<D: Scalar, Lane: M, Time: M, Packet: M, OutTime: M, Out
     stream_adapter::verify_stream_adapter::<D, Lane, Time, Packet, OutTime, OutPacket>();
 
     let expected_time = OutTime::to_value()
-        .factorize()
-        .mul(
+        .pair(
             OutPacket::to_value()
-                .factorize()
-                .split_at(D::length_from_bytes(crate::engine::FLIT_BYTES))
-                .0
+                .stride(D::length_from_bytes(crate::engine::FLIT_BYTES))
                 .remove_padding(),
         )
         .normalize();
-    let input_time = Time::to_value().factorize();
-    expected_time
-        .divide(input_time.clone())
-        .exact_checked()
-        .expect("`contract_outer`: Time does not divide OutTime");
+    let input_time = Time::to_value();
+    config_divide_exact(&expected_time, &input_time).expect("`contract_outer`: Time does not divide OutTime");
 }

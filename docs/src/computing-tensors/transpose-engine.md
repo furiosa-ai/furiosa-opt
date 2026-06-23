@@ -13,25 +13,25 @@ The `VectorFinalTensor` entry point feeds the Transpose Engine directly from the
 
 The kernel writer chooses `OutTime` and `OutPacket` (the output dimension layouts), and the compiler verifies the result against the hardware constraints listed under [Parameters](#parameters).
 
-The example below transposes a fully-utilized 8×8 `i8` matrix.
+The example below transposes an 8×16 `i8` matrix whose 16-wide rows are each gathered from two input packets (`D = 2`).
 It is reused as the running example throughout the rest of this page.
 
 ```rust
 # #![feature(adt_const_params)]
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
-axes![P = 256, C = 8, D = 8, E = 8];
+axes![P = 256, B = 2, C = 8, D = 2, E = 8];
 
 fn basic_transpose<'l, const T: Tu>(
-    input: CollectTensor<'l, T, i8, m![1], m![1], m![P], m![C, D], m![E # 32]>,
-) -> TransposeTensor<'l, T, i8, m![1], m![1], m![P], m![C, E], m![D # 32]> {
+    input: CollectTensor<'l, T, i8, m![1], m![1], m![P], m![B, C, D], m![E # 32]>,
+) -> TransposeTensor<'l, T, i8, m![1], m![1], m![P], m![B, D, E], m![C # 32]> {
     input.transpose()
 }
 ```
 
 ## Architecture
 
-The four transpose stages below are illustrated using the running example from [Interface](#interface).
+The five transpose stages below are illustrated using the running example from [Interface](#interface).
 
 ### Parameters
 
@@ -53,9 +53,9 @@ For the running example (`i8`, so `valid_size = 8`), the compiler derives:
 
 | Parameter   | Value | Notes      |
 |-------------|-------|------------|
-| `in_cols`   | 8     | `E::SIZE`  |
-| `in_rows`   | 8     | `D::SIZE`  |
-| `out_rows`  | 8     | `E::SIZE`  |
+| `in_cols`   | 16    | `D = 2` packets gathered × `valid_size = 8` |
+| `in_rows`   | 8     | `C::SIZE`  |
+| `out_rows`  | 16    | `D·E` (= `in_cols`, fully utilized) |
 
 ```text
                  in_cols                  in_rows # F
@@ -70,24 +70,30 @@ For the running example (`i8`, so `valid_size = 8`), the compiler derives:
 
 ### Unpack
 
-Each 32-byte input packet carries `valid_size` valid elements, and the Unpack stage discards the rest as padding.
-The packets from each time step combine into a row of width `in_cols` (a multiple of `valid_size`).
-Across `in_rows` time steps, these rows stack into the `[in_rows × in_cols]` input matrix.
+Each 32-byte input packet carries `valid_size` valid elements; the Unpack stage discards the rest of the flit as padding.
 
-In the running example: `[D, E # 32]` → `[D, E]`.
+In the running example: `[C, D, E # 32]` → `[C, D, E]`.
+
+### Gather
+
+One row of the input matrix is `in_cols = packets_per_col × valid_size` elements wide, assembled from `packets_per_col` consecutive packets — the innermost time steps.
+The Gather stage concatenates those packets into a single row, and `in_rows` further time steps stack into the `[in_rows × in_cols]` input matrix.
+(Unpack and Gather both happen as the engine reads its input — they are not separate buffered passes.)
+
+In the running example, the innermost `D = 2` packets each contribute `valid_size = 8`, forming `in_cols = 16`-wide rows, and the `C = 8` time steps above them stack into the `[8 × 16]` input matrix.
 
 ### Transpose
 
 The matrix is transposed: `[in_rows × in_cols]` → `[in_cols × in_rows]`.
 
-In the running example: `[D, E]` → `[E, D]`.
+In the running example: `[C, D, E]` → `[D, E, C]`.
 
 ### Trim
 
 When some input packets carry fewer valid elements than `valid_size`, the transposed matrix has padded rows.
 The Trim stage drops those rows, producing `[out_rows × in_rows]` where `out_rows ≤ in_cols`.
 
-In the running example: `[E, D]` → `[E, D]` (the input is fully utilized, so no rows are trimmed).
+In the running example: `[D, E, C]` → `[D, E, C]` (the input is fully utilized, so no rows are trimmed).
 See the [Small Matrix](#small-matrix) example for a case where Trim actually discards rows.
 
 ### Align
@@ -95,15 +101,15 @@ See the [Small Matrix](#small-matrix) example for a case where Trim actually dis
 The transposed rows are `in_rows` elements wide, but DM packets must be 32 bytes.
 The Align stage pads each row to a 32-byte flit, producing shape `[out_rows × (in_rows # F)]` where `F` is chosen so that `D[F]` is 32 bytes.
 
-In the running example: `[E, D]` → `[E, D # 32]`.
+In the running example: `[D, E, C]` → `[D, E, C # 32]`.
 
 ### Latency
 
 > [!NOTE]
 > Read [Performance](#performance) first for the formulas.
 
-For the running example, `in_cols = 8 ≤ 16` selects double buffering.
-With `in_flits = 8`, `out_rows = 8`, and `n = 8`, the total latency is `8 + 7 × max(8, 8) + 8 = 72` cycles.
+For the running example, `in_cols = 16 ≤ 16` selects double buffering.
+With `in_flits = 16`, `out_rows = 16`, and `n = 2`, the total latency is `16 + 1 × max(16, 16) + 16 = 48` cycles.
 
 ## Examples
 
@@ -134,6 +140,7 @@ Parameters:
 
 Stages:
 - **Unpack**: `[A, B # 32]` → `[A, B # 8]`.
+- **Gather**: `[A, B # 8]` → `[A, B # 8]` (`packets_per_col = 1`, so each packet is already a full `in_cols = 8` row).
 - **Transpose**: `[A, B # 8]` → `[B # 8, A]`.
 - **Trim**: `[B # 8, A]` → `[B, A]` (6 padded rows trimmed).
 - **Align**: `[B, A]` → `[B, A # 32]`.
@@ -168,6 +175,7 @@ Parameters:
 
 Stages:
 - **Unpack**: `[C, D, E # 32]` → `[C, D, E]`.
+- **Gather**: the innermost `D = 4` packets form each `in_cols = 32` row, and the `C = 8` time steps stack into the `[8 × 32]` input matrix.
 - **Transpose**: `[C, D, E]` → `[D, E, C]`.
 - **Trim**: `[D, E, C]` → `[D, E, C]` (no rows trimmed).
 - **Align**: `[D, E, C]` → `[D, E, C # 32]`.
@@ -202,6 +210,7 @@ Parameters:
 
 Stages:
 - **Unpack**: `[D, E # 16]` → `[D, E]`.
+- **Gather**: `[D, E]` → `[D, E]` (`packets_per_col = 1`; each packet is already a full `in_cols = 8` row).
 - **Transpose**: `[D, E]` → `[E, D]`.
 - **Trim**: `[E, D]` → `[E, D]` (no rows trimmed).
 - **Align**: `[E, D]` → `[E, D # 16]`.
@@ -236,6 +245,7 @@ Parameters:
 
 Stages:
 - **Unpack**: `[C, E # 64]` → `[C, E]`.
+- **Gather**: `[C, E]` → `[C, E]` (`packets_per_col = 1`; each packet is already a full `in_cols = 16` row).
 - **Transpose**: `[C, E]` → `[E, C]`.
 - **Trim**: `[E, C]` → `[E, C]` (no rows trimmed).
 - **Align**: `[E, C]` → `[E, C # 64]`.
@@ -271,6 +281,7 @@ Parameters:
 
 Stages:
 - **Unpack**: `[D, E # 8]` → `[D, E]`.
+- **Gather**: `[D, E]` → `[D, E]` (`packets_per_col = 1`; each packet is already a full `in_cols = 8` row).
 - **Transpose**: `[D, E]` → `[E, D]`.
 - **Trim**: `[E, D]` → `[E, D]` (no rows trimmed).
 - **Align**: `[E, D]` → `[E, D # 8]`.

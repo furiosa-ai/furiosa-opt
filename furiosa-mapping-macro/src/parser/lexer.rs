@@ -20,18 +20,30 @@ pub enum Token {
     Escaped(proc_macro2::TokenStream),
 
     // --- Operators & Punctuation ---
-    Slash,   // /
-    Percent, // %
-    Eq,      // =
-    Hash,    // #
-    Comma,   // ,
-    Colon,   // :
+    Slash,                  // /
+    Percent,                // %
+    Eq,                     // =
+    Hash,                   // # (shorthand for `#{*}`, top padding)
+    HashFill(HashFillKind), // #{*}, #{!}, or #{0}
+    Comma,                  // ,
+    Colon,                  // :
 
     // --- Delimiters ---
     LParen,   // (
     RParen,   // )
     LBracket, // [
     RBracket, // ]
+}
+
+/// Contents of a `#{...}` padding-kind annotation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HashFillKind {
+    /// `#{*}`: top padding (undefined slots). `#` is its shorthand.
+    Star,
+    /// `#{!}`: inaccessible (bottom) padding; reads are UB.
+    Bang,
+    /// `#{0}`: accessible padding masked to zero. Only `0` is accepted.
+    Zero,
 }
 
 impl fmt::Display for Token {
@@ -45,6 +57,9 @@ impl fmt::Display for Token {
             Token::Percent => write!(f, "`%`"),
             Token::Eq => write!(f, "`=`"),
             Token::Hash => write!(f, "`#`"),
+            Token::HashFill(HashFillKind::Star) => write!(f, "`#{{*}}`"),
+            Token::HashFill(HashFillKind::Bang) => write!(f, "`#{{!}}`"),
+            Token::HashFill(HashFillKind::Zero) => write!(f, "`#{{0}}`"),
             Token::Comma => write!(f, "`,`"),
             Token::Colon => write!(f, "`:`"),
             Token::LParen => write!(f, "`(`"),
@@ -59,9 +74,6 @@ impl fmt::Display for Token {
 pub enum LexicalError {
     InvalidToken(String),
     UnrecognizedToken(String),
-    /// Bare integer literal other than `1` used as a mapping atom. Only `1`
-    /// (the identity mapping) is allowed; other sizes must be axis-named.
-    InvalidIntegerLiteral(usize),
 }
 
 impl fmt::Display for LexicalError {
@@ -69,11 +81,6 @@ impl fmt::Display for LexicalError {
         match self {
             LexicalError::InvalidToken(s) => write!(f, "Invalid token: {}", s),
             LexicalError::UnrecognizedToken(s) => write!(f, "Unrecognized token: {}", s),
-            LexicalError::InvalidIntegerLiteral(n) => write!(
-                f,
-                "Bare integer literal `{n}` is not a valid mapping atom (only `1` is allowed); \
-                 declare a named axis with `axes![NAME = {n}]` and write `m![NAME]`"
-            ),
         }
     }
 }
@@ -165,7 +172,41 @@ impl Iterator for Lexer {
                 match ch {
                     '/' => Token::Slash,
                     '%' => Token::Percent,
-                    '#' => Token::Hash,
+                    '#' => {
+                        // Look ahead one tree to disambiguate `#` from `#{...}`. Inside the
+                        // braces we accept `*` (top), `!` (bottom), or a constant integer (fill).
+                        match self.next_tree() {
+                            Some(TokenTree::Group(group))
+                                if matches!(group.delimiter(), proc_macro2::Delimiter::Brace) =>
+                            {
+                                let inner: Vec<TokenTree> = group.stream().into_iter().collect();
+                                let kind = if let [TokenTree::Punct(p)] = inner.as_slice()
+                                    && p.as_char() == '*'
+                                {
+                                    HashFillKind::Star
+                                } else if let [TokenTree::Punct(p)] = inner.as_slice()
+                                    && p.as_char() == '!'
+                                {
+                                    HashFillKind::Bang
+                                } else if let [TokenTree::Literal(lit)] = inner.as_slice()
+                                    && lit.to_string() == "0"
+                                {
+                                    HashFillKind::Zero
+                                } else {
+                                    return Some(Err(LexicalError::InvalidToken(format!(
+                                        "expected `*`, `!`, or `0` in `#{{...}}`, got `{}`",
+                                        group.stream()
+                                    ))));
+                                };
+                                Token::HashFill(kind)
+                            }
+                            Some(next) => {
+                                self.pending.push_front(next);
+                                Token::Hash
+                            }
+                            None => Token::Hash,
+                        }
+                    }
                     ',' => Token::Comma,
                     ':' => {
                         if matches!(self.mode, LexerMode::Index) {

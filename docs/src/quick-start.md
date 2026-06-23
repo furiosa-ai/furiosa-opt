@@ -103,7 +103,7 @@ Addresses must not collide, but they can be non-contiguous.
 
 In type signatures, the const-generic `Tu` identifies which context a tensor flows through (`{ Tu::Main }` or `{ Tu::Sub }`).
 
-See [Scheduler](./scheduler.md) for `ctx.main`, `ctx.sub`, `launch()`, and how operations are scheduled and run in parallel across contexts.
+See [Scheduling](./scheduling.md) for `ctx.main`, `ctx.sub`, `launch()`, and how operations are scheduled and run in parallel across contexts.
 
 ## Kernel Examples
 
@@ -222,27 +222,6 @@ Host program ([`src/dot_product.rs`](https://github.com/furiosa-ai/furiosa-opt/b
 
 GEMV \\(IJ, J \rightarrow I\\) distributes the output dimension `I` across slices: each slice computes one row \\(y_i = \sum_j A_{ij} x_j\\).
 Unlike the dot product (where all slices reduce along the same axis and no redistribution is needed), here each slice needs the full vector to contract against its row, so data must be broadcast across slices before the contraction.
-
-The [Switch Engine](./computing-tensors/switch-engine.md) performs that broadcast: `SwitchConfig::Broadcast01` distributes the vector to all `I` slices between Fetch and Collect, as shown in the pseudocode below.
-Once the vector is broadcast, the contraction over `J` proceeds in tiles: `Time` indexes the tile iterations and `Packet` indexes elements within each tile.
-
-```rust
-# #![feature(adt_const_params)]
-# extern crate furiosa_opt_std;
-# use furiosa_opt_std::prelude::*;
-axes![I = 256, J = 2048];
-
-// GEMV: broadcast the vector across all I slices.
-fn switch_gemv<'l, const T: Tu>(
-    input: FetchTensor<'l, T, bf16, m![1], m![1], m![1 # 256], m![1], m![J]>,
-) -> SwitchTensor<'l, T, bf16, m![1], m![1], m![I], m![1 # 256], m![J]> {
-    input.switch(SwitchConfig::Broadcast01 {
-        slice1: 256,
-        slice0: 1,
-        time0: 1,
-    })
-}
-```
 
 Kernel ([`src/kernel/gemv_kernel.rs`](https://github.com/furiosa-ai/furiosa-opt/blob/main/base-template/src/kernel/gemv_kernel.rs)):
 

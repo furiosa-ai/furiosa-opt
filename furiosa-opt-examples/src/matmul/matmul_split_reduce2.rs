@@ -28,13 +28,14 @@ pub fn matmul_with_split_reduce2(
         let t96: DmTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, K % 128 / 16], m![M % 8, K % 128 % 16]> = ctx
             .main
             .begin(t95.view())
-            .fetch::<bf16, m![K % 128 / 16], m![K % 128 % 16]>()
+            .fetch::<m![K % 128 / 16], m![K % 128 % 16]>()
             .switch::<m![1 # 4, M / 8, K % 128 / 16], m![M % 8]>(SwitchConfig::InterTranspose {
                 slice1: 8,
                 slice0: 1,
                 time0: 1,
             })
             .collect::<m![M % 8], m![K % 128 % 16]>()
+            .commit_trim::<m![K % 128 % 16]>()
             .commit(0x0000_0200);
         let t72: DmTensor<bf16, Chip, Cluster, m![1 # 4, K % 128 / 2], m![K % 128 % 2, N]> = b
             .view()
@@ -50,7 +51,7 @@ pub fn matmul_with_split_reduce2(
         let t94: TrfTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, K % 128 / 16], m![M % 8], m![K % 128 % 16]> = ctx
             .sub
             .begin(t89.view())
-            .fetch::<bf16, m![M % 8], m![K % 128 % 16]>()
+            .fetch::<m![M % 8], m![K % 128 % 16]>()
             .collect::<m![M % 8], m![K % 128 % 16]>()
             .to_trf(TrfAddress::FirstHalf);
         let t88: DmTensor<
@@ -63,7 +64,7 @@ pub fn matmul_with_split_reduce2(
         let t90: DmTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, M % 8], m![N / 32, N % 32]> = ctx
             .main
             .begin(t88.view())
-            .fetch::<bf16, m![N / 32, K % 128 % 2], m![N % 32]>()
+            .fetch::<m![N / 32, K % 128 % 2], m![N % 32]>()
             .switch::<m![1 # 4, M / 8, K % 128 / 16], m![N / 32, K % 128 % 2, K % 128 / 2 % 8]>(
                 SwitchConfig::TransposedBroadcast1 { slice1: 8, slice0: 8 },
             )
@@ -76,6 +77,7 @@ pub fn matmul_with_split_reduce2(
             .vector_inter_slice_reduce::<m![1 # 4, M / 8, M % 8], m![N / 32, N % 32 / 8]>(InterSliceReduceOpF32::Add)
             .vector_final()
             .cast::<bf16, m![N % 32 % 8 # 16]>()
+            .commit_trim::<m![N % 32 % 8]>()
             .commit(0x0000_0100);
 
         let t108: DmTensor<bf16, Chip, Cluster, m![1 # 4, M], m![K % 128]> = a
@@ -101,13 +103,14 @@ pub fn matmul_with_split_reduce2(
         let t117: DmTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, K % 128 / 16], m![M % 8, K % 128 % 16]> = ctx
             .main
             .begin(t116.view())
-            .fetch::<bf16, m![K % 128 / 16], m![K % 128 % 16]>()
+            .fetch::<m![K % 128 / 16], m![K % 128 % 16]>()
             .switch::<m![1 # 4, M / 8, K % 128 / 16], m![M % 8]>(SwitchConfig::InterTranspose {
                 slice1: 8,
                 slice0: 1,
                 time0: 1,
             })
             .collect::<m![M % 8], m![K % 128 % 16]>()
+            .commit_trim::<m![K % 128 % 16]>()
             .commit(0x0000_0300);
         let t110: DmTensor<
             bf16,
@@ -120,26 +123,28 @@ pub fn matmul_with_split_reduce2(
         let t81: DmTensor<bf16, Chip, Cluster, m![1 # 4, M], m![N]> = ctx
             .main
             .begin_interleaved::<I, _, _, _, _, _>(acc.view(), t80.view())
-            .fetch::<f32, m![I, N / 8], m![N % 8]>()
+            .fetch::<m![I, N / 8], m![N % 8]>()
+            .fetch_cast::<f32>()
             .collect::<m![I, N / 8], m![N % 8]>()
             .vector_init()
             .vector_intra_slice_unzip::<I, m![1 # 2, N / 8], m![N / 8]>()
             .vector_clip_zip(ClipBinaryOpF32::Add)
             .vector_final()
             .cast::<bf16, m![N % 8 # 16]>()
+            .commit_trim::<m![N % 8]>()
             .commit(0x0000_0200);
 
         let t115: TrfTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, K % 128 / 16], m![M % 8], m![K % 128 % 16]> = ctx
             .sub
             .begin(t110.view())
-            .fetch::<bf16, m![M % 8], m![K % 128 % 16]>()
+            .fetch::<m![M % 8], m![K % 128 % 16]>()
             .collect::<m![M % 8], m![K % 128 % 16]>()
             .to_trf(TrfAddress::SecondHalf);
 
         let t111: DmTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, M % 8], m![N / 32, N % 32]> = ctx
             .main
             .begin(t109.view())
-            .fetch::<bf16, m![N / 32, K % 128 % 2], m![N % 32]>()
+            .fetch::<m![N / 32, K % 128 % 2], m![N % 32]>()
             .switch::<m![1 # 4, M / 8, K % 128 / 16], m![N / 32, K % 128 % 2, K % 128 / 2 % 8]>(
                 SwitchConfig::TransposedBroadcast1 { slice1: 8, slice0: 8 },
             )
@@ -152,19 +157,22 @@ pub fn matmul_with_split_reduce2(
             .vector_inter_slice_reduce::<m![1 # 4, M / 8, M % 8], m![N / 32, N % 32 / 8]>(InterSliceReduceOpF32::Add)
             .vector_final()
             .cast::<bf16, m![N % 32 % 8 # 16]>()
+            .commit_trim::<m![N % 32 % 8]>()
             .commit(0x0000_0100);
         let t105: DmTensor<bf16, Chip, Cluster, m![1 # 4, M], m![N]> = unsafe { t111.reshape() };
 
         acc = ctx
             .main
             .begin_interleaved::<I, _, _, _, _, _>(t81.view(), t105.view())
-            .fetch::<f32, m![I, N / 8], m![N % 8]>()
+            .fetch::<m![I, N / 8], m![N % 8]>()
+            .fetch_cast::<f32>()
             .collect::<m![I, N / 8], m![N % 8]>()
             .vector_init()
             .vector_intra_slice_unzip::<I, m![1 # 2, N / 8], m![N / 8]>()
             .vector_clip_zip(ClipBinaryOpF32::Add)
             .vector_final()
             .cast::<bf16, m![N % 8 # 16]>()
+            .commit_trim::<m![N % 8]>()
             .commit(0x0000_0000);
     }
 

@@ -35,20 +35,21 @@ pub(crate) fn v_proj(
     let weight_it: DmTensor<bf16, Chip, Cluster, m![V / 8, H / 224, H / 56 % 4], m![V % 8, H % 56 # 64]> = ctx
         .main
         .begin(weight_dm.view())
-        .fetch::<bf16, m![V % 2, H / 56 % 4], m![H % 56]>()
+        .fetch::<m![V % 2, H / 56 % 4], m![H % 56]>()
         .switch::<m![V / 8, H / 224, H / 56 % 4], m![V / 2 % 4, V % 2]>(SwitchConfig::InterTranspose {
             slice1: 4,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![V / 2 % 4, V % 2], m![H % 56 # 64]>()
+        .commit_trim::<m![H % 56 # 64]>()
         .commit(0x800);
 
     // Load reordered V weight into TRF for the DPE matmul.
     let weight_trf: TrfTensor<bf16, Chip, Cluster, m![Y, S / 32, H / 56], m![V % 8], m![V / 8 % 4, H % 56 # 64]> = ctx
         .sub
         .begin(weight_it.view())
-        .fetch::<bf16, m![V % 8], m![H % 56]>()
+        .fetch::<m![V % 8], m![H % 56]>()
         .switch::<m![Y, S / 32, H / 56], m![V % 8]>(SwitchConfig::Broadcast1 { slice1: 4, slice0: 16 })
         .collect::<m![V % 8], m![V / 8 % 4, H % 56 # 64]>()
         .to_trf(TrfAddress::FirstHalf);
@@ -61,7 +62,7 @@ pub(crate) fn v_proj(
     let v_bias_vrf: VrfTensor<f32, Chip, Cluster, m![1 # 2, 1 # 2, S / 32, S / 4 % 8, S / 2 % 2], m![V % 32]> = ctx
         .sub
         .begin(v_bias_dm.view())
-        .fetch::<f32, m![1], m![V % 32]>()
+        .fetch::<m![1], m![V % 32]>()
         .collect::<m![1], m![V % 32]>()
         .to_vrf(0x0);
 
@@ -69,7 +70,7 @@ pub(crate) fn v_proj(
     let result: DmTensor<bf16, Chip, Cluster, m![1 # 2, 1 # 2, S / 32, S / 4 % 8, S / 2 % 2], m![S % 2, V % 32]> = ctx
         .main
         .begin(input.view())
-        .fetch::<bf16, m![S / 4 % 8, S / 2 % 2, S % 2], m![H / 8 % 7, H % 8]>()
+        .fetch::<m![S / 4 % 8, S / 2 % 2, S % 2], m![H / 8 % 7, H % 8]>()
         .collect::<m![S / 4 % 8, S / 2 % 2, S % 2], m![H / 8 % 7, H % 8]>()
         .contract_outer::<m![S / 4 % 8, S / 2 % 2, S % 2], m![H / 8 % 7, H % 8], _, _>(&weight_trf)
         .contract_packet::<m![1]>()
@@ -83,14 +84,16 @@ pub(crate) fn v_proj(
         )
         .vector_final()
         .cast::<bf16, m![V % 8 # 16]>()
+        .commit_trim::<m![V % 8]>()
         .commit(0x600);
 
     let v_reassembled: DmTensor<bf16, Chip, Cluster, m![S / 2, Y], m![S % 2, V]> = ctx
         .main
         .begin(result.view())
-        .fetch::<bf16, m![S % 2], m![V % 32]>()
+        .fetch::<m![S % 2], m![V % 32]>()
         .switch::<m![S / 2, Y], m![S % 2]>(SwitchConfig::CustomBroadcast { ring_size: 256 })
         .collect::<m![S % 2], m![V % 32]>()
+        .commit_trim::<m![V % 32]>()
         .commit(0x800);
 
     v_reassembled.view().to_hbm_view(&mut ctx.tdma, out.view_mut());
@@ -113,28 +116,31 @@ pub(crate) fn q_proj(
     let q_bias_te: DmTensor<bf16, Chip, Cluster, m![Q / 32 % 2, Q / 4 % 8, 1 # 16], m![Q % 4, Q / 64 # 16]> = ctx
         .main
         .begin(q_bias_dm.view())
-        .fetch::<bf16, m![Q / 64], m![Q % 4]>()
+        .fetch::<m![Q / 64], m![Q % 4]>()
         .collect::<m![Q / 64], m![Q % 4]>()
+        .commit_trim::<m![Q % 4]>()
         .commit(0x500);
 
     let q_bias_it: DmTensor<bf16, Chip, Cluster, m![Q / 32 % 2, Q / 4 % 8, Q % 4, 1 # 4], m![1 # 4, Q / 64 # 16]> = ctx
         .main
         .begin(q_bias_te.view())
-        .fetch::<bf16, m![Q % 4], m![Q / 64 # 16]>()
+        .fetch::<m![Q % 4], m![Q / 64 # 16]>()
         .switch::<m![Q / 32 % 2, Q / 4 % 8, Q % 4, 1 # 4], m![1 # 4]>(SwitchConfig::InterTranspose {
             slice1: 4,
             slice0: 4,
             time0: 1,
         })
         .collect::<m![1 # 4], m![Q / 64 # 16]>()
+        .commit_trim::<m![Q / 64 # 16]>()
         .commit(0x600);
 
     let q_bias_reassembled: DmTensor<bf16, Chip, Cluster, m![Q / 32 % 2, Q / 4 % 8, Q % 4, Y], m![Q / 64 # 16]> = ctx
         .main
         .begin(q_bias_it.view())
-        .fetch::<bf16, m![1], m![Q / 64 # 16]>()
+        .fetch::<m![1], m![Q / 64 # 16]>()
         .switch::<m![Q / 32 % 2, Q / 4 % 8, Q % 4, Y], m![1]>(SwitchConfig::CustomBroadcast { ring_size: 4 })
         .collect::<m![1], m![Q / 64 # 16]>()
+        .commit_trim::<m![Q / 64 # 16]>()
         .commit(0x500);
 
     // Reshape bias Slice to match the Q matmul pipeline's Slice.
@@ -144,7 +150,8 @@ pub(crate) fn q_proj(
     let q_bias_vrf: VrfTensor<f32, Chip, Cluster, m![Q % 2, Q / 2 % 2, Y, H / 56], m![Q / 64 # 16]> = ctx
         .sub
         .begin(q_bias_reassembled.view())
-        .fetch::<f32, m![1], m![Q / 64 # 16]>()
+        .fetch::<m![1], m![Q / 64 # 16]>()
+        .fetch_cast::<f32>()
         .collect::<m![1], m![Q / 64 # 16]>()
         .to_vrf(0x0);
 
@@ -152,8 +159,9 @@ pub(crate) fn q_proj(
     let input_padded: DmTensor<bf16, Chip, Cluster, m![Y, S / 32, H / 56], m![S % 32, H % 56 # 64]> = ctx
         .main
         .begin(input.view())
-        .fetch::<bf16, m![S % 32], m![H % 56]>()
+        .fetch::<m![S % 32], m![H % 56]>()
         .collect::<m![S % 32], m![H % 56 # 64]>()
+        .commit_trim::<m![H % 56 # 64]>()
         .commit(0x2100);
 
     // Stage padded activations in TRF for Q projection.
@@ -167,7 +175,7 @@ pub(crate) fn q_proj(
     > = ctx
         .sub
         .begin(input_padded.view())
-        .fetch::<bf16, m![S % 8], m![H % 56]>()
+        .fetch::<m![S % 8], m![H % 56]>()
         .switch::<m![Q % 2, Q / 2 % 2, Y, H / 56], m![S % 8]>(SwitchConfig::Broadcast1 { slice1: 4, slice0: 16 })
         .collect::<m![S % 8], m![H / 8 % 7, S / 8 % 4, S % 8 # 32]>()
         .to_trf(TrfAddress::SecondHalf);
@@ -190,7 +198,7 @@ pub(crate) fn q_proj(
     > = ctx
         .main
         .begin(weight_dm.view())
-        .fetch::<bf16, m![Q % 2, Q / 448, Q / 2 % 2, H / 56 % 4], m![H % 56]>()
+        .fetch::<m![Q % 2, Q / 448, Q / 2 % 2, H / 56 % 4], m![H % 56]>()
         .switch::<m![Q / 4 % 16, H / 224, H / 112 % 2, H / 56 % 2], m![Q / 64, Q % 2, Q / 448, Q / 2 % 2]>(
             SwitchConfig::InterTranspose {
                 slice1: 4,
@@ -199,6 +207,7 @@ pub(crate) fn q_proj(
             },
         )
         .collect::<m![Q / 64, Q % 2, Q / 448, Q / 2 % 2], m![H % 56 # 64]>()
+        .commit_trim::<m![H % 56 # 64]>()
         .commit(0x4a00);
 
     // Strip packet padding before DPE alignment.
@@ -211,8 +220,9 @@ pub(crate) fn q_proj(
     > = ctx
         .main
         .begin(weight_it.view())
-        .fetch::<bf16, m![Q / 448, Q / 64, Q / 2 % 2, Q % 2], m![H % 56]>()
+        .fetch::<m![Q / 448, Q / 64, Q / 2 % 2, Q % 2], m![H % 56]>()
         .collect::<m![Q / 448, Q / 64, Q / 2 % 2, Q % 2], m![H % 56]>()
+        .commit_trim::<m![H % 56]>()
         .commit(0x3100);
 
     // Reshape weight Slice to match TRF Slice for alignment.
@@ -228,7 +238,7 @@ pub(crate) fn q_proj(
     let result: DmTensor<bf16, Chip, Cluster, m![Q % 2, Q / 2 % 32, S / 32], m![Q / 64, S % 32]> = ctx
         .main
         .begin(weight_stripped.view())
-        .fetch::<bf16, m![Q / 64, Q / 448, Q / 2 % 2, Q % 2], m![H / 8 % 7, H % 8]>()
+        .fetch::<m![Q / 64, Q / 448, Q / 2 % 2, Q % 2], m![H / 8 % 7, H % 8]>()
         .collect::<m![Q / 64, Q / 448, Q / 2 % 2, Q % 2], m![H / 8 % 7, H % 8]>()
         .contract_outer::<m![Q / 64, Q / 448, Q / 2 % 2, Q % 2], m![H / 8 % 7, H % 8], _, _>(&input_trf)
         .contract_packet::<m![1]>()
@@ -240,18 +250,20 @@ pub(crate) fn q_proj(
         .vector_inter_slice_reduce::<m![Q % 2, Q / 2 % 32, S / 32], m![Q / 64, S % 32]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![S % 32]>()
+        .commit_trim::<m![S % 32]>()
         .commit(0x0A00);
 
     let result_d0b: DmTensor<bf16, Chip, Cluster, m![Q % 2, Q / 2 % 32, 1 # 4], m![Q / 64, S]> = ctx
         .main
         .begin(result.view())
-        .fetch::<bf16, m![Q / 64], m![S % 32]>()
+        .fetch::<m![Q / 64], m![S % 32]>()
         .switch::<m![Q % 2, Q / 2 % 32, 1 # 4], m![Q / 64]>(SwitchConfig::Broadcast01 {
             slice1: 4,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![Q / 64], m![S % 32]>()
+        .commit_trim::<m![S % 32]>()
         .commit(0x2100);
 
     result_d0b.to_hbm(&mut ctx.tdma, 0x10e36000)
@@ -271,7 +283,7 @@ pub(crate) fn k_proj(
     let k_bias_vrf: VrfTensor<f32, Chip, Cluster, m![1 # 2, 1 # 2, S / 32, S / 4 % 8, S / 2 % 2], m![K % 32]> = ctx
         .sub
         .begin(k_bias_dm.view())
-        .fetch::<f32, m![1], m![K % 32]>()
+        .fetch::<m![1], m![K % 32]>()
         .collect::<m![1], m![K % 32]>()
         .to_vrf(0x0);
 
@@ -282,20 +294,21 @@ pub(crate) fn k_proj(
     let weight_it: DmTensor<bf16, Chip, Cluster, m![K / 8, H / 224, H / 56 % 4], m![K % 8, H % 56 # 64]> = ctx
         .main
         .begin(weight_dm.view())
-        .fetch::<bf16, m![K % 2, H / 56 % 4], m![H % 56]>()
+        .fetch::<m![K % 2, H / 56 % 4], m![H % 56]>()
         .switch::<m![K / 8, H / 224, H / 56 % 4], m![K / 2 % 4, K % 2]>(SwitchConfig::InterTranspose {
             slice1: 4,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![K / 2 % 4, K % 2], m![H % 56 # 64]>()
+        .commit_trim::<m![H % 56 # 64]>()
         .commit(0x0E00);
 
     // Load reordered K weight into TRF for the DPE matmul.
     let weight_trf: TrfTensor<bf16, Chip, Cluster, m![Y, S / 32, H / 56], m![K % 8], m![K / 8 % 4, H % 56 # 64]> = ctx
         .sub
         .begin(weight_it.view())
-        .fetch::<bf16, m![K % 8], m![H % 56]>()
+        .fetch::<m![K % 8], m![H % 56]>()
         .switch::<m![Y, S / 32, H / 56], m![K % 8]>(SwitchConfig::Broadcast1 { slice1: 4, slice0: 16 })
         .collect::<m![K % 8], m![K / 8 % 4, H % 56 # 64]>()
         .to_trf(TrfAddress::FirstHalf);
@@ -304,7 +317,7 @@ pub(crate) fn k_proj(
     let result: DmTensor<bf16, Chip, Cluster, m![1 # 2, 1 # 2, S / 32, S / 4 % 8, S / 2 % 2], m![S % 2, K % 32]> = ctx
         .main
         .begin(input.view())
-        .fetch::<bf16, m![S / 4 % 8, S / 2 % 2, S % 2], m![H / 8 % 7, H % 8]>()
+        .fetch::<m![S / 4 % 8, S / 2 % 2, S % 2], m![H / 8 % 7, H % 8]>()
         .collect::<m![S / 4 % 8, S / 2 % 2, S % 2], m![H / 8 % 7, H % 8]>()
         .contract_outer::<m![S / 4 % 8, S / 2 % 2, S % 2], m![H / 8 % 7, H % 8], _, _>(&weight_trf)
         .contract_packet::<m![1]>()
@@ -318,15 +331,17 @@ pub(crate) fn k_proj(
         )
         .vector_final()
         .cast::<bf16, m![K % 8 # 16]>()
+        .commit_trim::<m![K % 8]>()
         .commit(0x0);
 
     // Reorder K output slices into the final `[S, K]` layout.
     let k_xpose: DmTensor<bf16, Chip, Cluster, m![S / 2, Y], m![S % 2, K % 32]> = ctx
         .main
         .begin(result.view())
-        .fetch::<bf16, m![S % 2], m![K % 32]>()
+        .fetch::<m![S % 2], m![K % 32]>()
         .switch::<m![S / 2, Y], m![S % 2]>(SwitchConfig::Transpose { slice1: 4, slice0: 64 })
         .collect::<m![S % 2], m![K % 32]>()
+        .commit_trim::<m![K % 32]>()
         .commit(0x100);
 
     // DMA K result → DRAM (for RoPE)

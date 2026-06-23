@@ -6,6 +6,7 @@ use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 
 use furiosa_mapping::*;
+use furiosa_opt_lower::{RelaxedDivision, config_divide_relaxed};
 use furiosa_opt_macro::primitive;
 
 use crate::context::*;
@@ -40,23 +41,19 @@ const DMA_SRAM_WRITE_WIDTH: usize = 8;
 /// writes into DRAM (DM→HBM, HBM→HBM).
 pub(crate) fn assert_dma_layout<D: Scalar, Src: M, Dst: M>(min_align: usize) {
     assert!(min_align > 0, "min_align must be positive");
-    let src = Src::to_value().factorize();
-    let dst = Dst::to_value().factorize();
-    let extents = src
-        .clone()
-        .divide(dst.clone())
-        .extents()
-        .unwrap_or_else(|_| panic!("DMA layout check could not build extents for src={src:?} dst={dst:?}"));
+    let src = Src::to_value();
+    let dst = Dst::to_value();
+    let division = config_divide_relaxed(&src, &dst);
 
     // `check_dma_tail` returned, so `D::size_in_bytes_from_length(packet_end)`
     // is a multiple of `min_align`. `check_dma_address_stride` consumes that
     // invariant below.
-    let packet_end = check_dma_tail::<D>(&extents, &src, &dst, min_align);
-    check_dma_address_stride::<D>(&extents, &src, &dst, min_align, packet_end);
+    let packet_end = check_dma_tail::<D>(&division, &src, &dst, min_align);
+    check_dma_address_stride::<D>(&division, &src, &dst, min_align, packet_end);
 }
 
-fn check_dma_tail<D: Scalar>(extents: &Extents, src: &FMapping, dst: &FMapping, min_align: usize) -> usize {
-    let reachable_end = extents.contiguous_tail();
+fn check_dma_tail<D: Scalar>(division: &RelaxedDivision, src: &Mapping, dst: &Mapping, min_align: usize) -> usize {
+    let reachable_end = division.contiguous_tail;
     let reachable_end_bytes = D::size_in_bytes_from_length(reachable_end);
 
     assert!(
@@ -73,14 +70,14 @@ fn check_dma_tail<D: Scalar>(extents: &Extents, src: &FMapping, dst: &FMapping, 
 }
 
 fn check_dma_address_stride<D: Scalar>(
-    extents: &Extents,
-    src: &FMapping,
-    dst: &FMapping,
+    division: &RelaxedDivision,
+    src: &Mapping,
+    dst: &Mapping,
     min_align: usize,
     packet_end: usize,
 ) {
-    for bound in extents.matched.iter().filter(|b| b.term.divisor_stride >= packet_end) {
-        let dst_stride = bound.term.divisor_stride;
+    for bound in division.matched.iter().filter(|b| b.divisor_stride >= packet_end) {
+        let dst_stride = bound.divisor_stride;
         let dst_bytes = D::size_in_bytes_from_length(dst_stride);
         assert!(
             dst_bytes.is_multiple_of(min_align),
@@ -90,7 +87,7 @@ fn check_dma_address_stride<D: Scalar>(
              reachable packet end (elements) = {packet_end}\n  \
              src mapping = {src:?}\n  \
              dst mapping = {dst:?}",
-            term = bound.term.term,
+            term = bound,
         );
     }
 }
@@ -327,25 +324,13 @@ impl<D: Scalar, Chip: M, Element: M, B: Backend> HbmTensor<D, Chip, Element, B> 
     }
 }
 
-/// `Opt`-aware extra accessors. Gated on `B::RawTensor<D>: RawTensorOpt<D>` so only backends
-/// whose storage represents `Opt<D>` (Simulation, Typecheck) surface them.
-impl<D: Scalar, Chip: M, Element: M, B: Backend> HbmTensor<D, Chip, Element, B>
-where
-    B::RawTensor<D>: crate::tensor::raw::RawTensorOpt<D>,
-{
-    /// Like [`HbmTensor::to_buf`], but replaces `Opt::Uninit` slots with `D::zero()`.
-    /// Use this for output tensors (allocated via `from_addr`) where the
-    /// contents are uninitialized but a zero-filled buffer of the right size
-    /// is needed.
+impl<D: Scalar, Chip: M, Element: M, B: Backend> HbmTensor<D, Chip, Element, B> {
+    /// Like [`HbmTensor::to_buf`], but yields `D::zero()` for padding/uninit slots instead of
+    /// panicking (see [`RawTensor::to_buf_or_default`]). Available on all backends. Use this for
+    /// output tensors (allocated via `from_addr`) where the contents are uninitialized but a
+    /// zero-filled buffer of the right size is needed.
     pub fn to_buf_or_default(&self) -> Vec<D> {
-        self.inner
-            .to_buf_opt()
-            .into_iter()
-            .map(|x| match x {
-                Opt::Init(v) => v,
-                Opt::Uninit => D::zero(),
-            })
-            .collect()
+        self.inner.to_buf_or_default()
     }
 }
 
@@ -544,23 +529,11 @@ impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorView<'l, D, Chip, 
     }
 }
 
-/// `Opt`-aware accessor for views, see [`HbmTensor::to_buf_or_default`].
-impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorView<'l, D, Chip, Element, B>
-where
-    B::RawTensor<D>: crate::tensor::raw::RawTensorOpt<D>,
-{
-    /// Like [`HbmTensorView::to_buf`], but replaces `Opt::Uninit` slots with `D::zero()`.
+impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorView<'l, D, Chip, Element, B> {
+    /// Like [`HbmTensorView::to_buf`], but yields `D::zero()` for padding/uninit slots instead of
+    /// panicking (see [`HbmTensor::to_buf_or_default`]). Available on all backends.
     pub fn to_buf_or_default(&self) -> Vec<D> {
-        self.inner
-            .clone()
-            .read()
-            .to_buf_opt()
-            .into_iter()
-            .map(|x| match x {
-                Opt::Init(v) => v,
-                Opt::Uninit => D::zero(),
-            })
-            .collect()
+        self.inner.clone().read().to_buf_or_default()
     }
 }
 
@@ -630,7 +603,7 @@ impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorViewMut<'l, D, Chi
 
     /// Creates mutable views by splitting along a tile expression over Chip.
     pub fn chip_tile<Index: M, const LEN: usize, Chip2: M>(
-        &mut self,
+        self,
         start: usize,
     ) -> HbmTensorViewMut<'l, D, Chip2, Element, B> {
         let inner = self.inner.tile::<Index, _, LEN>(start);
@@ -643,7 +616,7 @@ impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorViewMut<'l, D, Chi
     /// Creates mutable views by splitting along a tile expression.
     #[primitive(HbmTensorViewMut::tile)]
     pub fn tile<Index: M, const LEN: usize, Element2: M>(
-        &mut self,
+        self,
         start: usize,
     ) -> HbmTensorViewMut<'l, D, Chip, Element2, B> {
         let inner = self.inner.tile::<Index, _, LEN>(start);
@@ -733,13 +706,14 @@ impl<D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend> DmTensor<
         output: &mut HbmTensor<D, Chip, Element2, B>,
         scaled: bool,
     ) {
-        let src = Pair::<Slice, Element>::to_value().factorize();
-        let key = Key::to_value().factorize();
+        let src = Pair::<Slice, Element>::to_value();
+        let key = Key::to_value();
+        // The key must be fully contained in the source: carving it out of `src` with the matcher
+        // must consume every key cell (the matcher dual of `divide(..).exact_checked()`).
         assert!(
-            src.clone().divide(key).exact_checked().is_ok(),
-            "scatter key `{:?}` must be fully contained in source `{src:?}`. \
+            sequence(&[&key], &[&src], SequencerMode::Read).is_ok(),
+            "scatter key `{key}` must be fully contained in source `{src}`. \
              If the key axis is split across Chip and Element, indirect DMA cannot address it.",
-            Key::to_value().factorize()
         );
 
         self.inner
@@ -964,7 +938,7 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
 {
     /// Creates mutable views by splitting along a tile expression over Chip.
     pub fn chip_tile<Index: M, const LEN: usize, Chip2: M>(
-        &mut self,
+        self,
         start: usize,
     ) -> DmTensorViewMut<'l, D, Chip2, Cluster, Slice, Element, B> {
         let inner = self.inner.tile::<Index, _, LEN>(start);
@@ -973,7 +947,7 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
 
     /// Creates mutable views by splitting along a tile expression over Cluster.
     pub fn cluster_tile<Index: M, const LEN: usize, Cluster2: M>(
-        &mut self,
+        self,
         start: usize,
     ) -> DmTensorViewMut<'l, D, Chip, Cluster2, Slice, Element, B> {
         let inner = self.inner.tile::<Index, _, LEN>(start);
@@ -983,7 +957,7 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
     /// Creates mutable views by splitting along a tile expression over Element.
     #[primitive(DmTensorViewMut::tile)]
     pub fn tile<Index: M, const LEN: usize, Element2: M>(
-        &mut self,
+        self,
         start: usize,
     ) -> DmTensorViewMut<'l, D, Chip, Cluster, Slice, Element2, B> {
         let inner = self.inner.tile::<Index, _, LEN>(start);
@@ -1138,11 +1112,7 @@ mod tests {
     use crate::scalar::Scalar;
 
     fn reachable_end<Src: M, Dst: M>() -> usize {
-        Src::to_value()
-            .factorize()
-            .divide(Dst::to_value().factorize())
-            .contiguous_tail()
-            .unwrap()
+        config_divide_relaxed(&Src::to_value(), &Dst::to_value()).contiguous_tail
     }
 
     #[test]

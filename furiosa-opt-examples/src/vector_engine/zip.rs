@@ -12,12 +12,14 @@ pub fn ve_group_pair_add(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -35,13 +37,15 @@ pub fn ve_group_pair_preprocess_both(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_fxp(FxpBinaryOp::MulInt, 2, 3)
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -59,13 +63,15 @@ pub fn ve_group_pair_preprocess_g0(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_fxp(FxpBinaryOp::MulInt, 10, ())
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -83,13 +89,15 @@ pub fn ve_group_pair_preprocess_g1(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_fxp(FxpBinaryOp::MulInt, (), 10)
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -107,7 +115,8 @@ pub fn ve_group_pair_chain(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
@@ -115,6 +124,7 @@ pub fn ve_group_pair_chain(
         .vector_fxp(FxpBinaryOp::MulInt, 2, 3)
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -131,12 +141,14 @@ pub fn ve_group_pair_fxp(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_fxp_zip(FxpBinaryOp::MulInt)
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -154,12 +166,14 @@ pub fn ve_group_pair_logic(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_logic_zip(LogicBinaryOpI32::BitXor)
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -177,7 +191,8 @@ pub fn ve_group_pair_fp(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
@@ -186,6 +201,7 @@ pub fn ve_group_pair_fp(
         .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -207,7 +223,8 @@ pub fn ve_group_pair_fp_multi_packet(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![Q, A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![Q, I], m![A % 2]>()
+        .fetch::<m![Q, I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![Q, I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![Q, 1 # 2], m![Q]>()
@@ -216,6 +233,7 @@ pub fn ve_group_pair_fp_multi_packet(
         .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))
         .vector_widen_concat::<m![Q], m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -233,7 +251,8 @@ pub fn ve_group_pair_unary(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
@@ -243,6 +262,7 @@ pub fn ve_group_pair_unary(
         .vector_fp_zip(FpBinaryOp::AddF)
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -260,7 +280,8 @@ pub fn ve_group_pair_unary_selective(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<i32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
@@ -270,6 +291,7 @@ pub fn ve_group_pair_unary_selective(
         .vector_fp_zip(FpBinaryOp::AddF)
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -288,16 +310,18 @@ pub fn ve_elementwise_ternary(ctx: &mut Context, input: &HbmTensor<f32, Chip, m!
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<f32, m![1], m![A % 2]>()
+        .fetch::<m![1], m![A % 2]>()
+        .fetch_cast::<f32>()
         .collect::<m![1], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_clip::<m![A % 2 # 4]>()
+        .vector_narrow_trim::<m![A % 2 # 4]>()
         // Using tuple syntax: (operand0, operand1) where operand0 is f32 constant
         // FmaF: data * operand0 + operand1 = input * 2.0 + 3.0
         .vector_fp_ternary(FpTernaryOp::FmaF, (2.0f32, 3.0f32))
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -316,16 +340,18 @@ pub fn ve_elementwise_ternary_stash(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<f32, m![1], m![A % 2]>()
+        .fetch::<m![1], m![A % 2]>()
+        .fetch_cast::<f32>()
         .collect::<m![1], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         .vector_stash()
-        .vector_narrow_clip::<m![A % 2 # 4]>()
+        .vector_narrow_trim::<m![A % 2 # 4]>()
         // Using Stash as operand0: data * stash + 1.0 = input * input + 1.0
         .vector_fp_ternary(FpTernaryOp::FmaF, (Stash, 1.0f32))
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -347,7 +373,8 @@ pub fn ve_group_pair_ternary(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<f32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<f32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
@@ -357,6 +384,7 @@ pub fn ve_group_pair_ternary(
         .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)
@@ -378,7 +406,8 @@ pub fn ve_group_pair_ternary_selective(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
-        .fetch::<f32, m![I], m![A % 2]>()
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<f32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
@@ -388,6 +417,7 @@ pub fn ve_group_pair_ternary_selective(
         .vector_fp_zip(FpBinaryOp::DivF)
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x3000);
 
     result.to_hbm(&mut ctx.tdma, 0x4000)

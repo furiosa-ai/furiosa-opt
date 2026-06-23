@@ -120,8 +120,10 @@ impl_tuple_apply!(A, B, C, D, E, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V,
 ///
 /// - `HostTensor` - lives in host memory
 /// - `Vec<T>`, `String`, etc. - general collections
-/// - User-defined types - cannot impl without crate access
-pub(crate) trait DeviceSend {}
+///
+/// User-defined structs opt in via `#[derive(DeviceSend)]`, which requires every
+/// field to be `DeviceSend` (so a struct is `DeviceSend` iff all its fields are).
+pub trait DeviceSend {}
 
 impl DeviceSend for () {}
 impl DeviceSend for bool {}
@@ -174,10 +176,6 @@ impl<T> DeviceSend for std::marker::PhantomData<T> {}
 ///
 /// `cargo <subcommand>`: `execute()` runs the original function body on CPU. `cargo furiosa-opt <subcommand>`:
 /// `execute()` loads the compiled EDF and runs on NPU.
-#[expect(
-    private_bounds,
-    reason = "DeviceSend is intentionally sealed to prevent foreign impls"
-)]
 pub trait DeviceFn<Args: DeviceSend> {
     /// Return type of the device function.
     type Output: DeviceSend;
@@ -188,10 +186,6 @@ pub trait DeviceFn<Args: DeviceSend> {
 /// Launches a device function. Takes `F` by value so callers can pass the snake_case const emitted by
 /// `#[device]` (`launch(my_fn, args)`) rather than turbofishing the generated PascalCase unit struct
 /// (`<MyFn as DeviceFn<_>>::execute(args)`). The value is discarded; only its type drives trait dispatch.
-#[expect(
-    private_bounds,
-    reason = "DeviceSend is intentionally sealed to prevent foreign impls"
-)]
 pub async fn launch<F, P>(_f: F, args: P) -> F::Output
 where
     F: DeviceFn<P>,

@@ -47,9 +47,9 @@ At depth 0, the tree leaves hold the input Packet's elements, and each subsequen
 The maximum tree depth is `log2(Packet::SIZE)`, so 7 for `i4` (`Packet::SIZE = 128`), 6 for `i8` / `f8` (64), 5 for `bf16` (32).
 Given the user's `OutPacket`, the compiler derives the tree depth `d`, and the tree consumes the innermost `2^d` elements to produce `ReducePacket`.
 
-The Packet Reducer then clips `ReducePacket` to `OutPacket`, whose size is capped at 32 elements because the downstream Time Reducer's per-lane accumulator only has 32 columns.
-When `ReducePacket::SIZE > 32`, the outer dummy is sliced and only the innermost 32 elements survive.
-For example, `i4` arrives as a 128-element Packet, so `d ∈ {0, 1}` produce a 128- or 64-element `ReducePacket`, both clipped to `OutPacket::SIZE = 32`.
+The Packet Reducer then trims `ReducePacket` to `OutPacket`, whose size is capped at 32 elements because the downstream Time Reducer's per-lane accumulator only has 32 columns.
+When `ReducePacket::SIZE > 32`, the outer dummy is trimmed and only the innermost 32 elements survive.
+For example, `i4` arrives as a 128-element Packet, so `d ∈ {0, 1}` produce a 128- or 64-element `ReducePacket`, both trimmed to `OutPacket::SIZE = 32`.
 
 
 

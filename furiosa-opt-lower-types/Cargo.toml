@@ -1,0 +1,13 @@
+[package]
+name = "furiosa-opt-lower-types"
+version = "0.3.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/furiosa-ai/furiosa-opt"
+description = "Shared StableAbi types for the furiosa-opt lowering engines, crossing the verifier FFI boundary."
+
+[dependencies]
+abi_stable = { workspace = true }
+furiosa-mapping-types = { path = "../furiosa-mapping-types", version = "0.3" }
+furiosa-opt-macro = { path = "../furiosa-opt-macro", version = "0.3" }
+thiserror = { workspace = true }

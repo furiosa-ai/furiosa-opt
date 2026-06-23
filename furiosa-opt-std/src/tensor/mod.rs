@@ -126,6 +126,12 @@ impl<D: Scalar, Mapping: M, B: Backend> Tensor<D, Mapping, B> {
     pub fn to_buf(&self) -> Vec<D> {
         self.inner.to_buf::<Mapping>()
     }
+
+    /// Like [`Self::to_buf`], but yields `D::zero()` for padding/uninit slots instead of panicking
+    /// (see [`RawTensor::to_buf_or_default`]). Available on all backends.
+    pub fn to_buf_or_default(&self) -> Vec<D> {
+        self.inner.to_buf_or_default::<Mapping>()
+    }
 }
 
 impl<D: Scalar, Mapping: M, B: Backend> Tensor<D, Mapping, B> {

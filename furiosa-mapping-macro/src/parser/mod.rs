@@ -9,14 +9,26 @@ lalrpop_mod!(parser, "/parser/parser.rs");
 pub use lexer::{Lexer, LexerMode};
 pub use parser::{IndexParser, MappingParser};
 
+/// Map a parser-level `PaddingKind` to the `Ident` of its
+/// `furiosa_mapping_types::PaddingKind` variant.
+fn padding_kind_ident(kind: PaddingKind) -> proc_macro2::Ident {
+    let name = match kind {
+        PaddingKind::Top => "Top",
+        PaddingKind::Zero => "Zero",
+        PaddingKind::Bottom => "Bottom",
+    };
+    proc_macro2::Ident::new(name, proc_macro2::Span::call_site())
+}
+
 /// Parser-level representation of furiosa_mapping_types::PaddingKind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PaddingKind {
-    /// Accessible padding.
+    /// Accessible padding holding arbitrary values.
     Top,
-    /// Inaccessible padding.
-    #[expect(dead_code)]
+    /// Inaccessible padding. Emitted from the `m![A #{!} N]` syntax.
     Bottom,
+    /// Accessible padding masked to a known zero. Emitted from `m![A #{0} N]`.
+    Zero,
 }
 
 /// Representation of an index assignment (e.g., `A / 32 = 8` or `A = i`).
@@ -39,7 +51,9 @@ impl IndexAssignment {
 /// Representation of a TCP mapping expression.
 #[derive(Debug, Clone)]
 pub enum Mapping {
-    Identity,
+    Broadcast {
+        size: usize,
+    },
     Symbol {
         symbol: String,
     },
@@ -58,7 +72,6 @@ pub enum Mapping {
     Padding {
         inner: Box<Self>,
         padding: usize,
-        #[expect(dead_code)]
         kind: PaddingKind,
     },
     Pair {
@@ -74,8 +87,8 @@ impl Mapping {
     /// Expand the mapping into virtual ISA type representation.
     pub fn expand(&self) -> proc_macro2::TokenStream {
         match self {
-            Self::Identity => {
-                quote! { Identity }
+            Self::Broadcast { size } => {
+                quote! { Broadcast<#size> }
             }
             Self::Symbol { symbol } => {
                 let sym_ident = proc_macro2::Ident::new(symbol, proc_macro2::Span::call_site());
@@ -105,10 +118,11 @@ impl Mapping {
             Self::Padding {
                 inner: left,
                 padding: value,
-                kind: _,
+                kind,
             } => {
                 let l = left.expand();
-                quote! { Padding<#l, #value> }
+                let kind_ident = padding_kind_ident(*kind);
+                quote! { Padding<#l, #value, { PaddingKind::#kind_ident }> }
             }
             Self::Pair { left, right } => {
                 let l = left.expand();
@@ -145,11 +159,11 @@ impl Mapping {
                     }
                 }
             }
-            Self::Identity => {
+            Self::Broadcast { size } => {
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <m::Identity as m::M>::map(#value) {
+                        if let Some(mapped_index) = <m::Broadcast<#size> as m::M>::map(#value) {
                             index.add(mapped_index);
                         } else {
                             index.mark_invalid();
@@ -196,16 +210,16 @@ impl Mapping {
                     }
                 }
             }
-            Self::Padding {
-                inner,
-                padding,
-                kind: _,
-            } => {
+            Self::Padding { inner, padding, kind } => {
                 let inner_expanded = inner.expand();
+                let kind_ident = padding_kind_ident(*kind);
+                let pad_ty = quote! {
+                    m::Padding<#inner_expanded, #padding, { m::PaddingKind::#kind_ident }>
+                };
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <m::Padding<#inner_expanded, #padding> as m::M>::map(#value) {
+                        if let Some(mapped_index) = <#pad_ty as m::M>::map(#value) {
                             index.add(mapped_index);
                         } else {
                             index.mark_invalid();

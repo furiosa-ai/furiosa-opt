@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use furiosa_mapping::*;
+use furiosa_opt_lower::config_tile;
 
 use super::Tensor;
 use crate::runtime::{Backend, CurrentBackend};
@@ -76,12 +77,12 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorViewMut<'l, D, E, B> {
     }
 
     /// Splits the tensor view by tiling.
-    pub fn tile<I: M, E2: M, const LEN: usize>(&mut self, start: usize) -> TensorViewMut<'l, D, E2, B> {
-        assert_div::<I, E, E2, LEN>();
-        let mut offset = self.offset.clone();
+    pub fn tile<I: M, E2: M, const LEN: usize>(self, start: usize) -> TensorViewMut<'l, D, E2, B> {
+        config_tile(&I::to_value(), &E::to_value(), &E2::to_value(), LEN).unwrap_or_else(|e| panic!("{e}"));
+        let mut offset = self.offset;
         offset.add_mapping::<I>(start);
         TensorViewMut {
-            inner: unsafe { &mut *(self.inner as *mut _) }, // TODO: violating Rust aliasing rules...
+            inner: self.inner,
             offset,
             _marker: PhantomData,
         }
@@ -97,7 +98,7 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorViewMut<'l, D, E, B> {
 impl<'l, D: Scalar, E: M, B: Backend> TensorView<'l, D, E, B> {
     /// Splits the tensor view by tiling.
     pub fn tile<I: M, E2: M, const LEN: usize>(&self, start: usize) -> TensorView<'l, D, E2, B> {
-        assert_div::<I, E, E2, LEN>();
+        config_tile(&I::to_value(), &E::to_value(), &E2::to_value(), LEN).unwrap_or_else(|e| panic!("{e}"));
         let mut offset = self.offset.clone();
         offset.add_mapping::<I>(start);
         TensorView {

@@ -32,7 +32,8 @@ fn binary_add_kernel(
     // I=2 axis is reduced by binary add in VE
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(lhs.view(), rhs.view())
-        .fetch::<i32, m![I], m![A % 8]>()
+        .fetch::<m![I], m![A % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![I], m![A % 8]>()
         // init_unzip: creates VectorTensorPair directly
         .vector_init()
@@ -41,6 +42,7 @@ fn binary_add_kernel(
         // After vector_clip_zip, result is implicitly filtered to Group 1 only
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit_view(out)
 }
 

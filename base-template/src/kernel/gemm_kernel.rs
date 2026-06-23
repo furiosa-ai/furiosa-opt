@@ -25,7 +25,7 @@ pub fn gemm_kernel(
     let b_trf: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![J / 8 % 4, K]> = ctx
         .sub
         .begin(b.view())
-        .fetch::<bf16, m![J % 8, J / 8 % 4], m![K]>()
+        .fetch::<m![J % 8, J / 8 % 4], m![K]>()
         .collect::<m![J % 8, J / 8 % 4, K / 16], m![K % 16]>()
         .to_trf(TrfAddress::Full);
 
@@ -35,13 +35,14 @@ pub fn gemm_kernel(
     let result: DmTensor<bf16, Chip, Cluster, Slice, m![I % 32, J % 32]> = ctx
         .main
         .begin(a.view())
-        .fetch::<bf16, m![I % 32, J / 8 % 4], m![K]>()
+        .fetch::<m![I % 32, J / 8 % 4], m![K]>()
         .collect::<m![I % 32, J / 8 % 4, K / 16], m![K % 16]>()
         .contract_outer::<m![I % 32, J / 8 % 4, K / 32], m![K % 32], _, _>(&b_trf)
         .contract_packet::<m![1]>()
         .contract_time::<m![I % 32, J / 8 % 4]>()
         .contract_lane::<m![I % 32, J / 8 % 4], m![J % 8]>(LaneMode::Interleaved)
         .cast::<bf16, m![J % 8 # 16]>()
+        .commit_trim::<m![J % 8]>()
         .commit(0);
 
     // Transfer result to HBM

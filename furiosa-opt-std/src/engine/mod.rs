@@ -13,61 +13,107 @@
 //! Each `XxxTensor` block below lists *every* outgoing edge from that
 //! typestate. The set is normative: it must equal the `impl CanApplyYyy for
 //! PositionXxx {}` lines below — that is the wire-up. `commit` / `commit_view`
-//! are only available from flit-normalised positions (Collect onwards); the
+//! are only available from flit-normalized positions (Collect onwards); the
 //! pre-Collect stages (Begin / Fetch / Switch) must go through `collect` first.
 //!
 //! ```text
-//! BeginTensor          (PositionBegin)
-//!     └── fetch         →  FetchTensor
+//! BeginTensor              (PositionBegin)
+//!     └── fetch                    →  FetchTensor
 //!
-//! FetchTensor          (PositionFetch)
-//!     ├── switch        →  SwitchTensor
-//!     └── collect       →  CollectTensor
+//! FetchTensor              (PositionFetch)
+//!     ├── fetch_mask               →  FetchMaskTensor
+//!     ├── fetch_table_lookup       →  FetchTableLookupTensor
+//!     ├── fetch_cast               →  FetchCastTensor
+//!     ├── switch                   →  SwitchTensor       (fetch adapter skipped)
+//!     └── collect                  →  CollectTensor      (fetch adapter skipped)
 //!
-//! SwitchTensor         (PositionSwitch)
-//!     └── collect       →  CollectTensor
+//! FetchMaskTensor          (PositionFetchMask)
+//!     ├── fetch_table_lookup       →  FetchTableLookupTensor
+//!     ├── fetch_cast               →  FetchCastTensor
+//!     ├── switch                   →  SwitchTensor
+//!     └── collect                  →  CollectTensor
 //!
-//! CollectTensor        (PositionCollect)
-//!     ├── to_trf        →  TrfTensor
-//!     ├── to_vrf        →  VrfTensor
+//! FetchTableLookupTensor   (PositionFetchTableLookup)
+//!     ├── fetch_cast               →  FetchCastTensor
+//!     ├── switch                   →  SwitchTensor
+//!     └── collect                  →  CollectTensor
+//!
+//! FetchCastTensor          (PositionFetchCast)
+//!     ├── switch                   →  SwitchTensor
+//!     └── collect                  →  CollectTensor
+//!
+//! SwitchTensor             (PositionSwitch)
+//!     └── collect                  →  CollectTensor
+//!
+//! CollectTensor            (PositionCollect)
+//!     ├── to_trf                   →  TrfTensor
+//!     ├── to_vrf                   →  VrfTensor
 //!     ├── contract_outer(trf)
 //!     │     →  ContractOuterTensor  ─contract_packet→  ContractPacketTensor
 //!     │     ─contract_time→  ContractTimeTensor  ─contract_lane→  ContractTensor
-//!     ├── cast          →  CastTensor
-//!     ├── transpose     →  TransposeTensor
-//!     ├── vector_init   →  VectorInitTensor   (handed to `crate::engine::vector`)
-//!     ├── commit        →  DmTensor
-//!     └── commit_view   →  (writes to existing view)
+//!     ├── cast                     →  CastTensor
+//!     ├── transpose                →  TransposeTensor
+//!     ├── vector_init              →  VectorInitTensor   (handed to `crate::engine::vector`)
+//!     ├── commit_trim              →  CommitTrimTensor
+//!     ├── commit_cast              →  CommitCastTensor
+//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
+//!     ├── commit                   →  DmTensor
+//!     └── commit_view              →  (writes to existing view)
 //!
-//! ContractTensor       (PositionContraction)
-//!     ├── cast          →  CastTensor
-//!     ├── transpose     →  TransposeTensor
-//!     ├── vector_init   →  VectorInitTensor
-//!     ├── commit        →  DmTensor
-//!     └── commit_view   →  (writes to existing view)
+//! ContractTensor           (PositionContraction)
+//!     ├── cast                     →  CastTensor
+//!     ├── transpose                →  TransposeTensor
+//!     ├── vector_init              →  VectorInitTensor
+//!     ├── commit_trim              →  CommitTrimTensor
+//!     ├── commit_cast              →  CommitCastTensor
+//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
+//!     ├── commit                   →  DmTensor
+//!     └── commit_view              →  (writes to existing view)
 //!
-//! VectorFinalTensor    (PositionVectorFinal — produced by `VectorTensor::vector_final`)
-//!     ├── cast          →  CastTensor
-//!     ├── transpose     →  TransposeTensor
-//!     ├── to_vrf        →  VrfTensor
-//!     ├── commit        →  DmTensor
-//!     └── commit_view   →  (writes to existing view)
+//! VectorFinalTensor        (PositionVectorFinal — produced by `VectorTensor::vector_final`)
+//!     ├── cast                     →  CastTensor
+//!     ├── transpose                →  TransposeTensor
+//!     ├── to_vrf                   →  VrfTensor
+//!     ├── commit_trim              →  CommitTrimTensor
+//!     ├── commit_cast              →  CommitCastTensor
+//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
+//!     ├── commit                   →  DmTensor
+//!     └── commit_view              →  (writes to existing view)
 //!
-//! CastTensor           (PositionCast)
-//!     ├── transpose     →  TransposeTensor
-//!     ├── commit        →  DmTensor
-//!     └── commit_view   →  (writes to existing view)
+//! CastTensor               (PositionCast)
+//!     ├── transpose                →  TransposeTensor
+//!     ├── commit_trim              →  CommitTrimTensor
+//!     ├── commit_cast              →  CommitCastTensor
+//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
+//!     ├── commit                   →  DmTensor
+//!     └── commit_view              →  (writes to existing view)
 //!
-//! TransposeTensor      (PositionTranspose)
-//!     ├── commit        →  DmTensor
-//!     └── commit_view   →  (writes to existing view)
+//! TransposeTensor          (PositionTranspose)
+//!     ├── commit_trim              →  CommitTrimTensor
+//!     ├── commit_cast              →  CommitCastTensor
+//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
+//!     ├── commit                   →  DmTensor
+//!     └── commit_view              →  (writes to existing view)
+//!
+//! CommitTrimTensor         (PositionCommitTrim)
+//!     ├── commit_cast              →  CommitCastTensor
+//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
+//!     └── commit                   →  DmTensor
+//!
+//! CommitCastTensor         (PositionCommitCast)
+//!     └── commit                   →  DmTensor
+//!
+//! CommitValidCountPackTensor   (PositionCommitValidCountPack)
+//!     └── commit                   →  DmTensor
 //! ```
 
 pub mod cast;
 pub mod collect;
 pub mod commit;
+pub mod commit_adapter;
 pub mod contraction;
 pub mod fetch;
+pub mod fetch_adapter;
 pub mod switch;
 pub mod transpose;
 pub mod vector;
@@ -76,8 +122,13 @@ pub mod vector;
 // types into scope.
 pub use cast::*;
 pub use collect::*;
+pub use commit_adapter::{
+    Activation, CommitCastTensor, CommitTrimTensor, CommitValidCountPackTensor, PositionCommitCast, PositionCommitTrim,
+    PositionCommitValidCountPack,
+};
 pub use contraction::*;
 pub use fetch::*;
+pub use fetch_adapter::*;
 pub use switch::*;
 pub use transpose::*;
 
@@ -107,8 +158,18 @@ pub(crate) fn exact_div(a: usize, b: usize) -> Option<usize> {
 // or removing one here is how the topology changes.
 // ============================================================================
 
-/// Source positions that can enter the Fetch Engine.
+/// Source positions that can enter the Fetch Sequencer stage.
 pub trait CanApplyFetch: Position {}
+
+/// Source positions that can enter the Fetch Adapter's masking stage.
+pub trait CanApplyFetchMask: Position {}
+
+/// Source positions that can enter the Fetch Adapter's table-lookup stage.
+pub trait CanApplyFetchTableLookup: Position {}
+
+/// Source positions that can enter the Fetch Adapter's type-casting stage
+/// (which also folds in zero-point subtraction at the hardware level).
+pub trait CanApplyFetchCast: Position {}
 
 /// Source positions that can enter the Switch Engine.
 pub trait CanApplySwitch: Position {}
@@ -134,6 +195,17 @@ pub trait CanApplyCast: Position {}
 /// Source positions that can enter the Transpose Engine.
 pub trait CanApplyTranspose: Position {}
 
+/// Source positions that can enter the Commit Adapter's trimming stage.
+pub trait CanApplyCommitTrim: Position {}
+
+/// Source positions that can enter the Commit Adapter's type-casting
+/// stage (which folds in an optional ReLU at the hardware level).
+pub trait CanApplyCommitCast: Position {}
+
+/// Source positions that can enter the Commit Adapter's
+/// valid-count-packing stage.
+pub trait CanApplyCommitValidCountPack: Position {}
+
 /// Source positions that can commit to data memory.
 ///
 /// Only positions with a flit-normalized (32-byte) packet can commit — the
@@ -142,9 +214,24 @@ pub trait CanApplyCommit: Position {}
 
 impl CanApplyFetch for PositionBegin {}
 
+impl CanApplyFetchMask for PositionFetch {}
+
+impl CanApplyFetchTableLookup for PositionFetch {}
+impl CanApplyFetchTableLookup for PositionFetchMask {}
+
+impl CanApplyFetchCast for PositionFetch {}
+impl CanApplyFetchCast for PositionFetchMask {}
+impl CanApplyFetchCast for PositionFetchTableLookup {}
+
 impl CanApplySwitch for PositionFetch {}
+impl CanApplySwitch for PositionFetchMask {}
+impl CanApplySwitch for PositionFetchTableLookup {}
+impl CanApplySwitch for PositionFetchCast {}
 
 impl CanApplyCollect for PositionFetch {}
+impl CanApplyCollect for PositionFetchMask {}
+impl CanApplyCollect for PositionFetchTableLookup {}
+impl CanApplyCollect for PositionFetchCast {}
 impl CanApplyCollect for PositionSwitch {}
 
 impl CanApplyToTrf for PositionCollect {}
@@ -166,8 +253,24 @@ impl CanApplyTranspose for PositionContraction {}
 impl CanApplyTranspose for PositionVectorFinal {}
 impl CanApplyTranspose for PositionCast {}
 
-impl CanApplyCommit for PositionCollect {}
-impl CanApplyCommit for PositionContraction {}
-impl CanApplyCommit for PositionVectorFinal {}
-impl CanApplyCommit for PositionCast {}
-impl CanApplyCommit for PositionTranspose {}
+// Commit Adapter pipeline (per HW spec):
+//   Main: trim → cast(+ReLU) → commit
+//   Sub:  trim → valid_count_pack → commit
+//
+// `trim` is mandatory and runs first: it is the only adapter stage reachable
+// off the source engines. `cast` / `valid_count_pack` chain after `trim`, and
+// `commit` / `commit_view` (the sequencer stage) are reachable only from a
+// post-trim adapter position, so every commit is trimmed first.
+impl CanApplyCommitTrim for PositionCollect {}
+impl CanApplyCommitTrim for PositionContraction {}
+impl CanApplyCommitTrim for PositionVectorFinal {}
+impl CanApplyCommitTrim for PositionCast {}
+impl CanApplyCommitTrim for PositionTranspose {}
+
+impl CanApplyCommitCast for PositionCommitTrim {}
+
+impl CanApplyCommitValidCountPack for PositionCommitTrim {}
+
+impl CanApplyCommit for PositionCommitTrim {}
+impl CanApplyCommit for PositionCommitCast {}
+impl CanApplyCommit for PositionCommitValidCountPack {}

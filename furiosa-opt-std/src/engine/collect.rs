@@ -8,7 +8,6 @@
 //! - `to_trf`: store to the Tensor Register File.
 //! - `to_vrf`: store to the Vector Register File.
 
-use abi_stable::std_types::Tuple2;
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
@@ -95,21 +94,20 @@ pub(crate) fn verify_collect<D: Scalar, Time: M, Packet: M, Time2: M, Packet2: M
     );
 
     // Pad input packet to flit-aligned boundary, then split at flit boundary.
-    let in_factorized = Packet::to_value().factorize();
-    let padded = in_factorized.pad(D::length_from_bytes(aligned_bytes));
-    let Tuple2(in_outer, in_flit) = padded.split_at(flit_elements);
+    let padded = Packet::to_value().replace_padding(D::length_from_bytes(aligned_bytes));
+    let (in_outer, in_flit) = padded.split_at(flit_elements);
 
     // Output packet = inner flit.
     let expected_packet = in_flit.normalize();
-    let out_packet = Packet2::to_value().factorize();
+    let out_packet = Packet2::to_value().normalize();
     assert_eq!(
         expected_packet, out_packet,
         "Collect packet mismatch. Expected: {expected_packet}, got: {out_packet}"
     );
 
     // Time2 = Time × outer flit portion.
-    let expected_time = Time::to_value().factorize().mul(in_outer).normalize();
-    let out_time = Time2::to_value().factorize();
+    let expected_time = Time::to_value().pair(in_outer).normalize();
+    let out_time = Time2::to_value().normalize();
     assert_eq!(
         expected_time, out_time,
         "Collect time mismatch. Expected: {expected_time}, got: {out_time}"
@@ -143,23 +141,24 @@ pub(crate) fn verify_to_trf<D: Scalar, Lane: M, Time: M, Packet: M, Element: M>(
     );
 
     // [time_outer] = [Lane]
-    let time = Time::to_value().factorize();
-    let Tuple2(time_outer, time_inner) = time.split_at(exact_div(Time::SIZE, Lane::SIZE).unwrap_or_else(|| {
+    let time = Time::to_value();
+    let (time_outer, time_inner) = time.split_at(exact_div(Time::SIZE, Lane::SIZE).unwrap_or_else(|| {
         panic!(
             "Lane::SIZE ({}) does not divide Time::SIZE ({})",
             Lane::SIZE,
             Time::SIZE
         )
     }));
-    let lane = Lane::to_value().factorize();
+    let time_outer = time_outer.normalize();
+    let lane = Lane::to_value().normalize();
     assert_eq!(
         time_outer, lane,
         "`to_trf` lane mismatch: time_outer != Lane: {time_outer} != {lane}",
     );
 
     // [time_inner, Packet] = [Element]
-    let expected_element = time_inner.mul(Packet::to_value().factorize()).normalize();
-    let element = Element::to_value().factorize();
+    let expected_element = time_inner.pair(Packet::to_value()).normalize();
+    let element = Element::to_value().normalize();
     assert_eq!(
         expected_element, element,
         "`to_trf` element mismatch: [time_inner, Packet] != Element: {expected_element} != {element}",

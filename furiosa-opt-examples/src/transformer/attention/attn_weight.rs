@@ -27,13 +27,14 @@ pub(super) fn attn_weight(
     let k_it: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, K / 64], m![T / 512, T % 16, K % 64]> = ctx
         .main
         .begin(k_dm.view())
-        .fetch::<bf16, m![T % 16, K / 64], m![K % 64]>()
+        .fetch::<m![T % 16, K / 64], m![K % 64]>()
         .switch::<m![Y, T / 16 % 32, K / 64], m![T % 16, T / 512]>(SwitchConfig::InterTranspose {
             slice1: 2,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![T / 512, T % 16], m![K % 64]>()
+        .commit_trim::<m![K % 64]>()
         .commit(0x1200);
 
     // Copy the first T half for matmul.
@@ -54,7 +55,7 @@ pub(super) fn attn_weight(
     let k_trf_0: TrfTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![T % 8], m![K % 64]> = ctx
         .sub
         .begin(k_half_0.view())
-        .fetch::<bf16, m![T % 8], m![T / 8 % 2, K % 64]>()
+        .fetch::<m![T % 8], m![T / 8 % 2, K % 64]>()
         .switch::<m![S / 256, W, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 32, slice0: 2 })
         .collect::<m![T % 8], m![K % 64]>()
         .to_trf(TrfAddress::FirstHalf);
@@ -63,7 +64,7 @@ pub(super) fn attn_weight(
     let k_trf_0s: TrfTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![T % 8], m![K % 64]> = ctx
         .sub
         .begin(k_half_0.view())
-        .fetch::<bf16, m![T % 8], m![T / 8 % 2, K % 64]>()
+        .fetch::<m![T % 8], m![T / 8 % 2, K % 64]>()
         .switch::<m![S / 256, W, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 32, slice0: 2 })
         .collect::<m![T % 8], m![K % 64]>()
         .to_trf(TrfAddress::SecondHalf);
@@ -74,7 +75,7 @@ pub(super) fn attn_weight(
     // Compute Q x K^T using TRF first half and write partial scores.
     ctx.main
         .begin(q_dm.view())
-        .fetch::<bf16, m![S % 8, G], m![D]>()
+        .fetch::<m![S % 8, G], m![D]>()
         .collect::<m![S % 8, G], m![D]>()
         .contract_outer::<m![S % 8, G], m![D], _, _>(&k_trf_0)
         .contract_packet::<m![1]>()
@@ -84,12 +85,13 @@ pub(super) fn attn_weight(
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![T % 512]>()
+        .commit_trim::<m![T % 512]>()
         .commit::<m![S % 8, G, T % 512]>(0x8000);
 
     // Accumulate Q x K^T with TRF second half into the same score buffer.
     ctx.main
         .begin(q_dm.view())
-        .fetch::<bf16, m![S % 8, G], m![D]>()
+        .fetch::<m![S % 8, G], m![D]>()
         .collect::<m![S % 8, G], m![D]>()
         .contract_outer::<m![S % 8, G], m![D], _, _>(&k_trf_0s)
         .contract_packet::<m![1]>()
@@ -99,13 +101,14 @@ pub(super) fn attn_weight(
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![T % 512]>()
+        .commit_trim::<m![T % 512]>()
         .commit::<m![S % 8, G, T % 512]>(0x8000);
 
     // Load second key half into TRF first half.
     let k_trf_1: TrfTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![T % 8], m![K % 64]> = ctx
         .sub
         .begin(k_half_1.view())
-        .fetch::<bf16, m![T % 8], m![T / 8 % 2, K % 64]>()
+        .fetch::<m![T % 8], m![T / 8 % 2, K % 64]>()
         .switch::<m![S / 256, W, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 32, slice0: 2 })
         .collect::<m![T % 8], m![K % 64]>()
         .to_trf(TrfAddress::FirstHalf);
@@ -114,7 +117,7 @@ pub(super) fn attn_weight(
     let k_trf_1s: TrfTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![T % 8], m![K % 64]> = ctx
         .sub
         .begin(k_half_1.view())
-        .fetch::<bf16, m![T % 8], m![T / 8 % 2, K % 64]>()
+        .fetch::<m![T % 8], m![T / 8 % 2, K % 64]>()
         .switch::<m![S / 256, W, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 32, slice0: 2 })
         .collect::<m![T % 8], m![K % 64]>()
         .to_trf(TrfAddress::SecondHalf);
@@ -122,7 +125,7 @@ pub(super) fn attn_weight(
     // Compute Q x K^T for the second T half using TRF first half.
     ctx.main
         .begin(q_dm.view())
-        .fetch::<bf16, m![S % 8, G], m![D]>()
+        .fetch::<m![S % 8, G], m![D]>()
         .collect::<m![S % 8, G], m![D]>()
         .contract_outer::<m![S % 8, G], m![D], _, _>(&k_trf_1)
         .contract_packet::<m![1]>()
@@ -132,12 +135,13 @@ pub(super) fn attn_weight(
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![T % 512]>()
+        .commit_trim::<m![T % 512]>()
         .commit::<m![S % 8, G, T % 512]>(0x16000);
 
     // Accumulate the second T-half scores with TRF second half.
     ctx.main
         .begin(q_dm.view())
-        .fetch::<bf16, m![S % 8, G], m![D]>()
+        .fetch::<m![S % 8, G], m![D]>()
         .collect::<m![S % 8, G], m![D]>()
         .contract_outer::<m![S % 8, G], m![D], _, _>(&k_trf_1s)
         .contract_packet::<m![1]>()
@@ -147,6 +151,7 @@ pub(super) fn attn_weight(
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![T % 512]>()
+        .commit_trim::<m![T % 512]>()
         .commit::<m![S % 8, G, T % 512]>(0x16000);
 
     // View both T-half score blocks as one concatenated tensor.
@@ -157,8 +162,9 @@ pub(super) fn attn_weight(
     let qk_scores: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T]> = ctx
         .main
         .begin(qk_concat.view())
-        .fetch::<bf16, m![T / 512, S % 8, G], m![T % 512]>()
+        .fetch::<m![T / 512, S % 8, G], m![T % 512]>()
         .collect::<m![T / 512, S % 8, G], m![T % 512]>()
+        .commit_trim::<m![T % 512]>()
         .commit(0x28000);
 
     qk_scores

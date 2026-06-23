@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use furiosa_mapping::{DivisionExt, Index, M, MappingExt, Term};
+use furiosa_mapping::{Index, M, MappingExt, Term};
 use ndarray::IxDyn;
 
 use crate::engine::vector::operand::OperandTag;
@@ -78,20 +78,9 @@ impl<D: Scalar> RawTensor<D> for PhantomRawTensor<D> {
     where
         Reduce: Fn(Opt<D>, Opt<D>) -> Opt<D>,
     {
-        // Run the structural check for parity with `MathRawTensor`, then return the Dst-shaped
-        // axes (no values to compute).
-        let _ = Src::to_value()
-            .divide(&Dst::to_value())
-            .exact_checked()
-            .unwrap_or_else(|e| {
-                panic!(
-                    "[reduce] Dst is not a factor of Src: {e:?}\n\
-                     Src: {:?}\n\
-                     Dst: {:?}",
-                    Src::to_value(),
-                    Dst::to_value()
-                )
-            });
+        // Run the structural check for parity with `MathRawTensor` (residue panics if Dst is not
+        // contained in Src), then return the Dst-shaped axes (no values to compute).
+        let _ = Src::to_value().carve(&Dst::to_value());
         Self::uninit_from_axes(gen_axes::<Dst>())
     }
 
@@ -151,10 +140,7 @@ impl<D: Scalar> RawTensor<D> for PhantomRawTensor<D> {
         Idx: M,
         IdxRaw: RawTensor<i32>,
     {
-        let src_fmapping = Src::to_value().factorize();
-        let dst_fmapping = Dst::to_value().factorize();
-        let key = Key::to_value().factorize();
-        let _ = scatter_params(&src_fmapping, &dst_fmapping, &key);
+        let _ = scatter_params(&Src::to_value(), &Dst::to_value(), &Key::to_value());
     }
 
     fn write_gather<Src, Dst, Idx, IdxRaw>(&self, _dst: &mut Self, _index: &IdxRaw, _scaled: bool)
@@ -164,10 +150,7 @@ impl<D: Scalar> RawTensor<D> for PhantomRawTensor<D> {
         Idx: M,
         IdxRaw: RawTensor<i32>,
     {
-        let src_fmapping = Src::to_value().factorize();
-        let dst_fmapping = Dst::to_value().factorize();
-        let idx_fmapping = Idx::to_value().factorize();
-        let _ = gather_params(&src_fmapping, &dst_fmapping, &idx_fmapping);
+        let _ = gather_params(&Src::to_value(), &Dst::to_value(), &Idx::to_value());
     }
 
     /// Phantom skips the per-position iteration entirely — Typecheck has no values to update,

@@ -20,11 +20,10 @@ pub fn gemv_kernel(
     let vector: DmTensor<bf16, Chip, Cluster, Slice, m![J]> = vector.to_dm(&mut ctx.tdma, 1 << 12);
 
     // Load vector into TRF
-    // The Switch Engine automatically broadcasts the vector to all `I` slices
     let vector_trf: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![J]> = ctx
         .sub
         .begin(vector.view())
-        .fetch::<bf16, m![1], m![J]>()
+        .fetch::<m![1], m![J]>()
         // Collect Engine: split into 32-byte flits.
         .collect::<m![J / 16], m![J % 16]>()
         .to_trf(TrfAddress::Full);
@@ -34,13 +33,14 @@ pub fn gemv_kernel(
     let result: DmTensor<bf16, Chip, Cluster, Slice, m![1 # 4]> = ctx
         .main
         .begin(matrix.view())
-        .fetch::<bf16, m![J / 16], m![J % 16]>()
+        .fetch::<m![J / 16], m![J % 16]>()
         .collect::<m![J / 16], m![J % 16]>()
         .contract_outer::<Time, Packet, _, _>(&vector_trf)
         .contract_packet::<m![1]>()
         .contract_time::<m![1]>()
         .contract_lane::<m![1], m![1 # 8]>(LaneMode::Interleaved)
         .cast::<bf16, m![1 # 16]>()
+        .commit_trim::<m![1 # 4]>()
         .commit(0);
 
     // Transfer result to HBM

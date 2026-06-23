@@ -23,7 +23,11 @@ furiosa-opt/
 
 ### Prerequisites
 
-Ubuntu (jammy / noble / resolute):
+`simulation` and `typecheck` are pure Rust and build on any host arch (e.g. macOS
+Apple silicon); the only build dependency is `bindgen`'s `libclang`. The `npu`
+backend is `x86_64-unknown-linux-gnu` only — the SDK and NPU hardware run there.
+
+#### Ubuntu (jammy / noble / resolute)
 
 ```bash
 sudo apt install libclang-dev gcc-aarch64-linux-gnu
@@ -32,19 +36,25 @@ sudo apt install libclang-dev gcc-aarch64-linux-gnu
 - `libclang-dev` — `furiosa-opt-std/build.rs` runs `bindgen`, which loads `libclang.so`.
 - `gcc-aarch64-linux-gnu` — `aarch64-linux-gnu-{gcc,as,ld,objcopy}` are invoked when the compiler produces NPU device binaries (`*.bin`).
 
+#### macOS (Apple silicon)
+
+```bash
+xcode-select --install                       # provides libclang for bindgen
+rustup target add aarch64-apple-darwin       # usually the default host target
+```
+
 `cargo-furiosa-opt` is a [rustc driver](https://rustc-dev-guide.rust-lang.org/rustc-driver/intro.html) and is ABI-locked to a specific rustc nightly. Install the matching toolchain (also pinned in [`rust-toolchain.toml`](rust-toolchain.toml)) and the binary via [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall):
 
 ```bash
 rustup toolchain install nightly-2026-05-01
-
-cargo install cargo-binstall
-cargo binstall cargo-furiosa-opt
+cargo +nightly-2026-05-01 install cargo-binstall
+cargo +nightly-2026-05-01 binstall cargo-furiosa-opt
 ```
 
 Run as a cargo subcommand:
 
 ```bash
-cargo furiosa-opt test --test mnist_tests   # set FURIOSA_OPT_NPUS=<chip>[,<chip>...] to pick non-default chips
+cargo furiosa-opt test --test mnist_tests
 ```
 
 ## Build and Test
@@ -75,6 +85,13 @@ It delegates regular Rust language-server behavior to `rust-analyzer` and rewrit
 ![furiosa-rust-analyzer-proxy demo](assets/furiosa-rust-analyzer-proxy-demo.png)
 
 For installation and configuration, see the [Language Server documentation](https://developer.furiosa.ai/furiosa-opt/book/appendix/language-server.html).
+
+### Schedule Viewer
+
+The Schedule Viewer visualizes the execution timeline to help identify performance bottlenecks.
+Use `furiosa-opt` to export a schedule JSON file, then open it with `furiosa-schedule-viewer`.
+
+For installation and usage, see the [Schedule Viewer documentation](https://developer.furiosa.ai/furiosa-opt/book/appendix/schedule-viewer.html).
 
 ## License
 

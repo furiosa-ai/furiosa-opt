@@ -1,12 +1,12 @@
 [package]
 name = "furiosa-opt-examples"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
 
 [dependencies]
-furiosa-opt-std = { path = "../furiosa-opt-std", version = "0.2" }
+furiosa-opt-std = { path = "../furiosa-opt-std", version = "0.3" }
 
 [dev-dependencies]
 env_logger = { workspace = true }

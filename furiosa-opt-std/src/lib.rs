@@ -31,13 +31,9 @@ pub use tensor::BufferConvertError;
 
 pub use tensor::pseudo;
 
-// FIXME: `Cast` is exported at crate root (not just prelude) to help rust-analyzer
-// resolve the `Cast` trait bound in tensor's `cast()` methods.
-pub use cast::Cast;
-
 /// Prelude module that re-exports commonly used items.
 pub mod prelude {
-    pub use super::cast::{ContractionCast, FetchCast};
+    pub use super::cast::{Cast, ContractionCast, FetchCast};
     pub use super::engine::*;
     pub use super::tensor::memory::*;
     pub use super::tensor::tu::*;
@@ -46,5 +42,5 @@ pub mod prelude {
     pub use super::engine::vector::{alu::*, branch::*, layer::*, op::*, operand::*, scalar::*, stage, tensor::*};
     pub use super::tensor_state::*;
     pub use furiosa_mapping::*;
-    pub use furiosa_opt_macro::device;
+    pub use furiosa_opt_macro::{DeviceSend, device};
 }

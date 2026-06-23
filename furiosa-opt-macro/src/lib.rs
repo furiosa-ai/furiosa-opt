@@ -3,7 +3,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, Item, Type, Variant, parse_macro_input, parse_quote};
+use syn::{Data, DeriveInput, Item, Type, Variant, parse_macro_input, parse_quote};
 
 #[proc_macro_attribute]
 pub fn primitive(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -46,50 +46,96 @@ pub fn primitive(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// // where
 /// //     Tensor<...>: DeviceSend,
 /// // {}
+/// //
+/// // impl<...> ExtendBuffers<MyTensor<...>> for Vec<Buffer>
+/// // where
+/// //     Vec<Buffer>: ExtendBuffers<...>,
+/// // {
+/// //     fn extend<__I: IntoIterator<Item = MyTensor<...>>(&mut self, iter: __I) {
+/// //         for value in iter {
+/// //             ExtendBuffers::extend(self, core::iter::once(value.accessor));
+/// //             ...
+/// //         }
+/// //     }
+/// // }
 /// ```
 #[proc_macro_derive(DeviceSend)]
 pub fn device_send(input: TokenStream) -> TokenStream {
-    /// Collect field types from a struct for where bounds.
-    fn field_types(data: &Data) -> Vec<&Type> {
-        match data {
-            Data::Struct(data) => match &data.fields {
-                Fields::Named(f) => f.named.iter().map(|f| &f.ty).collect(),
-                Fields::Unnamed(f) => f.unnamed.iter().map(|f| &f.ty).collect(),
-                Fields::Unit => vec![],
-            },
-            Data::Enum(_) | Data::Union(_) => vec![],
-        }
-    }
-
-    /// Build where predicates requiring fields to be DeviceSend.
-    fn device_send_predicates(field_types: &[&Type]) -> Vec<TokenStream2> {
-        field_types
-            .iter()
-            .map(|ty| quote! { #ty: crate::runtime::DeviceSend })
-            .collect()
-    }
-
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
-    let fields = field_types(&input.data);
-    let predicates = device_send_predicates(&fields);
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
-    let expanded = if let Some(wc) = where_clause {
-        quote! {
-            impl #impl_generics crate::runtime::DeviceSend for #name #ty_generics
-            #wc, #(#predicates),*
-            {}
-        }
-    } else {
-        quote! {
-            impl #impl_generics crate::runtime::DeviceSend for #name #ty_generics
-            where #(#predicates),*
-            {}
+    // DeviceSend models a device-function argument: a tensor, or a struct/tuple of
+    // them flattened positionally into kernel inputs. Enums (variant-dependent layout)
+    // and unions (no defined field set) have no positional flatten, so reject them.
+    let fields = match &input.data {
+        Data::Struct(data) => &data.fields,
+        Data::Enum(_) | Data::Union(_) => {
+            return syn::Error::new_spanned(name, "DeviceSend can only be derived for structs")
+                .to_compile_error()
+                .into();
         }
     };
 
-    expanded.into()
+    let tys: Vec<&Type> = fields.iter().map(|f| &f.ty).collect();
+    let accessors: Vec<TokenStream2> = fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| match &f.ident {
+            Some(ident) => quote!(#ident),
+            None => {
+                let index = syn::Index::from(i);
+                quote!(#index)
+            }
+        })
+        .collect();
+
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let augment = |bounds: Vec<TokenStream2>| match (where_clause, bounds.is_empty()) {
+        (Some(clause), true) => quote!(#clause),
+        (Some(clause), false) => quote!(#clause, #(#bounds),*),
+        (None, true) => quote!(),
+        (None, false) => quote!(where #(#bounds),*),
+    };
+
+    let sendable = augment(
+        tys.iter()
+            .map(|ty| quote!(#ty: ::furiosa_opt_std::runtime::DeviceSend))
+            .collect(),
+    );
+    let bufferable = augment(
+        tys.iter()
+            .map(|ty| {
+                quote! {
+                    ::std::vec::Vec<::furiosa_opt_std::runtime::npu::Buffer>:
+                        ::furiosa_opt_std::runtime::npu::ExtendBuffers<#ty>
+                }
+            })
+            .collect(),
+    );
+
+    quote! {
+        impl #impl_generics ::furiosa_opt_std::runtime::DeviceSend for #name #ty_generics
+        #sendable {}
+
+        // Flatten fields into buffers in declaration order (must match the compiler's
+        // parameter lowering).
+        impl #impl_generics ::furiosa_opt_std::runtime::npu::ExtendBuffers<#name #ty_generics>
+            for ::std::vec::Vec<::furiosa_opt_std::runtime::npu::Buffer>
+        #bufferable
+        {
+            fn extend<__I: ::core::iter::IntoIterator<Item = #name #ty_generics>>(&mut self, iter: __I) {
+                for value in iter {
+                    #(
+                        ::furiosa_opt_std::runtime::npu::ExtendBuffers::extend(
+                            self,
+                            ::core::iter::once(value.#accessors),
+                        );
+                    )*
+                }
+            }
+        }
+    }
+    .into()
 }
 
 /// Marks a function as a device entry point for `launch()`.
@@ -110,6 +156,16 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     let attr_str = attr.to_string();
+    let attr_int = |key: &str, default: usize| -> usize {
+        attr_str
+            .split(',')
+            .filter_map(|kv| kv.split_once('='))
+            .find(|(k, _)| k.trim() == key)
+            .and_then(|(_, v)| v.trim().parse().ok())
+            .unwrap_or(default)
+    };
+    let device_chip = attr_int("chip", 1);
+    let device_pe = attr_int("pe", 8);
     let func = match parse_macro_input!(item as Item) {
         Item::Fn(f) => f,
         other => {
@@ -164,33 +220,32 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let types: Vec<_> = params.iter().map(|(_, t, _)| t).collect();
 
-    // For each tensor param, convert to a DMA Buffer before passing to Kernel::run().
-    // Reference params (`&HbmTensor`): `(&*name).into()` to reborrow.
-    // Owned params (`HbmTensorView`): `(&name).into()` since there's nothing to deref.
-    let (tensor_bufs, tensor_stmts): (Vec<syn::Ident>, Vec<TokenStream2>) = params
+    // Convert tensor params to DMA Buffers via `ExtendBuffers`, whose trait dispatch
+    // recursively flattens tuple params (e.g. `(&HbmTensor, &HbmTensor)`) into one buffer
+    // per leaf tensor, in field order.
+    let tensor_param_names: Vec<&syn::Ident> = params
         .iter()
         .filter(|(_, _, k)| *k == Kind::Tensor)
-        .enumerate()
-        .map(|(i, (name, ty, _))| {
-            let buf = syn::Ident::new(&format!("__furiosa_opt_{i}"), proc_macro2::Span::call_site());
-            let is_ref = ty.to_string().starts_with('&');
-            let conv = if is_ref {
-                quote! { let #buf: furiosa_opt_std::runtime::npu::Buffer = (&*#name).into(); }
-            } else {
-                quote! { let #buf: furiosa_opt_std::runtime::npu::Buffer = (&(#name)).into(); }
-            };
-            (buf, conv)
-        })
-        .unzip();
+        .map(|(name, _, _)| name)
+        .collect();
+
+    let tensor_stmts: TokenStream2 = quote! {
+        let mut __furiosa_opt_bufs: ::std::vec::Vec<furiosa_opt_std::runtime::npu::Buffer> =
+            ::std::vec::Vec::new();
+        furiosa_opt_std::runtime::npu::ExtendBuffers::extend(
+            &mut __furiosa_opt_bufs,
+            ::std::iter::once((#(#tensor_param_names,)*)),
+        );
+    };
 
     let run_body = match output {
         syn::ReturnType::Type(_, ty) => quote! {
             let __furiosa_opt_out = __furiosa_opt_kernel.alloc(<#ty>::size());
-            __furiosa_opt_kernel.run(&[#(#tensor_bufs),*], &[__furiosa_opt_out.clone()]).await;
+            __furiosa_opt_kernel.run(&__furiosa_opt_bufs, &[__furiosa_opt_out.clone()]).await;
             __furiosa_opt_out.into()
         },
         syn::ReturnType::Default => quote! {
-            __furiosa_opt_kernel.run(&[#(#tensor_bufs),*], &[]).await;
+            __furiosa_opt_kernel.run(&__furiosa_opt_bufs, &[]).await;
         },
     };
 
@@ -222,6 +277,7 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let npu_body = quote! {
+        furiosa_opt_std::runtime::npu::set_device(#device_chip, #device_pe);
         static __FURIOSA_OPT_KERNEL: furiosa_opt_std::OnceCell<furiosa_opt_std::runtime::npu::Kernel> =
             furiosa_opt_std::OnceCell::const_new();
         let __furiosa_opt_kernel = __FURIOSA_OPT_KERNEL.get_or_init(|| async {
@@ -233,7 +289,7 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
             );
             furiosa_opt_std::runtime::npu::Kernel::load(&__furiosa_opt_path).await
         }).await;
-        #(#tensor_stmts)*
+        #tensor_stmts
         #run_body
     };
     let cpu_body = quote! { #hidden(#(#param_names),*) };

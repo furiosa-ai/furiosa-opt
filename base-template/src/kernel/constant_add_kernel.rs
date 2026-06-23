@@ -15,7 +15,7 @@ pub fn constant_add_kernel(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]
         .main
         .begin(dm.view())
         // Fetch: stream 8-element packets from DM into the pipeline
-        .fetch::<i32, m![1], m![A % 8]>()
+        .fetch::<m![1], m![A % 8]>()
         // Collect: normalize the stream into 32-byte flits (8 × i32)
         .collect::<m![1], m![A % 8]>()
         // Vector Engine: enter pipeline and arm unconditionally
@@ -23,8 +23,10 @@ pub fn constant_add_kernel(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]
         .vector_intra_slice_tag(TagMode::Zero)
         // Add the scalar constant 1 to every element
         .vector_fxp(FxpBinaryOp::AddFxp, 1)
-        // Exit VE and commit: write results back to DM
+        // Exit VE and commit: trim the packet to the commit width, then write
+        // results back to DM
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit::<m![A % 8]>(1 << 12);
 
     // DM → HBM

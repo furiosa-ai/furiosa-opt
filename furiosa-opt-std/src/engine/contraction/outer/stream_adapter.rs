@@ -5,8 +5,8 @@
 //!   Time-divides-OutTime, broadcast axes confined to innermost positions).
 //! - [`contract_outer`]: transposes the stream tensor into the joint shape.
 
-use abi_stable::std_types::Tuple2;
 use furiosa_mapping::*;
+use furiosa_opt_lower::config_divide_exact;
 
 use crate::engine::FLIT_BYTES;
 use crate::runtime::Backend;
@@ -52,9 +52,9 @@ pub(super) fn verify_stream_adapter<D: Scalar, Lane: M, Time: M, Packet: M, OutT
     );
 
     let flit_elements = D::length_from_bytes(FLIT_BYTES);
-    let Tuple2(out_packet_outer, out_packet_inner) = OutPacket::to_value().factorize().split_at(flit_elements);
+    let (out_packet_outer, out_packet_inner) = OutPacket::to_value().split_at(flit_elements);
     let out_packet_inner = out_packet_inner.normalize();
-    let expected_packet = Packet::to_value().factorize();
+    let expected_packet = Packet::to_value().normalize();
     assert_eq!(
         out_packet_inner, expected_packet,
         "`contract_outer` packet mismatch: inner flit of OutPacket != Packet: {out_packet_inner} != {expected_packet}",
@@ -62,18 +62,12 @@ pub(super) fn verify_stream_adapter<D: Scalar, Lane: M, Time: M, Packet: M, OutT
 
     // Time must equal OutTime * outer flit portion of OutPacket.
     // Padding is stripped for the collect_flits = 1 case.
-    let expected_time = OutTime::to_value()
-        .factorize()
-        .mul(out_packet_outer.remove_padding())
-        .normalize();
-    let input_time = Time::to_value().factorize();
+    let expected_time = OutTime::to_value().pair(out_packet_outer.remove_padding()).normalize();
+    let input_time = Time::to_value();
 
     let tiling_size = expected_time.size() / input_time.size();
-    let division_terms = expected_time
-        .divide(input_time.clone())
-        .exact_checked()
-        .expect("`contract_outer`: Time does not divide OutTime")
-        .division_terms;
+    let division_terms =
+        config_divide_exact(&expected_time, &input_time).expect("`contract_outer`: Time does not divide OutTime");
 
     // Non-broadcast axes must follow the same order in both mappings.
     assert!(

@@ -4,6 +4,8 @@ members = [
     "furiosa-mapping",
     "furiosa-mapping-macro",
     "furiosa-mapping-types",
+    "furiosa-opt-lower",
+    "furiosa-opt-lower-types",
     "furiosa-opt-examples",
     "furiosa-opt-macro",
     "furiosa-opt-std",
@@ -32,6 +34,7 @@ lasso = { version = "0.7", features = ["multi-threaded"] }
 libloading = "0.8"
 log = "0.4"
 ndarray = { version = "0.15.6", features = ["approx", "rayon", "serde"] }
+num = "0.4.1"
 num-traits = "0.2.16"
 proc-macro2 = "1.0.66"
 quote = "1.0"
@@ -42,6 +45,7 @@ serde-lite = { version = "0.5", features = ["derive", "preserve-order"] }
 serde_json = { version = "1.0.103", features = ["float_roundtrip"] }
 smart-default = "0.7.1"
 syn = { version = "2.0", features = ["full"] }
+thiserror = "2.0.17"
 tokio = { version = "1.29.1", features = ["full"] }
 
 [patch.crates-io]

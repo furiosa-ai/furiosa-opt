@@ -1,16 +1,15 @@
 //! Lane Folder (`contract_lane`): folds `Lane` into the output stream,
 //! producing the contraction pipeline's final [`ContractTensor`].
 
-use std::collections::HashMap;
-
-use abi_stable::std_types::Tuple2;
 use furiosa_mapping::*;
+use furiosa_opt_lower::{DivideTerm, config_divide_exact};
 use furiosa_opt_macro::primitive;
 
 use crate::context::*;
 use crate::engine::align_up;
 use crate::engine::contraction::{
     CONTRACT_LANE_OUT_PACKET_ELEMENTS, ContractTensor, ContractTimeTensor, TEMPORAL_ACCUMULATOR_COLS,
+    padding_per_stride,
 };
 use crate::runtime::Backend;
 use crate::scalar::*;
@@ -46,7 +45,15 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M
         self,
         mode: LaneMode,
     ) -> ContractTensor<'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B> {
-        verify_contract_lane::<Lane, Time, Packet, OutTime, OutPacket>(self.pre_reduce_time, mode);
+        verify_contract_lane(
+            Lane::to_value(),
+            Time::to_value(),
+            Packet::to_value(),
+            OutTime::to_value(),
+            OutPacket::to_value(),
+            self.pre_reduce_time,
+            mode,
+        );
         ContractTensor::new(self.ctx, self.inner.transpose(false))
     }
 }
@@ -63,26 +70,29 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M
 /// 4. Accumulator fits hardware limit (1024 elements):
 ///    - Interleaved: `inner_time * ReducedPacket <= 128` (since `align_up(Lane, 8) = 8`).
 ///    - Sequential: `inner_time * Lane * packet_outer <= 32` (since `align_up(ReducedPacket, 32) = 32`).
-pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutPacket: M>(
-    pre_reduce_time: FMapping,
+pub(crate) fn verify_contract_lane(
+    lane: Mapping,
+    time: Mapping,
+    packet: Mapping,
+    out_time: Mapping,
+    out_packet: Mapping,
+    pre_reduce_time: Mapping,
     kind: LaneMode,
 ) {
     assert!(
-        Packet::SIZE <= TEMPORAL_ACCUMULATOR_COLS,
+        packet.size() <= TEMPORAL_ACCUMULATOR_COLS,
         "contract_lane: Packet::SIZE must be at most {TEMPORAL_ACCUMULATOR_COLS}, got {}",
-        Packet::SIZE
+        packet.size()
     );
     assert_eq!(
-        OutPacket::SIZE,
+        out_packet.size(),
         CONTRACT_LANE_OUT_PACKET_ELEMENTS,
         "contract_lane: OutPacket::SIZE must be {CONTRACT_LANE_OUT_PACKET_ELEMENTS}, got {}",
-        OutPacket::SIZE
+        out_packet.size()
     );
 
-    let time = Time::to_value().factorize();
-    let packet = Packet::to_value().factorize().remove_padding();
-    let out_time = OutTime::to_value().factorize();
-    let out_packet = OutPacket::to_value().factorize();
+    let lane_size = lane.size();
+    let packet = packet.remove_padding();
 
     // Determine `outer_time` and `packet_outer_size` based on contraction kind.
     // `packet_outer_size` is 1 for Interleaved (no packet split into OutTime),
@@ -90,7 +100,8 @@ pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutP
     let (outer_time, packet_outer_size) = match kind {
         LaneMode::Interleaved => {
             // `OutPacket = [Lane # 8]`
-            let expected_out_packet = Lane::to_value().factorize().pad(CONTRACT_LANE_OUT_PACKET_ELEMENTS);
+            let expected_out_packet = lane.replace_padding(CONTRACT_LANE_OUT_PACKET_ELEMENTS).normalize();
+            let out_packet = out_packet.normalize();
             assert_eq!(
                 out_packet, expected_out_packet,
                 "contract_lane ({kind}): OutPacket mismatch. Expected: {expected_out_packet}, got: {out_packet}"
@@ -100,7 +111,7 @@ pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutP
             // Search for the `Packet / Time` boundary.
             let outer_time = (1..=out_time.size().min(packet.size()).min(TEMPORAL_ACCUMULATOR_COLS))
                 .filter(|&split| {
-                    out_time.size() % split == 0
+                    out_time.size().is_multiple_of(split)
                         // If `packet` is not the identity mapping, require it
                         // to be present in `OutTime`.
                         && (split > 1 || packet.size() == 1)
@@ -108,10 +119,10 @@ pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutP
                         && out_time.size() / split <= time.size()
                 })
                 .find_map(|split| {
-                    let Tuple2(outer_time, sliced_packet) = out_time.split_at(split);
+                    let (outer_time, sliced_packet) = out_time.split_at(split);
 
                     // Slicing may only remove padding.
-                    if sliced_packet != packet {
+                    if sliced_packet.normalize() != packet.clone().normalize() {
                         return None;
                     }
 
@@ -136,21 +147,23 @@ pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutP
             // - `packet_outer`                                             : absorbed into `OutTime`
             let padded = packet
                 .clone()
-                .pad(align_up(packet.size(), CONTRACT_LANE_OUT_PACKET_ELEMENTS));
-            let Tuple2(packet_outer, packet_inner) = padded.split_at(CONTRACT_LANE_OUT_PACKET_ELEMENTS);
+                .replace_padding(align_up(packet.size(), CONTRACT_LANE_OUT_PACKET_ELEMENTS));
+            let (packet_outer, packet_inner) = padded.split_at(CONTRACT_LANE_OUT_PACKET_ELEMENTS);
             let packet_outer_size = packet_outer.size();
 
             // `OutPacket = [packet_inner # CONTRACT_LANE_OUT_PACKET_ELEMENTS]`.
             assert_eq!(
-                packet_inner, out_packet,
+                packet_inner.clone().normalize(),
+                out_packet.normalize(),
                 "contract_lane ({kind}): OutPacket mismatch. Expected: {packet_inner}, got: {out_packet}"
             );
 
             // `OutTime` ends with `[Lane, packet_outer]`
-            let lane_packet = Lane::to_value().factorize().mul(packet_outer);
-            let Tuple2(outer_time, inner_time) = out_time.split_at(lane_packet.size());
+            let lane_packet = lane.pair(packet_outer);
+            let (outer_time, inner_time) = out_time.split_at(lane_packet.size());
             assert_eq!(
-                inner_time, lane_packet,
+                inner_time.normalize(),
+                lane_packet.clone().normalize(),
                 "contract_lane ({kind}): OutTime mismatch. Expected {lane_packet}, got {inner_time}"
             );
 
@@ -162,7 +175,8 @@ pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutP
     // `OutTime` must equal `Time` exactly (order and padding both already enforced by
     // `contract_time`).
     assert_eq!(
-        outer_time, time,
+        outer_time.normalize(),
+        time.clone().normalize(),
         "contract_lane ({kind}): OutTime mismatch. Outer portion of OutTime must equal Time: \
          expected {time}, got {outer_time}"
     );
@@ -170,41 +184,16 @@ pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutP
     // Recover the cross-stage `inner_time` (axes inner to the outermost reduce performed
     // by `contract_time`) by dividing `pre_reduce_time` (captured at the `contract_time`
     // call site) by the post-reduce `time`.
-    let division = pre_reduce_time
-        .clone()
-        .divide(time.clone())
-        .exact_checked()
-        .unwrap_or_else(|_| {
-            panic!("contract_lane ({kind}): inconsistent pre/post reduce Time: {pre_reduce_time}, {time}")
-        });
-    let division_terms = &division.division_terms;
+    let division_terms = config_divide_exact(&pre_reduce_time, &time).unwrap_or_else(|_| {
+        panic!("contract_lane ({kind}): inconsistent pre/post reduce Time: {pre_reduce_time}, {time}")
+    });
 
-    // Build `cumulative_stride : padding_per_stride` table for each term in `pre_reduce_time`.
+    // The padded extent of each `pre_reduce_time` axis at its cumulative stride.
     // `m![A # 8, B # 4]` with `axes![A = 4, B = 2]` -> { 1: 8, 8: 4 }
-    let mut time_padding_per_stride: HashMap<usize, usize> = HashMap::new();
-    let factors = pre_reduce_time.factors();
-    let mut stride = 1;
-    for (i, factor) in factors.iter().enumerate() {
-        match factor {
-            Factor::Term { resize, .. } => {
-                time_padding_per_stride.insert(
-                    stride,
-                    if let Some(Factor::Padding { size, .. }) = factors.get(i + 1) {
-                        size / stride
-                    } else {
-                        *resize
-                    },
-                );
-                stride *= resize;
-            }
-            Factor::Padding { size, .. } => {
-                stride = *size;
-            }
-        }
-    }
+    let time_padding_per_stride = padding_per_stride(&pre_reduce_time);
 
     // Calculate axis size inner to outermost reduce.
-    let padding_end = |d: &DivisionTerm| {
+    let padding_end = |d: &DivideTerm| {
         d.dividend_stride
             * time_padding_per_stride
                 .get(&d.dividend_stride)
@@ -239,7 +228,7 @@ pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutP
             );
         }
         LaneMode::Sequential => {
-            let buffer = inner_time * Lane::SIZE * packet_outer_size;
+            let buffer = inner_time * lane_size * packet_outer_size;
             assert!(
                 buffer <= 1024 / TEMPORAL_ACCUMULATOR_COLS,
                 "contract_lane ({}): axes inner to reduce must be <= {} in size, got {}",
@@ -251,14 +240,6 @@ pub(crate) fn verify_contract_lane<Lane: M, Time: M, Packet: M, OutTime: M, OutP
     }
 }
 
-/// Test helper: simulates the `contract_time` → `contract_lane` chain by
-/// capturing `Time::to_value().factorize()` as `pre_reduce_time` and forwarding
-/// to `verify_contract_lane`.
-#[cfg(test)]
-fn vcl<Lane: M, Time: M, Packet: M, OutTime: M, OutPacket: M>(kind: LaneMode) {
-    verify_contract_lane::<Lane, Time, Packet, OutTime, OutPacket>(Time::to_value().factorize(), kind);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,15 +248,25 @@ mod tests {
 
     mod out_packet_size {
         use super::*;
+        use furiosa_mapping::M as _;
 
         #[test]
         fn valid() {
-            vcl::<m![1], m![A], m![1], m![A], m![1 # 8]>(LaneMode::Interleaved);
+            verify_contract_lane(
+                <m![1]>::to_value(),
+                <m![A]>::to_value(),
+                <m![1]>::to_value(),
+                <m![A]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![A]>::to_value(),
+                LaneMode::Interleaved,
+            );
         }
     }
 
     mod interleaved {
         use super::*;
+        use furiosa_mapping::M as _;
 
         // For tests that performed reduction in the old monolithic `verify_accumulate`,
         // the new test passes `Time` = post-`contract_time` time (i.e., the retained
@@ -284,78 +275,183 @@ mod tests {
         #[test]
         fn valid() {
             // Old: Time=[A,B], OutTime=[B] (reduced A). New post-reduce time=[B].
-            vcl::<m![1], m![B], m![1], m![B], m![1 # 8]>(LaneMode::Interleaved);
+            verify_contract_lane(
+                <m![1]>::to_value(),
+                <m![B]>::to_value(),
+                <m![1]>::to_value(),
+                <m![B]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![B]>::to_value(),
+                LaneMode::Interleaved,
+            );
         }
 
         #[test]
         fn valid_padding() {
             // Old: Time=[A#8,B#4], OutTime=[B#4] (reduced A#8). post=[B#4].
-            vcl::<m![1], m![B # 4], m![1], m![B # 4], m![1 # 8]>(LaneMode::Interleaved);
+            verify_contract_lane(
+                <m![1]>::to_value(),
+                <m![B # 4]>::to_value(),
+                <m![1]>::to_value(),
+                <m![B # 4]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![B # 4]>::to_value(),
+                LaneMode::Interleaved,
+            );
         }
 
         #[test]
         fn valid_no_reduction_with_padding() {
             // No reduction: post=pre.
-            vcl::<m![1], m![A # 8, B], m![D], m![A # 8, B, D], m![1 # 8]>(LaneMode::Interleaved);
+            verify_contract_lane(
+                <m![1]>::to_value(),
+                <m![A # 8, B]>::to_value(),
+                <m![D]>::to_value(),
+                <m![A # 8, B, D]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![A # 8, B]>::to_value(),
+                LaneMode::Interleaved,
+            );
         }
 
         #[test]
         fn valid_non_outermost() {
             // Old: Time=[C,A,B], OutTime=[C,B] (reduced A). post=[C,B].
-            vcl::<m![N], m![C, B], m![1], m![C, B], m![N]>(LaneMode::Interleaved);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![C, B]>::to_value(),
+                <m![1]>::to_value(),
+                <m![C, B]>::to_value(),
+                <m![N]>::to_value(),
+                <m![C, B]>::to_value(),
+                LaneMode::Interleaved,
+            );
         }
 
         #[test]
         fn valid_four_rows() {
-            vcl::<m![M], m![C, B], m![1], m![C, B], m![M # 8]>(LaneMode::Interleaved);
+            verify_contract_lane(
+                <m![M]>::to_value(),
+                <m![C, B]>::to_value(),
+                <m![1]>::to_value(),
+                <m![C, B]>::to_value(),
+                <m![M # 8]>::to_value(),
+                <m![C, B]>::to_value(),
+                LaneMode::Interleaved,
+            );
         }
 
         #[test]
         fn valid_all_time_reduced() {
             // Old: Time=[A], OutTime=[1] (all reduced). post=[1].
-            vcl::<m![N], m![1], m![1], m![1], m![N]>(LaneMode::Interleaved);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![1]>::to_value(),
+                <m![1]>::to_value(),
+                <m![1]>::to_value(),
+                <m![N]>::to_value(),
+                <m![1]>::to_value(),
+                LaneMode::Interleaved,
+            );
         }
     }
 
     mod sequential {
         use super::*;
+        use furiosa_mapping::M as _;
 
         #[test]
         fn valid() {
             // Old: Time=[A,B], OutTime=[B,N]. Reduced A. post=[B].
-            vcl::<m![N], m![B], m![1], m![B, N], m![1 # 8]>(LaneMode::Sequential);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![B]>::to_value(),
+                <m![1]>::to_value(),
+                <m![B, N]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![B]>::to_value(),
+                LaneMode::Sequential,
+            );
         }
 
         #[test]
         fn valid_padded_row() {
-            vcl::<m![N], m![B], m![1], m![B, N # 8], m![1 # 8]>(LaneMode::Sequential);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![B]>::to_value(),
+                <m![1]>::to_value(),
+                <m![B, N # 8]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![B]>::to_value(),
+                LaneMode::Sequential,
+            );
         }
 
         #[test]
         fn valid_all_time_reduced() {
-            vcl::<m![N], m![1], m![1], m![N], m![1 # 8]>(LaneMode::Sequential);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![1]>::to_value(),
+                <m![1]>::to_value(),
+                <m![N]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![1]>::to_value(),
+                LaneMode::Sequential,
+            );
         }
 
         #[test]
         fn valid_no_reduction_with_padding() {
-            vcl::<m![N], m![A # 8, B], m![1], m![A # 8, B, N], m![1 # 8]>(LaneMode::Sequential);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![A # 8, B]>::to_value(),
+                <m![1]>::to_value(),
+                <m![A # 8, B, N]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![A # 8, B]>::to_value(),
+                LaneMode::Sequential,
+            );
         }
 
         #[test]
         fn valid_padded_packet() {
-            vcl::<m![N], m![M], m![B], m![M, N], m![B # 8]>(LaneMode::Sequential);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![M]>::to_value(),
+                <m![B]>::to_value(),
+                <m![M, N]>::to_value(),
+                <m![B # 8]>::to_value(),
+                <m![M]>::to_value(),
+                LaneMode::Sequential,
+            );
         }
 
         #[test]
         fn valid_full_temporal_reduction() {
             // Old: Time=[M], OutTime=[N,D/8] - all M reduced, post=[1].
-            vcl::<m![N], m![1], m![D], m![N, D / 8], m![D % 8]>(LaneMode::Sequential);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![1]>::to_value(),
+                <m![D]>::to_value(),
+                <m![N, D / 8]>::to_value(),
+                <m![D % 8]>::to_value(),
+                <m![1]>::to_value(),
+                LaneMode::Sequential,
+            );
         }
 
         #[test]
         fn valid_multi_axis_reduction() {
             // Reduce A and C. post=[B].
-            vcl::<m![N], m![B], m![1], m![B, N], m![1 # 8]>(LaneMode::Sequential);
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![B]>::to_value(),
+                <m![1]>::to_value(),
+                <m![B, N]>::to_value(),
+                <m![1 # 8]>::to_value(),
+                <m![B]>::to_value(),
+                LaneMode::Sequential,
+            );
         }
     }
 }

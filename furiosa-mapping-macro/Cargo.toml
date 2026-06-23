@@ -1,6 +1,6 @@
 [package]
 name = "furiosa-mapping-macro"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/furiosa-ai/furiosa-opt"
@@ -17,6 +17,3 @@ syn = { workspace = true }
 
 [build-dependencies]
 lalrpop = { workspace = true }
-
-[dev-dependencies]
-furiosa-mapping = { path = "../furiosa-mapping", version = "0.2" }

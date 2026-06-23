@@ -1,22 +1,20 @@
 //! Commit Engine: Tensor Unit stream to DM.
 //!
-//! Drains any flit-normalized `TuTensor` (positions starting from
-//! [`super::collect::PositionCollect`]) into a [`DmTensor`] (or into an
-//! existing mutable view).
+//! Drains a post-Commit-Adapter `TuTensor` (from `commit_trim` onwards) into a
+//! [`DmTensor`] (or an existing mutable view). `verify_commit` synthesizes the
+//! write sequencer with `SMapping::sequence` (Write), the dual of the fetch read.
 
-use abi_stable::std_types::Tuple2;
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
+use furiosa_opt_lower::config_commit;
+
 use crate::context::*;
-use crate::engine::{CanApplyCommit, FLIT_BYTES, exact_div};
+use crate::engine::CanApplyCommit;
 use crate::runtime::Backend;
 use crate::scalar::*;
 use crate::tensor::memory::{Address, DmTensor, DmTensorViewMut};
 use crate::tensor::tu::TuTensor;
-
-/// Valid output packet sizes for the commit engine in bytes.
-const COMMIT_OUT_PACKET_SIZES: [usize; 4] = [8, 16, 24, 32];
 
 // ANCHOR: commit_impl
 impl<'l, const T: Tu, P: CanApplyCommit, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
@@ -38,101 +36,55 @@ impl<'l, const T: Tu, P: CanApplyCommit, D: Scalar, Chip: M, Cluster: M, Slice: 
 }
 // ANCHOR_END: commit_impl
 
-/// Verifies commit engine constraints.
-///
-/// Constraints checked:
-/// 1. Input packet must be exactly one flit (32 bytes).
-/// 2. Output packet must be 8, 16, 24, or 32 bytes.
-/// 3. Truncation may only remove elements from Packet.
-pub(crate) fn verify_commit<D: Scalar, Time: M, Packet: M, Element: M>() {
-    // Input packet must be exactly one flit.
-    let packet_bytes = D::size_in_bytes_from_length(Packet::SIZE);
-    assert_eq!(
-        packet_bytes, FLIT_BYTES,
-        "Commit input packet must be exactly {FLIT_BYTES} bytes (one flit), got {packet_bytes}",
-    );
-
-    // Time can be transposed.
-    let Tuple2(time, packet) = Element::to_value()
-        .factorize()
-        .split_at(exact_div(Element::SIZE, Time::SIZE).expect("Commit element size does not divide time size"));
-    let input_time = Time::to_value().factorize().normalize();
-    if input_time.clone().divide(time.clone()).exact_checked().is_err()
-        || time.clone().divide(input_time.clone()).exact_checked().is_err()
-    {
-        panic!("Commit output Time ({time}) is not a valid transpose of the input Time ({input_time})");
-    }
-
-    // Output packet must be 8, 16, 24, or 32 bytes.
-    let out_packet_elements = Element::SIZE / Time::SIZE;
-    let out_packet_bytes = D::size_in_bytes_from_length(out_packet_elements);
-    assert!(
-        COMMIT_OUT_PACKET_SIZES.contains(&out_packet_bytes),
-        "Commit output packet must be one of {COMMIT_OUT_PACKET_SIZES:?} bytes, got {out_packet_bytes}",
-    );
-
-    // The resulting packet can be a slice of Packet by `commit_in_size`.
-    let expected_packet = Packet::to_value().factorize();
-    assert!(
-        packet.is_resize_of(&expected_packet),
-        "Commit packet mismatch. Expected {expected_packet} or a truncation of it, got {packet}",
-    );
+/// Validates the Commit engine and synthesizes the write config via [`config_commit`], panicking
+/// with the commit error on failure. The resolved descriptors are not consumed yet, so they're
+/// explicitly discarded. The dual of `verify_fetch`: it writes the time-ordered `(InTime, InPacket)`
+/// stream into the DM `Element` layout.
+pub(crate) fn verify_commit<D: Scalar, InTime: M, InPacket: M, Element: M>() {
+    let _ = config_commit(
+        &InTime::to_value(),
+        &InPacket::to_value(),
+        &Element::to_value(),
+        D::BITS,
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scalar::bf16;
 
-    mod valid {
+    /// Each accepts a commit across an orthogonal phenomenon; the matcher's write synthesis is
+    /// exhaustively tested in `furiosa-mapping-impl`.
+    mod commit_valid {
         use super::*;
 
-        axes![M = 4, N = 8, A = 4, B = 3, C = 4];
+        axes![N = 8, A = 4, B = 3, C = 4];
 
+        /// Full trim, then a clean multi-axis commit.
         #[test]
-        fn full_truncation() {
-            verify_commit::<i8, m![A, B, C], m![N # 32], m![A, B, C, N]>();
+        fn full_trim_then_commit() {
+            verify_commit::<i8, m![A, B, C], m![N], m![A, B, C, N]>();
         }
 
+        /// Packet keeps trailing flit padding (partial trim).
         #[test]
-        fn partial_truncation() {
-            verify_commit::<i8, m![M], m![N # 32], m![M, N # 16]>();
+        fn partial_trim_then_commit() {
+            verify_commit::<i8, m![A], m![N # 16], m![A, N # 16]>();
         }
 
-        #[test]
-        fn no_truncation() {
-            verify_commit::<i8, m![M], m![N # 32], m![M, N # 32]>();
-        }
-
-        #[test]
-        fn bf16() {
-            verify_commit::<bf16, m![M], m![N # 16], m![M, N]>();
-        }
-
-        #[test]
-        fn f32() {
-            verify_commit::<f32, m![M], m![N # 8], m![M, N]>();
-        }
-
-        #[test]
-        fn single_time_step() {
-            verify_commit::<i8, m![1], m![N # 32], m![N # 8]>();
-        }
-
-        #[test]
-        fn non_padding_resize() {
-            verify_commit::<bf16, m![1], m![N # 16], m![N = 4]>();
-        }
-
+        /// Time axes are transposed across the commit.
         #[test]
         fn time_transpose() {
-            verify_commit::<bf16, m![A # 32, B], m![N # 16], m![B, A # 32, N = 4]>();
+            verify_commit::<i8, m![A # 32, B], m![N], m![B, A # 32, N]>();
         }
-    }
 
-    mod invalid {
-        use super::*;
-
-        axes![M = 4, N = 8, X = 8, Y = 4, Z = 2];
+        /// The stream emits the live block four times (`1#2 ⋈ 1#2`); overlapping
+        /// dummy writes collapse onto the DM's smaller dummy region — realizable
+        /// even though an injective placement could not fit.
+        #[test]
+        fn interleaved_time_padding_overlaps_into_dm_padding() {
+            verify_commit::<i8, m![1 # 2, A, 1 # 2], m![N], m![A, 1 # 3, N]>();
+        }
     }
 }

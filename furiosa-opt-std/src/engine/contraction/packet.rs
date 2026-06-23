@@ -70,14 +70,13 @@ pub(crate) fn verify_contract_packet<D: Scalar, Packet: M, OutPacket: M>() {
         OutPacket::SIZE
     );
 
-    let packet = Packet::to_value().factorize();
-    let out_packet = OutPacket::to_value().factorize().remove_padding();
+    let packet = Packet::to_value();
+    let out_packet = OutPacket::to_value().remove_padding().normalize();
 
     assert!(
         (0..=Packet::SIZE.trailing_zeros()).rev().any(|depth| {
             let split = 1 << depth;
-            let outer = packet.clone().stride(split);
-            outer.remove_padding() == out_packet.clone()
+            packet.clone().split_at(split).0.remove_padding().normalize() == out_packet
         }),
         "OutPacket {out_packet} is not a valid contraction of Packet {packet}",
     );

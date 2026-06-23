@@ -5,10 +5,6 @@ use safetensors::SafeTensors;
 const MNIST: &[u8] = include_bytes!("../data/mnist/mnist.safetensors");
 
 #[tokio::test]
-#[cfg_attr(
-    not(backend = "npu"),
-    ignore = "fc1_bias_prepared's reshape-around-padding trips CPU-sim verify_transpose; run via `cargo furiosa-opt test`"
-)]
 async fn test_mnist() {
     let model = SafeTensors::deserialize(MNIST).unwrap();
     let mut ctx = Context::acquire();

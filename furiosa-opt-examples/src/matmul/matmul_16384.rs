@@ -19,13 +19,14 @@ fn contraction_over_b_2048(
     let lhs: DmTensor<i8, Chip, Cluster, m![A / 2048, B / 64 % 32], m![A % 2048, B % 64]> = ctx
         .main
         .begin(lhs.view())
-        .fetch::<i8, m![A % 64, B / 32 % 64], m![B % 32]>()
+        .fetch::<m![A % 64, B / 32 % 64], m![B % 32]>()
         .switch::<m![A / 2048, B / 64 % 32], m![A % 64, B / 32 % 2, A / 64 % 32]>(SwitchConfig::InterTranspose {
             slice1: 32,
             slice0: 1,
             time0: 2,
         })
         .collect::<m![A % 64, B / 32 % 2, A / 64 % 32], m![B % 32]>()
+        .commit_trim::<m![B % 32]>()
         .commit(128 * 1024);
 
     // Load rhs into TRF.
@@ -34,33 +35,36 @@ fn contraction_over_b_2048(
     let rhs = ctx
         .main
         .begin(rhs.view())
-        .fetch::<i8, m![B % 8, C / 32 % 16], m![C % 32]>()
+        .fetch::<m![B % 8, C / 32 % 16], m![C % 32]>()
+        .fetch_cast::<i8>()
         // Custom broadcast needed. TODO: custom broadcast needs custom bitmap, which needs DMA/subcontext stosfr..
         .switch::<m![A / 2048, B / 64 % 32], m![B % 8, C / 32 % 16, B / 8 % 8]>(SwitchConfig::CustomBroadcast {
             ring_size: 256,
         })
         .collect::<m![B % 8, C / 32 % 16, B / 8 % 8], m![C % 32]>()
+        .commit_trim::<m![C % 32]>()
         .commit::<m![B % 64, C % 512]>(260 * 1024);
     // second TensorUnit execution: apply TransposeEngine to match Element shape
     let rhs: DmTensor<i8, Chip, Cluster, m![A / 2048, B / 64 % 32], m![C % 512, B % 64]> = ctx
         .main
         .begin(rhs.view())
-        .fetch::<i8, m![C / 8 % 64, B % 64], m![C % 8]>()
+        .fetch::<m![C / 8 % 64, B % 64], m![C % 8]>()
         .collect::<m![C / 8 % 64, B % 64], m![C % 8 # 32]>()
         .transpose::<m![C / 8 % 64, B / 8 % 8, C % 8], m![B % 8 # 32]>()
-        .commit::<m![C % 512, B % 64]>(292 * 1024);
+        .commit_trim::<m![B % 8 # 32]>()
+        .commit(292 * 1024);
     // Loading into TRF. TRF is 64KB per slice, 32KB when using half mode.
     let rhs: TrfTensor<i8, Chip, Cluster, m![A / 2048, B / 64 % 32], m![C / 64 % 8], m![C % 64, B % 64]> = ctx
         .sub
         .begin(rhs.view())
-        .fetch::<i8, m![C % 512], m![B % 64]>()
+        .fetch::<m![C % 512], m![B % 64]>()
         .collect::<m![C % 512, B % 64 / 32], m![B % 32]>()
         .to_trf(TrfAddress::Full);
 
     // Perform contraction.
     ctx.main
         .begin(lhs.view())
-        .fetch::<i8, m![C % 64, A % 2048, B / 32 % 2], m![B % 32]>()
+        .fetch::<m![C % 64, A % 2048, B / 32 % 2], m![B % 32]>()
         .collect::<m![C % 64, A % 2048, B / 32 % 2], m![B % 32]>()
         .contract_outer::<m![C % 64, A % 2048], m![B % 64], _, _>(&rhs)
         .contract_packet::<m![1]>()
@@ -71,6 +75,7 @@ fn contraction_over_b_2048(
         .vector_inter_slice_reduce::<m![A / 2048, X], m![C % 64, A % 2048]>(InterSliceReduceOpI32::Add)
         .vector_final()
         .cast::<i8, m![C / 64 % 8 # 32]>()
+        .commit_trim::<m![C / 64 % 8 # 32]>()
         .commit_view(out);
 }
 
@@ -83,7 +88,8 @@ fn add_split_contractions(
 ) {
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(rhs.view(), lhs.view())
-        .fetch::<i32, m![C % 64, A % 2048, I], m![C / 64 % 8]>()
+        .fetch::<m![C % 64, A % 2048, I], m![C / 64 % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![C % 64, A % 2048, I], m![C / 64 % 8]>()
         // rhs will have Group 0, lhs will have Group 1
         // I=2 axis is reduced by binary add in VE
@@ -93,6 +99,7 @@ fn add_split_contractions(
         // After vector_clip_zip, result is implicitly filtered to Group 1 only
         .vector_final()
         .cast::<i8, m![C / 64 % 8 # 32]>()
+        .commit_trim::<m![C / 64 % 8 # 32]>()
         .commit_view(out)
 }
 
@@ -137,7 +144,8 @@ fn reduce_over_cluster(
 
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sliced0.view(), shuffled1.view())
-        .fetch::<i32, m![C % 32, A % 2048, I], m![C / 64 % 8]>()
+        .fetch::<m![C % 32, A % 2048, I], m![C / 64 % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![C % 32, A % 2048, I], m![C / 64 % 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![C % 32, A % 2048, 1 # 2], m![C % 32, A % 2048]>()
@@ -145,6 +153,7 @@ fn reduce_over_cluster(
         // After vector_clip_zip, result is implicitly filtered to Group 1 only
         .vector_final()
         .cast::<i8, m![C / 64 % 8 # 32]>()
+        .commit_trim::<m![C / 64 % 8 # 32]>()
         .commit_view(reduced.view_mut());
 
     let reshaped: DmTensor<i8, Chip, m![C / 32 % 2], m![A / 2048, X], m![C % 32, A % 2048, C / 64 % 8]> =

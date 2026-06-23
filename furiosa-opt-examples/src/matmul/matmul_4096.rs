@@ -19,14 +19,14 @@ pub fn matmul_4096(
     let rhs: TrfTensor<i8, Chip, Cluster, m![A / 1024 % 2, B / 32], m![1], m![B % 32]> = ctx
         .sub
         .begin(rhs.view())
-        .fetch::<i8, m![1], m![B % 32]>()
+        .fetch::<m![1], m![B % 32]>()
         .collect::<m![1], m![B % 32]>()
         .to_trf(TrfAddress::Full);
 
     let matmul_result: DmTensor<i8, Chip, Cluster, m![A / 1024 % 2, X], m![A / 2 % 512, A % 2 # 8]> = ctx
         .main
         .begin(lhs.view())
-        .fetch::<i8, m![A % 1024], m![B % 32]>()
+        .fetch::<m![A % 1024], m![B % 32]>()
         .collect::<m![A % 1024], m![B % 32]>()
         .contract_outer::<m![A / 2 % 512], m![A % 2, B % 32], _, _>(&rhs)
         .contract_packet::<m![A % 2]>()
@@ -36,6 +36,7 @@ pub fn matmul_4096(
         .vector_inter_slice_reduce::<m![A / 1024 % 2, X], m![A / 2 % 512]>(InterSliceReduceOpI32::Add)
         .vector_final()
         .cast::<i8, m![A % 2 # 32]>()
+        .commit_trim::<m![A % 2 # 8]>()
         .commit(0);
 
     // write back to HBM.

@@ -2,6 +2,7 @@
 
 The Cast Engine narrows `f32`/`i32` pipeline results to lower-precision types (e.g., `bf16`) before the [Commit Engine](../moving-tensors/commit-engine.md) writes them to DM, reducing storage cost.
 
+
 ## Interface
 
 `CollectTensor`, `ContractTensor`, and `VectorFinalTensor` all expose `.cast()` with the same semantics.

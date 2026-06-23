@@ -107,11 +107,11 @@ async fn test_matmul_with_split_reduce() {
     assert_eq!(expected.to_buf(), out.to_host::<m![A]>(&mut ctx.pdma).await.to_buf());
 }
 
+// `to_buf_opt` is a Simulation/Typecheck-only host-side `Opt<D>` view, so this
+// body can't even compile on npu. `cfg_attr(.., ignore)` is only a runtime skip,
+// so it wouldn't help — compile the whole test out on npu instead.
+#[cfg(not(backend = "npu"))]
 #[tokio::test]
-#[cfg_attr(
-    backend = "npu",
-    ignore = "TODO: HostTensor::rand / Tensor::contraction / to_buf_opt not implemented for Npu BufRawTensor"
-)]
 async fn test_matmul_with_split_reduce2() {
     use furiosa_opt_examples::matmul::matmul_split_reduce2::{K, M, N};
 

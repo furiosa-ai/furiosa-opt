@@ -133,7 +133,7 @@ The DMA request stalls, and if this exceeds 4,096 cycles, a NoC timeout forces a
     Worst case: total time = main-context time + sub-context time.
     Ideal case: main and sub access different banks, achieving total time = max(main-context time, sub-context time).
 
-See [Schedule Viewer](../introduction.md#schedule-viewer) for a scheduling visualization utility that shows which operations run in parallel and verifies actual context assignments.
+See [Schedule Viewer](../appendix/schedule-viewer.md) for a scheduling visualization utility that shows which operations run in parallel and verifies actual context assignments.
 
 
 ## Scratchpad Memory (SPM)

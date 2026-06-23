@@ -124,16 +124,10 @@ pub fn axes(input: TokenStream) -> TokenStream {
 /// assert_eq!(AB::SIZE, 2048);
 /// ```
 ///
+/// A bare integer `m![N]` is a size-`N` broadcast axis (`m![1]` is the
+/// identity).
+///
 /// ## Compile Diagnostics
-///
-/// Bare integer literals other than `1` are rejected.
-/// Declare a named axis with `axes![NAME = N]` and use `m![NAME]`.
-///
-/// ```compile_fail
-/// # use furiosa_mapping::*;
-/// // This fails to compile
-/// type _T = m![64];
-/// ```
 ///
 /// Invalid comma placement is rejected.
 ///

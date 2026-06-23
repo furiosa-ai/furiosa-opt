@@ -1,4 +1,8 @@
 fn main() {
+    link_furiosa_mapping_impl();
+}
+
+fn link_furiosa_mapping_impl() {
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let impl_target_dir = out_dir.join("furiosa-mapping-impl-target");
 
@@ -32,7 +36,8 @@ fn main() {
             .unwrap_or_else(|_| format!("v{}", std::env::var("CARGO_PKG_VERSION").unwrap()));
         let asset_name = format!("lib{lib_name}-{version}-{target}.a");
         let licenses_name = format!("lib{lib_name}-{version}-{target}.LICENSES.txt");
-        let base = format!("https://github.com/furiosa-ai/furiosa-opt/releases/download/{version}");
+        let repo = std::env::var("FURIOSA_OPT_GITHUB_REPO").unwrap_or("furiosa-ai/furiosa-opt".to_string());
+        let base = format!("https://github.com/{repo}/releases/download/{version}");
         let asset_url = format!("{base}/{asset_name}");
         let licenses_url = format!("{base}/{licenses_name}");
         let sums_url = format!("{base}/SHA256SUMS");
@@ -65,12 +70,15 @@ fn main() {
     // Emit unconditionally so the rerun policy matches across private
     // and public trees, avoiding stale-cache surprises on tree switch.
     println!("cargo:rerun-if-env-changed=FURIOSA_MAPPING_IMPL_VERSION");
+    println!("cargo:rerun-if-env-changed=FURIOSA_OPT_GITHUB_REPO");
 }
 
+// Duplicated in `furiosa-opt-lower/build.rs`: a shared helper crate would have to
+// be published ahead of these registry crates. Keep the two copies in sync.
 #[allow(dead_code)]
 fn verify_attestation(sums: &std::path::Path) {
     let status = std::process::Command::new("gh")
-        .args(["attestation", "verify", "--repo", "furiosa-ai/furiosa-opt"])
+        .args(["attestation", "verify", "--owner", "furiosa-ai"])
         .arg(sums)
         .status()
         .unwrap_or_else(|e| {

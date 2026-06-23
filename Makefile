@@ -2,6 +2,12 @@
 
 DOCS_DIR := docs
 
+# mdbook invokes rustdoc from a temp dir, so the rustup shim there can't see
+# rust-toolchain.toml and falls back to the default toolchain (often stable).
+# Pin RUSTUP_TOOLCHAIN to the channel parsed from rust-toolchain.toml so book
+# doctests compile with the same nightly as `cargo test`.
+RUST_TOOLCHAIN_CHANNEL := $(shell sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+
 help:
 	@echo "Available commands:"
 	@echo "  make check          - Run cargo check"
@@ -34,7 +40,7 @@ mdbook-install:
 	mdbook-mermaid install $(DOCS_DIR)
 
 mdbook-serve:
-	rustup run nightly-2026-05-01 mdbook serve $(DOCS_DIR) --hostname 0.0.0.0 --open
+	mdbook serve $(DOCS_DIR) --hostname 0.0.0.0 --open
 
 mdbook-build:
 	mdbook build $(DOCS_DIR)
@@ -42,14 +48,17 @@ mdbook-build:
 test-no-run:
 	cargo test --workspace --release --no-run
 
-mdbook-test: test-no-run
-	rustup run nightly-2026-05-01 mdbook test $(DOCS_DIR) -L target/release/deps/
+mdbook-test: export RUSTUP_TOOLCHAIN = $(RUST_TOOLCHAIN_CHANNEL)
+mdbook-test: export CARGO_TARGET_DIR = target/mdbook-test
+mdbook-test:
+	cargo test -p furiosa-opt-std --release --no-run
+	mdbook test $(DOCS_DIR) -L $(CARGO_TARGET_DIR)/release/deps/
 
+mdbook-test-typecheck: export RUSTUP_TOOLCHAIN = $(RUST_TOOLCHAIN_CHANNEL)
+mdbook-test-typecheck: export CARGO_TARGET_DIR = target/typecheck
 mdbook-test-typecheck:
-	CARGO_TARGET_DIR=target/typecheck \
-	  cargo furiosa-opt --backend typecheck test --workspace --release --no-run
-	RUSTFLAGS='--cfg backend="typecheck"' rustup run nightly-2026-05-01 \
-	  mdbook test $(DOCS_DIR) -L target/typecheck/release/deps/
+	cargo furiosa-opt --backend typecheck test -p furiosa-opt-std --release --no-run
+	RUSTFLAGS='--cfg backend="typecheck"' mdbook test $(DOCS_DIR) -L $(CARGO_TARGET_DIR)/release/deps/
 
 test: test-no-run
 	cargo test --workspace --release

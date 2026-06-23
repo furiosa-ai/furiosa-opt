@@ -24,18 +24,20 @@ pub fn matmul_chip_reduce(
     let rhs_broadcasted: DmTensor<i8, Chip, Cluster, m![A / 4], m![C / 4, C % 4 # 8]> = ctx
         .main
         .begin(rhs.view())
-        .fetch::<i8, m![1], m![C % 4 # 8]>()
+        .fetch::<m![1], m![C % 4 # 8]>()
         .switch::<m![A / 4], m![C / 4]>(SwitchConfig::Broadcast01 {
             slice1: 256,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![C / 4], m![C % 4 # 32]>()
+        .commit_trim::<m![C % 4 # 8]>()
         .commit(0);
     let rhs_vrf: VrfTensor<i32, Chip, Cluster, m![A / 4], m![C / 4, C % 4 # 8]> = ctx
         .sub
         .begin(rhs_broadcasted.view())
-        .fetch::<i32, m![C / 4], m![C % 4 # 8]>()
+        .fetch::<m![C / 4], m![C % 4 # 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![C / 4], m![C % 4 # 8]>()
         .to_vrf(0);
 
@@ -45,12 +47,14 @@ pub fn matmul_chip_reduce(
     let mul_result: DmTensor<i32, Chip, Cluster, m![A / 4], m![C, A % 4 # 8]> = ctx
         .main
         .begin(lhs.view())
-        .fetch::<i32, m![C / 4, C % 4], m![A % 4]>()
+        .fetch::<m![C / 4, C % 4], m![A % 4]>()
+        .fetch_cast::<i32>()
         .collect::<m![C / 4, C % 4], m![A % 4 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         .vector_fxp(FxpBinaryOp::MulInt, &rhs_vrf)
         .vector_final()
+        .commit_trim::<m![A % 4 # 8]>()
         .commit(0);
 
     // Now reduce over the Chip dimension using ReduceScatter pattern (for 4 chips)
@@ -124,25 +128,29 @@ fn reduce_over_chip(
     // Add T0 + T1
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sliced0.view(), shuffled1.view())
-        .fetch::<i32, m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![C / 8, C % 2, 1 # 2], m![C / 8, C % 2]>()
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         // After vector_clip_zip, result is implicitly filtered to Group 1 only
         .vector_final()
+        .commit_trim::<m![A % 4 # 8]>()
         .commit_view(sum01.view_mut());
 
     // Add (TO + T1) + T2
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sum01.view(), shuffled2.view())
-        .fetch::<i32, m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![C / 8, C % 2, 1 # 2], m![C / 8, C % 2]>()
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         // After vector_clip_zip, result is implicitly filtered to Group 1 only
         .vector_final()
+        .commit_trim::<m![A % 4 # 8]>()
         .commit_view(sum012.view_mut());
 
     // Stage 2: Add ((T0 + T1) + T2) + T3 to get final result
@@ -151,7 +159,8 @@ fn reduce_over_chip(
 
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sum012.view(), shuffled3.view())
-        .fetch::<i32, m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![C / 8, C % 2, 1 # 2], m![C / 8, C % 2]>()
@@ -159,6 +168,7 @@ fn reduce_over_chip(
         // After vector_clip_zip, result is implicitly filtered to Group 1 only
         .vector_final()
         .cast::<i8, m![A % 4 # 32]>()
+        .commit_trim::<m![A % 4 # 8]>()
         .commit_view(reduced.view_mut());
 
     // Reshape to output format

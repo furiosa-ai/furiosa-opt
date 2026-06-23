@@ -1,0 +1,69 @@
+# {{ project-name }}
+
+TCP Virtual ISA kernel scaffold generated from [furiosa-opt `base-template`](https://github.com/furiosa-ai/furiosa-opt/tree/main/base-template).
+Each kernel ships as a host binary plus a `#[device]` function compiled with `cargo furiosa-opt`.
+
+## Layout
+
+```
+src/
+├── furiosa-opt.tag         # marker the rustc plugin scans for; must sit at src/
+├── lib.rs                  # `pub mod kernel;`
+├── kernel/                 # every #[device] function lives here
+│   ├── mod.rs              # `pub mod {constant_add,...}_kernel;`
+│   └── <name>_kernel.rs    # `#[device] fn constant_add_kernel(...)`
+└── <name>.rs               # host binary that `launch()`es its kernel
+```
+
+## Install cargo-furiosa-opt
+
+First install system prerequisites:
+
+```bash
+sudo apt install libclang-dev gcc-aarch64-linux-gnu
+```
+
+`cargo-furiosa-opt` is ABI-locked to `nightly-2026-05-01`, so run all related cargo commands through that toolchain.
+
+```bash
+rustup toolchain install nightly-2026-05-01
+cargo +nightly-2026-05-01 install cargo-binstall
+cargo +nightly-2026-05-01 binstall cargo-furiosa-opt
+```
+
+### Run a worked example
+
+```bash
+# Host-side simulation (default; no NPU hardware required).
+cargo furiosa-opt run --release --bin gemm
+
+# Mapping/shape verification only — kernel body runs against phantom (empty) tensors.
+cargo furiosa-opt --backend typecheck run --release --bin gemm
+
+# Real NPU dispatch (requires the SDK and a physical NPU; see Installation step 3).
+cargo furiosa-opt --backend npu run --release --bin gemm
+```
+
+### Verify against the reference
+
+```bash
+# Full numeric comparison on simulated values.
+cargo furiosa-opt test --release --bin gemm
+
+# Under typecheck the comparison loop trivially passes: `actual` is the
+# phantom-empty Vec, so the per-element assertion has zero iterations.
+cargo furiosa-opt --backend typecheck test --release --bin gemm
+```
+
+### Add a Kernel
+
+1. Drop `src/kernel/<name>_kernel.rs` with a `#[device(...)] pub fn <name>_kernel(...)`.
+2. Append `pub mod <name>_kernel;` to `src/kernel/mod.rs`.
+3. Add `src/<name>.rs` as the host program that calls `launch(<name>_kernel, ...)`.
+4. Register a matching `[[bin]]` entry in `Cargo.toml` with `path = "src/<name>.rs"`.
+5. Run your kernel with `cargo furiosa-opt run --release --bin <name>`.
+
+## See Also
+
+- [furiosa-opt book](https://developer.furiosa.ai/furiosa-opt/book/quick-start.html) walks the five worked examples shipped in this template.
+- [furiosa-opt-std rustdoc](https://developer.furiosa.ai/furiosa-opt/rustdoc/furiosa_opt_std/) for the API surface.

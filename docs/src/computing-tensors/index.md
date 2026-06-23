@@ -3,12 +3,12 @@
 ## Tensor Unit
 
 The Tensor Unit is the on-chip compute pipeline.
-It reads tensor data from DM, transforms it through eight engines, and writes results back to DM.
+It reads tensor data from DM, transforms it through ten engines, and writes results back to DM.
 
 Each tensor flows through the pipeline as a stream of packets, one packet per cycle.
 The engines consume and produce these streams, reshaping the per-cycle layout and the iteration order along the way.
 The Collect Engine normalizes incoming packets to 32-byte *flits*.
-Every downstream engine ([Contraction](./contraction-engine/index.md), [Vector](./vector-engine/index.md), [Cast](./cast-engine.md), [Transpose](./transpose-engine.md), [Commit](../moving-tensors/commit-engine.md)) operates on these flits.
+Every downstream engine ([Contraction](./contraction-engine/index.md), [Vector](./vector-engine/index.md), [Cast](./cast-engine.md), [Transpose](./transpose-engine.md), [Commit Adapter](./commit-adapter.md), [Commit](../moving-tensors/commit-engine.md)) operates on these flits.
 
 ```mermaid
 flowchart TB
@@ -18,7 +18,7 @@ flowchart TB
 
     subgraph TU[Tensor Unit]
         direction LR
-        FE[Fetch] --> SW[Switching] --> CO[Collect] --> CE[Contraction] --> VE[Vector] --> CA[Cast] --> TR[Transpose] --> CM[Commit]
+        FE[Fetch] --> FA[Fetch Adapter] --> SW[Switching] --> CO[Collect] --> CE[Contraction] --> VE[Vector] --> CA[Cast] --> TR[Transpose] --> CMA[Commit Adapter] --> CM[Commit]
     end
 
     DM --> FE
@@ -27,24 +27,28 @@ flowchart TB
     CO --> VRF --> VE
 
     click FE "../moving-tensors/fetch-engine.html" "Fetch Engine"
+    click FA "./fetch-adapter.html" "Fetch Adapter"
     click SW "./switch-engine.html" "Switch Engine"
     click CO "./collect-engine.html" "Collect Engine"
     click CE "./contraction-engine/index.html" "Contraction Engine"
     click VE "./vector-engine/index.html" "Vector Engine"
     click CA "./cast-engine.html" "Cast Engine"
     click TR "./transpose-engine.html" "Transpose Engine"
+    click CMA "./commit-adapter.html" "Commit Adapter"
     click CM "../moving-tensors/commit-engine.html" "Commit Engine"
 ```
 
 | Engine | Function | Key Constraint |
 |--------|----------|----------------|
 | [Fetch](../moving-tensors/fetch-engine.md) | Load data from DM into the pipeline | Packet must be 8-byte aligned; `Slice` is unchanged |
+| [Fetch Adapter](./fetch-adapter.md) | Per-element transforms after fetch (mask, table lookup, cast) | Optional; identity if skipped |
 | [Switching](./switch-engine.md) | Move data across slices | Ring network, `Slice` can change |
 | [Collect](./collect-engine.md) | Normalize packets to 32-byte flits | Output = exactly one flit |
 | [Contraction](./contraction-engine/index.md) | Einsum: matmul, convolution, attention | One operand resident in TRF; the other streams |
 | [Vector](./vector-engine/index.md) | Elementwise, binary, reduce operations | Only i32/f32 input |
 | [Cast](./cast-engine.md) | Precision lowering with batching | Output = exactly one flit |
 | [Transpose](./transpose-engine.md) | Reorder elements within a flit | Within-flit only |
+| [Commit Adapter](./commit-adapter.md) | Per-element transforms before commit (cast, ReLU, valid count packing, trim) plus the [Generate Mode](./commit-adapter.md#generate-mode) sub-context bypass | Optional; chained before `.commit()` |
 | [Commit](../moving-tensors/commit-engine.md) | Write results back to DM | Flit-aligned writes |
 
 Each tensor stream inside the Tensor Unit carries five dimensions, `[Chip, Cluster, Slice, Time, Packet]`, that split into two groups.
@@ -61,9 +65,9 @@ For an end-to-end example using both files, see [Quick Start](../quick-start.md)
 Fetch reads from DM and Commit writes back to DM.
 Their detailed sequencer behavior is documented in [Moving Tensors](../moving-tensors/index.md) rather than here.
 
-## Scheduling Execution Contexts
+## Execution Context
 
-The [Scheduler](../scheduler.md) treats each *execution context* as an independent stream of operations.
+The [scheduler](../scheduling.md) treats each *execution context* as an independent stream of operations.
 The hardware exposes three:
 
 - **Main** drives the Tensor Unit pipeline for the kernel's primary computation.
@@ -79,7 +83,7 @@ For example, sub prefetches the next operand batch into TRF / VRF while main com
 
 Some Tensor Unit engines form a single unit of scheduling that can be driven by only one context at a time.
 For example, the Vector Engine and the Cast Engine form one such unit of scheduling.
-So when sub is running Vector Engine work, main runs its type casting through [Commit Engine type casting](../moving-tensors/commit-engine.md#type-casting) instead of the Cast Engine, to avoid serializing with sub.
+So when sub is running Vector Engine work, main runs its type casting through the [Commit Adapter's Type Casting stage](./commit-adapter.md#type-casting) instead of the Cast Engine, to avoid serializing with sub.
 
 The scheduler may also assign a Tensor Unit operation to the DMA context defensively when its DM access pattern would otherwise risk a hardware-level memory conflict (see [Memory Performance](../moving-tensors/memory-performance.md) for the rules that trigger this).
 

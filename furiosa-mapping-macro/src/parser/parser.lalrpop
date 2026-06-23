@@ -1,4 +1,5 @@
 use super::{IndexAssignment, Mapping, PaddingKind};
+use crate::parser::lexer::HashFillKind;
 
 grammar;
 
@@ -18,6 +19,7 @@ extern {
         "Percent"  => crate::parser::lexer::Token::Percent,
         "Eq"       => crate::parser::lexer::Token::Eq,
         "Hash"     => crate::parser::lexer::Token::Hash,
+        "HashFill" => crate::parser::lexer::Token::HashFill(<crate::parser::lexer::HashFillKind>),
         "Comma"    => crate::parser::lexer::Token::Comma,
         "Colon"    => crate::parser::lexer::Token::Colon,
 
@@ -51,18 +53,29 @@ Mapping1: Mapping = {
         padding: value,
         kind: PaddingKind::Top,
     },
+    <left:Mapping1> <fill:"HashFill"> <value:Nat> =>? match fill {
+        HashFillKind::Star => Ok(Mapping::Padding {
+            inner: Box::new(left),
+            padding: value,
+            kind: PaddingKind::Top,
+        }),
+        HashFillKind::Bang => Ok(Mapping::Padding {
+            inner: Box::new(left),
+            padding: value,
+            kind: PaddingKind::Bottom,
+        }),
+        HashFillKind::Zero => Ok(Mapping::Padding {
+            inner: Box::new(left),
+            padding: value,
+            kind: PaddingKind::Zero,
+        }),
+    },
     Mapping2,
 };
 
 Mapping2: Mapping = {
     <symbol:Symbol> => Mapping::Symbol { symbol },
-    <n:Nat> =>? if n != 1 {
-        Err(lalrpop_util::ParseError::User {
-            error: crate::parser::lexer::LexicalError::InvalidIntegerLiteral(n),
-        })
-    } else {
-        Ok(Mapping::Identity)
-    },
+    <n:Nat> => Mapping::Broadcast { size: n },
     <tokens:"Escaped"> => Mapping::Escaped { tokens },
     "LParen" <mapping:Mapping0> "RParen" => mapping,
     "LBracket" <mapping:Mapping0> "RBracket" => mapping,
@@ -110,18 +123,29 @@ IndexMapping1: Mapping = {
         padding: value,
         kind: PaddingKind::Top,
     },
+    <left:IndexMapping1> <fill:"HashFill"> <value:Nat> =>? match fill {
+        HashFillKind::Star => Ok(Mapping::Padding {
+            inner: Box::new(left),
+            padding: value,
+            kind: PaddingKind::Top,
+        }),
+        HashFillKind::Bang => Ok(Mapping::Padding {
+            inner: Box::new(left),
+            padding: value,
+            kind: PaddingKind::Bottom,
+        }),
+        HashFillKind::Zero => Ok(Mapping::Padding {
+            inner: Box::new(left),
+            padding: value,
+            kind: PaddingKind::Zero,
+        }),
+    },
     IndexMapping2,
 };
 
 IndexMapping2: Mapping = {
     <symbol:Symbol> => Mapping::Symbol { symbol },
-    <n:Nat> =>? if n != 1 {
-        Err(lalrpop_util::ParseError::User {
-            error: crate::parser::lexer::LexicalError::InvalidIntegerLiteral(n),
-        })
-    } else {
-        Ok(Mapping::Identity)
-    },
+    <n:Nat> => Mapping::Broadcast { size: n },
     <tokens:"Escaped"> => Mapping::Escaped { tokens },
     "LParen" <mapping:IndexMapping0> "RParen" => mapping,
     "LBracket" <mapping:IndexMapping0> "RBracket" => mapping,

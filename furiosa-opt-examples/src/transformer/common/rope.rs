@@ -49,20 +49,22 @@ pub(crate) fn rope(
     let pos_scaled: DmTensor<i32, Chip, Cluster, m![1 # 128, S / 64], m![S % 64]> = ctx
         .main
         .begin(pos_dm.view())
-        .fetch::<i32, m![S / 8 % 8], m![S % 8]>()
+        .fetch::<m![S / 8 % 8], m![S % 8]>()
         .collect::<m![S / 8 % 8], m![S % 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         .vector_fxp(FxpBinaryOp::MulInt, 256)
         .vector_final()
-        .commit::<m![S % 64]>(0x2300);
+        .commit_trim::<m![S % 8]>()
+        .commit(0x2300);
 
     // Reshape offsets into the layout expected by `dma_gather` indexing.
     let pos_reshaped: DmTensor<i32, Chip, Cluster, m![1 # 128, S / 64], m![S / 32 % 2, S % 16, S / 16 % 2]> = ctx
         .main
         .begin(pos_scaled.view())
-        .fetch::<i32, m![S / 32 % 2, S / 16 % 2], m![S % 16]>()
+        .fetch::<m![S / 32 % 2, S / 16 % 2], m![S % 16]>()
         .collect::<m![S / 32 % 2, S / 16 % 2], m![S % 16]>()
+        .commit_trim::<m![S % 16]>()
         .commit(0x2300);
 
     // Spill reshaped offsets to HBM and use them as gather indices.
@@ -78,15 +80,16 @@ pub(crate) fn rope(
     let rope_reshaped: DmTensor<bf16, Chip, Cluster, m![S, D / 16 % 2], m![R, R, D % 16]> = ctx
         .main
         .begin(rope_dm.view())
-        .fetch::<bf16, m![R, R], m![D % 16]>()
+        .fetch::<m![R, R], m![D % 16]>()
         .collect::<m![R, R], m![D % 16]>()
+        .commit_trim::<m![D % 16]>()
         .commit(0x700);
 
     // Load rope coefficients into TRF FirstHalf for reuse across Q and K.
     let rope_trf: TrfTensor<bf16, Chip, Cluster, m![S, D / 16 % 2], m![R], m![R, D % 16]> = ctx
         .sub
         .begin(rope_reshaped.view())
-        .fetch::<bf16, m![R], m![R, D % 16]>()
+        .fetch::<m![R], m![R, D % 16]>()
         .collect::<m![R], m![R, D % 16]>()
         .to_trf(TrfAddress::FirstHalf);
 
@@ -95,7 +98,7 @@ pub(crate) fn rope(
     let k_trf: TrfTensor<bf16, Chip, Cluster, m![S, D / 16 % 2], m![R], m![R, D % 16]> = ctx
         .sub
         .begin(k_dm.view())
-        .fetch::<bf16, m![R], m![R, D % 16]>()
+        .fetch::<m![R], m![R, D % 16]>()
         .collect::<m![R], m![R, D % 16]>()
         .to_trf(TrfAddress::SecondHalf);
 
@@ -103,7 +106,7 @@ pub(crate) fn rope(
     let k_rotated: DmTensor<bf16, Chip, Cluster, m![S, D / 16 % 2], m![R, R, D % 16]> = ctx
         .main
         .begin(rope_reshaped.view())
-        .fetch::<bf16, m![R, R], m![D % 16]>()
+        .fetch::<m![R, R], m![D % 16]>()
         .collect::<m![R, R], m![D % 16]>()
         .contract_outer::<m![R], m![R, D % 16], _, _>(&k_trf)
         .contract_packet::<m![D % 16]>()
@@ -113,19 +116,21 @@ pub(crate) fn rope(
         .vector_inter_slice_reduce::<m![S, D / 16 % 2], m![R, R, D % 16]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![D % 16]>()
+        .commit_trim::<m![D % 16]>()
         .commit(0x0);
 
     // Flatten rotated K from decomposed tiles back to contiguous K layout.
     let k_d0b: DmTensor<bf16, Chip, Cluster, m![S, 1 # 2], m![K]> = ctx
         .main
         .begin(k_rotated.view())
-        .fetch::<bf16, m![R, R], m![D % 16]>()
+        .fetch::<m![R, R], m![D % 16]>()
         .switch::<m![S, 1 # 2], m![R, R]>(SwitchConfig::Broadcast01 {
             slice1: 2, // D/16%2 = dim0_volume
             slice0: 1,
             time0: 1,
         })
         .collect::<m![R, R], m![D % 16]>()
+        .commit_trim::<m![D % 16]>()
         .commit(0x100);
     // Write K result to output buffer.
     k_d0b.view().to_hbm_view(&mut ctx.tdma, out_k.view_mut());
@@ -140,21 +145,23 @@ pub(crate) fn rope(
     let q_te: DmTensor<bf16, Chip, Cluster, m![S / 16, D % 16, D / 16 % 2], m![R, S % 16, Q / 64 # 16]> = ctx
         .main
         .begin(q_dm_reload.view())
-        .fetch::<bf16, m![R, Q / 64], m![S % 16]>()
+        .fetch::<m![R, Q / 64], m![S % 16]>()
         .collect::<m![R, Q / 64], m![S % 16]>()
+        .commit_trim::<m![S % 16]>()
         .commit(0x600);
 
     // Move Q into [Q-head-group, rotation, packet] form for contraction.
     let q_it: DmTensor<bf16, Chip, Cluster, m![S / 16, S % 16, D / 16 % 2], m![R, D % 16, Q / 64]> = ctx
         .main
         .begin(q_te.view())
-        .fetch::<bf16, m![R, S % 16], m![Q / 64 # 16]>()
+        .fetch::<m![R, S % 16], m![Q / 64 # 16]>()
         .switch::<m![S / 16, S % 16, D / 16 % 2], m![R, D % 16]>(SwitchConfig::InterTranspose {
             slice1: 16,
             slice0: 2,
             time0: 1,
         })
         .collect::<m![R, D % 16], m![Q / 64]>()
+        .commit_trim::<m![Q / 64]>()
         .commit(0x200);
 
     // Reshape q_it Slice to match rope_trf Slice for alignment.
@@ -164,7 +171,7 @@ pub(crate) fn rope(
     let q_rotated: DmTensor<bf16, Chip, Cluster, m![S, D / 16 % 2], m![Q / 64, R, D % 16]> = ctx
         .main
         .begin(q_it.view())
-        .fetch::<bf16, m![Q / 64, R], m![D % 16]>()
+        .fetch::<m![Q / 64, R], m![D % 16]>()
         .collect::<m![Q / 64, R], m![D % 16]>()
         .contract_outer::<m![R], m![R, D % 16], _, _>(&rope_trf)
         .contract_packet::<m![D % 16]>()
@@ -174,19 +181,21 @@ pub(crate) fn rope(
         .vector_inter_slice_reduce::<m![S, D / 16 % 2], m![Q / 64, R, D % 16]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![D % 16]>()
+        .commit_trim::<m![D % 16]>()
         .commit(0x600);
 
     // Flatten rotated Q from decomposed tiles back to contiguous Q layout.
     let q_d0b: DmTensor<bf16, Chip, Cluster, m![S, 1 # 2], m![Q]> = ctx
         .main
         .begin(q_rotated.view())
-        .fetch::<bf16, m![Q / 64, R], m![D % 16]>()
+        .fetch::<m![Q / 64, R], m![D % 16]>()
         .switch::<m![S, 1 # 2], m![Q / 64, R]>(SwitchConfig::Broadcast01 {
             slice1: 2,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![Q / 64, R], m![D % 16]>()
+        .commit_trim::<m![D % 16]>()
         .commit(0xa00);
     // Write Q result to output buffer.
     q_d0b.view().to_hbm_view(&mut ctx.tdma, out_q.view_mut());

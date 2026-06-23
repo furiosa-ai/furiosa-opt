@@ -11,14 +11,16 @@ pub fn ve_intra_slice_reduce_add_fxp_sat(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![R], m![A % 2]>()
+        .fetch::<m![R], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![R], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_clip::<m![A % 2 # 4]>()
+        .vector_narrow_trim::<m![A % 2 # 4]>()
         .vector_intra_slice_reduce::<R, m![1], m![A % 2 # 4]>(IntraSliceReduceOpI32::AddSat)
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -36,14 +38,16 @@ pub fn ve_intra_slice_reduce_max_i32(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![R], m![A % 2]>()
+        .fetch::<m![R], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![R], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_clip::<m![A % 2 # 4]>()
+        .vector_narrow_trim::<m![A % 2 # 4]>()
         .vector_intra_slice_reduce::<R, m![1], m![A % 2 # 4]>(IntraSliceReduceOpI32::Max)
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -61,14 +65,16 @@ pub fn ve_intra_slice_reduce_min_i32(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![R], m![A % 2]>()
+        .fetch::<m![R], m![A % 2]>()
+        .fetch_cast::<i32>()
         .collect::<m![R], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_clip::<m![A % 2 # 4]>()
+        .vector_narrow_trim::<m![A % 2 # 4]>()
         .vector_intra_slice_reduce::<R, m![1], m![A % 2 # 4]>(IntraSliceReduceOpI32::Min)
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -86,14 +92,16 @@ pub fn ve_intra_slice_reduce_add_f32(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<f32, m![R], m![A % 2]>()
+        .fetch::<m![R], m![A % 2]>()
+        .fetch_cast::<f32>()
         .collect::<m![R], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_clip::<m![A % 2 # 4]>()
+        .vector_narrow_trim::<m![A % 2 # 4]>()
         .vector_intra_slice_reduce::<R, m![1], m![A % 2 # 4]>(IntraSliceReduceOpF32::Add)
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -111,14 +119,16 @@ pub fn ve_intra_slice_reduce_max_f32(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<f32, m![R], m![A % 2]>()
+        .fetch::<m![R], m![A % 2]>()
+        .fetch_cast::<f32>()
         .collect::<m![R], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_clip::<m![A % 2 # 4]>()
+        .vector_narrow_trim::<m![A % 2 # 4]>()
         .vector_intra_slice_reduce::<R, m![1], m![A % 2 # 4]>(IntraSliceReduceOpF32::Max)
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -136,14 +146,16 @@ pub fn ve_intra_slice_reduce_min_f32(
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<f32, m![R], m![A % 2]>()
+        .fetch::<m![R], m![A % 2]>()
+        .fetch_cast::<f32>()
         .collect::<m![R], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_clip::<m![A % 2 # 4]>()
+        .vector_narrow_trim::<m![A % 2 # 4]>()
         .vector_intra_slice_reduce::<R, m![1], m![A % 2 # 4]>(IntraSliceReduceOpF32::Min)
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
+        .commit_trim::<m![A % 2]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -168,7 +180,8 @@ pub fn ve_intra_slice_reduce_split_slice_time(
     let result: DmTensor<i32, Chip, Cluster, m![S # 16 / 4, A / 8], m![A % 8]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![S # 16 % 4], m![A % 8]>()
+        .fetch::<m![S # 16 % 4], m![A % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![S # 16 % 4], m![A % 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
@@ -176,6 +189,7 @@ pub fn ve_intra_slice_reduce_split_slice_time(
         .vector_intra_slice_reduce::<S, m![A / 4 % 2], m![A % 4]>(IntraSliceReduceOpI32::AddSat)
         .vector_widen_concat::<m![1], m![A % 8]>()
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -195,7 +209,8 @@ pub fn ve_intra_slice_reduce_split_time_packet(
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2, 1 # 8]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![A % 2, R16 / 8], m![R16 % 8]>()
+        .fetch::<m![A % 2, R16 / 8], m![R16 % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![A % 2, R16 / 8], m![R16 % 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
@@ -203,6 +218,7 @@ pub fn ve_intra_slice_reduce_split_time_packet(
         .vector_intra_slice_reduce::<R16, m![A % 2], m![1 # 4]>(IntraSliceReduceOpI32::AddSat)
         .vector_widen_pad::<m![1 # 8]>()
         .vector_final()
+        .commit_trim::<m![1 # 8]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -226,11 +242,13 @@ pub fn ve_inter_slice_reduce_add_sat_i32(
     let result: DmTensor<i32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![1], m![A % 8]>()
+        .fetch::<m![1], m![A % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![1], m![A % 8]>()
         .vector_init()
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpI32::AddSat)
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -247,11 +265,13 @@ pub fn ve_inter_slice_reduce_max_i32(
     let result: DmTensor<i32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![1], m![A % 8]>()
+        .fetch::<m![1], m![A % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![1], m![A % 8]>()
         .vector_init()
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpI32::Max)
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -268,11 +288,13 @@ pub fn ve_inter_slice_reduce_add_f32(
     let result: DmTensor<f32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<f32, m![1], m![A % 8]>()
+        .fetch::<m![1], m![A % 8]>()
+        .fetch_cast::<f32>()
         .collect::<m![1], m![A % 8]>()
         .vector_init()
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpF32::Add)
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -291,13 +313,15 @@ pub fn ve_vru_then_vau_i32(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![R,
     let result: DmTensor<i32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<i32, m![1], m![A % 8]>()
+        .fetch::<m![1], m![A % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![1], m![A % 8]>()
         .vector_init()
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpI32::AddSat)
         .vector_intra_slice_tag(TagMode::Zero)
         .vector_fxp(FxpBinaryOp::AddFxp, 100)
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)
@@ -323,11 +347,13 @@ pub fn ve_inter_slice_reduce_promote_f32(
     let result: DmTensor<f32, Chip, Cluster, m![W, T], m![P]> = ctx
         .main
         .begin(input_dm.view())
-        .fetch::<f32, m![T], m![P]>()
+        .fetch::<m![T], m![P]>()
+        .fetch_cast::<f32>()
         .collect::<m![T], m![P]>()
         .vector_init()
         .vector_inter_slice_reduce::<m![W, T], m![1]>(InterSliceReduceOpF32::Add)
         .vector_final()
+        .commit_trim::<m![P]>()
         .commit(0x2000);
 
     result.to_hbm(&mut ctx.tdma, 0x3000)

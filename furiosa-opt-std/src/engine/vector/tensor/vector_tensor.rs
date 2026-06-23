@@ -21,6 +21,7 @@
 use std::marker::PhantomData;
 
 use furiosa_mapping::*;
+use furiosa_opt_lower::{config_divide_exact, config_divide_relaxed};
 use furiosa_opt_macro::primitive;
 
 use super::VeTensorShape;
@@ -53,7 +54,7 @@ use crate::engine::vector::stage::markers::VeOrder;
 use crate::engine::vector::stage::markers::Way::{self, Way4, Way8};
 use crate::engine::vector::stage::state::VeState;
 use crate::engine::vector::tensor::verify::{
-    verify_vector_narrow_clip, verify_vector_narrow_split, verify_vector_widen_concat, verify_vector_widen_pad,
+    verify_vector_narrow_split, verify_vector_narrow_trim, verify_vector_widen_concat, verify_vector_widen_pad,
 };
 use crate::tensor_state::{HasTensor, NoTensor, TensorState};
 
@@ -128,7 +129,7 @@ pub struct VeTensorData<
 ///
 /// The `W` type parameter represents the way:
 /// - `Way8`: Default 8-element flit mode. Float operations are NOT available.
-/// - `Way4`: After `vector_narrow_split` or `vector_narrow_clip`, front-4-only. Float operations are available.
+/// - `Way4`: After `vector_narrow_split` or `vector_narrow_trim`, front-4-only. Float operations are available.
 #[derive(Debug)]
 pub struct VectorTensor<
     'l,
@@ -1227,7 +1228,7 @@ where
 }
 
 // ============================================================================
-// vector_narrow_clip: strip back-4 dummy from Packet 8 → 4 (type-only, no-op at hardware level)
+// vector_narrow_trim: strip back-4 dummy from Packet 8 → 4 (type-only, no-op at hardware level)
 // ============================================================================
 
 impl<
@@ -1254,11 +1255,11 @@ where
     /// This is a type-system-only operation — no hardware instruction is emitted.
     /// Use this when the back 4 lanes are already padding (≤ 4 real elements).
     /// For packets with > 4 real elements, use `vector_narrow_split()` instead.
-    #[primitive(VectorTensor::vector_narrow_clip)]
-    pub fn vector_narrow_clip<Packet2: M>(
+    #[primitive(VectorTensor::vector_narrow_trim)]
+    pub fn vector_narrow_trim<Packet2: M>(
         self,
     ) -> VectorNarrowTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet2, StashD, Stash, VE_ORDER, FS, { Way4 }> {
-        verify_vector_narrow_clip::<Packet, Packet2>();
+        verify_vector_narrow_trim::<Packet, Packet2>();
 
         let (ctx, inner, tag, ve_state) = self.into_parts();
 
@@ -1376,12 +1377,16 @@ where
 // ============================================================================
 
 /// Verifies that all reduced axes (quotient of input / output shape) match the expected ident.
-fn verify_reduce_label<Time: M, Packet: M, OutTime: M, OutPacket: M>(reduce_label: &Ident) {
-    let division = <m![{ Time }, { Packet }]>::to_value()
-        .divide(&<m![{ OutTime }, { OutPacket }]>::to_value())
-        .exact_checked()
+fn verify_reduce_label(time: Mapping, packet: Mapping, out_time: Mapping, out_packet: Mapping, reduce_label: &Ident) {
+    let input = time.pair(packet.clone());
+    let output = out_time.pair(out_packet.clone());
+
+    // Output shape must divide the input shape exactly; matched (retained) axes must not be reduced.
+    let division_terms = config_divide_exact(&input, &output)
         .expect("[Intra-slice reduce] divide failed: output shape must divide input shape");
-    let quotient = division.relaxed_residues().dividend_residue;
+
+    // The reduced axes are what the output did not consume of the input (the relaxed quotient).
+    let quotient = config_divide_relaxed(&input, &output).dividend_residue;
     assert!(
         quotient.idents().iter().all(|ident| ident == reduce_label),
         "IntraSliceReduce: all reduced axes must match the specified reduce_label {}, got quotient {} with idents {:?}",
@@ -1391,21 +1396,19 @@ fn verify_reduce_label<Time: M, Packet: M, OutTime: M, OutPacket: M>(reduce_labe
     );
 
     assert!(
-        division
-            .division_terms
+        division_terms
             .iter()
-            .all(|d| d.term.idents().iter().all(|ident| ident != reduce_label)),
+            .all(|d| d.idents.iter().all(|ident| ident != reduce_label)),
         "IntraSliceReduce: all the reduce axes should be fully reduced (not present in the division terms), got reduce_label {} appearing in division {:?}",
         reduce_label,
-        division.division_terms,
+        division_terms,
     );
 
+    let packet = packet.normalize();
+    let out_packet = out_packet.normalize();
     assert!(
-        Packet::to_value().factorize() == OutPacket::to_value().factorize()
-            || OutPacket::to_value().factorize() == <m![1 # 4]>::to_value().factorize(),
-        "IntraSliceReduce: Packet should be either preserved or reduced to 4 (for partial reduction), got Packet {} → OutPacket {}",
-        Packet::to_value().factorize(),
-        OutPacket::to_value().factorize()
+        packet == out_packet || out_packet == <m![1 # 4]>::to_value().normalize(),
+        "IntraSliceReduce: Packet should be either preserved or reduced to 4 (for partial reduction), got Packet {packet} → OutPacket {out_packet}",
     );
 }
 
@@ -1459,7 +1462,13 @@ where
     {
         self.ve_state_mut().use_alu(op.alu());
         let (ctx, inner, tag, ve_state) = self.into_parts();
-        verify_reduce_label::<Time, Packet, OutTime, OutPacket>(&Reduce::NAME);
+        verify_reduce_label(
+            Time::to_value(),
+            Packet::to_value(),
+            OutTime::to_value(),
+            OutPacket::to_value(),
+            &Reduce::NAME,
+        );
         let reduced_inner =
             inner.reduce::<VeTensorShape<Chip, Cluster, Slice, OutTime, OutPacket>>(op.lifted_reduce_fn(), Opt::Uninit);
         let reduced_eid = reduce_tag::<Chip, Cluster, Slice, Time, Packet, OutTime, OutPacket>(tag);
@@ -1509,7 +1518,13 @@ where
     {
         self.ve_state_mut().use_alu(op.alu());
         let (ctx, inner, tag, ve_state) = self.into_parts();
-        verify_reduce_label::<Time, Packet, OutTime, OutPacket>(&Reduce::NAME);
+        verify_reduce_label(
+            Time::to_value(),
+            Packet::to_value(),
+            OutTime::to_value(),
+            OutPacket::to_value(),
+            &Reduce::NAME,
+        );
         let reduced_inner =
             inner.reduce::<VeTensorShape<Chip, Cluster, Slice, OutTime, OutPacket>>(op.lifted_reduce_fn(), Opt::Uninit);
         let reduced_eid = reduce_tag::<Chip, Cluster, Slice, Time, Packet, OutTime, OutPacket>(tag);
@@ -1627,7 +1642,7 @@ where
     /// Transitions from `Way4` to `Way8` mode and enters the `Widen` stage.
     ///
     /// This is a type-system-only operation — no hardware instruction is emitted.
-    /// Reverse of `vector_narrow_clip`. Use this when no time-dimension merging is needed.
+    /// Reverse of `vector_narrow_trim`. Use this when no time-dimension merging is needed.
     /// For merging split time steps back, use `vector_widen_concat()` instead.
     #[primitive(VectorTensor::vector_widen_pad)]
     pub fn vector_widen_pad<Packet2: M>(

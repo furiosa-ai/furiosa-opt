@@ -42,10 +42,14 @@ fn transpose_simple(
     // Step 2: [A, C, B] → [C, A, B]
     intermediate.to_hbm(&mut ctx.tdma, 0x1000)
 }
+#
+# let mut ctx = Context::acquire();
+# let in_hbm = unsafe { HbmTensor::<f32, m![1], m![A, B, C]>::from_addr(0) };
+# let _out_hbm = transpose_simple(&mut ctx, &in_hbm);
 ```
 
 A transfer that crosses tiers also takes a layout transformation through the destination type's mapping.
-For an HBM-to-DM transfer, the destination DM tensor adds `Cluster` and `Slice` axes that distribute the tensor across hardware partitions.
+For an HBM-to-DM transfer, the destination DM tensor adds `Cluster` and `Slice` axes that distribute and broadcast the tensor across hardware partitions.
 
 ```rust
 # extern crate furiosa_opt_std;
@@ -58,6 +62,10 @@ fn hbm_to_dm(
 ) -> DmTensor<i8, m![1], m![1 # 2], m![A / 8], m![A % 8]> {
     input.to_dm::<m![1 # 2], m![A / 8], m![A % 8]>(&mut ctx.tdma, 0)
 }
+#
+# let mut ctx = Context::acquire();
+# let in_hbm = unsafe { HbmTensor::<i8, m![1], m![A]>::from_addr(0) };
+# let _out_dm = hbm_to_dm(&mut ctx, &in_hbm);
 ```
 
 Here the 2,048-element vector is distributed as 256 elements per slice (`Slice = m![A / 8]`) with 8 elements per slice (`Element = m![A % 8]`), spread across 2 clusters.
@@ -529,6 +537,9 @@ fn cluster_shuffle(
     // Shuffle pattern [1, 0]: cluster 0 ↔ cluster 1
     input.view().dm_cluster_shuffle::<2>(&mut ctx.tdma, &[1, 0])
 }
+# let mut ctx = Context::acquire();
+# let input_dm = unsafe { DmTensor::<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]>::from_addr(0) };
+# let _output_dm = cluster_shuffle(&mut ctx, &input_dm);
 ```
 
 Inter-chip shuffles use the system-wide global chip IDs.
@@ -544,6 +555,7 @@ Scatter and gather move tensor elements at addresses computed from an index tens
 
 ```rust
 # extern crate furiosa_opt_std;
+# extern crate tokio;
 # use furiosa_opt_std::prelude::*;
 axes![K = 512, D = 128, C = 612];
 
@@ -565,6 +577,18 @@ fn gather_minimal(
 ) -> DmTensor<bf16, m![1], m![1 # 2], m![C / 2], m![C % 2, D]> {
     table.dma_gather::<m![1 # 2], m![C / 2], m![C % 2, D], _>(index, 0x0, true)
 }
+#
+# #[tokio::main]
+# async fn main() {
+#     let mut ctx = Context::acquire();
+# 
+#     let index = &(HostTensor::<i32, m![K]>::zero().to_hbm(&mut ctx.pdma, 0).await);
+#     let data = unsafe { HbmTensor::<bf16, m![1], m![K, D]>::from_addr(0) };
+#     let mut output_hbm = unsafe { HbmTensor::<bf16, m![1], m![C, D]>::from_addr(0) };
+# 
+#     scatter_minimal(&mut ctx, &data, &index, &mut output_hbm);
+#     gather_minimal(&data, &(HostTensor::<i32, m![C]>::zero().to_hbm(&mut ctx.pdma, 0).await));
+# }
 ```
 
 `scaled` matches `dma_scatter`'s convention.

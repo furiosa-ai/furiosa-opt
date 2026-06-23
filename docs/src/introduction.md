@@ -30,11 +30,11 @@ Install three pieces:
 
    The same channel is pinned in [`rust-toolchain.toml`](https://github.com/furiosa-ai/furiosa-opt/blob/main/rust-toolchain.toml); cargo activates it automatically when you cd into a project that includes that file.
 
-2. **`cargo-furiosa-opt`**: the cargo subcommand that injects the right `--cfg backend="..."` and (for NPU) pre-compiles kernels.
+2. **`cargo-furiosa-opt`**: the cargo subcommand that injects the right `--cfg backend="..."` and pre-compiles kernels for NPU.
 
    ```bash
-   cargo install cargo-binstall
-   cargo binstall cargo-furiosa-opt
+   cargo +nightly-2026-05-01 install cargo-binstall
+   cargo +nightly-2026-05-01 binstall cargo-furiosa-opt
    ```
 
 3. **Furiosa SDK + physical NPU** *(only for `--backend npu`)*: the NPU backend dispatches to real hardware via the SDK's kernel driver and PE runtime (`furiosa-driver-rngd`, `furiosa-smi`, etc.; see the [SDK documentation](https://developer.furiosa.ai/latest/en/)).
@@ -45,7 +45,7 @@ Install three pieces:
 
 ## Your First Program
 
-Use [`cargo-generate`](https://cargo-generate.github.io/cargo-generate/) to scaffold a fresh project from the `base-template` starter, which ships with the five worked examples covered in the next chapter:
+Use [`cargo-generate`](https://cargo-generate.github.io/cargo-generate/) to scaffold a fresh project from the `base-template` starter, which ships with the five worked examples covered in the [Quick Start](./quick-start.md) chapter:
 
 ```bash
 cargo install cargo-generate
@@ -58,6 +58,7 @@ cd base-template
 ```text
 base-template/
 ├── Cargo.toml
+├── README.md
 ├── rust-toolchain.toml
 └── src/
     ├── furiosa-opt.tag                       # marker the rustc plugin scans for; must sit at src/
@@ -69,14 +70,22 @@ base-template/
     │   ├── dot_product_kernel.rs
     │   ├── gemv_kernel.rs
     │   └── gemm_kernel.rs
-    ├── constant_add.rs                       # `#[tokio::main]` host program; `launch(constant_add_kernel, ...)`
+    ├── constant_add.rs                       # host binary that `launch()`es its kernel
     ├── elementwise_mul.rs
     ├── dot_product.rs
     ├── gemv.rs
     └── gemm.rs
 ```
 
-The five `#[device]` kernels all live under `src/kernel/` and are re-exported by `src/lib.rs`. Each `src/*.rs` (next to `lib.rs`) is registered as its own `[[bin]]` in `Cargo.toml`, with `path = "src/<name>.rs"` placing the binary's source directly under `src/` — the rustc plugin scans cargo targets rooted at `src/` and silently skips anything under `src/bin/`, `examples/`, or `tests/`, so the explicit `[[bin]]` paths in `Cargo.toml` are load-bearing. Each binary's `main()` only does `launch(kernel, ...)`; the value comparison against a host-side reference lives in a `#[cfg(test)] mod tests` block inside the same file.
+Keep these layout rules intact:
+
+- `src/furiosa-opt.tag` is a marker file. It must stay directly under `src/`.
+- Host programs should live as direct `src/*.rs` files and are registered with explicit `[[bin]] path = "src/<name>.rs"` entries in `Cargo.toml`.
+- Do not move host programs into `src/bin/`, `examples/`, or `tests/`; the rustc plugin scans cargo targets rooted at `src/` and skips those other locations.
+
+All five kernel examples live under `src/kernel/` and are re-exported through `src/kernel/mod.rs` and `src/lib.rs`.
+Each binary's `main()` only calls `launch(kernel, ...)`.
+The value comparison against a host-side reference lives in a `#[cfg(test)] mod tests` block inside the same file.
 
 ### Run a worked example
 
@@ -102,7 +111,13 @@ cargo furiosa-opt test --release --bin gemm
 cargo furiosa-opt --backend typecheck test --release --bin gemm
 ```
 
-Read the [Quick Start](./quick-start.md) chapter alongside the source. Add your own kernel by dropping a new file into `src/kernel/`, appending a `pub mod ...;` line to `src/kernel/mod.rs`, writing a host program under `src/`, and declaring a matching `[[bin]] path = "src/<name>.rs"` in `Cargo.toml`.
+### Add a Kernel
+
+1. Drop `src/kernel/<name>_kernel.rs` with a `#[device(...)] pub fn <name>_kernel(...)`.
+2. Append `pub mod <name>_kernel;` to `src/kernel/mod.rs`.
+3. Add `src/<name>.rs` as the host program that calls `launch(<name>_kernel, ...)`.
+4. Register a matching `[[bin]]` entry in `Cargo.toml` with `path = "src/<name>.rs"`.
+5. Run your kernel with `cargo furiosa-opt run --release --bin <name>`.
 
 ## Development Tools
 
@@ -147,6 +162,12 @@ It keeps the usual `rust-analyzer` experience while simplifying verbose types li
 
 For installation and configuration, see the [Language Server appendix](./appendix/language-server.md).
 
+### Schedule Viewer
+
+The Schedule Viewer visualizes the execution timeline to help identify performance bottlenecks.
+Use `furiosa-opt` to export a schedule JSON file, then open it with `furiosa-schedule-viewer`.
+
+For installation and usage, see the [Schedule Viewer appendix](./appendix/schedule-viewer.md).
 
 ## Book Organization
 
@@ -156,7 +177,7 @@ Each chapter builds on the previous: mapping and moving tensors establish the da
 - **[Mapping Tensors](./mapping-tensors/index.md)**: How logical tensors map to physical memory: axis layout, stride, padding, and tiling.
 - **[Moving Tensors](./moving-tensors/index.md)**: How data moves between memory tiers (HBM, DM) and the Tensor Unit via Fetch, Commit, and DMA engines.
 - **[Computing Tensors](./computing-tensors/index.md)**: How the Tensor Unit pipeline (Switch, Collect, Contraction, Vector, Cast, Transpose) transforms data each cycle.
-- **[Scheduler](./scheduler.md)**: How to control the order and concurrency of operations across contexts.
+- **[Scheduling](./scheduling.md)**: How operations are ordered and executed concurrently across contexts.
 - **[Kernel Examples](./kernel-examples/index.md)**: End-to-end examples showing how mapping, movement, computation, and scheduling combine into real kernels.
 
 ## License

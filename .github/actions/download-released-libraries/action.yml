@@ -1,0 +1,39 @@
+name: Download Released Libraries
+description: Download and verify prebuilt static libraries from the GitHub release matching the furiosa-mapping crate version.
+
+outputs:
+  version:
+    description: The release version tag (e.g. v0.3.0)
+    value: ${{ steps.download.outputs.version }}
+  prebuilt_dir:
+    description: Directory containing the downloaded release assets
+    value: ${{ steps.download.outputs.prebuilt_dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download
+      id: download
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      shell: bash
+      run: |
+        VERSION="v$(grep -m1 '^version' furiosa-mapping/Cargo.toml | cut -d'"' -f2)"
+        PREBUILT_DIR=/tmp/furiosa-prebuilt
+        mkdir -p "${PREBUILT_DIR}"
+        cd "${PREBUILT_DIR}"
+        for i in 1 2 3; do
+          gh release download "${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --clobber && \
+          sha256sum --check SHA256SUMS && break
+          if [ "${i}" = "3" ]; then
+            echo "SHA256 verification failed after 3 attempts"
+            exit 1
+          fi
+          WAIT=$(( i * 60 ))
+          echo "Attempt ${i} failed, waiting ${WAIT}s..."
+          sleep "${WAIT}"
+        done
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "prebuilt_dir=${PREBUILT_DIR}" >> $GITHUB_OUTPUT

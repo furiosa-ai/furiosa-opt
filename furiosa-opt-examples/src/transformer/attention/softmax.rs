@@ -27,7 +27,7 @@ pub(super) fn softmax(
     let _mask_vrf: VrfTensor<i32, Chip, Cluster, m![S / 8, N], m![S % 8, T]> = ctx
         .sub
         .begin(mask_dm.view())
-        .fetch::<i32, m![S % 8], m![T]>()
+        .fetch::<m![S % 8], m![T]>()
         .collect::<m![S % 8], m![T]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Comparison([
@@ -66,20 +66,23 @@ pub(super) fn softmax(
         let masked: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, T]> = ctx
             .main
             .begin(group.view())
-            .fetch::<f32, m![S % 8], m![T]>()
+            .fetch::<m![S % 8], m![T]>()
+            .fetch_cast::<f32>()
             .collect::<m![S % 8], m![T]>()
             .vector_init()
             .vector_intra_slice_tag(TagMode::Vrf)
             .vector_logic(LogicBinaryOpF32::BitAnd, -3.3895314e38f32)
             .vector_final()
             .cast::<bf16, m![T % 8 # 16]>()
+            .commit_trim::<m![T % 8]>()
             .commit(*addr);
 
         // Compute per-row max for numerical stability.
         let max_vrf: VrfTensor<f32, Chip, Cluster, m![S / 8, N], m![S % 8]> = ctx
             .main
             .begin(masked.view())
-            .fetch::<f32, m![S % 8, T / 8 % 128], m![T % 8]>()
+            .fetch::<m![S % 8, T / 8 % 128], m![T % 8]>()
+            .fetch_cast::<f32>()
             .collect::<m![S % 8, T / 8 % 128], m![T % 8]>()
             .vector_init()
             .vector_intra_slice_tag(TagMode::Zero)
@@ -93,7 +96,8 @@ pub(super) fn softmax(
         let sum_exp_vrf: VrfTensor<f32, Chip, Cluster, m![S / 8, N], m![S % 8]> = ctx
             .main
             .begin(masked.view())
-            .fetch::<f32, m![S % 8, T / 8 % 128], m![T % 8]>()
+            .fetch::<m![S % 8, T / 8 % 128], m![T % 8]>()
+            .fetch_cast::<f32>()
             .collect::<m![S % 8, T / 8 % 128], m![T % 8]>()
             .vector_init()
             .vector_intra_slice_tag(TagMode::Zero)
@@ -109,7 +113,8 @@ pub(super) fn softmax(
         let _softmax: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, T]> = ctx
             .main
             .begin(masked.view())
-            .fetch::<f32, m![S % 8, T / 8 % 128], m![T % 8]>()
+            .fetch::<m![S % 8, T / 8 % 128], m![T % 8]>()
+            .fetch_cast::<f32>()
             .collect::<m![S % 8, T / 8 % 128], m![T % 8]>()
             .vector_init()
             .vector_intra_slice_tag(TagMode::Zero)
@@ -120,6 +125,7 @@ pub(super) fn softmax(
             .vector_widen_concat::<m![S % 8, T / 8 % 128], m![T % 8]>()
             .vector_final()
             .cast::<bf16, m![T % 8 # 16]>()
+            .commit_trim::<m![T % 8]>()
             .commit(*addr);
     }
 

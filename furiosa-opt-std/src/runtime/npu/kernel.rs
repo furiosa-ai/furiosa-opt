@@ -11,7 +11,7 @@ use super::ffi;
 ///
 /// Wraps a raw pointer returned by the FFI layer. Automatically freed on drop.
 #[derive(Debug)]
-pub struct Buffer(*mut ffi::Buffer);
+pub struct Buffer(*mut ffi::NpuBuffer);
 
 unsafe impl Send for Buffer {}
 unsafe impl Sync for Buffer {}
@@ -19,38 +19,54 @@ unsafe impl Sync for Buffer {}
 impl Drop for Buffer {
     fn drop(&mut self) {
         if !self.0.is_null() {
-            unsafe { ffi::lib().furiosa_buffer_free(self.0) }
+            unsafe { ffi::lib().furiosa_npu_buffer_free(self.0) }
         }
     }
 }
 
 impl Clone for Buffer {
     fn clone(&self) -> Self {
-        Buffer(unsafe { ffi::lib().furiosa_buffer_clone(self.0) })
+        Buffer(unsafe { ffi::lib().furiosa_npu_buffer_clone(self.0) })
     }
 }
 
 impl Buffer {
-    pub(super) fn from_raw(ptr: *mut ffi::Buffer) -> Self {
+    pub(super) fn from_raw(ptr: *mut ffi::NpuBuffer) -> Self {
         Buffer(ptr)
     }
 
-    pub(super) fn as_ptr(&self) -> *const ffi::Buffer {
+    pub(super) fn as_ptr(&self) -> *const ffi::NpuBuffer {
         self.0
     }
 
-    pub(crate) fn cpu(size: usize) -> Self {
-        let ptr = unsafe { ffi::lib().furiosa_buffer_cpu(size) };
-        assert!(!ptr.is_null(), "failed to allocate CPU buffer");
-        Buffer::from_raw(ptr)
-    }
-
     pub(crate) fn npu(addr: u64, len: usize) -> Self {
-        Buffer::from_raw(unsafe { ffi::lib().furiosa_buffer_from_npu(ffi::rt(), addr, len) })
+        Buffer::from_raw(unsafe { ffi::lib().furiosa_npu_buffer_from(ffi::rt(), addr, len) })
+    }
+}
+
+struct CpuBuffer(*mut ffi::CpuBuffer);
+
+impl Drop for CpuBuffer {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { ffi::lib().furiosa_cpu_buffer_free(self.0) }
+        }
+    }
+}
+
+impl CpuBuffer {
+    fn cpu(size: usize) -> Self {
+        let ptr = unsafe { ffi::lib().furiosa_cpu_buffer(size) };
+        assert!(!ptr.is_null(), "failed to allocate CPU buffer");
+        CpuBuffer(ptr)
     }
 
-    pub(crate) fn data_ptr(&self) -> *mut u8 {
-        unsafe { ffi::lib().furiosa_buffer_addr(self.as_ptr()) as *mut u8 }
+    fn as_ptr(&self) -> *const ffi::CpuBuffer {
+        self.0
+    }
+
+    fn data_ptr(&self) -> *mut u8 {
+        unsafe { ffi::lib().furiosa_cpu_buffer_addr(self.as_ptr()) as *mut u8 }
     }
 }
 
@@ -116,7 +132,7 @@ impl Kernel {
 
     /// Allocate a buffer on the device.
     pub fn alloc(&self, size: usize) -> Buffer {
-        let ptr = unsafe { ffi::lib().furiosa_buffer_npu(ffi::rt(), size) };
+        let ptr = unsafe { ffi::lib().furiosa_npu_buffer(ffi::rt(), size) };
         assert!(!ptr.is_null(), "failed to allocate buffer");
         Buffer::from_raw(ptr)
     }
@@ -134,7 +150,7 @@ impl Kernel {
         let len = buf.len() * stride;
         log::debug!("write: addr=0x{addr:x}, len={len}");
 
-        let src = Buffer::cpu(len);
+        let src = CpuBuffer::cpu(len);
         let ptr = src.data_ptr();
         for (i, value) in buf.iter().enumerate() {
             // SAFETY: `ptr` points to `len` writable bytes; each copy writes one `D`.
@@ -164,7 +180,7 @@ impl Kernel {
         log::debug!("read: addr=0x{:x}, len={len}", hbm.address());
 
         let src = Buffer::npu(hbm.address(), len);
-        let dst = Buffer::cpu(len);
+        let dst = CpuBuffer::cpu(len);
         assert!(
             unsafe { ffi::lib().furiosa_read(ffi::rt(), src.as_ptr(), dst.as_ptr()) } == 0,
             "DMA read failed"

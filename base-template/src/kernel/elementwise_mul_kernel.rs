@@ -21,7 +21,7 @@ pub fn elementwise_mul_kernel(
     let rhs_vrf: VrfTensor<i32, Chip, Cluster, Slice, m![A % 8]> = ctx
         .sub
         .begin(rhs_dm.view())
-        .fetch::<i32, m![1], m![A % 8]>()
+        .fetch::<m![1], m![A % 8]>()
         .collect::<m![A % 8 / 8], m![A % 8 % 8]>()
         .to_vrf(0);
 
@@ -29,13 +29,14 @@ pub fn elementwise_mul_kernel(
     let result = ctx
         .main
         .begin(lhs_dm.view())
-        .fetch::<i32, m![1], m![A % 8]>()
+        .fetch::<m![1], m![A % 8]>()
         .collect::<m![1], m![A % 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         // Each slice multiplies its 8 lhs elements by the matching 8 rhs elements in VRF
         .vector_fxp(FxpBinaryOp::MulInt, &rhs_vrf)
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit::<m![A % 8]>(1 << 13);
 
     result.to_hbm(&mut ctx.tdma, 1 << 28)

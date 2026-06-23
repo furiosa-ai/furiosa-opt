@@ -16,8 +16,8 @@
 
 use std::fmt::Debug;
 
-use abi_stable::std_types::{RResult, RSlice};
-use furiosa_mapping::{FMapping, FMappingExt, Index, IndexExt, M, Term};
+use abi_stable::std_types::RResult;
+use furiosa_mapping::{Atom, Index, IndexExt, M, Mapping, MappingExt, Term};
 use ndarray::IxDyn;
 
 use crate::engine::vector::operand::OperandTag;
@@ -91,6 +91,15 @@ pub trait RawTensor<D: Scalar>: 'static + Clone + Debug {
     /// storage is the wire-format buffer); `PhantomRawTensor` returns `Vec::new()`.
     fn to_buf<Mapping: M>(&self) -> Vec<D>;
 
+    /// Like [`Self::to_buf`], but yields `D::zero()` for positions the storage cannot represent
+    /// (padding / `Opt::Uninit`) instead of panicking. The default clones the native buffer via
+    /// [`Self::to_buf`] — correct for `BufRawTensor` (Npu/Emulation), whose dense staging buffer is
+    /// zero-initialized and has no `Opt::Uninit` notion. `MathRawTensor` overrides this to zero-fill
+    /// its logical `Opt::Uninit` slots; `PhantomRawTensor` inherits the default (an empty buffer).
+    fn to_buf_or_default<Mapping: M>(&self) -> Vec<D> {
+        self.to_buf::<Mapping>()
+    }
+
     /// Constructs a raw tensor by applying `f` to each (axes, multi-dim coordinate) pair.
     ///
     /// The default body walks every generated index, materializes its multi-dim coordinate, and
@@ -102,7 +111,7 @@ pub trait RawTensor<D: Scalar>: 'static + Clone + Debug {
         F: FnMut(&Vec<Term>, &IxDyn) -> Opt<D>,
     {
         let mut tensor = Self::uninit_from_axes(axes.clone());
-        for index in Index::new().gen_indexes(FMapping::from_axes(RSlice::from(axes.as_slice()))) {
+        for index in Index::new().gen_indexes(Mapping::from_terms(axes.iter().cloned())) {
             let coords = finalize_coords(&axes, index.clone()).expect("generated index must be valid");
             tensor.write_index(index, f(&axes, &IxDyn(&coords)));
         }
@@ -235,33 +244,41 @@ pub trait RawTensorOpt<D: Scalar>: RawTensor<D> {
     /// each slot; `PhantomRawTensor` returns an empty `Vec` since there's no buffer to
     /// surface.
     fn to_opt_buf<Mapping: M>(&self) -> Vec<Opt<D>>;
+
+    /// [`RawTensor::to_buf_or_default`] for `Opt`-bearing storage: serializes via
+    /// [`Self::to_opt_buf`] and replaces each `Opt::Uninit` slot with `D::zero()`. The concrete
+    /// `RawTensor::to_buf_or_default` override just delegates here.
+    fn to_buf_or_default_opt<Mapping: M>(&self) -> Vec<D> {
+        self.to_opt_buf::<Mapping>()
+            .into_iter()
+            .map(|x| match x {
+                Opt::Init(value) => value,
+                Opt::Uninit => D::zero(),
+            })
+            .collect()
+    }
 }
 
 /// Generates axes from a mapping.
 pub(crate) fn gen_axes<Mapping: M>() -> Vec<Term> {
-    let mut index = Index::new();
-    index.add_mapping::<Mapping>(0);
-    index
-        .finalize()
-        .expect("Invalid mapping")
-        .into_iter()
-        .map(|(term, _)| term)
-        .collect()
+    Mapping::to_value().axes()
 }
 
 /// Resolves an `Index` to a multi-dim coordinate vector against `axes`. Returns `None` when the
-/// index lands in a padding slot.
+/// index lands in a padding slot. `finalize` gives each symbol's absolute coordinate; recover this
+/// axis's digit by its stride/modulo, since an axis may be a sub-factor of its symbol (`A % 4`).
 pub(crate) fn finalize_coords(axes: &[Term], index: Index) -> Option<Vec<usize>> {
-    let RResult::ROk(index) = index.finalize() else {
+    let RResult::ROk(coords) = index.finalize() else {
         return None;
     };
-    assert!(
-        axes.iter().zip(index.iter()).all(|(a, (b, _))| a == b),
-        "Index terms ({:?}) do not match tensor axes ({:?}).",
-        index,
-        axes
-    );
-    Some(index.into_iter().map(|(_, value)| value).collect())
+    Some(
+        axes.iter()
+            .map(|axis| match axis.inner {
+                Atom::Symbol { symbol, .. } => (coords.get(&symbol).copied().unwrap_or(0) / axis.stride) % axis.modulo,
+                Atom::Composite(_) => panic!("tensor axis must be a resolved symbol, got {axis:?}"),
+            })
+            .collect(),
+    )
 }
 
 /// Returns the per-axis modulus list (i.e. the dense buffer shape implied by `axes`).

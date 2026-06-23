@@ -98,7 +98,7 @@ fn render(row: &LogRow) -> String {
     let bold = Style::new().bold();
 
     let mut out = format!(
-        "{err}error{err:#}{bold}: kernel `{}` was not compiled ({}){bold:#}",
+        "{err}error{err:#}{bold}: kernel `{}` failed during {}{bold:#}",
         row.fn_name, row.stage
     );
     if let (Some(file), Some(line), Some(col)) = (&row.file, row.line, row.col) {

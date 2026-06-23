@@ -29,46 +29,50 @@ pub(super) fn cache_kv(
     let v_idx_it: DmTensor<i32, Chip, Cluster, m![T / 32, T / 4 % 8], m![T % 4 # 32]> = ctx
         .main
         .begin(v_idx_dm.view())
-        .fetch::<i32, m![T / 4 % 8], m![T % 4]>()
+        .fetch::<m![T / 4 % 8], m![T % 4]>()
         .switch::<m![T / 32, T / 4 % 8], m![1 # 8]>(SwitchConfig::InterTranspose {
             slice1: 8,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![1 # 8], m![T % 4]>()
+        .commit_trim::<m![T % 4]>()
         .commit(0x100);
 
     // Restore compact T%4 index lanes before scaling.
     let v_idx_stripped: DmTensor<i32, Chip, Cluster, m![T / 32, T / 4 % 8], m![T % 4]> = ctx
         .main
         .begin(v_idx_it.view())
-        .fetch::<i32, m![1], m![T % 4]>()
+        .fetch::<m![1], m![T % 4]>()
         .collect::<m![1], m![T % 4]>()
+        .commit_trim::<m![T % 4]>()
         .commit(0x0);
 
     // Convert row indices to byte offsets (row stride = K * sizeof(bf16) = 256).
     let v_idx_scaled: DmTensor<i32, Chip, Cluster, m![T / 32, T / 4 % 8], m![T % 4 # 8]> = ctx
         .main
         .begin(v_idx_stripped.view())
-        .fetch::<i32, m![1], m![T % 4]>()
+        .fetch::<m![1], m![T % 4]>()
         .collect::<m![1], m![T % 4 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         .vector_fxp(FxpBinaryOp::MulInt, 256)
         .vector_final()
-        .commit::<m![T % 4 # 8]>(0x0);
+        .commit_trim::<m![T % 4 # 8]>()
+        .commit(0x0);
 
     // Pack offsets into a contiguous T-major layout for DMA spill.
     let v_idx_d0b: DmTensor<i32, Chip, Cluster, m![T / 64, 1 # 16], m![T % 64]> = ctx
         .main
         .begin(v_idx_scaled.view())
-        .fetch::<i32, m![1], m![T % 4]>()
+        .fetch::<m![1], m![T % 4]>()
         .switch::<m![T / 64, 1 # 16], m![1]>(SwitchConfig::Broadcast01 {
             slice1: 16,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![1], m![T % 4]>()
+        .commit_trim::<m![T % 4]>()
         .commit(0x100);
 
     // Spill prepared V offsets back to HBM for dma_scatter.
@@ -92,46 +96,50 @@ pub(super) fn cache_kv(
     let k_idx_it: DmTensor<i32, Chip, Cluster, m![T / 32, T / 4 % 8], m![T % 4 # 32]> = ctx
         .main
         .begin(k_idx_dm.view())
-        .fetch::<i32, m![T / 4 % 8], m![T % 4]>()
+        .fetch::<m![T / 4 % 8], m![T % 4]>()
         .switch::<m![T / 32, T / 4 % 8], m![1 # 8]>(SwitchConfig::InterTranspose {
             slice1: 8,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![1 # 8], m![T % 4]>()
+        .commit_trim::<m![T % 4]>()
         .commit(0x100);
 
     // Restore compact T%4 index lanes before scaling.
     let k_idx_stripped: DmTensor<i32, Chip, Cluster, m![T / 32, T / 4 % 8], m![T % 4]> = ctx
         .main
         .begin(k_idx_it.view())
-        .fetch::<i32, m![1], m![T % 4]>()
+        .fetch::<m![1], m![T % 4]>()
         .collect::<m![1], m![T % 4]>()
+        .commit_trim::<m![T % 4]>()
         .commit(0x0);
 
     // Convert K row indices to byte offsets.
     let k_idx_scaled: DmTensor<i32, Chip, Cluster, m![T / 32, T / 4 % 8], m![T % 4 # 8]> = ctx
         .main
         .begin(k_idx_stripped.view())
-        .fetch::<i32, m![1], m![T % 4]>()
+        .fetch::<m![1], m![T % 4]>()
         .collect::<m![1], m![T % 4 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         .vector_fxp(FxpBinaryOp::MulInt, 256)
         .vector_final()
-        .commit::<m![T % 4 # 8]>(0x0);
+        .commit_trim::<m![T % 4 # 8]>()
+        .commit(0x0);
 
     // Pack K offsets into a contiguous T-major layout for DMA spill.
     let k_idx_d0b: DmTensor<i32, Chip, Cluster, m![T / 64, 1 # 16], m![T % 64]> = ctx
         .main
         .begin(k_idx_scaled.view())
-        .fetch::<i32, m![1], m![T % 4]>()
+        .fetch::<m![1], m![T % 4]>()
         .switch::<m![T / 64, 1 # 16], m![1]>(SwitchConfig::Broadcast01 {
             slice1: 16,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![1], m![T % 4]>()
+        .commit_trim::<m![T % 4]>()
         .commit(0x100);
 
     // Spill prepared K offsets back to HBM for dma_scatter.

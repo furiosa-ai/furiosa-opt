@@ -65,11 +65,10 @@ fn verify_cast<D: Scalar, OutD: Scalar, InPacket: M, OutPacket: M>() {
     let out_flit_elements = OutD::length_from_bytes(FLIT_BYTES);
 
     // Cast elements and pad to 32 bytes.
-    let in_packet = InPacket::to_value().factorize();
-    let expected_packet = in_packet.pad(out_flit_elements).normalize();
+    let expected_packet = InPacket::to_value().replace_padding(out_flit_elements).normalize();
 
     // Output packet must be exactly one flit.
-    let out_packet = OutPacket::to_value().factorize();
+    let out_packet = OutPacket::to_value().normalize();
     assert_eq!(
         OutD::size_in_bytes_from_length(OutPacket::SIZE),
         FLIT_BYTES,

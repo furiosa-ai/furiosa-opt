@@ -25,19 +25,22 @@ fn vrf_add_kernel(
     let rhs_vrf: VrfTensor<i32, Chip, Cluster, m![A / 8 # 256], m![B]> = ctx
         .sub
         .begin(rhs_dm.view())
-        .fetch::<i32, m![1], m![B]>()
+        .fetch::<m![1], m![B]>()
+        .fetch_cast::<i32>()
         .collect::<m![B / 8], m![B % 8]>()
         .to_vrf(0);
 
     // Perform addition: lhs_dm + rhs_vrf using vector engine
     ctx.main
         .begin(lhs_dm.view())
-        .fetch::<i32, m![B], m![A % 8]>()
+        .fetch::<m![B], m![A % 8]>()
+        .fetch_cast::<i32>()
         .collect::<m![B], m![A % 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
         .vector_fxp(FxpBinaryOp::AddFxp, &rhs_vrf)
         .vector_final()
+        .commit_trim::<m![A % 8]>()
         .commit_view(out);
 }
 

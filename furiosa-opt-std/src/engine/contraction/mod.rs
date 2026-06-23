@@ -75,7 +75,37 @@ pub struct ContractTimeTensor<
     pub(crate) inner: Tensor<D, Pair<Chip, Pair<Cluster, Pair<Slice, Pair<Lane, Pair<Time, Packet>>>>>, B>,
     /// Pre-reduce `Time` mapping captured by `contract_time`, used by `contract_lane` to
     /// derive the cross-stage `inner_size` accumulator-buffer bound.
-    pub(crate) pre_reduce_time: FMapping,
+    pub(crate) pre_reduce_time: Mapping,
+}
+
+/// The padded extent of each axis of `m` keyed by its cumulative (dividend) stride, inner-to-outer.
+///
+/// The FMapping-free peer of the old factor walk (`stride -> padding_size/stride | resize`): on the
+/// normalized `Mapping`, each axis already carries its padded extent as `size()` (a `Padding` node's
+/// size is its padded total), and the running stride is the product of the inner axes' extents. The
+/// contraction verifies key into this by a division term's `dividend_stride`.
+pub(crate) fn padding_per_stride(m: &Mapping) -> std::collections::HashMap<usize, usize> {
+    let mut extents = Vec::new();
+    collect_axis_extents(&m.normalize(), &mut extents);
+    let mut map = std::collections::HashMap::new();
+    let mut stride = 1;
+    for extent in extents {
+        map.insert(stride, extent);
+        stride *= extent;
+    }
+    map
+}
+
+/// Pushes each axis's padded extent (`size()`), innermost (right) first, down the normalized `Pair`
+/// spine — the order the factor list used.
+fn collect_axis_extents(m: &Mapping, out: &mut Vec<usize>) {
+    match m {
+        Mapping::Pair { left, right } => {
+            collect_axis_extents(right, out);
+            collect_axis_extents(left, out);
+        }
+        other => out.push(other.size()),
+    }
 }
 
 /// Tensor streamed after the contraction engine.

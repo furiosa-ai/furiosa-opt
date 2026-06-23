@@ -30,21 +30,23 @@ pub(super) fn attn_output(
     let v_it: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![T / 512, T % 8, K % 64]> = ctx
         .main
         .begin(v_dm.view())
-        .fetch::<bf16, m![T % 8, K / 64], m![K % 64]>()
+        .fetch::<m![T % 8, K / 64], m![K % 64]>()
         .switch::<m![Z, T / 8 % 64, K / 64], m![T % 8, T / 512]>(SwitchConfig::InterTranspose {
             slice1: 2,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![T / 512, T % 8], m![K % 64]>()
+        .commit_trim::<m![K % 64]>()
         .commit(0xa00);
 
     // Transpose V packet layout for TRF consumption.
     let v_transpose: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![T / 512, K % 64, T % 8]> = ctx
         .main
         .begin(v_it.view())
-        .fetch::<bf16, m![T / 512, K / 64], m![T % 8, K % 64]>()
+        .fetch::<m![T / 512, K / 64], m![T % 8, K % 64]>()
         .collect::<m![T / 512, K / 64], m![K % 64, T % 8]>()
+        .commit_trim::<m![K % 64, T % 8]>()
         .commit(0x1200);
 
     // Copy the first T half of V.
@@ -67,7 +69,7 @@ pub(super) fn attn_output(
     let v_trf_first: TrfTensor<bf16, Chip, Cluster, m![S / 8, N], m![T % 8], m![K % 64]> = ctx
         .sub
         .begin(v_half_0.view())
-        .fetch::<bf16, m![T % 8], m![K % 64]>()
+        .fetch::<m![T % 8], m![K % 64]>()
         .switch::<m![S / 8, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 128, slice0: 2 })
         .collect::<m![T % 8], m![K % 64]>()
         .to_trf(TrfAddress::FirstHalf);
@@ -76,7 +78,7 @@ pub(super) fn attn_output(
     let v_trf_second: TrfTensor<bf16, Chip, Cluster, m![S / 8, N], m![T % 8], m![K % 64]> = ctx
         .sub
         .begin(v_half_1.view())
-        .fetch::<bf16, m![T % 8], m![K % 64]>()
+        .fetch::<m![T % 8], m![K % 64]>()
         .switch::<m![S / 8, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 128, slice0: 2 })
         .collect::<m![T % 8], m![K % 64]>()
         .to_trf(TrfAddress::SecondHalf);
@@ -85,8 +87,9 @@ pub(super) fn attn_output(
     let scores_reshaped: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![T / 512, S % 8, G, T % 512]> = ctx
         .main
         .begin(softmax_scores.view())
-        .fetch::<bf16, m![S % 8, G], m![T]>()
+        .fetch::<m![S % 8, G], m![T]>()
         .collect::<m![S % 8, G, T / 8], m![T % 8]>()
+        .commit_trim::<m![T % 8]>()
         .commit(0x28000);
     let mut scores_half_0: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T % 512]> =
         unsafe { DmTensor::from_addr(0x28000) };
@@ -105,7 +108,7 @@ pub(super) fn attn_output(
     let _matmul_97: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
         .main
         .begin(scores_half_0.view())
-        .fetch::<bf16, m![S % 8, G], m![T % 512]>()
+        .fetch::<m![S % 8, G], m![T % 512]>()
         .collect::<m![S % 8, G, T / 8 % 64], m![T % 8]>()
         .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _>(&v_trf_first)
         .contract_packet::<m![1]>()
@@ -115,13 +118,14 @@ pub(super) fn attn_output(
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![D % 8 # 16]>()
+        .commit_trim::<m![D % 8]>()
         .commit(0x2200);
 
     // Accumulate first score half with second TRF-loaded V half.
     let matmul_98: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
         .main
         .begin(scores_half_0.view())
-        .fetch::<bf16, m![S % 8, G], m![T % 512]>()
+        .fetch::<m![S % 8, G], m![T % 512]>()
         .collect::<m![S % 8, G, T / 8 % 64], m![T % 8]>()
         .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _>(&v_trf_second)
         .contract_packet::<m![1]>()
@@ -131,13 +135,14 @@ pub(super) fn attn_output(
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![D % 8 # 16]>()
+        .commit_trim::<m![D % 8]>()
         .commit(0x2200);
 
     // Multiply second score half with first TRF-loaded V half.
     let _matmul_100: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
         .main
         .begin(scores_half_1.view())
-        .fetch::<bf16, m![S % 8, G], m![T % 512]>()
+        .fetch::<m![S % 8, G], m![T % 512]>()
         .collect::<m![S % 8, G, T / 8 % 64], m![T % 8]>()
         .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _>(&v_trf_first)
         .contract_packet::<m![1]>()
@@ -147,13 +152,14 @@ pub(super) fn attn_output(
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![D % 8 # 16]>()
+        .commit_trim::<m![D % 8]>()
         .commit(0x3e00);
 
     // Accumulate second score half with second TRF-loaded V half.
     let matmul_102: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
         .main
         .begin(scores_half_1.view())
-        .fetch::<bf16, m![S % 8, G], m![T % 512]>()
+        .fetch::<m![S % 8, G], m![T % 512]>()
         .collect::<m![S % 8, G, T / 8 % 64], m![T % 8]>()
         .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _>(&v_trf_second)
         .contract_packet::<m![1]>()
@@ -163,32 +169,36 @@ pub(super) fn attn_output(
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .cast::<bf16, m![D % 8 # 16]>()
+        .commit_trim::<m![D % 8]>()
         .commit(0x3e00);
 
     // Add both T-half matmul outputs to form the final attention output block.
     let matmul_out: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
         .main
         .begin_interleaved::<I, _, _, _, _, _>(matmul_98.view(), matmul_102.view())
-        .fetch::<f32, m![I, S % 8, G], m![D]>()
+        .fetch::<m![I, S % 8, G], m![D]>()
+        .fetch_cast::<f32>()
         .collect::<m![I, S % 8, G], m![D]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_clip_zip(ClipBinaryOpF32::Add)
         .vector_final()
         .cast::<bf16, m![D]>()
+        .commit_trim::<m![D]>()
         .commit(0x2200);
 
     // Reshape output from [N, G, D] back to hidden-size layout H.
     let output_reshaped: DmTensor<bf16, Chip, Cluster, m![S / 8, S / 4 % 2], m![S % 4, H]> = ctx
         .main
         .begin(matmul_out.view())
-        .fetch::<bf16, m![S % 4, S / 4 % 2], m![H % 448]>()
+        .fetch::<m![S % 4, S / 4 % 2], m![H % 448]>()
         .switch::<m![S / 8, S / 4 % 2], m![S % 4, H / 448]>(SwitchConfig::InterTranspose {
             slice1: 2,
             slice0: 1,
             time0: 1,
         })
         .collect::<m![S % 4, H / 448], m![H % 448]>()
+        .commit_trim::<m![H % 448]>()
         .commit(0x0);
 
     // Write reshaped attention output back to HBM.
