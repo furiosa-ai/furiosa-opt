@@ -1,475 +1,610 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `furiosa-opt-std/src/tensor/mod.rs`."><title>mod.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="furiosa_opt_std" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.0-nightly (f53b654a8 2026-04-30)" data-channel="nightly" data-search-js="search-b5634cc7.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../../../static.files/src-script-813739b1.js"></script><script defer src="../../../src-files.js"></script><script defer src="../../../static.files/main-aa4d37ac.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">furiosa_opt_std/tensor/</div>mod.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use </span>std::fmt;
-<a href=#2 id=2 data-nosnippet>2</a><span class="kw">use </span>std::marker::PhantomData;
-<a href=#3 id=3 data-nosnippet>3</a>
-<a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>furiosa_mapping::<span class="kw-2">*</span>;
-<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>ndarray::IxDyn;
-<a href=#6 id=6 data-nosnippet>6</a><span class="kw">use </span>num_traits::Zero;
-<a href=#7 id=7 data-nosnippet>7</a><span class="kw">use </span>rand::Rng;
-<a href=#8 id=8 data-nosnippet>8</a><span class="kw">use </span>rand::distr::StandardUniform;
-<a href=#9 id=9 data-nosnippet>9</a>
-<a href=#10 id=10 data-nosnippet>10</a><span class="kw">use </span><span class="self">self</span>::view::<span class="kw-2">*</span>;
-<a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span><span class="kw">crate</span>::scalar::<span class="kw-2">*</span>;
-<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::tensor::raw::gen_axes;
-<a href=#13 id=13 data-nosnippet>13</a>
-<a href=#14 id=14 data-nosnippet>14</a><span class="kw">use </span><span class="kw">crate</span>::engine::vector::operand::OperandTag;
-<a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span><span class="kw">crate</span>::engine::vector::scalar::VeScalar;
-<a href=#16 id=16 data-nosnippet>16</a><span class="kw">use </span><span class="kw">crate</span>::runtime::{Backend, CurrentBackend};
-<a href=#17 id=17 data-nosnippet>17</a>
-<a href=#18 id=18 data-nosnippet>18</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">mod </span>memory;
-<a href=#19 id=19 data-nosnippet>19</a><span class="kw">pub mod </span>pseudo;
-<a href=#20 id=20 data-nosnippet>20</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">mod </span>raw;
-<a href=#21 id=21 data-nosnippet>21</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">mod </span>tu;
-<a href=#22 id=22 data-nosnippet>22</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">mod </span>view;
-<a href=#23 id=23 data-nosnippet>23</a>
-<a href=#24 id=24 data-nosnippet>24</a><span class="kw">pub use </span>raw::{BufRawTensor, MathRawTensor, PhantomRawTensor, RawTensor, RawTensorOpt};
-<a href=#25 id=25 data-nosnippet>25</a>
-<a href=#26 id=26 data-nosnippet>26</a><span class="attr">#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-<a href=#27 id=27 data-nosnippet>27</a></span><span class="kw">enum </span>BufferConvertErrorKind {
-<a href=#28 id=28 data-nosnippet>28</a>    LengthMismatch { expected: usize, actual: usize },
-<a href=#29 id=29 data-nosnippet>29</a>}
-<a href=#30 id=30 data-nosnippet>30</a>
-<a href=#31 id=31 data-nosnippet>31</a><span class="doccomment">/// Error raised when a logical buffer cannot be lowered into the backend's storage.
-<a href=#32 id=32 data-nosnippet>32</a></span><span class="attr">#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-<a href=#33 id=33 data-nosnippet>33</a></span><span class="kw">pub struct </span>BufferConvertError {
-<a href=#34 id=34 data-nosnippet>34</a>    kind: BufferConvertErrorKind,
-<a href=#35 id=35 data-nosnippet>35</a>}
-<a href=#36 id=36 data-nosnippet>36</a>
-<a href=#37 id=37 data-nosnippet>37</a><span class="kw">impl </span>BufferConvertError {
-<a href=#38 id=38 data-nosnippet>38</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>length_mismatch(expected: usize, actual: usize) -&gt; <span class="self">Self </span>{
-<a href=#39 id=39 data-nosnippet>39</a>        <span class="self">Self </span>{
-<a href=#40 id=40 data-nosnippet>40</a>            kind: BufferConvertErrorKind::LengthMismatch { expected, actual },
-<a href=#41 id=41 data-nosnippet>41</a>        }
-<a href=#42 id=42 data-nosnippet>42</a>    }
-<a href=#43 id=43 data-nosnippet>43</a>}
-<a href=#44 id=44 data-nosnippet>44</a>
-<a href=#45 id=45 data-nosnippet>45</a><span class="kw">impl </span>fmt::Display <span class="kw">for </span>BufferConvertError {
-<a href=#46 id=46 data-nosnippet>46</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
-<a href=#47 id=47 data-nosnippet>47</a>        <span class="kw">match </span><span class="self">self</span>.kind {
-<a href=#48 id=48 data-nosnippet>48</a>            BufferConvertErrorKind::LengthMismatch { expected, actual } =&gt; {
-<a href=#49 id=49 data-nosnippet>49</a>                <span class="macro">write!</span>(f, <span class="string">"buffer length mismatch: expected {expected} elements, got {actual}"</span>)
-<a href=#50 id=50 data-nosnippet>50</a>            }
-<a href=#51 id=51 data-nosnippet>51</a>        }
+<a href=#2 id=2 data-nosnippet>2</a>
+<a href=#3 id=3 data-nosnippet>3</a><span class="kw">use </span>furiosa_mapping::<span class="kw-2">*</span>;
+<a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>num_traits::Zero;
+<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>rand::Rng;
+<a href=#6 id=6 data-nosnippet>6</a><span class="kw">use </span>rand::distr::StandardUniform;
+<a href=#7 id=7 data-nosnippet>7</a>
+<a href=#8 id=8 data-nosnippet>8</a><span class="kw">use </span><span class="self">self</span>::view::<span class="kw-2">*</span>;
+<a href=#9 id=9 data-nosnippet>9</a><span class="kw">use </span><span class="kw">crate</span>::scalar::<span class="kw-2">*</span>;
+<a href=#10 id=10 data-nosnippet>10</a>
+<a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span><span class="kw">crate</span>::backend::Backend;
+<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::cast::ContractionCast;
+<a href=#13 id=13 data-nosnippet>13</a><span class="kw">use </span><span class="kw">crate</span>::runtime::CurrentBackend;
+<a href=#14 id=14 data-nosnippet>14</a>
+<a href=#15 id=15 data-nosnippet>15</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">mod </span>memory;
+<a href=#16 id=16 data-nosnippet>16</a><span class="kw">pub mod </span>pseudo;
+<a href=#17 id=17 data-nosnippet>17</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">mod </span>tu;
+<a href=#18 id=18 data-nosnippet>18</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">mod </span>view;
+<a href=#19 id=19 data-nosnippet>19</a>
+<a href=#20 id=20 data-nosnippet>20</a><span class="doccomment">/// Tensor with scalar type `D`, axes determined by `Mapping`, and backend determined by `B`.
+<a href=#21 id=21 data-nosnippet>21</a>///
+<a href=#22 id=22 data-nosnippet>22</a>/// A thin newtype over the backend's concrete tensor type ([`Backend::Storage`]). `B` defaults to
+<a href=#23 id=23 data-nosnippet>23</a>/// [`CurrentBackend`], a cfg-aliased type that picks
+<a href=#24 id=24 data-nosnippet>24</a>/// Emulation / Npu / Typecheck. User code writes `Tensor&lt;D, M&gt;` and gets the
+<a href=#25 id=25 data-nosnippet>25</a>/// backend-appropriate storage automatically. Explicit `Tensor&lt;D, M, SomeBackend&gt;` overrides for
+<a href=#26 id=26 data-nosnippet>26</a>/// testing / cross-backend code.
+<a href=#27 id=27 data-nosnippet>27</a></span><span class="kw">pub struct </span>Tensor&lt;D: Scalar, Mapping: M, B: Backend = CurrentBackend&gt; {
+<a href=#28 id=28 data-nosnippet>28</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) inner: B::Storage&lt;D&gt;,
+<a href=#29 id=29 data-nosnippet>29</a>    <span class="comment">// `B::Storage&lt;D&gt;` drops `Mapping` at the type level (storage-layer erasure); this phantom keeps
+<a href=#30 id=30 data-nosnippet>30</a>    // the layout traveling at the `Tensor` level so memory-tier structs stay generic and inferable.
+<a href=#31 id=31 data-nosnippet>31</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) _marker: std::marker::PhantomData&lt;Mapping&gt;,
+<a href=#32 id=32 data-nosnippet>32</a>}
+<a href=#33 id=33 data-nosnippet>33</a>
+<a href=#34 id=34 data-nosnippet>34</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; fmt::Debug <span class="kw">for </span>Tensor&lt;D, Mapping, B&gt; {
+<a href=#35 id=35 data-nosnippet>35</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
+<a href=#36 id=36 data-nosnippet>36</a>        f.debug_struct(<span class="string">"Tensor"</span>).field(<span class="string">"inner"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.inner).finish()
+<a href=#37 id=37 data-nosnippet>37</a>    }
+<a href=#38 id=38 data-nosnippet>38</a>}
+<a href=#39 id=39 data-nosnippet>39</a>
+<a href=#40 id=40 data-nosnippet>40</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Clone <span class="kw">for </span>Tensor&lt;D, Mapping, B&gt; {
+<a href=#41 id=41 data-nosnippet>41</a>    <span class="kw">fn </span>clone(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="self">Self </span>{
+<a href=#42 id=42 data-nosnippet>42</a>        <span class="self">Self </span>{
+<a href=#43 id=43 data-nosnippet>43</a>            inner: <span class="self">self</span>.inner.clone(),
+<a href=#44 id=44 data-nosnippet>44</a>            _marker: std::marker::PhantomData,
+<a href=#45 id=45 data-nosnippet>45</a>        }
+<a href=#46 id=46 data-nosnippet>46</a>    }
+<a href=#47 id=47 data-nosnippet>47</a>}
+<a href=#48 id=48 data-nosnippet>48</a>
+<a href=#49 id=49 data-nosnippet>49</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; PartialEq <span class="kw">for </span>Tensor&lt;D, Mapping, B&gt; {
+<a href=#50 id=50 data-nosnippet>50</a>    <span class="kw">fn </span>eq(<span class="kw-2">&amp;</span><span class="self">self</span>, other: <span class="kw-2">&amp;</span><span class="self">Self</span>) -&gt; bool {
+<a href=#51 id=51 data-nosnippet>51</a>        <span class="self">self</span>.inner == other.inner
 <a href=#52 id=52 data-nosnippet>52</a>    }
 <a href=#53 id=53 data-nosnippet>53</a>}
 <a href=#54 id=54 data-nosnippet>54</a>
-<a href=#55 id=55 data-nosnippet>55</a><span class="kw">impl </span>std::error::Error <span class="kw">for </span>BufferConvertError {}
-<a href=#56 id=56 data-nosnippet>56</a>
-<a href=#57 id=57 data-nosnippet>57</a><span class="doccomment">/// Tensor with scalar type `D`, axes determined by `Mapping`, and backend determined by `B`.
-<a href=#58 id=58 data-nosnippet>58</a>///
-<a href=#59 id=59 data-nosnippet>59</a>/// `B` defaults to [`CurrentBackend`], a cfg-aliased type that picks Simulation / Emulation / Npu
-<a href=#60 id=60 data-nosnippet>60</a>/// / Typecheck. User code writes `Tensor&lt;D, M&gt;` and gets the backend-appropriate storage
-<a href=#61 id=61 data-nosnippet>61</a>/// automatically. Explicit `Tensor&lt;D, M, SomeBackend&gt;` overrides for testing / cross-backend code.
-<a href=#62 id=62 data-nosnippet>62</a></span><span class="kw">pub struct </span>Tensor&lt;D: Scalar, Mapping: M, B: Backend = CurrentBackend&gt; {
-<a href=#63 id=63 data-nosnippet>63</a>    inner: B::RawTensor&lt;D&gt;,
-<a href=#64 id=64 data-nosnippet>64</a>    _marker: PhantomData&lt;(Mapping, B)&gt;,
-<a href=#65 id=65 data-nosnippet>65</a>}
-<a href=#66 id=66 data-nosnippet>66</a>
-<a href=#67 id=67 data-nosnippet>67</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; std::fmt::Debug <span class="kw">for </span>Tensor&lt;D, Mapping, B&gt;
-<a href=#68 id=68 data-nosnippet>68</a><span class="kw">where
-<a href=#69 id=69 data-nosnippet>69</a>    </span>B::RawTensor&lt;D&gt;: std::fmt::Debug,
-<a href=#70 id=70 data-nosnippet>70</a>{
-<a href=#71 id=71 data-nosnippet>71</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>std::fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; std::fmt::Result {
-<a href=#72 id=72 data-nosnippet>72</a>        f.debug_struct(<span class="string">"Tensor"</span>).field(<span class="string">"inner"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.inner).finish()
-<a href=#73 id=73 data-nosnippet>73</a>    }
-<a href=#74 id=74 data-nosnippet>74</a>}
-<a href=#75 id=75 data-nosnippet>75</a>
-<a href=#76 id=76 data-nosnippet>76</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Clone <span class="kw">for </span>Tensor&lt;D, Mapping, B&gt;
-<a href=#77 id=77 data-nosnippet>77</a><span class="kw">where
-<a href=#78 id=78 data-nosnippet>78</a>    </span>B::RawTensor&lt;D&gt;: Clone,
-<a href=#79 id=79 data-nosnippet>79</a>{
-<a href=#80 id=80 data-nosnippet>80</a>    <span class="kw">fn </span>clone(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="self">Self </span>{
-<a href=#81 id=81 data-nosnippet>81</a>        <span class="self">Self </span>{
-<a href=#82 id=82 data-nosnippet>82</a>            inner: <span class="self">self</span>.inner.clone(),
-<a href=#83 id=83 data-nosnippet>83</a>            _marker: PhantomData,
-<a href=#84 id=84 data-nosnippet>84</a>        }
-<a href=#85 id=85 data-nosnippet>85</a>    }
-<a href=#86 id=86 data-nosnippet>86</a>}
-<a href=#87 id=87 data-nosnippet>87</a>
-<a href=#88 id=88 data-nosnippet>88</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt; {
-<a href=#89 id=89 data-nosnippet>89</a>    <span class="doccomment">/// Wraps a backend-native raw tensor in `Tensor`.
-<a href=#90 id=90 data-nosnippet>90</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>from_inner(inner: B::RawTensor&lt;D&gt;) -&gt; <span class="self">Self </span>{
-<a href=#91 id=91 data-nosnippet>91</a>        <span class="self">Self </span>{
-<a href=#92 id=92 data-nosnippet>92</a>            inner,
-<a href=#93 id=93 data-nosnippet>93</a>            _marker: PhantomData,
-<a href=#94 id=94 data-nosnippet>94</a>        }
-<a href=#95 id=95 data-nosnippet>95</a>    }
-<a href=#96 id=96 data-nosnippet>96</a>}
-<a href=#97 id=97 data-nosnippet>97</a>
-<a href=#98 id=98 data-nosnippet>98</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt; {
-<a href=#99 id=99 data-nosnippet>99</a>    <span class="doccomment">/// Consumes the tensor and returns its underlying backend-native raw tensor. Pair this with
-<a href=#100 id=100 data-nosnippet>100</a>    /// [`RawTensor::from_buf`] to compare against an expected raw tensor without a `Vec&lt;D&gt;`
-<a href=#101 id=101 data-nosnippet>101</a>    /// round-trip.
-<a href=#102 id=102 data-nosnippet>102</a>    </span><span class="kw">pub fn </span>into_raw(<span class="self">self</span>) -&gt; B::RawTensor&lt;D&gt; {
-<a href=#103 id=103 data-nosnippet>103</a>        <span class="self">self</span>.inner
-<a href=#104 id=104 data-nosnippet>104</a>    }
-<a href=#105 id=105 data-nosnippet>105</a>
-<a href=#106 id=106 data-nosnippet>106</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>read_index(<span class="kw-2">&amp;</span><span class="self">self</span>, index: Index) -&gt; Opt&lt;D&gt; {
-<a href=#107 id=107 data-nosnippet>107</a>        <span class="self">self</span>.inner.read_index(index)
-<a href=#108 id=108 data-nosnippet>108</a>    }
-<a href=#109 id=109 data-nosnippet>109</a>}
-<a href=#110 id=110 data-nosnippet>110</a>
-<a href=#111 id=111 data-nosnippet>111</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt; {
-<a href=#112 id=112 data-nosnippet>112</a>    <span class="doccomment">/// Creates a new tensor from an initialized buffer.
-<a href=#113 id=113 data-nosnippet>113</a>    </span><span class="kw">pub fn </span>from_buf(data: <span class="kw">impl </span>IntoIterator&lt;Item = D&gt;) -&gt; <span class="self">Self </span>{
-<a href=#114 id=114 data-nosnippet>114</a>        <span class="self">Self</span>::try_from_buf(data).unwrap_or_else(|err| <span class="macro">panic!</span>(<span class="string">"failed to convert buffer for backend storage: {err}"</span>))
-<a href=#115 id=115 data-nosnippet>115</a>    }
-<a href=#116 id=116 data-nosnippet>116</a>
-<a href=#117 id=117 data-nosnippet>117</a>    <span class="doccomment">/// Creates a new tensor from an initialized buffer, returning an error if the input cannot be
-<a href=#118 id=118 data-nosnippet>118</a>    /// lowered.
-<a href=#119 id=119 data-nosnippet>119</a>    </span><span class="kw">pub fn </span>try_from_buf(data: <span class="kw">impl </span>IntoIterator&lt;Item = D&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BufferConvertError&gt; {
-<a href=#120 id=120 data-nosnippet>120</a>        B::RawTensor::try_from_buf::&lt;Mapping&gt;(data).map(<span class="self">Self</span>::from_inner)
-<a href=#121 id=121 data-nosnippet>121</a>    }
-<a href=#122 id=122 data-nosnippet>122</a>
-<a href=#123 id=123 data-nosnippet>123</a>    <span class="doccomment">/// Returns the tensor data as a flat `Vec&lt;D&gt;`. On Simulation, panics if any slot is
-<a href=#124 id=124 data-nosnippet>124</a>    /// `Opt::Uninit`. Use `to_buf_opt` (Simulation/Typecheck only) to inspect logical Opt-bearing
-<a href=#125 id=125 data-nosnippet>125</a>    /// values.
-<a href=#126 id=126 data-nosnippet>126</a>    </span><span class="kw">pub fn </span>to_buf(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;D&gt; {
-<a href=#127 id=127 data-nosnippet>127</a>        <span class="self">self</span>.inner.to_buf::&lt;Mapping&gt;()
-<a href=#128 id=128 data-nosnippet>128</a>    }
-<a href=#129 id=129 data-nosnippet>129</a>
-<a href=#130 id=130 data-nosnippet>130</a>    <span class="doccomment">/// Like [`Self::to_buf`], but yields `D::zero()` for padding/uninit slots instead of panicking
-<a href=#131 id=131 data-nosnippet>131</a>    /// (see [`RawTensor::to_buf_or_default`]). Available on all backends.
-<a href=#132 id=132 data-nosnippet>132</a>    </span><span class="kw">pub fn </span>to_buf_or_default(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;D&gt; {
-<a href=#133 id=133 data-nosnippet>133</a>        <span class="self">self</span>.inner.to_buf_or_default::&lt;Mapping&gt;()
-<a href=#134 id=134 data-nosnippet>134</a>    }
-<a href=#135 id=135 data-nosnippet>135</a>}
-<a href=#136 id=136 data-nosnippet>136</a>
-<a href=#137 id=137 data-nosnippet>137</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt; {
-<a href=#138 id=138 data-nosnippet>138</a>    <span class="doccomment">/// Creates a new tensor from a function. Delegates to [`RawTensor::from_fn`]; storage choice
-<a href=#139 id=139 data-nosnippet>139</a>    /// (`MathRawTensor` / `BufRawTensor` / `PhantomRawTensor`) determines whether iteration writes
-<a href=#140 id=140 data-nosnippet>140</a>    /// real values, propagates `todo!()`, or silently drops them.
-<a href=#141 id=141 data-nosnippet>141</a>    </span><span class="kw">pub fn </span>from_fn&lt;F&gt;(f: F) -&gt; <span class="self">Self
-<a href=#142 id=142 data-nosnippet>142</a>    </span><span class="kw">where
-<a href=#143 id=143 data-nosnippet>143</a>        </span>F: FnMut(<span class="kw-2">&amp;</span>Vec&lt;Term&gt;, <span class="kw-2">&amp;</span>IxDyn) -&gt; Opt&lt;D&gt;,
-<a href=#144 id=144 data-nosnippet>144</a>    {
-<a href=#145 id=145 data-nosnippet>145</a>        <span class="self">Self</span>::from_inner(B::RawTensor::from_fn(gen_axes::&lt;Mapping&gt;(), f))
-<a href=#146 id=146 data-nosnippet>146</a>    }
-<a href=#147 id=147 data-nosnippet>147</a>
-<a href=#148 id=148 data-nosnippet>148</a>    <span class="doccomment">/// Maps the tensor with a function. Delegates to [`RawTensor::map`].
-<a href=#149 id=149 data-nosnippet>149</a>    </span><span class="kw">pub fn </span>map&lt;D2: Scalar, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, f: F) -&gt; Tensor&lt;D2, Mapping, B&gt;
-<a href=#150 id=150 data-nosnippet>150</a>    <span class="kw">where
-<a href=#151 id=151 data-nosnippet>151</a>        </span>F: FnMut(<span class="kw-2">&amp;</span>Opt&lt;D&gt;) -&gt; Opt&lt;D2&gt;,
-<a href=#152 id=152 data-nosnippet>152</a>    {
-<a href=#153 id=153 data-nosnippet>153</a>        Tensor::from_inner(<span class="self">self</span>.inner.map::&lt;D2, <span class="kw">_</span>, F&gt;(f))
-<a href=#154 id=154 data-nosnippet>154</a>    }
-<a href=#155 id=155 data-nosnippet>155</a>
-<a href=#156 id=156 data-nosnippet>156</a>    <span class="doccomment">/// Zips two tensors with a function. Delegates to [`RawTensor::zip_with`].
-<a href=#157 id=157 data-nosnippet>157</a>    </span><span class="kw">pub fn </span>zip_with&lt;D2: Scalar, D3: Scalar, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, other: <span class="kw-2">&amp;</span>Tensor&lt;D2, Mapping, B&gt;, f: F) -&gt; Tensor&lt;D3, Mapping, B&gt;
-<a href=#158 id=158 data-nosnippet>158</a>    <span class="kw">where
-<a href=#159 id=159 data-nosnippet>159</a>        </span>F: Fn(Opt&lt;D&gt;, Opt&lt;D2&gt;) -&gt; Opt&lt;D3&gt;,
-<a href=#160 id=160 data-nosnippet>160</a>    {
-<a href=#161 id=161 data-nosnippet>161</a>        Tensor::from_inner(<span class="self">self</span>.inner.zip_with::&lt;D2, D3, <span class="kw">_</span>, <span class="kw">_</span>, F&gt;(<span class="kw-2">&amp;</span>other.inner, f))
-<a href=#162 id=162 data-nosnippet>162</a>    }
-<a href=#163 id=163 data-nosnippet>163</a>
-<a href=#164 id=164 data-nosnippet>164</a>    <span class="doccomment">/// Performs reduction (sum) over axes not present in `Dst`.
-<a href=#165 id=165 data-nosnippet>165</a>    </span><span class="kw">pub fn </span>reduce_add&lt;Dst: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Tensor&lt;D, Dst, B&gt; {
-<a href=#166 id=166 data-nosnippet>166</a>        <span class="self">self</span>.reduce::&lt;Dst&gt;(|a, b| a + b, Opt::zero())
-<a href=#167 id=167 data-nosnippet>167</a>    }
-<a href=#168 id=168 data-nosnippet>168</a>
-<a href=#169 id=169 data-nosnippet>169</a>    <span class="doccomment">/// Reduces the factors of `self`'s mapping that are absent in `Dst`. `Dst` must be an
-<a href=#170 id=170 data-nosnippet>170</a>    /// exact factor of the source mapping; the source mapping is passed through so that
-<a href=#171 id=171 data-nosnippet>171</a>    /// per-factor identity is preserved (e.g., a symbol appearing as multiple sub-factors,
-<a href=#172 id=172 data-nosnippet>172</a>    /// only some of which are reduced).
-<a href=#173 id=173 data-nosnippet>173</a>    </span><span class="kw">pub fn </span>reduce&lt;Dst: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, reduce_fn: <span class="kw">impl </span>Fn(Opt&lt;D&gt;, Opt&lt;D&gt;) -&gt; Opt&lt;D&gt;, identity: Opt&lt;D&gt;) -&gt; Tensor&lt;D, Dst, B&gt; {
-<a href=#174 id=174 data-nosnippet>174</a>        Tensor::from_inner(<span class="self">self</span>.inner.reduce::&lt;Mapping, Dst, <span class="kw">_</span>&gt;(reduce_fn, identity))
-<a href=#175 id=175 data-nosnippet>175</a>    }
-<a href=#176 id=176 data-nosnippet>176</a>
-<a href=#177 id=177 data-nosnippet>177</a>    <span class="doccomment">/// Creates a zero tensor.
-<a href=#178 id=178 data-nosnippet>178</a>    </span><span class="kw">pub fn </span>zero() -&gt; <span class="self">Self
-<a href=#179 id=179 data-nosnippet>179</a>    </span><span class="kw">where
-<a href=#180 id=180 data-nosnippet>180</a>        </span>D: Zero,
-<a href=#181 id=181 data-nosnippet>181</a>    {
-<a href=#182 id=182 data-nosnippet>182</a>        <span class="self">Self</span>::from_fn(|<span class="kw">_</span>, <span class="kw">_</span>| Opt::Init(D::zero()))
-<a href=#183 id=183 data-nosnippet>183</a>    }
-<a href=#184 id=184 data-nosnippet>184</a>
-<a href=#185 id=185 data-nosnippet>185</a>    <span class="doccomment">/// Creates a random tensor.
-<a href=#186 id=186 data-nosnippet>186</a>    </span><span class="kw">pub fn </span>rand(rng: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Rng) -&gt; <span class="self">Self
-<a href=#187 id=187 data-nosnippet>187</a>    </span><span class="kw">where
-<a href=#188 id=188 data-nosnippet>188</a>        </span>StandardUniform: rand::distr::Distribution&lt;D&gt;,
-<a href=#189 id=189 data-nosnippet>189</a>    {
-<a href=#190 id=190 data-nosnippet>190</a>        <span class="self">Self</span>::from_fn(|<span class="kw">_</span>, <span class="kw">_</span>| Opt::Init(rng.random::&lt;D&gt;()))
-<a href=#191 id=191 data-nosnippet>191</a>    }
-<a href=#192 id=192 data-nosnippet>192</a>
-<a href=#193 id=193 data-nosnippet>193</a>    <span class="doccomment">/// Performs reduction followed by broadcasting to match destination axes.
-<a href=#194 id=194 data-nosnippet>194</a>    </span><span class="kw">pub fn </span>reduce_then_broadcast&lt;Dst: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Tensor&lt;D, Dst, B&gt; {
-<a href=#195 id=195 data-nosnippet>195</a>        <span class="self">self</span>.reduce_then_broadcast_with::&lt;Dst&gt;(|a, b| a + b, Opt::zero())
-<a href=#196 id=196 data-nosnippet>196</a>    }
-<a href=#197 id=197 data-nosnippet>197</a>
-<a href=#198 id=198 data-nosnippet>198</a>    <span class="doccomment">/// Performs reduction with a custom function, followed by broadcasting to match destination axes.
-<a href=#199 id=199 data-nosnippet>199</a>    </span><span class="kw">pub fn </span>reduce_then_broadcast_with&lt;Dst: M&gt;(
-<a href=#200 id=200 data-nosnippet>200</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#201 id=201 data-nosnippet>201</a>        reduce_fn: <span class="kw">impl </span>Fn(Opt&lt;D&gt;, Opt&lt;D&gt;) -&gt; Opt&lt;D&gt;,
-<a href=#202 id=202 data-nosnippet>202</a>        identity: Opt&lt;D&gt;,
-<a href=#203 id=203 data-nosnippet>203</a>    ) -&gt; Tensor&lt;D, Dst, B&gt; {
-<a href=#204 id=204 data-nosnippet>204</a>        Tensor::from_inner(<span class="self">self</span>.inner.reduce_then_broadcast::&lt;Mapping, Dst, <span class="kw">_</span>&gt;(reduce_fn, identity))
-<a href=#205 id=205 data-nosnippet>205</a>    }
-<a href=#206 id=206 data-nosnippet>206</a>
-<a href=#207 id=207 data-nosnippet>207</a>    <span class="doccomment">/// Performs contraction between two tensors.
-<a href=#208 id=208 data-nosnippet>208</a>    </span><span class="kw">pub fn </span>contraction&lt;Union: M, Lhs: M, Rhs: M&gt;(lhs: <span class="kw-2">&amp;</span>Tensor&lt;D, Lhs, B&gt;, rhs: <span class="kw-2">&amp;</span>Tensor&lt;D, Rhs, B&gt;) -&gt; <span class="self">Self </span>{
-<a href=#209 id=209 data-nosnippet>209</a>        lhs.transpose::&lt;Union&gt;(<span class="bool-val">true</span>)
-<a href=#210 id=210 data-nosnippet>210</a>            .zip_with(<span class="kw-2">&amp;</span>rhs.transpose(<span class="bool-val">true</span>), |a, b| a * b)
-<a href=#211 id=211 data-nosnippet>211</a>            .reduce_add()
+<a href=#55 id=55 data-nosnippet>55</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt; {
+<a href=#56 id=56 data-nosnippet>56</a>    <span class="doccomment">/// Wraps a backend-native concrete tensor in `Tensor`.
+<a href=#57 id=57 data-nosnippet>57</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>from_inner(inner: B::Storage&lt;D&gt;) -&gt; <span class="self">Self </span>{
+<a href=#58 id=58 data-nosnippet>58</a>        <span class="self">Self </span>{
+<a href=#59 id=59 data-nosnippet>59</a>            inner,
+<a href=#60 id=60 data-nosnippet>60</a>            _marker: std::marker::PhantomData,
+<a href=#61 id=61 data-nosnippet>61</a>        }
+<a href=#62 id=62 data-nosnippet>62</a>    }
+<a href=#63 id=63 data-nosnippet>63</a>
+<a href=#64 id=64 data-nosnippet>64</a>    <span class="doccomment">/// Consumes the tensor and returns its underlying backend-native concrete tensor.
+<a href=#65 id=65 data-nosnippet>65</a>    </span><span class="kw">pub fn </span>into_inner(<span class="self">self</span>) -&gt; B::Storage&lt;D&gt; {
+<a href=#66 id=66 data-nosnippet>66</a>        <span class="self">self</span>.inner
+<a href=#67 id=67 data-nosnippet>67</a>    }
+<a href=#68 id=68 data-nosnippet>68</a>
+<a href=#69 id=69 data-nosnippet>69</a>    <span class="doccomment">/// Creates a new tensor from an initialized buffer. Panics if the buffer length does not match
+<a href=#70 id=70 data-nosnippet>70</a>    /// `Mapping::SIZE`.
+<a href=#71 id=71 data-nosnippet>71</a>    </span><span class="kw">pub fn </span>from_vec(data: <span class="kw">impl </span>IntoIterator&lt;Item = D&gt;) -&gt; <span class="self">Self </span>{
+<a href=#72 id=72 data-nosnippet>72</a>        <span class="comment">// The length check is backend-independent `Mapping::SIZE` arithmetic, so it lives here in the
+<a href=#73 id=73 data-nosnippet>73</a>        // wrapper rather than on the construct-only `Backend` seam.
+<a href=#74 id=74 data-nosnippet>74</a>        </span><span class="kw">let </span>data: Vec&lt;D&gt; = data.into_iter().collect();
+<a href=#75 id=75 data-nosnippet>75</a>        <span class="macro">assert_eq!</span>(
+<a href=#76 id=76 data-nosnippet>76</a>            data.len(),
+<a href=#77 id=77 data-nosnippet>77</a>            Mapping::SIZE,
+<a href=#78 id=78 data-nosnippet>78</a>            <span class="string">"from_vec: buffer length does not match mapping size"
+<a href=#79 id=79 data-nosnippet>79</a>        </span>);
+<a href=#80 id=80 data-nosnippet>80</a>        <span class="self">Self</span>::from_inner(B::from_vec(<span class="kw-2">&amp;</span>Mapping::to_value(), data))
+<a href=#81 id=81 data-nosnippet>81</a>    }
+<a href=#82 id=82 data-nosnippet>82</a>
+<a href=#83 id=83 data-nosnippet>83</a>    <span class="doccomment">/// Creates a tensor from a pre-packed device byte image (the packed buffer, [`Self::into_buf`]'s
+<a href=#84 id=84 data-nosnippet>84</a>    /// inverse). Contrast [`Self::from_vec`], which packs logical values: pre-packed data (fp4 / f4e2m1
+<a href=#85 id=85 data-nosnippet>85</a>    /// weights) comes through here so the bytes are stored as-is, not decoded to a logical `Vec` and
+<a href=#86 id=86 data-nosnippet>86</a>    /// re-packed. Panics if the byte length does not match the mapping's packed size.
+<a href=#87 id=87 data-nosnippet>87</a>    </span><span class="kw">pub fn </span>from_buf(buf: Vec&lt;u8&gt;) -&gt; <span class="self">Self </span>{
+<a href=#88 id=88 data-nosnippet>88</a>        <span class="macro">assert_eq!</span>(
+<a href=#89 id=89 data-nosnippet>89</a>            buf.len() * <span class="number">8</span>,
+<a href=#90 id=90 data-nosnippet>90</a>            Mapping::SIZE * D::BITS,
+<a href=#91 id=91 data-nosnippet>91</a>            <span class="string">"from_buf: byte length does not match the mapping's packed size"
+<a href=#92 id=92 data-nosnippet>92</a>        </span>);
+<a href=#93 id=93 data-nosnippet>93</a>        <span class="self">Self</span>::from_inner(B::from_buf(<span class="kw-2">&amp;</span>Mapping::to_value(), buf))
+<a href=#94 id=94 data-nosnippet>94</a>    }
+<a href=#95 id=95 data-nosnippet>95</a>
+<a href=#96 id=96 data-nosnippet>96</a>    <span class="doccomment">/// Returns the tensor data as a flat `Vec&lt;D&gt;`, consuming the tensor.
+<a href=#97 id=97 data-nosnippet>97</a>    </span><span class="kw">pub fn </span>into_vec(<span class="self">self</span>) -&gt; Vec&lt;D&gt;
+<a href=#98 id=98 data-nosnippet>98</a>    <span class="kw">where
+<a href=#99 id=99 data-nosnippet>99</a>        </span>D: MaterializableScalar,
+<a href=#100 id=100 data-nosnippet>100</a>    {
+<a href=#101 id=101 data-nosnippet>101</a>        B::into_vec(<span class="self">self</span>.inner, <span class="kw-2">&amp;</span>Mapping::to_value())
+<a href=#102 id=102 data-nosnippet>102</a>    }
+<a href=#103 id=103 data-nosnippet>103</a>
+<a href=#104 id=104 data-nosnippet>104</a>    <span class="doccomment">/// Returns the tensor's dense physical device byte image (packed on `D::BITS`), consuming the
+<a href=#105 id=105 data-nosnippet>105</a>    /// tensor. Delegates to the backend's [`Backend::into_buf`]; Emulation / Npu move the packed
+<a href=#106 id=106 data-nosnippet>106</a>    /// `BufStorage` bytes out directly.
+<a href=#107 id=107 data-nosnippet>107</a>    </span><span class="kw">pub fn </span>into_buf(<span class="self">self</span>) -&gt; Vec&lt;u8&gt;
+<a href=#108 id=108 data-nosnippet>108</a>    <span class="kw">where
+<a href=#109 id=109 data-nosnippet>109</a>        </span>D: MaterializableScalar,
+<a href=#110 id=110 data-nosnippet>110</a>    {
+<a href=#111 id=111 data-nosnippet>111</a>        B::into_buf(<span class="self">self</span>.inner, <span class="kw-2">&amp;</span>Mapping::to_value())
+<a href=#112 id=112 data-nosnippet>112</a>    }
+<a href=#113 id=113 data-nosnippet>113</a>
+<a href=#114 id=114 data-nosnippet>114</a>    <span class="doccomment">/// Maps the tensor element-wise to a new scalar; same layout. The bare-scalar closure is lifted
+<a href=#115 id=115 data-nosnippet>115</a>    /// by the backend's own [`Backend::map`] strategy (Emulation/Npu a bare buffer walk, Typecheck a
+<a href=#116 id=116 data-nosnippet>116</a>    /// no-op), no offset-uniform primitive imposed across storages.
+<a href=#117 id=117 data-nosnippet>117</a>    ///
+<a href=#118 id=118 data-nosnippet>118</a>    /// Only valid for a `D` whose storage-native length recovery is exact -- every
+<a href=#119 id=119 data-nosnippet>119</a>    /// [`crate::scalar::MaterializableScalar`] type, where `Scalar::BITS` always agrees with what
+<a href=#120 id=120 data-nosnippet>120</a>    /// `to_buf`/`load`/`store` actually pack per element. A non-materializable staging type (`i5`/`i9`)
+<a href=#121 id=121 data-nosnippet>121</a>    /// does NOT hold that invariant (`BITS` names a hardware-only wire width, disconnected from its host
+<a href=#122 id=122 data-nosnippet>122</a>    /// `size_of`-based default `load`/`store`) and must use [`Self::map_bounded`] instead -- see that
+<a href=#123 id=123 data-nosnippet>123</a>    /// method's doc for why this one is unsound for it.
+<a href=#124 id=124 data-nosnippet>124</a>    </span><span class="kw">pub fn </span>map&lt;D2: Scalar, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, f: F) -&gt; Tensor&lt;D2, Mapping, B&gt;
+<a href=#125 id=125 data-nosnippet>125</a>    <span class="kw">where
+<a href=#126 id=126 data-nosnippet>126</a>        </span>F: Fn(D) -&gt; D2 + Sync,
+<a href=#127 id=127 data-nosnippet>127</a>        D: MaterializableScalar,
+<a href=#128 id=128 data-nosnippet>128</a>    {
+<a href=#129 id=129 data-nosnippet>129</a>        Tensor::from_inner(B::map(<span class="kw-2">&amp;</span><span class="self">self</span>.inner, f))
+<a href=#130 id=130 data-nosnippet>130</a>    }
+<a href=#131 id=131 data-nosnippet>131</a>
+<a href=#132 id=132 data-nosnippet>132</a>    <span class="doccomment">/// [`Self::map`], but bounded by this tensor's own `Mapping::SIZE` instead of trusting the backend
+<a href=#133 id=133 data-nosnippet>133</a>    /// storage's own length recovery.
+<a href=#134 id=134 data-nosnippet>134</a>    ///
+<a href=#135 id=135 data-nosnippet>135</a>    /// For most `D` this is equivalent to [`Self::map`] (redundant, so prefer the simpler `map`). It
+<a href=#136 id=136 data-nosnippet>136</a>    /// exists for a non-`MaterializableScalar` staging type (`i5`/`i9`, the zero-point-subtracted
+<a href=#137 id=137 data-nosnippet>137</a>    /// contraction operands): such a `D` is deliberately never routed through any device image, HBM, or
+<a href=#138 id=138 data-nosnippet>138</a>    /// DM (`MaterializableScalar` gates those entry points), so its `Scalar::BITS` describes only a
+<a href=#139 id=139 data-nosnippet>139</a>    /// real-hardware wire width -- for `i9` that's 8 bits, one physical byte, because the extra bit is
+<a href=#140 id=140 data-nosnippet>140</a>    /// produced inside the contraction engine at consumption time and never actually crosses a wire or
+<a href=#141 id=141 data-nosnippet>141</a>    /// sits in device memory. Host-side (Emulation), `i5`/`i9` still need a REAL, full-precision value
+<a href=#142 id=142 data-nosnippet>142</a>    /// (`fetch_zero_point_sub` computes the exact zero-point-subtracted result eagerly), so they stay in
+<a href=#143 id=143 data-nosnippet>143</a>    /// their full in-memory representation (`i9` is `i16`-backed) -- neither overrides `load`/`store`/
+<a href=#144 id=144 data-nosnippet>144</a>    /// `to_buf`, so those default to `size_of::&lt;Self&gt;()`, twice `BITS`'s 8-bit claim. `self.len()`
+<a href=#145 id=145 data-nosnippet>145</a>    /// (used by [`Self::map`] via [`crate::storage::buf::BufStorage::par_iter`]) derives the element
+<a href=#146 id=146 data-nosnippet>146</a>    /// count from the buffer's byte length using `BITS`, so for `i9` it silently reports DOUBLE the
+<a href=#147 id=147 data-nosnippet>147</a>    /// true count, and an unpaired whole-buffer walk (this widen has no shorter sibling to truncate it,
+<a href=#148 id=148 data-nosnippet>148</a>    /// unlike a `zip_with`) reads/writes past the buffer once the count crosses the true half.
+<a href=#149 id=149 data-nosnippet>149</a>    /// `Mapping::SIZE` is the type-level truth regardless of any of that, so bound the walk on it here.
+<a href=#150 id=150 data-nosnippet>150</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>map_bounded&lt;D2: Scalar, F&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, f: F) -&gt; Tensor&lt;D2, Mapping, B&gt;
+<a href=#151 id=151 data-nosnippet>151</a>    <span class="kw">where
+<a href=#152 id=152 data-nosnippet>152</a>        </span>F: Fn(D) -&gt; D2 + Sync,
+<a href=#153 id=153 data-nosnippet>153</a>    {
+<a href=#154 id=154 data-nosnippet>154</a>        Tensor::from_inner(B::map_bounded(<span class="kw-2">&amp;</span><span class="self">self</span>.inner, Mapping::SIZE, f))
+<a href=#155 id=155 data-nosnippet>155</a>    }
+<a href=#156 id=156 data-nosnippet>156</a>
+<a href=#157 id=157 data-nosnippet>157</a>    <span class="doccomment">/// Zips two same-layout tensors element-wise. Delegates to the backend's [`Backend::zip_with`];
+<a href=#158 id=158 data-nosnippet>158</a>    /// the result is defined only where both inputs are.
+<a href=#159 id=159 data-nosnippet>159</a>    </span><span class="kw">pub fn </span>zip_with&lt;D2: MaterializableScalar, D3: Scalar, F&gt;(
+<a href=#160 id=160 data-nosnippet>160</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#161 id=161 data-nosnippet>161</a>        other: <span class="kw-2">&amp;</span>Tensor&lt;D2, Mapping, B&gt;,
+<a href=#162 id=162 data-nosnippet>162</a>        f: F,
+<a href=#163 id=163 data-nosnippet>163</a>    ) -&gt; Tensor&lt;D3, Mapping, B&gt;
+<a href=#164 id=164 data-nosnippet>164</a>    <span class="kw">where
+<a href=#165 id=165 data-nosnippet>165</a>        </span>F: Fn(D, D2) -&gt; D3 + Sync,
+<a href=#166 id=166 data-nosnippet>166</a>        D: MaterializableScalar,
+<a href=#167 id=167 data-nosnippet>167</a>    {
+<a href=#168 id=168 data-nosnippet>168</a>        Tensor::from_inner(B::zip_with(<span class="kw-2">&amp;</span><span class="self">self</span>.inner, <span class="kw-2">&amp;</span>other.inner, f))
+<a href=#169 id=169 data-nosnippet>169</a>    }
+<a href=#170 id=170 data-nosnippet>170</a>
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="doccomment">/// Performs reduction (sum) over axes not present in `Dst` (strict: no broadcast).
+<a href=#172 id=172 data-nosnippet>172</a>    </span><span class="kw">pub fn </span>reduce_add&lt;Dst: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Tensor&lt;D, Dst, B&gt;
+<a href=#173 id=173 data-nosnippet>173</a>    <span class="kw">where
+<a href=#174 id=174 data-nosnippet>174</a>        </span>D: Zero + MaterializableScalar,
+<a href=#175 id=175 data-nosnippet>175</a>    {
+<a href=#176 id=176 data-nosnippet>176</a>        <span class="self">self</span>.reduce::&lt;Dst&gt;(|a, b| a + b, D::zero(), <span class="bool-val">false</span>)
+<a href=#177 id=177 data-nosnippet>177</a>    }
+<a href=#178 id=178 data-nosnippet>178</a>
+<a href=#179 id=179 data-nosnippet>179</a>    <span class="doccomment">/// Reduces the factors of `self`'s mapping that are absent in `Dst`. Axes that `Dst` adds beyond
+<a href=#180 id=180 data-nosnippet>180</a>    /// the reduced source are broadcast (the reduced value repeats across them); `allow_broadcast`
+<a href=#181 id=181 data-nosnippet>181</a>    /// gates that, `false` is a plain reduce that requires `Dst` to be a pure factor and rejects an
+<a href=#182 id=182 data-nosnippet>182</a>    /// unintended extra axis, `true` permits the broadcast (like [`Self::transpose`]'s flag).
+<a href=#183 id=183 data-nosnippet>183</a>    ///
+<a href=#184 id=184 data-nosnippet>184</a>    /// The reduce fn works over bare scalars; the backend lifts it to its cell representation.
+<a href=#185 id=185 data-nosnippet>185</a>    /// Emulation/Npu have no undefined cells.
+<a href=#186 id=186 data-nosnippet>186</a>    </span><span class="kw">pub fn </span>reduce&lt;Dst: M&gt;(
+<a href=#187 id=187 data-nosnippet>187</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#188 id=188 data-nosnippet>188</a>        reduce_fn: <span class="kw">impl </span>Fn(D, D) -&gt; D + Sync,
+<a href=#189 id=189 data-nosnippet>189</a>        identity: D,
+<a href=#190 id=190 data-nosnippet>190</a>        allow_broadcast: bool,
+<a href=#191 id=191 data-nosnippet>191</a>    ) -&gt; Tensor&lt;D, Dst, B&gt;
+<a href=#192 id=192 data-nosnippet>192</a>    <span class="kw">where
+<a href=#193 id=193 data-nosnippet>193</a>        </span>D: MaterializableScalar,
+<a href=#194 id=194 data-nosnippet>194</a>    {
+<a href=#195 id=195 data-nosnippet>195</a>        Tensor::from_inner(B::reduce::&lt;D, Mapping, Dst&gt;(
+<a href=#196 id=196 data-nosnippet>196</a>            <span class="kw-2">&amp;</span><span class="self">self</span>.inner,
+<a href=#197 id=197 data-nosnippet>197</a>            reduce_fn,
+<a href=#198 id=198 data-nosnippet>198</a>            identity,
+<a href=#199 id=199 data-nosnippet>199</a>            allow_broadcast,
+<a href=#200 id=200 data-nosnippet>200</a>        ))
+<a href=#201 id=201 data-nosnippet>201</a>    }
+<a href=#202 id=202 data-nosnippet>202</a>
+<a href=#203 id=203 data-nosnippet>203</a>    <span class="doccomment">/// Creates a tensor with every logical cell set to `value`, a scalar broadcast ("splat").
+<a href=#204 id=204 data-nosnippet>204</a>    /// Padding cells stay uninitialized.
+<a href=#205 id=205 data-nosnippet>205</a>    </span><span class="kw">pub fn </span>splat(value: D) -&gt; <span class="self">Self </span>{
+<a href=#206 id=206 data-nosnippet>206</a>        <span class="self">Self</span>::from_vec(std::iter::repeat_n(value, Mapping::SIZE))
+<a href=#207 id=207 data-nosnippet>207</a>    }
+<a href=#208 id=208 data-nosnippet>208</a>
+<a href=#209 id=209 data-nosnippet>209</a>    <span class="doccomment">/// Creates a tensor with every logical cell set to zero (every [`Scalar`] is `Zero` via `Num`).
+<a href=#210 id=210 data-nosnippet>210</a>    </span><span class="kw">pub fn </span>zero() -&gt; <span class="self">Self </span>{
+<a href=#211 id=211 data-nosnippet>211</a>        <span class="self">Self</span>::splat(num_traits::Zero::zero())
 <a href=#212 id=212 data-nosnippet>212</a>    }
-<a href=#213 id=213 data-nosnippet>213</a>}
-<a href=#214 id=214 data-nosnippet>214</a>
-<a href=#215 id=215 data-nosnippet>215</a><span class="doccomment">/// Host-side tensor methods. NPU has no host-side value semantics; Npu's `Backend` impl supplies
-<a href=#216 id=216 data-nosnippet>216</a>/// `todo!()` stubs for the underlying iteration primitives so `B = Npu` resolves here without a
-<a href=#217 id=217 data-nosnippet>217</a>/// separate parallel inherent block.
-<a href=#218 id=218 data-nosnippet>218</a></span><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt; {
-<a href=#219 id=219 data-nosnippet>219</a>    <span class="doccomment">/// Creates an uninitialized tensor.
-<a href=#220 id=220 data-nosnippet>220</a>    </span><span class="kw">pub fn </span>uninit() -&gt; <span class="self">Self </span>{
-<a href=#221 id=221 data-nosnippet>221</a>        <span class="self">Self</span>::from_inner(B::RawTensor::uninit_from_axes(gen_axes::&lt;Mapping&gt;()))
-<a href=#222 id=222 data-nosnippet>222</a>    }
-<a href=#223 id=223 data-nosnippet>223</a>
-<a href=#224 id=224 data-nosnippet>224</a>    <span class="doccomment">/// Creates a mutable view of the tensor.
-<a href=#225 id=225 data-nosnippet>225</a>    </span><span class="kw">pub fn </span>view_mut&lt;<span class="lifetime">'l</span>&gt;(<span class="kw-2">&amp;</span><span class="lifetime">'l </span><span class="kw-2">mut </span><span class="self">self</span>) -&gt; TensorViewMut&lt;<span class="lifetime">'l</span>, D, Mapping, B&gt; {
-<a href=#226 id=226 data-nosnippet>226</a>        TensorViewMut::new(<span class="kw-2">&amp;mut </span><span class="self">self</span>.inner)
-<a href=#227 id=227 data-nosnippet>227</a>    }
-<a href=#228 id=228 data-nosnippet>228</a>
-<a href=#229 id=229 data-nosnippet>229</a>    <span class="doccomment">/// Creates an immutable view of the tensor.
-<a href=#230 id=230 data-nosnippet>230</a>    </span><span class="kw">pub fn </span>view&lt;<span class="lifetime">'l</span>&gt;(<span class="kw-2">&amp;</span><span class="lifetime">'l </span><span class="self">self</span>) -&gt; TensorView&lt;<span class="lifetime">'l</span>, D, Mapping, B&gt; {
-<a href=#231 id=231 data-nosnippet>231</a>        TensorView::new(<span class="kw-2">&amp;</span><span class="self">self</span>.inner)
-<a href=#232 id=232 data-nosnippet>232</a>    }
-<a href=#233 id=233 data-nosnippet>233</a>
-<a href=#234 id=234 data-nosnippet>234</a>    <span class="doccomment">/// Transmutes the tensor to a different mapping.
-<a href=#235 id=235 data-nosnippet>235</a>    ///
-<a href=#236 id=236 data-nosnippet>236</a>    /// # Safety
-<a href=#237 id=237 data-nosnippet>237</a>    ///
-<a href=#238 id=238 data-nosnippet>238</a>    /// The caller must ensure that the underlying data layout is compatible with the new mapping.
-<a href=#239 id=239 data-nosnippet>239</a>    </span><span class="kw">pub unsafe fn </span>transmute&lt;Mapping2: M&gt;(<span class="self">self</span>) -&gt; Tensor&lt;D, Mapping2, B&gt; {
-<a href=#240 id=240 data-nosnippet>240</a>        Tensor {
-<a href=#241 id=241 data-nosnippet>241</a>            inner: <span class="self">self</span>.inner,
-<a href=#242 id=242 data-nosnippet>242</a>            _marker: PhantomData,
-<a href=#243 id=243 data-nosnippet>243</a>        }
-<a href=#244 id=244 data-nosnippet>244</a>    }
-<a href=#245 id=245 data-nosnippet>245</a>}
-<a href=#246 id=246 data-nosnippet>246</a>
-<a href=#247 id=247 data-nosnippet>247</a><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt; {
-<a href=#248 id=248 data-nosnippet>248</a>    <span class="doccomment">/// Reshapes the tensor to a different mapping. Delegates to [`RawTensor::reshape`], which
-<a href=#249 id=249 data-nosnippet>249</a>    /// reinterprets the underlying physical buffer (C-major over `Mapping` → C-major over
-<a href=#250 id=250 data-nosnippet>250</a>    /// `Mapping2`); each backend supplies its own implementation.
-<a href=#251 id=251 data-nosnippet>251</a>    ///
-<a href=#252 id=252 data-nosnippet>252</a>    /// # Safety
-<a href=#253 id=253 data-nosnippet>253</a>    ///
-<a href=#254 id=254 data-nosnippet>254</a>    /// The caller must ensure that the tensor mapping sizes are equal,
-<a href=#255 id=255 data-nosnippet>255</a>    /// i.e. `Mapping::SIZE == Mapping2::SIZE`.
-<a href=#256 id=256 data-nosnippet>256</a>    </span><span class="kw">pub unsafe fn </span>reshape&lt;Mapping2: M&gt;(<span class="self">self</span>) -&gt; Tensor&lt;D, Mapping2, B&gt; {
-<a href=#257 id=257 data-nosnippet>257</a>        <span class="macro">assert_eq!</span>(Mapping::SIZE, Mapping2::SIZE);
-<a href=#258 id=258 data-nosnippet>258</a>        Tensor::from_inner(<span class="self">self</span>.inner.reshape::&lt;Mapping, Mapping2&gt;())
+<a href=#213 id=213 data-nosnippet>213</a>
+<a href=#214 id=214 data-nosnippet>214</a>    <span class="doccomment">/// Creates a random tensor.
+<a href=#215 id=215 data-nosnippet>215</a>    </span><span class="kw">pub fn </span>rand(rng: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Rng) -&gt; <span class="self">Self
+<a href=#216 id=216 data-nosnippet>216</a>    </span><span class="kw">where
+<a href=#217 id=217 data-nosnippet>217</a>        </span>StandardUniform: rand::distr::Distribution&lt;D&gt;,
+<a href=#218 id=218 data-nosnippet>218</a>    {
+<a href=#219 id=219 data-nosnippet>219</a>        <span class="self">Self</span>::from_vec((<span class="number">0</span>..Mapping::SIZE).map(|<span class="kw">_</span>| rng.random::&lt;D&gt;()))
+<a href=#220 id=220 data-nosnippet>220</a>    }
+<a href=#221 id=221 data-nosnippet>221</a>
+<a href=#222 id=222 data-nosnippet>222</a>    <span class="doccomment">/// Performs contraction between two tensors: a generalized matmul that multiplies `lhs` and `rhs`
+<a href=#223 id=223 data-nosnippet>223</a>    /// over the shared `Union` index space and reduces the axes absent from the output `Mapping`.
+<a href=#224 id=224 data-nosnippet>224</a>    /// Delegates to [`Backend::contraction`], which the host backend fuses into a single accumulating
+<a href=#225 id=225 data-nosnippet>225</a>    /// pass (Emulation does, so no full `Union` outer product is materialized).
+<a href=#226 id=226 data-nosnippet>226</a>    </span><span class="kw">pub fn </span>contraction&lt;Union: M, Lhs: M, Rhs: M&gt;(lhs: <span class="kw-2">&amp;</span>Tensor&lt;D, Lhs, B&gt;, rhs: <span class="kw-2">&amp;</span>Tensor&lt;D, Rhs, B&gt;) -&gt; <span class="self">Self
+<a href=#227 id=227 data-nosnippet>227</a>    </span><span class="kw">where
+<a href=#228 id=228 data-nosnippet>228</a>        </span>D: ContractionCast + MaterializableScalar,
+<a href=#229 id=229 data-nosnippet>229</a>    {
+<a href=#230 id=230 data-nosnippet>230</a>        Tensor::from_inner(B::contraction(
+<a href=#231 id=231 data-nosnippet>231</a>            <span class="kw-2">&amp;</span>lhs.inner,
+<a href=#232 id=232 data-nosnippet>232</a>            <span class="kw-2">&amp;</span>rhs.inner,
+<a href=#233 id=233 data-nosnippet>233</a>            <span class="kw-2">&amp;</span>Lhs::to_value(),
+<a href=#234 id=234 data-nosnippet>234</a>            <span class="kw-2">&amp;</span>Rhs::to_value(),
+<a href=#235 id=235 data-nosnippet>235</a>            <span class="kw-2">&amp;</span>Union::to_value(),
+<a href=#236 id=236 data-nosnippet>236</a>            <span class="kw-2">&amp;</span>Mapping::to_value(),
+<a href=#237 id=237 data-nosnippet>237</a>        ))
+<a href=#238 id=238 data-nosnippet>238</a>    }
+<a href=#239 id=239 data-nosnippet>239</a>}
+<a href=#240 id=240 data-nosnippet>240</a>
+<a href=#241 id=241 data-nosnippet>241</a><span class="doccomment">/// Host-side tensor methods.
+<a href=#242 id=242 data-nosnippet>242</a></span><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt; {
+<a href=#243 id=243 data-nosnippet>243</a>    <span class="doccomment">/// The empty destination canvas for the relayout ops (transpose / scatter / gather / reduce /
+<a href=#244 id=244 data-nosnippet>244</a>    /// reshape), which fill only the live cells; cells no op writes (padding and any gaps) are
+<a href=#245 id=245 data-nosnippet>245</a>    /// don't-care. `pub(crate)`: no public constructor hands out an undefined-value tensor (an
+<a href=#246 id=246 data-nosnippet>246</a>    /// external caller that wants zeros uses `splat`/`zero`).
+<a href=#247 id=247 data-nosnippet>247</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>uninit() -&gt; <span class="self">Self </span>{
+<a href=#248 id=248 data-nosnippet>248</a>        <span class="self">Self</span>::from_inner(B::uninit(<span class="kw-2">&amp;</span>Mapping::to_value()))
+<a href=#249 id=249 data-nosnippet>249</a>    }
+<a href=#250 id=250 data-nosnippet>250</a>
+<a href=#251 id=251 data-nosnippet>251</a>    <span class="doccomment">/// Creates a mutable view of the tensor.
+<a href=#252 id=252 data-nosnippet>252</a>    </span><span class="kw">pub fn </span>view_mut&lt;<span class="lifetime">'l</span>&gt;(<span class="kw-2">&amp;</span><span class="lifetime">'l </span><span class="kw-2">mut </span><span class="self">self</span>) -&gt; TensorViewMut&lt;<span class="lifetime">'l</span>, D, Mapping, B&gt; {
+<a href=#253 id=253 data-nosnippet>253</a>        TensorViewMut::new(<span class="kw-2">&amp;mut </span><span class="self">self</span>.inner)
+<a href=#254 id=254 data-nosnippet>254</a>    }
+<a href=#255 id=255 data-nosnippet>255</a>
+<a href=#256 id=256 data-nosnippet>256</a>    <span class="doccomment">/// Creates an immutable view of the tensor.
+<a href=#257 id=257 data-nosnippet>257</a>    </span><span class="kw">pub fn </span>view&lt;<span class="lifetime">'l</span>&gt;(<span class="kw-2">&amp;</span><span class="lifetime">'l </span><span class="self">self</span>) -&gt; TensorView&lt;<span class="lifetime">'l</span>, D, Mapping, B&gt; {
+<a href=#258 id=258 data-nosnippet>258</a>        TensorView::new(<span class="kw-2">&amp;</span><span class="self">self</span>.inner)
 <a href=#259 id=259 data-nosnippet>259</a>    }
 <a href=#260 id=260 data-nosnippet>260</a>
-<a href=#261 id=261 data-nosnippet>261</a>    <span class="doccomment">/// Performs transpose. The mapping division is validated inside
-<a href=#262 id=262 data-nosnippet>262</a>    /// [`RawTensor::write_transpose`] (via `transpose_broadcast`), so this generic body works
-<a href=#263 id=263 data-nosnippet>263</a>    /// for every backend: Simulation writes values, Typecheck only runs the assertion, Npu /
-<a href=#264 id=264 data-nosnippet>264</a>    /// Emulation hit `todo!()`.
-<a href=#265 id=265 data-nosnippet>265</a>    </span><span class="kw">pub fn </span>transpose&lt;Dst: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, allow_broadcast: bool) -&gt; Tensor&lt;D, Dst, B&gt; {
-<a href=#266 id=266 data-nosnippet>266</a>        <span class="kw">let </span><span class="kw-2">mut </span>dst = Tensor::uninit();
-<a href=#267 id=267 data-nosnippet>267</a>        dst.view_mut().write_transpose(<span class="self">self</span>.view(), allow_broadcast);
-<a href=#268 id=268 data-nosnippet>268</a>        dst
-<a href=#269 id=269 data-nosnippet>269</a>    }
-<a href=#270 id=270 data-nosnippet>270</a>
-<a href=#271 id=271 data-nosnippet>271</a>    <span class="doccomment">/// Scatter elements from self into dst at positions given by index tensor. Delegates to
-<a href=#272 id=272 data-nosnippet>272</a>    /// [`RawTensor::write_scatter`].
-<a href=#273 id=273 data-nosnippet>273</a>    </span><span class="kw">pub fn </span>write_scatter&lt;Key: M, Dst: M, Idx: M&gt;(
-<a href=#274 id=274 data-nosnippet>274</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#275 id=275 data-nosnippet>275</a>        dst: <span class="kw-2">&amp;mut </span>Tensor&lt;D, Dst, B&gt;,
-<a href=#276 id=276 data-nosnippet>276</a>        index: <span class="kw-2">&amp;</span>Tensor&lt;i32, Idx, B&gt;,
-<a href=#277 id=277 data-nosnippet>277</a>        scaled: bool,
-<a href=#278 id=278 data-nosnippet>278</a>    ) {
-<a href=#279 id=279 data-nosnippet>279</a>        <span class="self">self</span>.inner
-<a href=#280 id=280 data-nosnippet>280</a>            .write_scatter::&lt;Mapping, Key, Dst, Idx, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>dst.inner, <span class="kw-2">&amp;</span>index.inner, scaled);
+<a href=#261 id=261 data-nosnippet>261</a>    <span class="doccomment">/// Rewraps the tensor under a different mapping.
+<a href=#262 id=262 data-nosnippet>262</a>    ///
+<a href=#263 id=263 data-nosnippet>263</a>    /// After the `Mapping`-type-parameter erasure of the storage layer, `B::Storage&lt;D&gt;` no longer
+<a href=#264 id=264 data-nosnippet>264</a>    /// carries the mapping at the type level, so the inner storage of `Tensor&lt;D, Mapping, B&gt;` and
+<a href=#265 id=265 data-nosnippet>265</a>    /// `Tensor&lt;D, Mapping2, B&gt;` is literally the same type, rewrapping it is a plain, safe move.
+<a href=#266 id=266 data-nosnippet>266</a>    ///
+<a href=#267 id=267 data-nosnippet>267</a>    /// Deliberately NOT size-checked: `transmute` is used to relabel a padded read down to its
+<a href=#268 id=268 data-nosnippet>268</a>    /// compact slot (the vector engine does `…tile(k).read().transmute()`, shrinking the mapping),
+<a href=#269 id=269 data-nosnippet>269</a>    /// so `Mapping::SIZE != Mapping2::SIZE` is a legitimate, intended case. Delegates to
+<a href=#270 id=270 data-nosnippet>270</a>    /// [`Backend::transmute`], which COMPACTS the physical `BufStorage` buffer (drops the padding
+<a href=#271 id=271 data-nosnippet>271</a>    /// the relabel removes).
+<a href=#272 id=272 data-nosnippet>272</a>    </span><span class="kw">pub fn </span>transmute&lt;Mapping2: M&gt;(<span class="self">self</span>) -&gt; Tensor&lt;D, Mapping2, B&gt;
+<a href=#273 id=273 data-nosnippet>273</a>    <span class="kw">where
+<a href=#274 id=274 data-nosnippet>274</a>        </span>D: MaterializableScalar,
+<a href=#275 id=275 data-nosnippet>275</a>    {
+<a href=#276 id=276 data-nosnippet>276</a>        Tensor::from_inner(B::transmute::&lt;D, Mapping, Mapping2&gt;(
+<a href=#277 id=277 data-nosnippet>277</a>            <span class="self">self</span>.inner,
+<a href=#278 id=278 data-nosnippet>278</a>            <span class="kw-2">&amp;</span>Mapping::to_value(),
+<a href=#279 id=279 data-nosnippet>279</a>            <span class="kw-2">&amp;</span>Mapping2::to_value(),
+<a href=#280 id=280 data-nosnippet>280</a>        ))
 <a href=#281 id=281 data-nosnippet>281</a>    }
 <a href=#282 id=282 data-nosnippet>282</a>
-<a href=#283 id=283 data-nosnippet>283</a>    <span class="doccomment">/// Gather elements from self (table) into dst at positions given by index tensor. Delegates
-<a href=#284 id=284 data-nosnippet>284</a>    /// to [`RawTensor::write_gather`].
-<a href=#285 id=285 data-nosnippet>285</a>    </span><span class="kw">pub fn </span>write_gather&lt;Dst: M, Idx: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, dst: <span class="kw-2">&amp;mut </span>Tensor&lt;D, Dst, B&gt;, index: <span class="kw-2">&amp;</span>Tensor&lt;i32, Idx, B&gt;, scaled: bool) {
-<a href=#286 id=286 data-nosnippet>286</a>        <span class="self">self</span>.inner
-<a href=#287 id=287 data-nosnippet>287</a>            .write_gather::&lt;Mapping, Dst, Idx, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>dst.inner, <span class="kw-2">&amp;</span>index.inner, scaled);
-<a href=#288 id=288 data-nosnippet>288</a>    }
-<a href=#289 id=289 data-nosnippet>289</a>
-<a href=#290 id=290 data-nosnippet>290</a>    <span class="doccomment">/// VE branch-conditional update. Delegates to [`RawTensor::apply_branch_operands`].
-<a href=#291 id=291 data-nosnippet>291</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>apply_branch_operands&lt;Operand, F&gt;(
-<a href=#292 id=292 data-nosnippet>292</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#293 id=293 data-nosnippet>293</a>        tag: <span class="kw-2">&amp;</span>Tensor&lt;u8, Mapping, B&gt;,
-<a href=#294 id=294 data-nosnippet>294</a>        operands: <span class="kw-2">&amp;</span>[Operand],
-<a href=#295 id=295 data-nosnippet>295</a>        update: F,
-<a href=#296 id=296 data-nosnippet>296</a>    ) -&gt; <span class="self">Self
-<a href=#297 id=297 data-nosnippet>297</a>    </span><span class="kw">where
-<a href=#298 id=298 data-nosnippet>298</a>        </span>D: VeScalar,
-<a href=#299 id=299 data-nosnippet>299</a>        Operand: OperandTag&lt;D, Mapping&gt;,
-<a href=#300 id=300 data-nosnippet>300</a>        F: FnMut(<span class="kw-2">&amp;</span>Index, <span class="kw-2">&amp;</span>Operand, <span class="kw-2">&amp;mut </span>B::RawTensor&lt;D&gt;),
-<a href=#301 id=301 data-nosnippet>301</a>    {
-<a href=#302 id=302 data-nosnippet>302</a>        <span class="self">Self</span>::from_inner(
-<a href=#303 id=303 data-nosnippet>303</a>            <span class="self">self</span>.inner
-<a href=#304 id=304 data-nosnippet>304</a>                .apply_branch_operands::&lt;Mapping, Operand, <span class="kw">_</span>, F&gt;(<span class="kw-2">&amp;</span>tag.inner, operands, update),
-<a href=#305 id=305 data-nosnippet>305</a>        )
-<a href=#306 id=306 data-nosnippet>306</a>    }
-<a href=#307 id=307 data-nosnippet>307</a>}
-<a href=#308 id=308 data-nosnippet>308</a>
-<a href=#309 id=309 data-nosnippet>309</a><span class="doccomment">/// `Opt`-buffer constructors and serializers — gated on `B::RawTensor&lt;D&gt;: RawTensorOpt&lt;D&gt;` so
-<a href=#310 id=310 data-nosnippet>310</a>/// only backends whose storage represents `Opt&lt;D&gt;` (Simulation: `MathRawTensor`, Typecheck:
-<a href=#311 id=311 data-nosnippet>311</a>/// `PhantomRawTensor`) surface them. Npu / Emulation's `BufRawTensor` deliberately does not
-<a href=#312 id=312 data-nosnippet>312</a>/// implement `RawTensorOpt`, so this surface is unreachable for those backends.
-<a href=#313 id=313 data-nosnippet>313</a></span><span class="kw">impl</span>&lt;D: Scalar, Mapping: M, B: Backend&gt; Tensor&lt;D, Mapping, B&gt;
-<a href=#314 id=314 data-nosnippet>314</a><span class="kw">where
-<a href=#315 id=315 data-nosnippet>315</a>    </span>B::RawTensor&lt;D&gt;: RawTensorOpt&lt;D&gt;,
-<a href=#316 id=316 data-nosnippet>316</a>{
-<a href=#317 id=317 data-nosnippet>317</a>    <span class="doccomment">/// Creates a new tensor from a logical `Opt&lt;D&gt;` buffer.
-<a href=#318 id=318 data-nosnippet>318</a>    </span><span class="kw">pub fn </span>from_opt_buf(data: <span class="kw">impl </span>IntoIterator&lt;Item = Opt&lt;D&gt;&gt;) -&gt; <span class="self">Self </span>{
-<a href=#319 id=319 data-nosnippet>319</a>        <span class="self">Self</span>::try_from_opt_buf(data)
-<a href=#320 id=320 data-nosnippet>320</a>            .unwrap_or_else(|err| <span class="macro">panic!</span>(<span class="string">"failed to convert logical buffer for backend storage: {err}"</span>))
-<a href=#321 id=321 data-nosnippet>321</a>    }
-<a href=#322 id=322 data-nosnippet>322</a>
-<a href=#323 id=323 data-nosnippet>323</a>    <span class="doccomment">/// Creates a new tensor from a logical `Opt&lt;D&gt;` buffer, returning an error if the input
-<a href=#324 id=324 data-nosnippet>324</a>    /// cannot be lowered. Length-check policy is delegated to the storage's
-<a href=#325 id=325 data-nosnippet>325</a>    /// [`RawTensorOpt::try_from_opt_buf`] impl.
-<a href=#326 id=326 data-nosnippet>326</a>    </span><span class="kw">pub fn </span>try_from_opt_buf(data: <span class="kw">impl </span>IntoIterator&lt;Item = Opt&lt;D&gt;&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, BufferConvertError&gt; {
-<a href=#327 id=327 data-nosnippet>327</a>        B::RawTensor::try_from_opt_buf::&lt;Mapping&gt;(data).map(<span class="self">Self</span>::from_inner)
-<a href=#328 id=328 data-nosnippet>328</a>    }
-<a href=#329 id=329 data-nosnippet>329</a>
-<a href=#330 id=330 data-nosnippet>330</a>    <span class="doccomment">/// Returns the tensor data as a flat logical `Opt&lt;D&gt;` buffer in physical layout order.
-<a href=#331 id=331 data-nosnippet>331</a>    </span><span class="kw">pub fn </span>to_buf_opt(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;Opt&lt;D&gt;&gt; {
-<a href=#332 id=332 data-nosnippet>332</a>        <span class="self">self</span>.inner.to_opt_buf::&lt;Mapping&gt;()
+<a href=#283 id=283 data-nosnippet>283</a>    <span class="doccomment">/// Reshapes the tensor to a different mapping by reinterpreting its buffer under `Mapping2`
+<a href=#284 id=284 data-nosnippet>284</a>    /// (delegates to [`Backend::reshape`]). Relabels axes over an unchanged buffer; the element count
+<a href=#285 id=285 data-nosnippet>285</a>    /// is checked (`Mapping::SIZE == Mapping2::SIZE`, asserted below).
+<a href=#286 id=286 data-nosnippet>286</a>    ///
+<a href=#287 id=287 data-nosnippet>287</a>    /// Kept a *runtime* `assert_eq!`, not a `const` block: every
+<a href=#288 id=288 data-nosnippet>288</a>    /// `{Dm,Hbm}Tensor(View/ViewMut)::reshape` delegates its `Element`-inclusive combined mapping here
+<a href=#289 id=289 data-nosnippet>289</a>    /// (their own per-axis checks stop at `Chip`/`Cluster`/`Slice` -- see
+<a href=#290 id=290 data-nosnippet>290</a>    /// [`constraints::assert_reshape_dimension_preserved`]'s TODO: some current examples reshape with
+<a href=#291 id=291 data-nosnippet>291</a>    /// a mismatched `Element`). A `const` block is evaluated at monomorphization regardless of whether
+<a href=#292 id=292 data-nosnippet>292</a>    /// the call is ever reached at runtime, so making this check static would trip on those dead-but-
+<a href=#293 id=293 data-nosnippet>293</a>    /// compiled paths too, not just the ones actually exercised.
+<a href=#294 id=294 data-nosnippet>294</a>    ///
+<a href=#295 id=295 data-nosnippet>295</a>    /// # Safety
+<a href=#296 id=296 data-nosnippet>296</a>    ///
+<a href=#297 id=297 data-nosnippet>297</a>    /// `Mapping` and `Mapping2` must lay the elements out in the SAME physical (wire) order, so the
+<a href=#298 id=298 data-nosnippet>298</a>    /// element at each wire position is unchanged by the relabel. Axis regrouping (merge/split)
+<a href=#299 id=299 data-nosnippet>299</a>    /// preserves wire order and is valid; a permutation like `m![A, B]` → `m![B, A]` does NOT, that
+<a href=#300 id=300 data-nosnippet>300</a>    /// reorders elements and must use `transpose`. Equal sizes alone do not guarantee this.
+<a href=#301 id=301 data-nosnippet>301</a>    </span><span class="kw">pub unsafe fn </span>reshape&lt;Mapping2: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Tensor&lt;D, Mapping2, B&gt; {
+<a href=#302 id=302 data-nosnippet>302</a>        <span class="macro">assert_eq!</span>(Mapping::SIZE, Mapping2::SIZE);
+<a href=#303 id=303 data-nosnippet>303</a>        Tensor::from_inner(B::reshape::&lt;D, Mapping, Mapping2&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>.inner))
+<a href=#304 id=304 data-nosnippet>304</a>    }
+<a href=#305 id=305 data-nosnippet>305</a>
+<a href=#306 id=306 data-nosnippet>306</a>    <span class="doccomment">/// Performs transpose. The mapping division is validated inside
+<a href=#307 id=307 data-nosnippet>307</a>    /// [`Backend::transpose`] (via `transpose_broadcast`), so this generic body works
+<a href=#308 id=308 data-nosnippet>308</a>    /// for every backend.
+<a href=#309 id=309 data-nosnippet>309</a>    </span><span class="kw">pub fn </span>transpose&lt;Dst: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, allow_broadcast: bool) -&gt; Tensor&lt;D, Dst, B&gt; {
+<a href=#310 id=310 data-nosnippet>310</a>        <span class="kw">let </span><span class="kw-2">mut </span>dst = Tensor::uninit();
+<a href=#311 id=311 data-nosnippet>311</a>        dst.view_mut().transpose(<span class="self">self</span>.view(), allow_broadcast);
+<a href=#312 id=312 data-nosnippet>312</a>        dst
+<a href=#313 id=313 data-nosnippet>313</a>    }
+<a href=#314 id=314 data-nosnippet>314</a>
+<a href=#315 id=315 data-nosnippet>315</a>    <span class="doccomment">/// Scatter elements from self into dst at positions given by index tensor. Delegates to
+<a href=#316 id=316 data-nosnippet>316</a>    /// [`Backend::scatter`].
+<a href=#317 id=317 data-nosnippet>317</a>    </span><span class="kw">pub fn </span>scatter&lt;Key: M, Dst: M, Idx: M&gt;(
+<a href=#318 id=318 data-nosnippet>318</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#319 id=319 data-nosnippet>319</a>        dst: <span class="kw-2">&amp;mut </span>Tensor&lt;D, Dst, B&gt;,
+<a href=#320 id=320 data-nosnippet>320</a>        index: <span class="kw-2">&amp;</span>Tensor&lt;i32, Idx, B&gt;,
+<a href=#321 id=321 data-nosnippet>321</a>        scaled: bool,
+<a href=#322 id=322 data-nosnippet>322</a>    ) {
+<a href=#323 id=323 data-nosnippet>323</a>        B::scatter::&lt;D, Mapping, Key, Dst, Idx&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>.inner, <span class="kw-2">&amp;mut </span>dst.inner, <span class="kw-2">&amp;</span>index.inner, scaled);
+<a href=#324 id=324 data-nosnippet>324</a>    }
+<a href=#325 id=325 data-nosnippet>325</a>
+<a href=#326 id=326 data-nosnippet>326</a>    <span class="doccomment">/// Gather elements from self (table) into dst at positions given by index tensor. Delegates
+<a href=#327 id=327 data-nosnippet>327</a>    /// to [`Backend::gather`].
+<a href=#328 id=328 data-nosnippet>328</a>    </span><span class="kw">pub fn </span>gather&lt;Dst: M, Idx: M&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, dst: <span class="kw-2">&amp;mut </span>Tensor&lt;D, Dst, B&gt;, index: <span class="kw-2">&amp;</span>Tensor&lt;i32, Idx, B&gt;, scaled: bool)
+<a href=#329 id=329 data-nosnippet>329</a>    <span class="kw">where
+<a href=#330 id=330 data-nosnippet>330</a>        </span>D: MaterializableScalar,
+<a href=#331 id=331 data-nosnippet>331</a>    {
+<a href=#332 id=332 data-nosnippet>332</a>        B::gather::&lt;D, Mapping, Dst, Idx&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>.inner, <span class="kw-2">&amp;mut </span>dst.inner, <span class="kw-2">&amp;</span>index.inner, scaled);
 <a href=#333 id=333 data-nosnippet>333</a>    }
 <a href=#334 id=334 data-nosnippet>334</a>}
 <a href=#335 id=335 data-nosnippet>335</a>
 <a href=#336 id=336 data-nosnippet>336</a><span class="attr">#[cfg(test)]
 <a href=#337 id=337 data-nosnippet>337</a></span><span class="kw">mod </span>tests {
 <a href=#338 id=338 data-nosnippet>338</a>    <span class="kw">use </span>super::<span class="kw-2">*</span>;
-<a href=#339 id=339 data-nosnippet>339</a>    <span class="kw">use </span><span class="kw">crate</span>::runtime::{Npu, Simulation, Typecheck};
+<a href=#339 id=339 data-nosnippet>339</a>    <span class="kw">use </span><span class="kw">crate</span>::backend::{Emulation, Npu, Typecheck};
 <a href=#340 id=340 data-nosnippet>340</a>
-<a href=#341 id=341 data-nosnippet>341</a>    <span class="doccomment">/// Regression for `MathRawTensor::reduce` where the source and destination mappings share a
-<a href=#342 id=342 data-nosnippet>342</a>    /// symbol whose factors are unevenly split: `Src = m![K, M]` consolidates K into a single
-<a href=#343 id=343 data-nosnippet>343</a>    /// `K(stride 1, mod 8)` term in `self.axes`, while `Dst = m![K / 2, M]` carries only K's
-<a href=#344 id=344 data-nosnippet>344</a>    /// `(stride 2, mod 4)` sub-factor — the `(stride 1, mod 2)` piece must be reduced. The
-<a href=#345 id=345 data-nosnippet>345</a>    /// old filter-by-`Term`-equality logic dropped K entirely (since the two K Terms differ).
-<a href=#346 id=346 data-nosnippet>346</a>    /// The strict per-factor reduction must split K into "keep" (stride 2, mod 4) and
-<a href=#347 id=347 data-nosnippet>347</a>    /// "reduce" (stride 1, mod 2) and sum exactly the in-between K positions.
-<a href=#348 id=348 data-nosnippet>348</a>    </span><span class="attr">#[test]
-<a href=#349 id=349 data-nosnippet>349</a>    </span><span class="kw">fn </span>simulation_reduce_keeps_partial_axis_when_only_a_sub_factor_remains() {
-<a href=#350 id=350 data-nosnippet>350</a>        <span class="macro">axes!</span>[K = <span class="number">8</span>, M = <span class="number">4</span>];
-<a href=#351 id=351 data-nosnippet>351</a>
-<a href=#352 id=352 data-nosnippet>352</a>        <span class="comment">// m![K, M] layout (K outer, M inner): position (k, m) ↦ value `k + 100 * m`.
-<a href=#353 id=353 data-nosnippet>353</a>        </span><span class="kw">let </span>source_buf: Vec&lt;i32&gt; = (<span class="number">0</span>..<span class="number">8</span>).flat_map(|k| (<span class="number">0</span>..<span class="number">4</span>).map(<span class="kw">move </span>|m| k + <span class="number">100 </span>* m)).collect();
-<a href=#354 id=354 data-nosnippet>354</a>        <span class="kw">let </span>source = Tensor::&lt;i32, <span class="macro">m!</span>[K, M], Simulation&gt;::from_buf(source_buf);
+<a href=#341 id=341 data-nosnippet>341</a>    <span class="doccomment">/// Owned `Tensor::reshape` REBUILDS the storage under the new axes (`MathStorage::reshape` /
+<a href=#342 id=342 data-nosnippet>342</a>    /// `BufStorage::reshape`), so it supports an arbitrary wire-order-preserving RELABEL — even to
+<a href=#343 id=343 data-nosnippet>343</a>    /// fresh symbols a borrowed view could not resolve against its base `axes`. This is exactly the
+<a href=#344 id=344 data-nosnippet>344</a>    /// mechanism `HbmTensor::reshape` delegates to. `m![A, B]` -&gt; `m![C]` (flatten to a fresh symbol)
+<a href=#345 id=345 data-nosnippet>345</a>    /// -&gt; `m![B, A]` (regroup); each step preserves wire order, so the flat buffer is unchanged.
+<a href=#346 id=346 data-nosnippet>346</a>    </span><span class="attr">#[test]
+<a href=#347 id=347 data-nosnippet>347</a>    </span><span class="kw">fn </span>owned_reshape_relabels_to_fresh_symbols_preserving_wire_order() {
+<a href=#348 id=348 data-nosnippet>348</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>, B = <span class="number">6</span>, C = <span class="number">24</span>];
+<a href=#349 id=349 data-nosnippet>349</a>
+<a href=#350 id=350 data-nosnippet>350</a>        <span class="kw">let </span>buf: Vec&lt;i32&gt; = (<span class="number">0</span>..<span class="number">24</span>).collect();
+<a href=#351 id=351 data-nosnippet>351</a>        <span class="kw">let </span>t = Tensor::&lt;i32, <span class="macro">m!</span>[A, B], Emulation&gt;::from_vec(buf.clone());
+<a href=#352 id=352 data-nosnippet>352</a>
+<a href=#353 id=353 data-nosnippet>353</a>        <span class="kw">let </span>flat: Tensor&lt;i32, <span class="macro">m!</span>[C], Emulation&gt; = <span class="kw">unsafe </span>{ t.reshape::&lt;<span class="macro">m!</span>[C]&gt;() };
+<a href=#354 id=354 data-nosnippet>354</a>        <span class="macro">assert_eq!</span>(flat.clone().into_vec(), buf);
 <a href=#355 id=355 data-nosnippet>355</a>
-<a href=#356 id=356 data-nosnippet>356</a>        <span class="comment">// m![K / 2, M] keeps K positions {0, 2, 4, 6} (stride 2, mod 4), reducing the
-<a href=#357 id=357 data-nosnippet>357</a>        // (stride 1, mod 2) sub-factor: dst[j, m] = source[2j, m] + source[2j+1, m].
-<a href=#358 id=358 data-nosnippet>358</a>        </span><span class="kw">let </span>reduced: Tensor&lt;i32, <span class="macro">m!</span>[K / <span class="number">2</span>, M], Simulation&gt; = source.reduce_add();
+<a href=#356 id=356 data-nosnippet>356</a>        <span class="kw">let </span>regrouped: Tensor&lt;i32, <span class="macro">m!</span>[B, A], Emulation&gt; = <span class="kw">unsafe </span>{ flat.reshape::&lt;<span class="macro">m!</span>[B, A]&gt;() };
+<a href=#357 id=357 data-nosnippet>357</a>        <span class="macro">assert_eq!</span>(regrouped.into_vec(), buf);
+<a href=#358 id=358 data-nosnippet>358</a>    }
 <a href=#359 id=359 data-nosnippet>359</a>
-<a href=#360 id=360 data-nosnippet>360</a>        <span class="comment">// dst[j, m] = (2j + 100m) + (2j+1 + 100m) = 4j + 1 + 200m.
-<a href=#361 id=361 data-nosnippet>361</a>        // K/2 outer (stride M=4), M inner: iteration is (j=0,m=0..4), (j=1,m=0..4), ...
-<a href=#362 id=362 data-nosnippet>362</a>        </span><span class="kw">let </span>expected: Vec&lt;i32&gt; = (<span class="number">0</span>..<span class="number">4</span>).flat_map(|j| (<span class="number">0</span>..<span class="number">4</span>).map(<span class="kw">move </span>|m| <span class="number">4 </span>* j + <span class="number">1 </span>+ <span class="number">200 </span>* m)).collect();
-<a href=#363 id=363 data-nosnippet>363</a>        <span class="macro">assert_eq!</span>(reduced.to_buf(), expected);
-<a href=#364 id=364 data-nosnippet>364</a>    }
-<a href=#365 id=365 data-nosnippet>365</a>
-<a href=#366 id=366 data-nosnippet>366</a>    <span class="doccomment">/// Regression for `MathRawTensor::reduce_then_broadcast` covering the same partial-sub-factor
-<a href=#367 id=367 data-nosnippet>367</a>    /// hazard as the `reduce` test above, *plus* a real broadcast axis that exists only in `Dst`.
-<a href=#368 id=368 data-nosnippet>368</a>    /// `Src = m![A]` consolidates A as `A(stride 1, mod 4)`; `Dst = m![A / 2, B]` keeps A's
-<a href=#369 id=369 data-nosnippet>369</a>    /// `(stride 2, mod 2)` sub-factor (reducing `A % 2`) and broadcasts over a fresh `B` axis.
-<a href=#370 id=370 data-nosnippet>370</a>    /// The divide-based intersection must split A correctly so each `B` column receives the
-<a href=#371 id=371 data-nosnippet>371</a>    /// pair-sum (not the full sum across all of A).
-<a href=#372 id=372 data-nosnippet>372</a>    </span><span class="attr">#[test]
-<a href=#373 id=373 data-nosnippet>373</a>    </span><span class="kw">fn </span>simulation_reduce_then_broadcast_keeps_partial_axis_and_broadcasts_extra_dst_axis() {
-<a href=#374 id=374 data-nosnippet>374</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>, B = <span class="number">2</span>];
-<a href=#375 id=375 data-nosnippet>375</a>
-<a href=#376 id=376 data-nosnippet>376</a>        <span class="comment">// m![A]: source = [0, 1, 2, 3].
-<a href=#377 id=377 data-nosnippet>377</a>        </span><span class="kw">let </span>source = Tensor::&lt;i32, <span class="macro">m!</span>[A], Simulation&gt;::from_buf(<span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]);
+<a href=#360 id=360 data-nosnippet>360</a>    <span class="doccomment">/// The one runtime guard the `unsafe` reshape enforces is `Mapping::SIZE == Mapping2::SIZE`; an
+<a href=#361 id=361 data-nosnippet>361</a>    /// element-count change must panic on that `assert_eq!`, not silently reinterpret a mismatched
+<a href=#362 id=362 data-nosnippet>362</a>    /// buffer. Pins the guard so a refactor cannot drop it.
+<a href=#363 id=363 data-nosnippet>363</a>
+<a href=#364 id=364 data-nosnippet>364</a>    </span><span class="attr">#[test]
+<a href=#365 id=365 data-nosnippet>365</a>    </span><span class="kw">fn </span>typecheck_from_vec_validates_length() {
+<a href=#366 id=366 data-nosnippet>366</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>];
+<a href=#367 id=367 data-nosnippet>367</a>
+<a href=#368 id=368 data-nosnippet>368</a>        <span class="comment">// The wrapper length-validates on every backend, Typecheck included.
+<a href=#369 id=369 data-nosnippet>369</a>        </span><span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Typecheck&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>]);
+<a href=#370 id=370 data-nosnippet>370</a>        <span class="macro">assert!</span>(tensor.clone().into_vec().is_empty());
+<a href=#371 id=371 data-nosnippet>371</a>    }
+<a href=#372 id=372 data-nosnippet>372</a>
+<a href=#373 id=373 data-nosnippet>373</a>    <span class="attr">#[test]
+<a href=#374 id=374 data-nosnippet>374</a>    </span><span class="kw">fn </span>typecheck_to_buf_is_empty() {
+<a href=#375 id=375 data-nosnippet>375</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>];
+<a href=#376 id=376 data-nosnippet>376</a>
+<a href=#377 id=377 data-nosnippet>377</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Typecheck&gt;::empty();
 <a href=#378 id=378 data-nosnippet>378</a>
-<a href=#379 id=379 data-nosnippet>379</a>        <span class="comment">// Reduce A%2 (sum pairs), broadcast over B:
-<a href=#380 id=380 data-nosnippet>380</a>        //   dst[j, b] = source[2j] + source[2j+1] for every b.
-<a href=#381 id=381 data-nosnippet>381</a>        </span><span class="kw">let </span>result: Tensor&lt;i32, <span class="macro">m!</span>[A / <span class="number">2</span>, B], Simulation&gt; = source.reduce_then_broadcast();
-<a href=#382 id=382 data-nosnippet>382</a>
-<a href=#383 id=383 data-nosnippet>383</a>        <span class="comment">// m![A/2, B] iteration: (j=0,b=0), (j=0,b=1), (j=1,b=0), (j=1,b=1) → [1, 1, 5, 5].
-<a href=#384 id=384 data-nosnippet>384</a>        </span><span class="macro">assert_eq!</span>(result.to_buf(), <span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">1</span>, <span class="number">5</span>, <span class="number">5</span>]);
-<a href=#385 id=385 data-nosnippet>385</a>    }
-<a href=#386 id=386 data-nosnippet>386</a>
-<a href=#387 id=387 data-nosnippet>387</a>    <span class="attr">#[test]
-<a href=#388 id=388 data-nosnippet>388</a>    </span><span class="kw">fn </span>simulation_from_buf_round_trips_through_opt_storage() {
-<a href=#389 id=389 data-nosnippet>389</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>];
-<a href=#390 id=390 data-nosnippet>390</a>
-<a href=#391 id=391 data-nosnippet>391</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Simulation&gt;::from_buf(<span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>]);
+<a href=#379 id=379 data-nosnippet>379</a>        <span class="macro">assert!</span>(tensor.clone().into_vec().is_empty());
+<a href=#380 id=380 data-nosnippet>380</a>    }
+<a href=#381 id=381 data-nosnippet>381</a>
+<a href=#382 id=382 data-nosnippet>382</a>    <span class="doccomment">/// Composite `MappingIter` over a *reordering* composite: `[B, A]` packs B-major (wire position
+<a href=#383 id=383 data-nosnippet>383</a>    /// `p` decodes to `b = p / 3`, `a = p % 3`), but the canonical layout sorts A-major, so the
+<a href=#384 id=384 data-nosnippet>384</a>    /// composite table is genuinely non-identity, unlike `[A, B] # N`, where wire order already
+<a href=#385 id=385 data-nosnippet>385</a>    /// equals canonical. The expected literal is hand-derived: wire `p = 3b + a` lands at canonical
+<a href=#386 id=386 data-nosnippet>386</a>    /// `4a + b`.
+<a href=#387 id=387 data-nosnippet>387</a>    </span><span class="attr">#[test]
+<a href=#388 id=388 data-nosnippet>388</a>    </span><span class="kw">fn </span>emulation_composite_transpose_reorders() {
+<a href=#389 id=389 data-nosnippet>389</a>        <span class="macro">axes!</span>[A = <span class="number">3</span>, B = <span class="number">4</span>];
+<a href=#390 id=390 data-nosnippet>390</a>        <span class="kw">let </span>data: Vec&lt;i32&gt; = (<span class="number">0</span>..<span class="number">12</span>).collect();
+<a href=#391 id=391 data-nosnippet>391</a>        <span class="kw">let </span>expected = <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">3</span>, <span class="number">6</span>, <span class="number">9</span>, <span class="number">1</span>, <span class="number">4</span>, <span class="number">7</span>, <span class="number">10</span>, <span class="number">2</span>, <span class="number">5</span>, <span class="number">8</span>, <span class="number">11</span>];
 <a href=#392 id=392 data-nosnippet>392</a>
-<a href=#393 id=393 data-nosnippet>393</a>        <span class="macro">assert_eq!</span>(tensor.to_buf(), <span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>]);
-<a href=#394 id=394 data-nosnippet>394</a>        <span class="macro">assert_eq!</span>(tensor.to_buf_opt(), <span class="macro">vec!</span>[Opt::Init(<span class="number">1</span>), Opt::Init(<span class="number">2</span>)]);
-<a href=#395 id=395 data-nosnippet>395</a>    }
-<a href=#396 id=396 data-nosnippet>396</a>
-<a href=#397 id=397 data-nosnippet>397</a>    <span class="attr">#[test]
-<a href=#398 id=398 data-nosnippet>398</a>    </span><span class="kw">fn </span>typecheck_try_from_buf_ignores_length_mismatch() {
-<a href=#399 id=399 data-nosnippet>399</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>];
-<a href=#400 id=400 data-nosnippet>400</a>
-<a href=#401 id=401 data-nosnippet>401</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Typecheck&gt;::try_from_buf(<span class="macro">vec!</span>[<span class="number">1</span>]).unwrap();
-<a href=#402 id=402 data-nosnippet>402</a>
-<a href=#403 id=403 data-nosnippet>403</a>        <span class="macro">assert!</span>(tensor.to_buf().is_empty());
-<a href=#404 id=404 data-nosnippet>404</a>        <span class="macro">assert!</span>(tensor.to_buf_opt().is_empty());
-<a href=#405 id=405 data-nosnippet>405</a>    }
-<a href=#406 id=406 data-nosnippet>406</a>
-<a href=#407 id=407 data-nosnippet>407</a>    <span class="attr">#[test]
-<a href=#408 id=408 data-nosnippet>408</a>    </span><span class="kw">fn </span>typecheck_to_buf_is_empty() {
-<a href=#409 id=409 data-nosnippet>409</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>];
-<a href=#410 id=410 data-nosnippet>410</a>
-<a href=#411 id=411 data-nosnippet>411</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Typecheck&gt;::empty();
+<a href=#393 id=393 data-nosnippet>393</a>        <span class="kw">let </span>emu = Tensor::&lt;i32, <span class="macro">m!</span>[[B, A] # <span class="number">12</span>], Emulation&gt;::from_vec(data);
+<a href=#394 id=394 data-nosnippet>394</a>        <span class="kw">let </span>emu_t: Tensor&lt;i32, <span class="macro">m!</span>[A, B], Emulation&gt; = emu.transpose(<span class="bool-val">false</span>);
+<a href=#395 id=395 data-nosnippet>395</a>        <span class="macro">assert_eq!</span>(emu_t.into_vec(), expected, <span class="string">"Emulation (sequencer) composite reorder"</span>);
+<a href=#396 id=396 data-nosnippet>396</a>    }
+<a href=#397 id=397 data-nosnippet>397</a>
+<a href=#398 id=398 data-nosnippet>398</a>    <span class="doccomment">/// `write_gather` round-trip, `scaled=false` (raw row-position indices): gather a small table
+<a href=#399 id=399 data-nosnippet>399</a>    /// by a list of indices and confirm we get table rows back in indexed order. Mirrors the
+<a href=#400 id=400 data-nosnippet>400</a>    /// inverse-of-scatter contract documented on `HbmTensor::dma_gather`. The `scaled=true` path is
+<a href=#401 id=401 data-nosnippet>401</a>    /// covered by [`emulation_write_gather_roundtrip_scaled`].
+<a href=#402 id=402 data-nosnippet>402</a>    </span><span class="attr">#[test]
+<a href=#403 id=403 data-nosnippet>403</a>    </span><span class="kw">fn </span>emulation_write_gather_roundtrip_unscaled() {
+<a href=#404 id=404 data-nosnippet>404</a>        <span class="comment">// table: [W=3, V=2] = [[10,11], [20,21], [30,31]]. gather-key = W.
+<a href=#405 id=405 data-nosnippet>405</a>        // indices select rows 0, 2, 1, 0. output: [K=4, V=2].
+<a href=#406 id=406 data-nosnippet>406</a>        </span><span class="macro">axes!</span>[W = <span class="number">3</span>, V = <span class="number">2</span>, K = <span class="number">4</span>];
+<a href=#407 id=407 data-nosnippet>407</a>
+<a href=#408 id=408 data-nosnippet>408</a>        <span class="kw">let </span>table = Tensor::&lt;i32, <span class="macro">m!</span>[W, V], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">30</span>, <span class="number">31</span>]);
+<a href=#409 id=409 data-nosnippet>409</a>        <span class="kw">let </span>index = Tensor::&lt;i32, <span class="macro">m!</span>[K], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">2</span>, <span class="number">1</span>, <span class="number">0</span>]);
+<a href=#410 id=410 data-nosnippet>410</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;i32, <span class="macro">m!</span>[K, V], Emulation&gt;::uninit();
+<a href=#411 id=411 data-nosnippet>411</a>        table.gather::&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>output, <span class="kw-2">&amp;</span>index, <span class="bool-val">false</span>);
 <a href=#412 id=412 data-nosnippet>412</a>
-<a href=#413 id=413 data-nosnippet>413</a>        <span class="macro">assert!</span>(tensor.to_buf().is_empty());
-<a href=#414 id=414 data-nosnippet>414</a>        <span class="macro">assert!</span>(tensor.to_buf_opt().is_empty());
-<a href=#415 id=415 data-nosnippet>415</a>    }
-<a href=#416 id=416 data-nosnippet>416</a>
-<a href=#417 id=417 data-nosnippet>417</a>    <span class="doccomment">/// Math-backend round-trip: gather a small table by a list of indices and confirm
-<a href=#418 id=418 data-nosnippet>418</a>    /// we get table rows back in indexed order. Mirrors the inverse-of-scatter contract
-<a href=#419 id=419 data-nosnippet>419</a>    /// documented on `HbmTensor::dma_gather`.
-<a href=#420 id=420 data-nosnippet>420</a>    ///
-<a href=#421 id=421 data-nosnippet>421</a>    /// `scaled=true` matches the existing `write_scatter` semantics: indices are in
-<a href=#422 id=422 data-nosnippet>422</a>    /// byte-offset units (e.g., row 1 of `[W, V=2]` of i32 = byte offset `1*2*4 = 8`).
-<a href=#423 id=423 data-nosnippet>423</a>    /// The math impl divides by `payload_size * sizeof(D) = 8` to get the position index.
-<a href=#424 id=424 data-nosnippet>424</a>    /// `scaled=false` treats indices as raw position indices.
-<a href=#425 id=425 data-nosnippet>425</a>    </span><span class="attr">#[test]
-<a href=#426 id=426 data-nosnippet>426</a>    </span><span class="kw">fn </span>simulation_write_gather_roundtrip_scaled() {
-<a href=#427 id=427 data-nosnippet>427</a>        <span class="comment">// table: [W=3, V=2] = [[10,11], [20,21], [30,31]]. gather-key = W.
-<a href=#428 id=428 data-nosnippet>428</a>        // indices select rows 0, 2, 1, 0 → byte-offsets 0, 16, 8, 0 (V*sizeof(i32)=8 per row).
-<a href=#429 id=429 data-nosnippet>429</a>        // output: [K=4, V=2].
-<a href=#430 id=430 data-nosnippet>430</a>        </span><span class="macro">axes!</span>[W = <span class="number">3</span>, V = <span class="number">2</span>, K = <span class="number">4</span>];
-<a href=#431 id=431 data-nosnippet>431</a>
-<a href=#432 id=432 data-nosnippet>432</a>        <span class="kw">let </span>table = Tensor::&lt;i32, <span class="macro">m!</span>[W, V], Simulation&gt;::from_buf(<span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">30</span>, <span class="number">31</span>]);
-<a href=#433 id=433 data-nosnippet>433</a>        <span class="kw">let </span>index = Tensor::&lt;i32, <span class="macro">m!</span>[K], Simulation&gt;::from_buf(<span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">16</span>, <span class="number">8</span>, <span class="number">0</span>]);
-<a href=#434 id=434 data-nosnippet>434</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;i32, <span class="macro">m!</span>[K, V], Simulation&gt;::uninit();
-<a href=#435 id=435 data-nosnippet>435</a>        table.write_gather::&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>output, <span class="kw-2">&amp;</span>index, <span class="bool-val">true</span>);
-<a href=#436 id=436 data-nosnippet>436</a>
-<a href=#437 id=437 data-nosnippet>437</a>        <span class="macro">assert_eq!</span>(output.to_buf(), <span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">30</span>, <span class="number">31</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">10</span>, <span class="number">11</span>]);
-<a href=#438 id=438 data-nosnippet>438</a>    }
-<a href=#439 id=439 data-nosnippet>439</a>
-<a href=#440 id=440 data-nosnippet>440</a>    <span class="doccomment">/// `scaled=false`: indices are raw row-position values.
-<a href=#441 id=441 data-nosnippet>441</a>    </span><span class="attr">#[test]
-<a href=#442 id=442 data-nosnippet>442</a>    </span><span class="kw">fn </span>simulation_write_gather_roundtrip_unscaled() {
-<a href=#443 id=443 data-nosnippet>443</a>        <span class="macro">axes!</span>[W = <span class="number">3</span>, V = <span class="number">2</span>, K = <span class="number">4</span>];
-<a href=#444 id=444 data-nosnippet>444</a>
-<a href=#445 id=445 data-nosnippet>445</a>        <span class="kw">let </span>table = Tensor::&lt;i32, <span class="macro">m!</span>[W, V], Simulation&gt;::from_buf(<span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">30</span>, <span class="number">31</span>]);
-<a href=#446 id=446 data-nosnippet>446</a>        <span class="kw">let </span>index = Tensor::&lt;i32, <span class="macro">m!</span>[K], Simulation&gt;::from_buf(<span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">2</span>, <span class="number">1</span>, <span class="number">0</span>]);
-<a href=#447 id=447 data-nosnippet>447</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;i32, <span class="macro">m!</span>[K, V], Simulation&gt;::uninit();
-<a href=#448 id=448 data-nosnippet>448</a>        table.write_gather::&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>output, <span class="kw-2">&amp;</span>index, <span class="bool-val">false</span>);
-<a href=#449 id=449 data-nosnippet>449</a>
-<a href=#450 id=450 data-nosnippet>450</a>        <span class="macro">assert_eq!</span>(output.to_buf(), <span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">30</span>, <span class="number">31</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">10</span>, <span class="number">11</span>]);
-<a href=#451 id=451 data-nosnippet>451</a>    }
-<a href=#452 id=452 data-nosnippet>452</a>
-<a href=#453 id=453 data-nosnippet>453</a>    <span class="doccomment">/// Typecheck-backend smoke: gather should propagate mapping checks (via
-<a href=#454 id=454 data-nosnippet>454</a>    /// `gather_params`) without iterating any buffer. The output tensor under Typecheck
-<a href=#455 id=455 data-nosnippet>455</a>    /// has no values; we only verify that the call doesn't panic for a well-formed shape.
-<a href=#456 id=456 data-nosnippet>456</a>    </span><span class="attr">#[test]
-<a href=#457 id=457 data-nosnippet>457</a>    </span><span class="kw">fn </span>typecheck_write_gather_runs_assertion_only() {
-<a href=#458 id=458 data-nosnippet>458</a>        <span class="macro">axes!</span>[W = <span class="number">3</span>, V = <span class="number">2</span>, K = <span class="number">4</span>];
-<a href=#459 id=459 data-nosnippet>459</a>
-<a href=#460 id=460 data-nosnippet>460</a>        <span class="kw">let </span>table = Tensor::&lt;i32, <span class="macro">m!</span>[W, V], Typecheck&gt;::empty();
-<a href=#461 id=461 data-nosnippet>461</a>        <span class="kw">let </span>index = Tensor::&lt;i32, <span class="macro">m!</span>[K], Typecheck&gt;::empty();
-<a href=#462 id=462 data-nosnippet>462</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;i32, <span class="macro">m!</span>[K, V], Typecheck&gt;::empty();
-<a href=#463 id=463 data-nosnippet>463</a>        table.write_gather::&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>output, <span class="kw-2">&amp;</span>index, <span class="bool-val">true</span>);
-<a href=#464 id=464 data-nosnippet>464</a>    }
-<a href=#465 id=465 data-nosnippet>465</a>
-<a href=#466 id=466 data-nosnippet>466</a>    <span class="attr">#[test]
-<a href=#467 id=467 data-nosnippet>467</a>    </span><span class="kw">fn </span>npu_to_buf_returns_plain_values() {
-<a href=#468 id=468 data-nosnippet>468</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>];
-<a href=#469 id=469 data-nosnippet>469</a>
-<a href=#470 id=470 data-nosnippet>470</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Npu&gt;::from_buf(<span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>]);
-<a href=#471 id=471 data-nosnippet>471</a>
-<a href=#472 id=472 data-nosnippet>472</a>        <span class="macro">assert_eq!</span>(tensor.to_buf(), <span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>]);
-<a href=#473 id=473 data-nosnippet>473</a>    }
-<a href=#474 id=474 data-nosnippet>474</a>}
+<a href=#413 id=413 data-nosnippet>413</a>        <span class="macro">assert_eq!</span>(output.into_vec(), <span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">30</span>, <span class="number">31</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">10</span>, <span class="number">11</span>]);
+<a href=#414 id=414 data-nosnippet>414</a>    }
+<a href=#415 id=415 data-nosnippet>415</a>
+<a href=#416 id=416 data-nosnippet>416</a>    <span class="doccomment">/// Typecheck-backend smoke: gather should propagate mapping checks (via
+<a href=#417 id=417 data-nosnippet>417</a>    /// `gather_params`) without iterating any buffer. The output tensor under Typecheck
+<a href=#418 id=418 data-nosnippet>418</a>    /// has no values; we only verify that the call doesn't panic for a well-formed shape.
+<a href=#419 id=419 data-nosnippet>419</a>    </span><span class="attr">#[test]
+<a href=#420 id=420 data-nosnippet>420</a>    </span><span class="kw">fn </span>typecheck_write_gather_runs_assertion_only() {
+<a href=#421 id=421 data-nosnippet>421</a>        <span class="macro">axes!</span>[W = <span class="number">3</span>, V = <span class="number">2</span>, K = <span class="number">4</span>];
+<a href=#422 id=422 data-nosnippet>422</a>
+<a href=#423 id=423 data-nosnippet>423</a>        <span class="kw">let </span>table = Tensor::&lt;i32, <span class="macro">m!</span>[W, V], Typecheck&gt;::empty();
+<a href=#424 id=424 data-nosnippet>424</a>        <span class="kw">let </span>index = Tensor::&lt;i32, <span class="macro">m!</span>[K], Typecheck&gt;::empty();
+<a href=#425 id=425 data-nosnippet>425</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;i32, <span class="macro">m!</span>[K, V], Typecheck&gt;::empty();
+<a href=#426 id=426 data-nosnippet>426</a>        table.gather::&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>output, <span class="kw-2">&amp;</span>index, <span class="bool-val">true</span>);
+<a href=#427 id=427 data-nosnippet>427</a>    }
+<a href=#428 id=428 data-nosnippet>428</a>
+<a href=#429 id=429 data-nosnippet>429</a>    <span class="attr">#[test]
+<a href=#430 id=430 data-nosnippet>430</a>    </span><span class="kw">fn </span>npu_to_buf_returns_plain_values() {
+<a href=#431 id=431 data-nosnippet>431</a>        <span class="macro">axes!</span>[A = <span class="number">2</span>];
+<a href=#432 id=432 data-nosnippet>432</a>
+<a href=#433 id=433 data-nosnippet>433</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Npu&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>]);
+<a href=#434 id=434 data-nosnippet>434</a>
+<a href=#435 id=435 data-nosnippet>435</a>        <span class="macro">assert_eq!</span>(tensor.into_vec(), <span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>]);
+<a href=#436 id=436 data-nosnippet>436</a>    }
+<a href=#437 id=437 data-nosnippet>437</a>
+<a href=#438 id=438 data-nosnippet>438</a>    <span class="comment">// ---- Emulation backend: physical `BufStorage` buffer semantics ----
+<a href=#439 id=439 data-nosnippet>439</a>    //
+<a href=#440 id=440 data-nosnippet>440</a>    // These pin `B = Emulation` via the type parameter, so they run under the default
+<a href=#441 id=441 data-nosnippet>441</a>    // (emulation-cfg) `cargo test` without a backend rebuild, computed over the physical
+<a href=#442 id=442 data-nosnippet>442</a>    // `Mapping::SIZE` staging buffer.
+<a href=#443 id=443 data-nosnippet>443</a>
+<a href=#444 id=444 data-nosnippet>444</a>    </span><span class="doccomment">/// `from_vec`/`to_vec` round-trip: the staging buffer is stored verbatim in `Mapping`-order.
+<a href=#445 id=445 data-nosnippet>445</a>    </span><span class="attr">#[test]
+<a href=#446 id=446 data-nosnippet>446</a>    </span><span class="kw">fn </span>emulation_from_vec_round_trips() {
+<a href=#447 id=447 data-nosnippet>447</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>];
+<a href=#448 id=448 data-nosnippet>448</a>
+<a href=#449 id=449 data-nosnippet>449</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">5</span>, <span class="number">6</span>, <span class="number">7</span>, <span class="number">8</span>]);
+<a href=#450 id=450 data-nosnippet>450</a>
+<a href=#451 id=451 data-nosnippet>451</a>        <span class="macro">assert_eq!</span>(tensor.into_vec(), <span class="macro">vec!</span>[<span class="number">5</span>, <span class="number">6</span>, <span class="number">7</span>, <span class="number">8</span>]);
+<a href=#452 id=452 data-nosnippet>452</a>    }
+<a href=#453 id=453 data-nosnippet>453</a>
+<a href=#454 id=454 data-nosnippet>454</a>    <span class="doccomment">/// `from_buf` stores a pre-packed byte image verbatim, no decode + re-pack: an `f4e2m1` packed buffer
+<a href=#455 id=455 data-nosnippet>455</a>    /// (two codes per byte) round-trips through `into_buf` BIT-IDENTICALLY and decodes back to the
+<a href=#456 id=456 data-nosnippet>456</a>    /// original codes. This is the fp4 weight-load path; pre-packed nibbles must not detour through a
+<a href=#457 id=457 data-nosnippet>457</a>    /// logical `Vec` (which would repack to canonical bits and could differ from the source image).
+<a href=#458 id=458 data-nosnippet>458</a>    </span><span class="attr">#[test]
+<a href=#459 id=459 data-nosnippet>459</a>    </span><span class="kw">fn </span>emulation_from_buf_fp4_is_bit_identical() {
+<a href=#460 id=460 data-nosnippet>460</a>        <span class="macro">axes!</span>[C = <span class="number">4</span>];
+<a href=#461 id=461 data-nosnippet>461</a>        <span class="comment">// Four e2m1 codes [1, 2, 3, 4] pack low-nibble-first to bytes [0x21, 0x43].
+<a href=#462 id=462 data-nosnippet>462</a>        </span><span class="kw">let </span>packed = <span class="macro">vec!</span>[<span class="number">0x21u8</span>, <span class="number">0x43</span>];
+<a href=#463 id=463 data-nosnippet>463</a>        <span class="kw">let </span>tensor = Tensor::&lt;f4e2m1, <span class="macro">m!</span>[C], Emulation&gt;::from_buf(packed.clone());
+<a href=#464 id=464 data-nosnippet>464</a>        <span class="comment">// `into_buf` returns the same bytes it was given (stored as-is, not re-packed).
+<a href=#465 id=465 data-nosnippet>465</a>        </span><span class="macro">assert_eq!</span>(tensor.clone().into_buf(), packed);
+<a href=#466 id=466 data-nosnippet>466</a>        <span class="comment">// and the codes decode back.
+<a href=#467 id=467 data-nosnippet>467</a>        </span><span class="kw">let </span>codes: Vec&lt;u8&gt; = tensor.into_vec().iter().map(|c| c.to_bits()).collect();
+<a href=#468 id=468 data-nosnippet>468</a>        <span class="macro">assert_eq!</span>(codes, <span class="macro">vec!</span>[<span class="number">0x1</span>, <span class="number">0x2</span>, <span class="number">0x3</span>, <span class="number">0x4</span>]);
+<a href=#469 id=469 data-nosnippet>469</a>    }
+<a href=#470 id=470 data-nosnippet>470</a>
+<a href=#471 id=471 data-nosnippet>471</a>    <span class="doccomment">/// `from_buf` on a byte-multiple `D` is the LE byte image and equals the `from_vec` result (the
+<a href=#472 id=472 data-nosnippet>472</a>    /// `from_safetensors` path). Pins that the pre-packed and logical constructors agree for byte widths.
+<a href=#473 id=473 data-nosnippet>473</a>    </span><span class="attr">#[test]
+<a href=#474 id=474 data-nosnippet>474</a>    </span><span class="kw">fn </span>emulation_from_buf_byte_multiple_matches_from_vec() {
+<a href=#475 id=475 data-nosnippet>475</a>        <span class="macro">axes!</span>[A = <span class="number">3</span>];
+<a href=#476 id=476 data-nosnippet>476</a>        <span class="kw">let </span>vals = <span class="macro">vec!</span>[<span class="number">1i32</span>, -<span class="number">1</span>, <span class="number">0x0102_0304</span>];
+<a href=#477 id=477 data-nosnippet>477</a>        <span class="kw">let </span>packed: Vec&lt;u8&gt; = [<span class="number">1i32</span>.to_le_bytes(), (-<span class="number">1i32</span>).to_le_bytes(), <span class="number">0x0102_0304i32</span>.to_le_bytes()].concat();
+<a href=#478 id=478 data-nosnippet>478</a>        <span class="kw">let </span>from_buf = Tensor::&lt;i32, <span class="macro">m!</span>[A], Emulation&gt;::from_buf(packed);
+<a href=#479 id=479 data-nosnippet>479</a>        <span class="macro">assert_eq!</span>(from_buf.clone().into_vec(), vals.clone());
+<a href=#480 id=480 data-nosnippet>480</a>        <span class="macro">assert_eq!</span>(
+<a href=#481 id=481 data-nosnippet>481</a>            from_buf.into_vec(),
+<a href=#482 id=482 data-nosnippet>482</a>            Tensor::&lt;i32, <span class="macro">m!</span>[A], Emulation&gt;::from_vec(vals).into_vec()
+<a href=#483 id=483 data-nosnippet>483</a>        );
+<a href=#484 id=484 data-nosnippet>484</a>    }
+<a href=#485 id=485 data-nosnippet>485</a>
+<a href=#486 id=486 data-nosnippet>486</a>    <span class="doccomment">/// The buffer is `Mapping::SIZE` long, padding cells included. `m![A # 8]` with `A = 6` is a
+<a href=#487 id=487 data-nosnippet>487</a>    /// 6-live + 2-pad buffer of length 8; `BufStorage` keeps all 8 cells.
+<a href=#488 id=488 data-nosnippet>488</a>    </span><span class="attr">#[test]
+<a href=#489 id=489 data-nosnippet>489</a>    </span><span class="kw">fn </span>emulation_buffer_is_padded_size_and_round_trips() {
+<a href=#490 id=490 data-nosnippet>490</a>        <span class="macro">axes!</span>[A = <span class="number">6</span>];
+<a href=#491 id=491 data-nosnippet>491</a>
+<a href=#492 id=492 data-nosnippet>492</a>        <span class="kw">let </span>data: Vec&lt;i32&gt; = (<span class="number">0</span>..<span class="number">8</span>).collect();
+<a href=#493 id=493 data-nosnippet>493</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A # <span class="number">8</span>], Emulation&gt;::from_vec(data.clone());
+<a href=#494 id=494 data-nosnippet>494</a>
+<a href=#495 id=495 data-nosnippet>495</a>        <span class="macro">assert_eq!</span>(tensor.into_vec(), data);
+<a href=#496 id=496 data-nosnippet>496</a>    }
+<a href=#497 id=497 data-nosnippet>497</a>
+<a href=#498 id=498 data-nosnippet>498</a>    <span class="doccomment">/// Element-wise `map` over the physical buffer.
+<a href=#499 id=499 data-nosnippet>499</a>    </span><span class="attr">#[test]
+<a href=#500 id=500 data-nosnippet>500</a>    </span><span class="kw">fn </span>emulation_map() {
+<a href=#501 id=501 data-nosnippet>501</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>];
+<a href=#502 id=502 data-nosnippet>502</a>
+<a href=#503 id=503 data-nosnippet>503</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[A], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]);
+<a href=#504 id=504 data-nosnippet>504</a>        <span class="kw">let </span>mapped = tensor.map(|v| v * <span class="number">10</span>);
+<a href=#505 id=505 data-nosnippet>505</a>
+<a href=#506 id=506 data-nosnippet>506</a>        <span class="macro">assert_eq!</span>(mapped.into_vec(), <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">10</span>, <span class="number">20</span>, <span class="number">30</span>]);
+<a href=#507 id=507 data-nosnippet>507</a>    }
+<a href=#508 id=508 data-nosnippet>508</a>
+<a href=#509 id=509 data-nosnippet>509</a>    <span class="doccomment">/// Element-wise `zip_with` over two physical buffers of the same mapping.
+<a href=#510 id=510 data-nosnippet>510</a>    </span><span class="attr">#[test]
+<a href=#511 id=511 data-nosnippet>511</a>    </span><span class="kw">fn </span>emulation_zip_with() {
+<a href=#512 id=512 data-nosnippet>512</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>];
+<a href=#513 id=513 data-nosnippet>513</a>
+<a href=#514 id=514 data-nosnippet>514</a>        <span class="kw">let </span>lhs = Tensor::&lt;i32, <span class="macro">m!</span>[A], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>]);
+<a href=#515 id=515 data-nosnippet>515</a>        <span class="kw">let </span>rhs = Tensor::&lt;i32, <span class="macro">m!</span>[A], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">20</span>, <span class="number">30</span>, <span class="number">40</span>]);
+<a href=#516 id=516 data-nosnippet>516</a>        <span class="kw">let </span>sum = lhs.zip_with(<span class="kw-2">&amp;</span>rhs, |a, b| a + b);
+<a href=#517 id=517 data-nosnippet>517</a>
+<a href=#518 id=518 data-nosnippet>518</a>        <span class="macro">assert_eq!</span>(sum.into_vec(), <span class="macro">vec!</span>[<span class="number">11</span>, <span class="number">22</span>, <span class="number">33</span>, <span class="number">44</span>]);
+<a href=#519 id=519 data-nosnippet>519</a>    }
+<a href=#520 id=520 data-nosnippet>520</a>
+<a href=#521 id=521 data-nosnippet>521</a>    <span class="doccomment">/// Multi-axis layout: `m![K, M]` (K outer / M inner) exercises per-axis buffer strides
+<a href=#522 id=522 data-nosnippet>522</a>    /// (`stride_K = M`, `stride_M = 1`). Round-trip confirms `read_index`/`write_index` address the
+<a href=#523 id=523 data-nosnippet>523</a>    /// physical buffer correctly through `Σ coordₖ · strideₖ`.
+<a href=#524 id=524 data-nosnippet>524</a>    </span><span class="attr">#[test]
+<a href=#525 id=525 data-nosnippet>525</a>    </span><span class="kw">fn </span>emulation_multi_axis_strides_round_trip() {
+<a href=#526 id=526 data-nosnippet>526</a>        <span class="macro">axes!</span>[K = <span class="number">8</span>, M = <span class="number">4</span>];
+<a href=#527 id=527 data-nosnippet>527</a>
+<a href=#528 id=528 data-nosnippet>528</a>        <span class="kw">let </span>buf: Vec&lt;i32&gt; = (<span class="number">0</span>..<span class="number">8</span>).flat_map(|k| (<span class="number">0</span>..<span class="number">4</span>).map(<span class="kw">move </span>|m| k + <span class="number">100 </span>* m)).collect();
+<a href=#529 id=529 data-nosnippet>529</a>        <span class="kw">let </span>tensor = Tensor::&lt;i32, <span class="macro">m!</span>[K, M], Emulation&gt;::from_vec(buf.clone());
+<a href=#530 id=530 data-nosnippet>530</a>
+<a href=#531 id=531 data-nosnippet>531</a>        <span class="comment">// Re-map (identity transpose) forces a write_index/read_index round-trip over the strides.
+<a href=#532 id=532 data-nosnippet>532</a>        </span><span class="kw">let </span>same: Tensor&lt;i32, <span class="macro">m!</span>[K, M], Emulation&gt; = tensor.transpose(<span class="bool-val">false</span>);
+<a href=#533 id=533 data-nosnippet>533</a>        <span class="macro">assert_eq!</span>(same.into_vec(), buf);
+<a href=#534 id=534 data-nosnippet>534</a>    }
+<a href=#535 id=535 data-nosnippet>535</a>
+<a href=#536 id=536 data-nosnippet>536</a>    <span class="doccomment">/// Real relayout via the sequencer walk: `m![K,N]` -&gt; `m![N,K]` permutes the buffer.
+<a href=#537 id=537 data-nosnippet>537</a>    </span><span class="attr">#[test]
+<a href=#538 id=538 data-nosnippet>538</a>    </span><span class="kw">fn </span>emulation_transpose_relayout() {
+<a href=#539 id=539 data-nosnippet>539</a>        <span class="macro">axes!</span>[K = <span class="number">2</span>, N = <span class="number">3</span>];
+<a href=#540 id=540 data-nosnippet>540</a>
+<a href=#541 id=541 data-nosnippet>541</a>        <span class="comment">// m![K,N]: K outer (stride 3), N inner. buf[k*3+n].  k=0:{0,1,2}, k=1:{10,11,12}
+<a href=#542 id=542 data-nosnippet>542</a>        </span><span class="kw">let </span>src = Tensor::&lt;i32, <span class="macro">m!</span>[K, N], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">1</span>, <span class="number">2</span>, <span class="number">10</span>, <span class="number">11</span>, <span class="number">12</span>]);
+<a href=#543 id=543 data-nosnippet>543</a>
+<a href=#544 id=544 data-nosnippet>544</a>        <span class="comment">// m![N,K]: N outer (stride 2), K inner. out[n*2+k] = src[k,n].
+<a href=#545 id=545 data-nosnippet>545</a>        </span><span class="kw">let </span>dst: Tensor&lt;i32, <span class="macro">m!</span>[N, K], Emulation&gt; = src.transpose(<span class="bool-val">false</span>);
+<a href=#546 id=546 data-nosnippet>546</a>
+<a href=#547 id=547 data-nosnippet>547</a>        <span class="comment">// n=0:{k0,k1}={0,10}, n=1:{1,11}, n=2:{2,12}
+<a href=#548 id=548 data-nosnippet>548</a>        </span><span class="macro">assert_eq!</span>(dst.into_vec(), <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">10</span>, <span class="number">1</span>, <span class="number">11</span>, <span class="number">2</span>, <span class="number">12</span>]);
+<a href=#549 id=549 data-nosnippet>549</a>    }
+<a href=#550 id=550 data-nosnippet>550</a>
+<a href=#551 id=551 data-nosnippet>551</a>    <span class="doccomment">/// `reduce` over a partially-split shared symbol: `Src = m![K, M]` consolidates K into a single
+<a href=#552 id=552 data-nosnippet>552</a>    /// `K(stride 1, mod 8)` term in `self.axes`, while `Dst = m![K / 2, M]` carries only K's
+<a href=#553 id=553 data-nosnippet>553</a>    /// `(stride 2, mod 4)` sub-factor: the `(stride 1, mod 2)` piece must be reduced.
+<a href=#554 id=554 data-nosnippet>554</a>    </span><span class="attr">#[test]
+<a href=#555 id=555 data-nosnippet>555</a>    </span><span class="kw">fn </span>emulation_reduce_keeps_partial_axis_when_only_a_sub_factor_remains() {
+<a href=#556 id=556 data-nosnippet>556</a>        <span class="macro">axes!</span>[K = <span class="number">8</span>, M = <span class="number">4</span>];
+<a href=#557 id=557 data-nosnippet>557</a>
+<a href=#558 id=558 data-nosnippet>558</a>        <span class="kw">let </span>source_buf: Vec&lt;i32&gt; = (<span class="number">0</span>..<span class="number">8</span>).flat_map(|k| (<span class="number">0</span>..<span class="number">4</span>).map(<span class="kw">move </span>|m| k + <span class="number">100 </span>* m)).collect();
+<a href=#559 id=559 data-nosnippet>559</a>        <span class="kw">let </span>source = Tensor::&lt;i32, <span class="macro">m!</span>[K, M], Emulation&gt;::from_vec(source_buf);
+<a href=#560 id=560 data-nosnippet>560</a>
+<a href=#561 id=561 data-nosnippet>561</a>        <span class="kw">let </span>reduced: Tensor&lt;i32, <span class="macro">m!</span>[K / <span class="number">2</span>, M], Emulation&gt; = source.reduce_add();
+<a href=#562 id=562 data-nosnippet>562</a>
+<a href=#563 id=563 data-nosnippet>563</a>        <span class="kw">let </span>expected: Vec&lt;i32&gt; = (<span class="number">0</span>..<span class="number">4</span>).flat_map(|j| (<span class="number">0</span>..<span class="number">4</span>).map(<span class="kw">move </span>|m| <span class="number">4 </span>* j + <span class="number">1 </span>+ <span class="number">200 </span>* m)).collect();
+<a href=#564 id=564 data-nosnippet>564</a>        <span class="macro">assert_eq!</span>(reduced.into_vec(), expected);
+<a href=#565 id=565 data-nosnippet>565</a>    }
+<a href=#566 id=566 data-nosnippet>566</a>
+<a href=#567 id=567 data-nosnippet>567</a>    <span class="doccomment">/// `reduce` with broadcast, covering the same partial-sub-factor hazard as the test above, *plus*
+<a href=#568 id=568 data-nosnippet>568</a>    /// a real broadcast axis that exists only in `Dst`.
+<a href=#569 id=569 data-nosnippet>569</a>    </span><span class="attr">#[test]
+<a href=#570 id=570 data-nosnippet>570</a>    </span><span class="kw">fn </span>emulation_reduce_keeps_partial_axis_and_broadcasts_extra_dst_axis() {
+<a href=#571 id=571 data-nosnippet>571</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>, B = <span class="number">2</span>];
+<a href=#572 id=572 data-nosnippet>572</a>
+<a href=#573 id=573 data-nosnippet>573</a>        <span class="kw">let </span>source = Tensor::&lt;i32, <span class="macro">m!</span>[A], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]);
+<a href=#574 id=574 data-nosnippet>574</a>
+<a href=#575 id=575 data-nosnippet>575</a>        <span class="kw">let </span>result: Tensor&lt;i32, <span class="macro">m!</span>[A / <span class="number">2</span>, B], Emulation&gt; = source.reduce(|a, b| a + b, <span class="number">0</span>, <span class="bool-val">true</span>);
+<a href=#576 id=576 data-nosnippet>576</a>
+<a href=#577 id=577 data-nosnippet>577</a>        <span class="macro">assert_eq!</span>(result.into_vec(), <span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">1</span>, <span class="number">5</span>, <span class="number">5</span>]);
+<a href=#578 id=578 data-nosnippet>578</a>    }
+<a href=#579 id=579 data-nosnippet>579</a>
+<a href=#580 id=580 data-nosnippet>580</a>    <span class="doccomment">/// `write_gather` round-trip, `scaled=true`: indices are in byte-offset units (e.g. row 1 of
+<a href=#581 id=581 data-nosnippet>581</a>    /// `[W, V=2]` of i32 = byte offset `1*2*4 = 8`). The `scaled=false` path is covered by
+<a href=#582 id=582 data-nosnippet>582</a>    /// [`emulation_write_gather_roundtrip_unscaled`].
+<a href=#583 id=583 data-nosnippet>583</a>    </span><span class="attr">#[test]
+<a href=#584 id=584 data-nosnippet>584</a>    </span><span class="kw">fn </span>emulation_write_gather_roundtrip_scaled() {
+<a href=#585 id=585 data-nosnippet>585</a>        <span class="macro">axes!</span>[W = <span class="number">3</span>, V = <span class="number">2</span>, K = <span class="number">4</span>];
+<a href=#586 id=586 data-nosnippet>586</a>
+<a href=#587 id=587 data-nosnippet>587</a>        <span class="kw">let </span>table = Tensor::&lt;i32, <span class="macro">m!</span>[W, V], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">30</span>, <span class="number">31</span>]);
+<a href=#588 id=588 data-nosnippet>588</a>        <span class="kw">let </span>index = Tensor::&lt;i32, <span class="macro">m!</span>[K], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">16</span>, <span class="number">8</span>, <span class="number">0</span>]);
+<a href=#589 id=589 data-nosnippet>589</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;i32, <span class="macro">m!</span>[K, V], Emulation&gt;::uninit();
+<a href=#590 id=590 data-nosnippet>590</a>        table.gather::&lt;<span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>output, <span class="kw-2">&amp;</span>index, <span class="bool-val">true</span>);
+<a href=#591 id=591 data-nosnippet>591</a>
+<a href=#592 id=592 data-nosnippet>592</a>        <span class="macro">assert_eq!</span>(output.into_vec(), <span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">30</span>, <span class="number">31</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">10</span>, <span class="number">11</span>]);
+<a href=#593 id=593 data-nosnippet>593</a>    }
+<a href=#594 id=594 data-nosnippet>594</a>
+<a href=#595 id=595 data-nosnippet>595</a>    <span class="doccomment">/// `write_scatter` round-trip: scatter rows of a `[K, V]` source into a `[W, V]` destination at
+<a href=#596 id=596 data-nosnippet>596</a>    /// indexed positions (the inverse of the gather above).
+<a href=#597 id=597 data-nosnippet>597</a>    </span><span class="attr">#[test]
+<a href=#598 id=598 data-nosnippet>598</a>    </span><span class="kw">fn </span>emulation_write_scatter_roundtrip_unscaled() {
+<a href=#599 id=599 data-nosnippet>599</a>        <span class="macro">axes!</span>[W = <span class="number">3</span>, V = <span class="number">2</span>, K = <span class="number">3</span>];
+<a href=#600 id=600 data-nosnippet>600</a>
+<a href=#601 id=601 data-nosnippet>601</a>        <span class="kw">let </span>source = Tensor::&lt;i32, <span class="macro">m!</span>[K, V], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">10</span>, <span class="number">11</span>, <span class="number">20</span>, <span class="number">21</span>, <span class="number">30</span>, <span class="number">31</span>]);
+<a href=#602 id=602 data-nosnippet>602</a>        <span class="kw">let </span>index = Tensor::&lt;i32, <span class="macro">m!</span>[K], Emulation&gt;::from_vec(<span class="macro">vec!</span>[<span class="number">2</span>, <span class="number">0</span>, <span class="number">1</span>]);
+<a href=#603 id=603 data-nosnippet>603</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;i32, <span class="macro">m!</span>[W, V], Emulation&gt;::uninit();
+<a href=#604 id=604 data-nosnippet>604</a>        source.scatter::&lt;<span class="macro">m!</span>[K], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;mut </span>output, <span class="kw-2">&amp;</span>index, <span class="bool-val">false</span>);
+<a href=#605 id=605 data-nosnippet>605</a>
+<a href=#606 id=606 data-nosnippet>606</a>        <span class="comment">// row k of source lands at row index[k]: 0→W2, 1→W0, 2→W1.
+<a href=#607 id=607 data-nosnippet>607</a>        </span><span class="macro">assert_eq!</span>(output.into_vec(), <span class="macro">vec!</span>[<span class="number">20</span>, <span class="number">21</span>, <span class="number">30</span>, <span class="number">31</span>, <span class="number">10</span>, <span class="number">11</span>]);
+<a href=#608 id=608 data-nosnippet>608</a>    }
+<a href=#609 id=609 data-nosnippet>609</a>}
 </code></pre></div></section></main></body></html>

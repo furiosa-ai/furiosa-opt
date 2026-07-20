@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["BufTensor","StreamTensor"]};
+window.SIDEBAR_ITEMS = {"struct":["MemTensor","StreamTensor"]};

@@ -15,8 +15,8 @@
         <link rel="icon" href="favicon-de23e50b.svg">
         <link rel="shortcut icon" href="favicon-8114d1fc.png">
         <link rel="stylesheet" href="css/variables-8adf115d.css">
-        <link rel="stylesheet" href="css/general-0392ca55.css">
-        <link rel="stylesheet" href="css/chrome-fc474251.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
         <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-bf8d000f.js"></script>
+        <script src="toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -267,8 +267,8 @@ Each element of <code>A</code> therefore maps to a well-defined position within 
 <code>main</code> runs the primary computation.
 <code>sub</code> runs a concurrent pipeline, typically used to prefetch operands into TRF or VRF while <code>main</code> computes.
 If <code>main</code> needs operands that <code>sub</code> is still fetching, <code>main</code> automatically waits for <code>sub</code>’s execution to ensure synchronization.</p>
-<p>Both contexts share the same flat on-chip SRAM, so the programmer must explicitly assign DM addresses (e.g., the <code>addr</code> argument in <code>.to_dm()</code>, <code>.commit()</code>) to prevent tensors from overlapping.
-Addresses must not collide, but they can be non-contiguous.</p>
+<p>Both contexts share the same flat on-chip SRAM.
+DM addresses are optional: omit them (as in <code>.to_dm()</code> and <code>.commit()</code>) to let placement be assigned automatically, or pin a specific address with the <code>_at</code> variants (<code>.to_dm_at(addr)</code>, <code>.commit_at(addr)</code>) when a kernel needs explicit, non-overlapping control.</p>
 <p>In type signatures, the const-generic <code>Tu</code> identifies which context a tensor flows through (<code>{ Tu::Main }</code> or <code>{ Tu::Sub }</code>).</p>
 <p>See <a href="./scheduling.html">Scheduling</a> for <code>ctx.main</code>, <code>ctx.sub</code>, <code>launch()</code>, and how operations are scheduled and run in parallel across contexts.</p>
 <h2 id="kernel-examples"><a class="header" href="#kernel-examples">Kernel Examples</a></h2>
@@ -304,7 +304,7 @@ pub type Slice = m![A / 8 # 256];
 #[device(chip = 1)]
 pub fn constant_add_kernel(ctx: &amp;mut Context, input: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;) -&gt; HbmTensor&lt;i32, Chip, m![A]&gt; {
     // HBM → DM: split 2048 elements across 256 slices (8 elements per slice)
-    let dm = input.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma, 0);
+    let dm = input.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma);
 
     let result = ctx
         .main
@@ -322,10 +322,10 @@ pub fn constant_add_kernel(ctx: &amp;mut Context, input: &amp;HbmTensor&lt;i32, 
         // results back to DM
         .vector_final()
         .commit_trim::&lt;m![A % 8]&gt;()
-        .commit::&lt;m![A % 8]&gt;(1 &lt;&lt; 12);
+        .commit::&lt;m![A % 8]&gt;();
 
     // DM → HBM
-    result.to_hbm(&amp;mut ctx.tdma, 1 &lt;&lt; 28)
+    result.to_hbm(&amp;mut ctx.tdma)
 }</code></pre>
 <p>Host program (<a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/base-template/src/constant_add.rs"><code>src/constant_add.rs</code></a>):</p>
 <pre><code class="language-rust ignore">use furiosa_opt_std::prelude::*;
@@ -338,7 +338,7 @@ async fn main() {
     let mut ctx = Context::acquire();
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
-    let in_hbm = input.to_hbm(&amp;mut ctx.pdma, 0).await;
+    let in_hbm = input.to_hbm(&amp;mut ctx.pdma).await;
     let _out_hbm = launch(constant_add_kernel, (&amp;mut ctx, &amp;in_hbm)).await;
     println!("Constant Add: kernel ran");
 }
@@ -353,17 +353,17 @@ mod tests {
 
         let mut rng = SmallRng::seed_from_u64(42);
         let input = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
-        let in_hbm = input.to_hbm(&amp;mut ctx.pdma, 0).await;
+        let in_hbm = input.to_hbm(&amp;mut ctx.pdma).await;
 
         // Reference: out[i] = in[i] + 1.
-        let in_buf: Vec&lt;i32&gt; = input.to_buf();
+        let in_buf: Vec&lt;i32&gt; = input.into_vec();
         let expected: Vec&lt;i32&gt; = in_buf.iter().map(|&amp;x| x.wrapping_add(1)).collect();
 
         let out_hbm = launch(constant_add_kernel, (&amp;mut ctx, &amp;in_hbm)).await;
 
         // Under the typecheck backend `actual` is empty (phantom tensors), so
         // the loop trivially runs zero iterations and the assertion is skipped.
-        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut ctx.pdma).await.to_buf();
+        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut ctx.pdma).await.into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             assert_eq!(e, a, "constant_add mismatch at i={i}: expected {e}, actual {a}");
         }
@@ -396,8 +396,8 @@ The other is stored in the VRF (Vector Register File), a per-slice register file
 </pre>
 
 <p>This example introduces the <code>sub</code> context, which preloads one operand into the VRF while the <code>main</code> context streams.
-The <code>sub</code> context loads <code>rhs_dm</code> into the VRF through the Fetch → Collect → <code>.to_vrf(0)</code> pipeline.
-<code>rhs_dm</code> is allocated at a different base address (<code>1 &lt;&lt; 12</code>) to avoid overlapping with <code>lhs_dm</code>.
+The <code>sub</code> context loads <code>rhs_dm</code> into the VRF through the Fetch → Collect → <code>.to_vrf()</code> pipeline.
+<code>rhs_dm</code> occupies a DM region disjoint from <code>lhs_dm</code> so the two do not overlap.
 The <code>main</code> context then streams <code>lhs_dm</code> and multiplies each element by its VRF counterpart using <code>MulInt</code>.
 The hardware runs both contexts concurrently where possible.</p>
 <p>Kernel (<a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/base-template/src/kernel/elementwise_mul_kernel.rs"><code>src/kernel/elementwise_mul_kernel.rs</code></a>):</p>
@@ -415,9 +415,9 @@ pub fn elementwise_mul_kernel(
     lhs: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;,
     rhs: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;,
 ) -&gt; HbmTensor&lt;i32, Chip, m![A]&gt; {
-    // Move both operands from HBM to DM; use distinct base addresses to avoid overlap
-    let lhs_dm = lhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma, 0);
-    let rhs_dm = rhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
+    // Move both operands from HBM to DM (DM placement is assigned automatically).
+    let lhs_dm = lhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma);
 
     // Sub context: load rhs into VRF (runs concurrently with the main context below).
     // VRF holds a per-slice operand that the Vector Engine reads every cycle.
@@ -426,7 +426,7 @@ pub fn elementwise_mul_kernel(
         .begin(rhs_dm.view())
         .fetch::&lt;m![1], m![A % 8]&gt;()
         .collect::&lt;m![A % 8 / 8], m![A % 8 % 8]&gt;()
-        .to_vrf(0);
+        .to_vrf();
 
     // Main context: multiply every lhs element by its rhs counterpart from VRF
     let result = ctx
@@ -440,9 +440,9 @@ pub fn elementwise_mul_kernel(
         .vector_fxp(FxpBinaryOp::MulInt, &amp;rhs_vrf)
         .vector_final()
         .commit_trim::&lt;m![A % 8]&gt;()
-        .commit::&lt;m![A % 8]&gt;(1 &lt;&lt; 13);
+        .commit::&lt;m![A % 8]&gt;();
 
-    result.to_hbm(&amp;mut ctx.tdma, 1 &lt;&lt; 28)
+    result.to_hbm(&amp;mut ctx.tdma)
 }</code></pre>
 <p>Host program (<a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/base-template/src/elementwise_mul.rs"><code>src/elementwise_mul.rs</code></a>):</p>
 <pre><code class="language-rust ignore">use furiosa_opt_std::prelude::*;
@@ -456,8 +456,8 @@ async fn main() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
     let rhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
-    let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma, 0).await;
-    let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+    let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma).await;
     let _out_hbm = launch(elementwise_mul_kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
     println!("Elementwise Mul: kernel ran");
 }
@@ -474,17 +474,17 @@ mod tests {
         let lhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
         let rhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
 
-        let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma, 0).await;
-        let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+        let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma).await;
+        let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma).await;
 
         // Reference: out[i] = lhs[i] * rhs[i].
-        let lhs_buf: Vec&lt;i32&gt; = lhs.to_buf();
-        let rhs_buf: Vec&lt;i32&gt; = rhs.to_buf();
+        let lhs_buf: Vec&lt;i32&gt; = lhs.into_vec();
+        let rhs_buf: Vec&lt;i32&gt; = rhs.into_vec();
         let expected: Vec&lt;i32&gt; = lhs_buf.iter().zip(&amp;rhs_buf).map(|(&amp;a, &amp;b)| a.wrapping_mul(b)).collect();
 
         let out_hbm = launch(elementwise_mul_kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
 
-        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut ctx.pdma).await.to_buf();
+        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut ctx.pdma).await.into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             assert_eq!(e, a, "elementwise_mul mismatch at i={i}: expected {e}, actual {a}");
         }
@@ -521,8 +521,8 @@ pub fn dot_product_kernel(
     rhs: &amp;HbmTensor&lt;bf16, Chip, m![A]&gt;,
 ) -&gt; HbmTensor&lt;bf16, Chip, m![1]&gt; {
     // HBM → DM
-    let lhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = lhs.to_dm(&amp;mut ctx.tdma, 0);
-    let rhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = rhs.to_dm(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
+    let lhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = lhs.to_dm(&amp;mut ctx.tdma);
+    let rhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = rhs.to_dm(&amp;mut ctx.tdma);
 
     // Sub context: load rhs into TRF (TrfAddress::Full dedicates the entire TRF to this tensor)
     let rhs: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![A]&gt; = ctx
@@ -530,7 +530,7 @@ pub fn dot_product_kernel(
         .begin(rhs.view())
         .fetch::&lt;Time, m![A]&gt;()
         .collect::&lt;m![{ Time }, A / 16], m![A % 16]&gt;()
-        .to_trf(TrfAddress::Full);
+        .to_trf();
 
     // Main context: stream lhs through the Contraction Engine, reduce along A
     let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1 # 8]&gt; = ctx
@@ -539,16 +539,16 @@ pub fn dot_product_kernel(
         .fetch::&lt;Time, m![A]&gt;()
         .collect::&lt;m![A / 16], m![A % 16]&gt;()
         // Pair consecutive 32-byte flits into 64-byte packets, halving time steps (A/16 → A/32)
-        .contract_outer::&lt;m![A / 32], m![A % 32], _, _&gt;(&amp;rhs)
+        .contract_outer::&lt;m![A / 32], m![A % 32], _, _, _&gt;(&amp;rhs)
         .contract_packet::&lt;m![1]&gt;()
         .contract_time::&lt;m![1]&gt;()
         .contract_lane::&lt;m![1], m![1 # 8]&gt;(LaneMode::Interleaved)
         .cast::&lt;bf16, m![1 # 16]&gt;() // cast f32 accumulator output back to bf16
         .commit_trim::&lt;m![1 # 8]&gt;()
-        .commit(1 &lt;&lt; 13);
+        .commit();
 
     // DM → HBM
-    result.to_hbm(&amp;mut ctx.tdma, 2 &lt;&lt; 28)
+    result.to_hbm(&amp;mut ctx.tdma)
 }</code></pre>
 <p>Host program (<a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/base-template/src/dot_product.rs"><code>src/dot_product.rs</code></a>):</p>
 <pre><code class="language-rust ignore">use furiosa_opt_std::prelude::*;
@@ -562,8 +562,8 @@ async fn main() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
     let rhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
-    let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma, 0).await;
-    let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+    let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma).await;
     let _out_hbm = launch(dot_product_kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
     println!("Dot Product: kernel ran");
 }
@@ -580,12 +580,12 @@ mod tests {
         let lhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
         let rhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
 
-        let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma, 0).await;
-        let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+        let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma).await;
+        let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma).await;
 
         // Reference: sum_i lhs[i] * rhs[i] in f32, then round to bf16.
-        let lhs_buf: Vec&lt;bf16&gt; = lhs.to_buf();
-        let rhs_buf: Vec&lt;bf16&gt; = rhs.to_buf();
+        let lhs_buf: Vec&lt;bf16&gt; = lhs.into_vec();
+        let rhs_buf: Vec&lt;bf16&gt; = rhs.into_vec();
         let expected_f32: f32 = lhs_buf
             .iter()
             .zip(&amp;rhs_buf)
@@ -595,7 +595,7 @@ mod tests {
 
         let out_hbm = launch(dot_product_kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
 
-        let actual_buf: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![1]&gt;(&amp;mut ctx.pdma).await.to_buf();
+        let actual_buf: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![1]&gt;(&amp;mut ctx.pdma).await.into_vec();
         if let Some(&amp;actual) = actual_buf.first() {
             let diff = (f32::from(actual) - f32::from(expected)).abs();
             let tol = (0.02 * f32::from(expected).abs()).max(0.5);
@@ -628,8 +628,8 @@ pub fn gemv_kernel(
     vector: &amp;HbmTensor&lt;bf16, Chip, m![J]&gt;,
 ) -&gt; HbmTensor&lt;bf16, Chip, m![I]&gt; {
     // Move data from HBM to DM
-    let matrix: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = matrix.to_dm(&amp;mut ctx.tdma, 0);
-    let vector: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = vector.to_dm(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
+    let matrix: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = matrix.to_dm(&amp;mut ctx.tdma);
+    let vector: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = vector.to_dm(&amp;mut ctx.tdma);
 
     // Load vector into TRF
     let vector_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![J]&gt; = ctx
@@ -638,7 +638,7 @@ pub fn gemv_kernel(
         .fetch::&lt;m![1], m![J]&gt;()
         // Collect Engine: split into 32-byte flits.
         .collect::&lt;m![J / 16], m![J % 16]&gt;()
-        .to_trf(TrfAddress::Full);
+        .to_trf();
 
     // Compute GEMV: matrix × vector
     // Key difference: `I` maps to slice (preserved), `J` gets reduced
@@ -647,16 +647,16 @@ pub fn gemv_kernel(
         .begin(matrix.view())
         .fetch::&lt;m![J / 16], m![J % 16]&gt;()
         .collect::&lt;m![J / 16], m![J % 16]&gt;()
-        .contract_outer::&lt;Time, Packet, _, _&gt;(&amp;vector_trf)
+        .contract_outer::&lt;Time, Packet, _, _, _&gt;(&amp;vector_trf)
         .contract_packet::&lt;m![1]&gt;()
         .contract_time::&lt;m![1]&gt;()
         .contract_lane::&lt;m![1], m![1 # 8]&gt;(LaneMode::Interleaved)
         .cast::&lt;bf16, m![1 # 16]&gt;()
         .commit_trim::&lt;m![1 # 4]&gt;()
-        .commit(0);
+        .commit();
 
     // Transfer result to HBM
-    result.to_hbm(&amp;mut ctx.tdma, 2 &lt;&lt; 28)
+    result.to_hbm(&amp;mut ctx.tdma)
 }</code></pre>
 <p>Host program (<a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/base-template/src/gemv.rs"><code>src/gemv.rs</code></a>):</p>
 <pre><code class="language-rust ignore">use furiosa_opt_std::prelude::*;
@@ -670,8 +670,8 @@ async fn main() {
     let mut rng = SmallRng::seed_from_u64(42);
     let matrix = HostTensor::&lt;bf16, m![I, J]&gt;::rand(&amp;mut rng);
     let vector = HostTensor::&lt;bf16, m![J]&gt;::rand(&amp;mut rng);
-    let matrix_hbm = matrix.to_hbm(&amp;mut ctx.pdma, 0 &lt;&lt; 28).await;
-    let vector_hbm = vector.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+    let matrix_hbm = matrix.to_hbm(&amp;mut ctx.pdma).await;
+    let vector_hbm = vector.to_hbm(&amp;mut ctx.pdma).await;
     let _out_hbm = launch(gemv_kernel, (&amp;mut ctx, &amp;matrix_hbm, &amp;vector_hbm)).await;
     println!("GEMV: kernel ran");
 }
@@ -688,12 +688,12 @@ mod tests {
         let matrix = HostTensor::&lt;bf16, m![I, J]&gt;::rand(&amp;mut rng);
         let vector = HostTensor::&lt;bf16, m![J]&gt;::rand(&amp;mut rng);
 
-        let matrix_hbm = matrix.to_hbm(&amp;mut ctx.pdma, 0 &lt;&lt; 28).await;
-        let vector_hbm = vector.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+        let matrix_hbm = matrix.to_hbm(&amp;mut ctx.pdma).await;
+        let vector_hbm = vector.to_hbm(&amp;mut ctx.pdma).await;
 
         // Reference: y[i] = sum_j matrix[i, j] * vector[j] in f32, rounded to bf16.
-        let mat_buf: Vec&lt;bf16&gt; = matrix.to_buf();
-        let vec_buf: Vec&lt;bf16&gt; = vector.to_buf();
+        let mat_buf: Vec&lt;bf16&gt; = matrix.into_vec();
+        let vec_buf: Vec&lt;bf16&gt; = vector.into_vec();
         let expected: Vec&lt;bf16&gt; = mat_buf
             .chunks(J::SIZE)
             .map(|row| {
@@ -708,7 +708,7 @@ mod tests {
 
         let out_hbm = launch(gemv_kernel, (&amp;mut ctx, &amp;matrix_hbm, &amp;vector_hbm)).await;
 
-        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I]&gt;(&amp;mut ctx.pdma).await.to_buf();
+        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I]&gt;(&amp;mut ctx.pdma).await.into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             let diff = (f32::from(a) - f32::from(e)).abs();
             let tol = (0.02 * f32::from(e).abs()).max(0.5);
@@ -744,8 +744,8 @@ pub fn gemm_kernel(
     b: &amp;HbmTensor&lt;bf16, Chip, m![J, K]&gt;,
 ) -&gt; HbmTensor&lt;bf16, Chip, m![I, J]&gt; {
     // Move data from HBM to DM
-    let a: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, K]&gt; = a.to_dm(&amp;mut ctx.tdma, 0);
-    let b: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J % 32, K]&gt; = b.to_dm(&amp;mut ctx.tdma, 1 &lt;&lt; 12);
+    let a: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, K]&gt; = a.to_dm(&amp;mut ctx.tdma);
+    let b: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J % 32, K]&gt; = b.to_dm(&amp;mut ctx.tdma);
 
     // Load matrix B into TRF
     // Switch Engine distributes B across 256 slices
@@ -756,7 +756,7 @@ pub fn gemm_kernel(
         .begin(b.view())
         .fetch::&lt;m![J % 8, J / 8 % 4], m![K]&gt;()
         .collect::&lt;m![J % 8, J / 8 % 4, K / 16], m![K % 16]&gt;()
-        .to_trf(TrfAddress::Full);
+        .to_trf();
 
     // Compute GEMM: A × B
     // Switch Engine ensures matching (`I / 32`, `J / 32`) slice distribution
@@ -766,16 +766,16 @@ pub fn gemm_kernel(
         .begin(a.view())
         .fetch::&lt;m![I % 32, J / 8 % 4], m![K]&gt;()
         .collect::&lt;m![I % 32, J / 8 % 4, K / 16], m![K % 16]&gt;()
-        .contract_outer::&lt;m![I % 32, J / 8 % 4, K / 32], m![K % 32], _, _&gt;(&amp;b_trf)
+        .contract_outer::&lt;m![I % 32, J / 8 % 4, K / 32], m![K % 32], _, _, _&gt;(&amp;b_trf)
         .contract_packet::&lt;m![1]&gt;()
         .contract_time::&lt;m![I % 32, J / 8 % 4]&gt;()
         .contract_lane::&lt;m![I % 32, J / 8 % 4], m![J % 8]&gt;(LaneMode::Interleaved)
         .cast::&lt;bf16, m![J % 8 # 16]&gt;()
         .commit_trim::&lt;m![J % 8]&gt;()
-        .commit(0);
+        .commit();
 
     // Transfer result to HBM
-    result.to_hbm(&amp;mut ctx.tdma, 2 &lt;&lt; 28)
+    result.to_hbm(&amp;mut ctx.tdma)
 }</code></pre>
 <p>Host program (<a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/base-template/src/gemm.rs"><code>src/gemm.rs</code></a>):</p>
 <pre><code class="language-rust ignore">use furiosa_opt_std::prelude::*;
@@ -789,8 +789,8 @@ async fn main() {
     let mut rng = SmallRng::seed_from_u64(42);
     let a = HostTensor::&lt;bf16, m![I, K]&gt;::rand(&amp;mut rng);
     let b = HostTensor::&lt;bf16, m![J, K]&gt;::rand(&amp;mut rng);
-    let a_hbm = a.to_hbm(&amp;mut ctx.pdma, 0 &lt;&lt; 28).await;
-    let b_hbm = b.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+    let a_hbm = a.to_hbm(&amp;mut ctx.pdma).await;
+    let b_hbm = b.to_hbm(&amp;mut ctx.pdma).await;
     let _out_hbm = launch(gemm_kernel, (&amp;mut ctx, &amp;a_hbm, &amp;b_hbm)).await;
     println!("GEMM: kernel ran");
 }
@@ -807,12 +807,12 @@ mod tests {
         let a = HostTensor::&lt;bf16, m![I, K]&gt;::rand(&amp;mut rng);
         let b = HostTensor::&lt;bf16, m![J, K]&gt;::rand(&amp;mut rng);
 
-        let a_hbm = a.to_hbm(&amp;mut ctx.pdma, 0 &lt;&lt; 28).await;
-        let b_hbm = b.to_hbm(&amp;mut ctx.pdma, 1 &lt;&lt; 28).await;
+        let a_hbm = a.to_hbm(&amp;mut ctx.pdma).await;
+        let b_hbm = b.to_hbm(&amp;mut ctx.pdma).await;
 
         // Reference: C[i, j] = sum_k A[i, k] * B[j, k] in f32, rounded to bf16.
-        let a_buf: Vec&lt;bf16&gt; = a.to_buf();
-        let b_buf: Vec&lt;bf16&gt; = b.to_buf();
+        let a_buf: Vec&lt;bf16&gt; = a.into_vec();
+        let b_buf: Vec&lt;bf16&gt; = b.into_vec();
         let expected: Vec&lt;bf16&gt; = a_buf
             .chunks(K::SIZE)
             .flat_map(|a_row| {
@@ -829,7 +829,7 @@ mod tests {
 
         let out_hbm = launch(gemm_kernel, (&amp;mut ctx, &amp;a_hbm, &amp;b_hbm)).await;
 
-        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I, J]&gt;(&amp;mut ctx.pdma).await.to_buf();
+        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I, J]&gt;(&amp;mut ctx.pdma).await.into_vec();
         for (idx, (&amp;e, &amp;av)) in expected.iter().zip(&amp;actual).enumerate() {
             let diff = (f32::from(av) - f32::from(e)).abs();
             let tol = (0.05 * f32::from(e).abs()).max(1.0);
@@ -890,7 +890,7 @@ Two complementary strategies exist for workloads exceeding the 512 KB/slice DM c
 
         <script src="clipboard-1626706a.min.js"></script>
         <script src="highlight-abc7f01d.js"></script>
-        <script src="book-c22b7243.js"></script>
+        <script src="book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="mermaid-eefea253.min.js"></script>

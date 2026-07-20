@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["gather_minimal","scatter_minimal"],"struct":["C","D","GatherMinimal","K","ScatterMinimal"]};
+window.SIDEBAR_ITEMS = {"constant":["gather_aligned_unscaled","gather_minimal","gather_paged_kv","gather_placed_unscaled","gather_unaligned","scatter_minimal"],"struct":["C","CL","D","G","HeadDim","K","KvHeads","NBlocks","PBlock","U","__furiosa_opt_gather_aligned_unscaled","__furiosa_opt_gather_minimal","__furiosa_opt_gather_paged_kv","__furiosa_opt_gather_placed_unscaled","__furiosa_opt_gather_unaligned","__furiosa_opt_scatter_minimal"]};

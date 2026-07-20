@@ -14,21 +14,21 @@
 <a href=#14 id=14 data-nosnippet>14</a>    lhs: <span class="kw-2">&amp;</span>HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, B]&gt;,
 <a href=#15 id=15 data-nosnippet>15</a>    rhs: <span class="kw-2">&amp;</span>HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[B]&gt;,
 <a href=#16 id=16 data-nosnippet>16</a>) -&gt; HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A]&gt; {
-<a href=#17 id=17 data-nosnippet>17</a>    <span class="kw">let </span>lhs = lhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">1024 </span>% <span class="number">2</span>, B / <span class="number">32</span>], <span class="macro">m!</span>[A % <span class="number">1024</span>, B % <span class="number">32</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0</span>);
-<a href=#18 id=18 data-nosnippet>18</a>    <span class="kw">let </span>rhs = rhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">1024 </span>% <span class="number">2</span>, B / <span class="number">32</span>], <span class="macro">m!</span>[B % <span class="number">32</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0</span>);
+<a href=#17 id=17 data-nosnippet>17</a>    <span class="kw">let </span>lhs = lhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">1024 </span>% <span class="number">2</span>, B / <span class="number">32</span>], <span class="macro">m!</span>[A % <span class="number">1024</span>, B % <span class="number">32</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
+<a href=#18 id=18 data-nosnippet>18</a>    <span class="kw">let </span>rhs = rhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">1024 </span>% <span class="number">2</span>, B / <span class="number">32</span>], <span class="macro">m!</span>[B % <span class="number">32</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#19 id=19 data-nosnippet>19</a>    <span class="kw">let </span>rhs: TrfTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">1024 </span>% <span class="number">2</span>, B / <span class="number">32</span>], <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[B % <span class="number">32</span>]&gt; = ctx
 <a href=#20 id=20 data-nosnippet>20</a>        .sub
 <a href=#21 id=21 data-nosnippet>21</a>        .begin(rhs.view())
 <a href=#22 id=22 data-nosnippet>22</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[B % <span class="number">32</span>]&gt;()
 <a href=#23 id=23 data-nosnippet>23</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[B % <span class="number">32</span>]&gt;()
-<a href=#24 id=24 data-nosnippet>24</a>        .to_trf(TrfAddress::Full);
+<a href=#24 id=24 data-nosnippet>24</a>        .to_trf();
 <a href=#25 id=25 data-nosnippet>25</a>
 <a href=#26 id=26 data-nosnippet>26</a>    <span class="kw">let </span>matmul_result: DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">1024 </span>% <span class="number">2</span>, X], <span class="macro">m!</span>[A / <span class="number">2 </span>% <span class="number">512</span>, A % <span class="number">2 </span># <span class="number">8</span>]&gt; = ctx
 <a href=#27 id=27 data-nosnippet>27</a>        .main
 <a href=#28 id=28 data-nosnippet>28</a>        .begin(lhs.view())
 <a href=#29 id=29 data-nosnippet>29</a>        .fetch::&lt;<span class="macro">m!</span>[A % <span class="number">1024</span>], <span class="macro">m!</span>[B % <span class="number">32</span>]&gt;()
 <a href=#30 id=30 data-nosnippet>30</a>        .collect::&lt;<span class="macro">m!</span>[A % <span class="number">1024</span>], <span class="macro">m!</span>[B % <span class="number">32</span>]&gt;()
-<a href=#31 id=31 data-nosnippet>31</a>        .contract_outer::&lt;<span class="macro">m!</span>[A / <span class="number">2 </span>% <span class="number">512</span>], <span class="macro">m!</span>[A % <span class="number">2</span>, B % <span class="number">32</span>], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>rhs)
+<a href=#31 id=31 data-nosnippet>31</a>        .contract_outer::&lt;<span class="macro">m!</span>[A / <span class="number">2 </span>% <span class="number">512</span>], <span class="macro">m!</span>[A % <span class="number">2</span>, B % <span class="number">32</span>], <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>rhs)
 <a href=#32 id=32 data-nosnippet>32</a>        .contract_packet::&lt;<span class="macro">m!</span>[A % <span class="number">2</span>]&gt;()
 <a href=#33 id=33 data-nosnippet>33</a>        .contract_time::&lt;<span class="macro">m!</span>[A / <span class="number">2 </span>% <span class="number">512</span>]&gt;()
 <a href=#34 id=34 data-nosnippet>34</a>        .contract_lane::&lt;<span class="macro">m!</span>[A / <span class="number">2 </span>% <span class="number">512</span>], <span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">8</span>]&gt;(LaneMode::Sequential)
@@ -37,7 +37,7 @@
 <a href=#37 id=37 data-nosnippet>37</a>        .vector_final()
 <a href=#38 id=38 data-nosnippet>38</a>        .cast::&lt;i8, <span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">32</span>]&gt;()
 <a href=#39 id=39 data-nosnippet>39</a>        .commit_trim::&lt;<span class="macro">m!</span>[A % <span class="number">2 </span># <span class="number">8</span>]&gt;()
-<a href=#40 id=40 data-nosnippet>40</a>        .commit(<span class="number">0</span>);
+<a href=#40 id=40 data-nosnippet>40</a>        .commit();
 <a href=#41 id=41 data-nosnippet>41</a>
 <a href=#42 id=42 data-nosnippet>42</a>    <span class="comment">// write back to HBM.
 <a href=#43 id=43 data-nosnippet>43</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>out = <span class="kw">unsafe </span>{ HbmTensor::&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A]&gt;::from_addr(<span class="number">0x3000</span>) };

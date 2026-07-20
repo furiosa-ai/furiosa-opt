@@ -13,9 +13,9 @@
 <a href=#13 id=13 data-nosnippet>13</a>    input: <span class="kw-2">&amp;</span>HbmTensor&lt;f32, Chip, <span class="macro">m!</span>[A, B, C]&gt;,
 <a href=#14 id=14 data-nosnippet>14</a>) -&gt; HbmTensor&lt;f32, Chip, <span class="macro">m!</span>[C, A, B]&gt; {
 <a href=#15 id=15 data-nosnippet>15</a>    <span class="comment">// transpose: [A, B, C] -&gt; [A, C, B]
-<a href=#16 id=16 data-nosnippet>16</a>    </span><span class="kw">let </span>intermediate: HbmTensor&lt;f32, Chip, <span class="macro">m!</span>[A, C, B]&gt; = input.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0</span>);
+<a href=#16 id=16 data-nosnippet>16</a>    </span><span class="kw">let </span>intermediate: HbmTensor&lt;f32, Chip, <span class="macro">m!</span>[A, C, B]&gt; = input.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#17 id=17 data-nosnippet>17</a>
 <a href=#18 id=18 data-nosnippet>18</a>    <span class="comment">// transpose: [A, C, B] -&gt; [C, A, B]
-<a href=#19 id=19 data-nosnippet>19</a>    </span>intermediate.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x1000</span>)
+<a href=#19 id=19 data-nosnippet>19</a>    </span>intermediate.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma)
 <a href=#20 id=20 data-nosnippet>20</a>}
 </code></pre></div></section></main></body></html>

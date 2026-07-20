@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-bf8d000f.js"></script>
+        <script src="../../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -195,9 +195,7 @@ The signatures shown below are the <code>VectorInitTensor</code> variants. The s
         op: InterSliceReduceOpI32,
     ) -&gt; VectorInterSliceReduceTensor&lt;'l, T, i32, Chip, Cluster, OutSlice, OutTime, Packet, { VeOrder::InterFirst }&gt;
     {
-        let reduced = self
-            .inner
-            .reduce_then_broadcast_with(op.lifted_reduce_fn(), Opt::Uninit);
+        let reduced = self.inner.reduce(op.reduce_fn(), op.identity(), true);
         create_inter_slice_reduce_tensor(self.ctx, reduced)
     }
 }</code></pre>
@@ -226,9 +224,7 @@ The signatures shown below are the <code>VectorInitTensor</code> variants. The s
         op: InterSliceReduceOpF32,
     ) -&gt; VectorInterSliceReduceTensor&lt;'l, T, f32, Chip, Cluster, OutSlice, OutTime, Packet, { VeOrder::InterFirst }&gt;
     {
-        let reduced = self
-            .inner
-            .reduce_then_broadcast_with(op.lifted_reduce_fn(), Opt::Uninit);
+        let reduced = self.inner.reduce(op.reduce_fn(), op.identity(), true);
         create_inter_slice_reduce_tensor(self.ctx, reduced)
     }
 }</code></pre>
@@ -279,7 +275,12 @@ fn inter_slice_add&lt;'l, const T: Tu&gt;(
         .vector_inter_slice_reduce::&lt;m![A / 8, 1 # 4], m![1]&gt;(InterSliceReduceOpI32::AddSat)
         .vector_final()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = inter_slice_add(c);
+</span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [A / 8, R]  -&gt;  [A / 8, 1 # 4]
 Time  = [1]         -&gt;  [1]
 </code></pre>
@@ -304,7 +305,12 @@ fn broadcast_into_x&lt;'l, const T: Tu&gt;(
         .vector_inter_slice_reduce::&lt;m![W, X], m![1]&gt;(InterSliceReduceOpF32::Add)
         .vector_final()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![B], m![W, R], m![1], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = broadcast_into_x(c);
+</span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [W, R]  -&gt;  [W, X]
 Time  = [1]     -&gt;  [1]
 </code></pre>
@@ -329,7 +335,12 @@ fn axis_promotion&lt;'l, const T: Tu&gt;(
         .vector_inter_slice_reduce::&lt;m![W, V], m![S, U]&gt;(InterSliceReduceOpF32::Add)
         .vector_final()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![B], m![W, R], m![S, V, U], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = axis_promotion(c);
+</span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [W, R]     -&gt;  [W, V]
 Time  = [S, V, U]  -&gt;  [S, U]
 </code></pre>
@@ -389,7 +400,7 @@ The reducer becomes visible at large <code>r</code> (longer tails) and on small 
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-c22b7243.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

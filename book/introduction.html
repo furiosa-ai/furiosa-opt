@@ -15,8 +15,8 @@
         <link rel="icon" href="favicon-de23e50b.svg">
         <link rel="shortcut icon" href="favicon-8114d1fc.png">
         <link rel="stylesheet" href="css/variables-8adf115d.css">
-        <link rel="stylesheet" href="css/general-0392ca55.css">
-        <link rel="stylesheet" href="css/chrome-fc474251.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
         <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-bf8d000f.js"></script>
+        <script src="toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -201,15 +201,14 @@ See <a href="https://doc.rust-lang.org/book/">the language manual</a> if needed.
 <p>The same channel is pinned in <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/rust-toolchain.toml"><code>rust-toolchain.toml</code></a>; cargo activates it automatically when you cd into a project that includes that file.</p>
 </li>
 <li>
-<p><strong><code>cargo-furiosa-opt</code></strong>: the cargo subcommand that injects the right <code>--cfg backend="..."</code> and pre-compiles kernels for NPU.</p>
+<p><strong><a href="./appendix/cargo-furiosa-opt.html"><code>cargo-furiosa-opt</code></a></strong>: the cargo subcommand that injects the right <code>--cfg backend="..."</code> and pre-compiles kernels for NPU.</p>
 <pre><code class="language-bash">cargo +nightly-2026-05-01 install cargo-binstall
 cargo +nightly-2026-05-01 binstall cargo-furiosa-opt
 </code></pre>
 </li>
 <li>
 <p><strong>Furiosa SDK + physical NPU</strong> <em>(only for <code>--backend npu</code>)</em>: the NPU backend dispatches to real hardware via the SDK’s kernel driver and PE runtime (<code>furiosa-driver-rngd</code>, <code>furiosa-smi</code>, etc.; see the <a href="https://developer.furiosa.ai/latest/en/">SDK documentation</a>).</p>
-<p><strong>The <code>simulation</code> and <code>typecheck</code> backends do not require the SDK.</strong> They run host-side with no NPU dependency, so a customer who only intends to develop or evaluate kernels does not need to install the SDK at all.</p>
-<p>There is <strong>no on-host NPU simulator in the public SDK distribution today</strong>. Without physical NPU access, use <code>--backend simulation</code> (host-side interpretation) or <code>--backend typecheck</code> (mapping/shape verification only).</p>
+<p><strong>The <code>emulation</code> and <code>typecheck</code> backends do not require the SDK.</strong> They run host-side with no NPU dependency, so a customer who only intends to develop or evaluate kernels does not need to install the SDK at all.</p>
 </li>
 </ol>
 <h2 id="your-first-program"><a class="header" href="#your-first-program">Your First Program</a></h2>
@@ -220,11 +219,10 @@ cd base-template
 </code></pre>
 <h3 id="layout"><a class="header" href="#layout">Layout</a></h3>
 <pre><code class="language-text">base-template/
-├── Cargo.toml
+├── Cargo.toml                               # `[package.metadata.furiosa-opt]` marks it a kernel package
 ├── README.md
 ├── rust-toolchain.toml
 └── src/
-    ├── furiosa-opt.tag                       # marker the rustc plugin scans for; must sit at src/
     ├── lib.rs                                # `pub mod kernel;`
     ├── kernel/                               # every #[device] function lives here
     │   ├── mod.rs                            # `pub mod {constant_add,...}_kernel;`
@@ -241,7 +239,7 @@ cd base-template
 </code></pre>
 <p>Keep these layout rules intact:</p>
 <ul>
-<li><code>src/furiosa-opt.tag</code> is a marker file. It must stay directly under <code>src/</code>.</li>
+<li>A package opts into kernel compilation by declaring <code>[package.metadata.furiosa-opt]</code> in its <code>Cargo.toml</code>.</li>
 <li>Host programs should live as direct <code>src/*.rs</code> files and are registered with explicit <code>[[bin]] path = "src/&lt;name&gt;.rs"</code> entries in <code>Cargo.toml</code>.</li>
 <li>Do not move host programs into <code>src/bin/</code>, <code>examples/</code>, or <code>tests/</code>; the rustc plugin scans cargo targets rooted at <code>src/</code> and skips those other locations.</li>
 </ul>
@@ -249,7 +247,7 @@ cd base-template
 Each binary’s <code>main()</code> only calls <code>launch(kernel, ...)</code>.
 The value comparison against a host-side reference lives in a <code>#[cfg(test)] mod tests</code> block inside the same file.</p>
 <h3 id="run-a-worked-example"><a class="header" href="#run-a-worked-example">Run a worked example</a></h3>
-<pre><code class="language-bash"># Host-side simulation (default; no NPU hardware required).
+<pre><code class="language-bash"># Host-side emulation (default; no NPU hardware required).
 cargo furiosa-opt run --release --bin gemm
 
 # Mapping/shape verification only — kernel body runs against phantom (empty) tensors.
@@ -259,7 +257,7 @@ cargo furiosa-opt --backend typecheck run --release --bin gemm
 cargo furiosa-opt --backend npu run --release --bin gemm
 </code></pre>
 <h3 id="verify-against-the-reference"><a class="header" href="#verify-against-the-reference">Verify against the reference</a></h3>
-<pre><code class="language-bash"># Full numeric comparison on simulated values.
+<pre><code class="language-bash"># Full numeric comparison on emulated values.
 cargo furiosa-opt test --release --bin gemm
 
 # Under typecheck the comparison loop trivially passes: `actual` is the
@@ -286,12 +284,12 @@ It complements the <a href="https://developer.furiosa.ai/latest/en/overview/soft
 </thead>
 <tbody>
 <tr><td><code>typecheck</code></td><td></td><td>Kernel body runs with phantom (empty) tensors</td><td>Catching mapping/shape errors fast (value computation skipped)</td></tr>
-<tr><td><code>simulation</code></td><td>yes</td><td>Full host-side interpretation</td><td>Default for development; verifies numerical correctness</td></tr>
+<tr><td><code>emulation</code></td><td>yes</td><td>Full host-side interpretation over the physical buffer</td><td>Default for development; verifies numerical correctness</td></tr>
 <tr><td><code>npu</code></td><td></td><td>Compiled EDF on hardware (or NVP simulator)</td><td>End-to-end including the hardware path</td></tr>
 </tbody>
 </table>
 </div>
-<pre><code class="language-bash"># Default: simulation backend, no NPU hardware needed.
+<pre><code class="language-bash"># Default: emulation backend, no NPU hardware needed.
 cargo furiosa-opt run --release
 
 # Fast mapping/shape verification (kernel body runs with phantom tensors).
@@ -302,9 +300,10 @@ cargo furiosa-opt --backend npu run --release
 </code></pre>
 <p><code>cargo check</code> (under any backend) only runs the type checker; it does <strong>not</strong> execute kernel function bodies and therefore cannot reach mapping assertions like <code>Collect output packet must be exactly 32 bytes</code>. Use <code>--backend typecheck run</code> for that.</p>
 <p><code>cargo furiosa-opt</code> forwards every cargo flag verbatim, so <code>cargo run</code>, <code>cargo test</code>, <code>cargo check</code>, and <code>cargo build</code> all have direct equivalents:</p>
-<pre><code class="language-bash">cargo furiosa-opt build              # cargo build with simulation backend
+<pre><code class="language-bash">cargo furiosa-opt build              # cargo build with emulation backend
 cargo furiosa-opt --backend npu test # cargo test on real NPU
 </code></pre>
+<p>See the <a href="./appendix/cargo-furiosa-opt.html"><code>cargo furiosa-opt</code> appendix</a> for the complete command reference.</p>
 <h3 id="language-server"><a class="header" href="#language-server">Language Server</a></h3>
 <p><code>furiosa-rust-analyzer-proxy</code> is a proxy for <code>rust-analyzer</code> that provides standard Rust IDE features with enhanced support for mapping expressions.
 It keeps the usual <code>rust-analyzer</code> experience while simplifying verbose types like <code>Stride&lt;Symbol&lt;A&gt;, 8&gt;</code> into readable mapping expressions like <code>m![A / 8]</code>.</p>
@@ -368,7 +367,7 @@ Use <code>furiosa-opt</code> to export a schedule JSON file, then open it with <
 
         <script src="clipboard-1626706a.min.js"></script>
         <script src="highlight-abc7f01d.js"></script>
-        <script src="book-c22b7243.js"></script>
+        <script src="book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="mermaid-eefea253.min.js"></script>

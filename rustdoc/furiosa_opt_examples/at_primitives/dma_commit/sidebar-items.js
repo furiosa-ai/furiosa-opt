@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["fetch_commit_at"],"struct":["A","B","__furiosa_opt_fetch_commit_at"]};

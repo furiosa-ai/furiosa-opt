@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["matmul_4096"],"struct":["A","B","Matmul4096","X"]};
+window.SIDEBAR_ITEMS = {"constant":["matmul_4096"],"struct":["A","B","X","__furiosa_opt_matmul_4096"]};

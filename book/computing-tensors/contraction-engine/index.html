@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-bf8d000f.js"></script>
+        <script src="../../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -263,12 +263,12 @@ They share these axes:</p>
 type Chip    = m![1];                   // single chip
 type Cluster = m![M / 16];              // outer M split across clusters (M / 16 = 2)
 type Slice   = m![M % 16, V % 16];      // inner M × inner V = 16 × 16 = 256 slices per cluster
-type Lane     = m![N];                   // N (output channels) partitions the 8 hardware lanes
+type Lane    = m![N];                   // N (output channels) partitions the 8 hardware lanes
 
 /// Batched matmul with K placed in Time.
 fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
     // Streaming operand: V outer + K in Time, with a one-element Packet m![1].
-    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1]&gt;,
+    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt;,
     // TRF operand: N in Lane, K in Element. Stored into TRF by a prior .to_trf() call.
     trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
     // Output: one (M × N) f32 matrix per (slice, V-outer) pair.
@@ -277,7 +277,7 @@ fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
          // Outer: Lane = m![N] (inferred from trf), OutTime = m![V / 16, K], OutPacket = m![1 # 32].
          // input: 1 K-element broadcast across all N lanes.
          // trf:   1 K-element per lane, advancing one K-step per cycle.
-         .contract_outer::&lt;m![V / 16, K], m![1 # 32], _, _&gt;(trf)
+         .contract_outer::&lt;m![V / 16, K], m![1 # 16], _, _, _&gt;(trf)
          // Packet Reducer: OutPacket = m![1]. Nothing to reduce.
          .contract_packet::&lt;m![1]&gt;()
          // Time Reducer: OutTime = m![V / 16]. K iterates over Time and accumulates; V outer survives.
@@ -285,7 +285,13 @@ fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
          // Lane Folder: Lane folds into OutPacket. Interleaved mode emits 8 lanes per cycle.
          .contract_lane::&lt;m![V / 16], m![N]&gt;(LaneMode::Interleaved)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let _o = bmatmul_k_in_time(a, &amp;b);
+</span><span class="boring">}</span></code></pre>
 <p>To avoid this pathological case, keep K in <code>Packet</code> (parallel reduction via the Packet Reducer’s tree) and spread the surviving axes (V, M, N) across <code>Cluster</code>, <code>Slice</code>, and <code>Lane</code> to maximize spatial parallelism.
 The two strategies below apply this principle, each with one axis per class for simplicity; real kernels may split a single axis across multiple classes when sizes demand.</p>
 <h3 id="m-in-time"><a class="header" href="#m-in-time">M in Time</a></h3>
@@ -299,14 +305,14 @@ The two strategies below apply this principle, each with one axis per class for 
 
 type Chip    = m![1];                   // single chip
 type Cluster = m![V / 16];              // outer V split across clusters (V / 16 = 2)
-type Slice   = m![V % 16];              // inner V split across slices (V % 16 = 16 per cluster)
-type Lane     = m![N];                   // N (output channels) partitions the 8 hardware lanes (N = 8 fills the cap)
+type Slice   = m![V % 16 # 256];        // inner V split across slices (V % 16 = 16 per cluster)
+type Lane    = m![N];                   // N (output channels) partitions the 8 hardware lanes (N = 8 fills the cap)
 
 /// Batched matmul: V slices × (M × K) · (K × N) → V × M × N.
 fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
     // Streaming operand: M in Time, K in Packet.
     // Element type can be i4, i8, f8, or bf16; integers widen to i32 output, floats to f32.
-    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![M], m![K]&gt;,
+    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt;,
     // TRF operand: N in Lane (one output channel per lane), K in Element.
     // Stored into TRF by a prior .to_trf() call in the sub context.
     trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
@@ -317,7 +323,7 @@ fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
          // Lane = m![N] (inferred from trf), OutTime = m![M], OutPacket = m![K].
          // input: K elements broadcast across all N lanes.
          // trf:   K elements per lane, broadcast across all M cycles.
-         .contract_outer::&lt;m![M], m![K], _, _&gt;(trf)
+         .contract_outer::&lt;m![M], m![K], _, _, _&gt;(trf)
          // Packet Reducer: OutPacket = m![1]. Sum K spatially via the reduction tree.
          .contract_packet::&lt;m![1]&gt;()
          // Time Reducer: OutTime = m![M]. Nothing to reduce.
@@ -325,7 +331,13 @@ fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
          // Lane Folder: Lane folds into OutPacket. Interleaved mode emits 8 lanes per cycle.
          .contract_lane::&lt;m![M], m![N]&gt;(LaneMode::Interleaved)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let _o = bmatmul_m_in_time(a, &amp;b);
+</span><span class="boring">}</span></code></pre>
 <h3 id="v-in-time"><a class="header" href="#v-in-time">V in Time</a></h3>
 <p>V (batch) in <code>Time</code>, K in <code>Packet</code>. M splits across <code>Cluster</code> and <code>Slice</code>. This strategy is applicable when (1) the slice count covers M (<code>M / 16</code> in <code>Cluster</code>, <code>M % 16</code> in <code>Slice</code>), (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>. Useful when batch is the dominant axis (e.g., batched inference).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
@@ -337,13 +349,13 @@ fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
 
 type Chip    = m![1];                   // single chip
 type Cluster = m![M / 16];              // outer M split across clusters (M / 16 = 2)
-type Slice   = m![M % 16];              // inner M split across slices (M % 16 = 16 per cluster)
-type Lane     = m![N];                   // N (output channels) partitions the 8 hardware lanes
+type Slice   = m![M % 16 # 256];        // inner M split across slices (M % 16 = 16 per cluster)
+type Lane    = m![N];                   // N (output channels) partitions the 8 hardware lanes
 
 /// Batched matmul with V (batch) placed in Time.
 fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
     // Streaming operand: V in Time, K in Packet.
-    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![V], m![K]&gt;,
+    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt;,
     // TRF operand: N in Lane, K in Element. Stored into TRF by a prior .to_trf() call.
     trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
     // Output: one (V × N) f32 matrix per slice.
@@ -352,7 +364,7 @@ fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
          // Outer: Lane = m![N] (inferred from trf), OutTime = m![V], OutPacket = m![K].
          // input: K elements broadcast across all N lanes.
          // trf:   K elements per lane, broadcast across all V cycles.
-         .contract_outer::&lt;m![V], m![K], _, _&gt;(trf)
+         .contract_outer::&lt;m![V], m![K], _, _, _&gt;(trf)
          // Packet Reducer: OutPacket = m![1]. Sum K spatially via the reduction tree.
          .contract_packet::&lt;m![1]&gt;()
          // Time Reducer: OutTime = m![V]. Nothing to reduce.
@@ -360,7 +372,13 @@ fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
          // Lane Folder: Lane folds into OutPacket. Interleaved mode emits 8 lanes per cycle.
          .contract_lane::&lt;m![V], m![N]&gt;(LaneMode::Interleaved)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let _o = bmatmul_v_in_time(a, &amp;b);
+</span><span class="boring">}</span></code></pre>
 
                     </main>
 
@@ -410,7 +428,7 @@ fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-c22b7243.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["ValidCountDim"],"struct":["FetchMaskConfig","PositionFetchCast","PositionFetchMask","PositionFetchTableLookup"],"type":["FetchCastTensor","FetchMaskTensor","FetchTableLookupTensor"]};
+window.SIDEBAR_ITEMS = {"enum":["ValidCountDim"],"struct":["FetchMaskConfig","PositionFetchCast","PositionFetchMask","PositionFetchTableLookup","PositionFetchZeroPointSub"],"type":["FetchCastTensor","FetchMaskTensor","FetchTableLookupTensor","FetchZeroPointSubTensor"]};

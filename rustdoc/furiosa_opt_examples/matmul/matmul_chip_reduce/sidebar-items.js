@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["matmul_chip_reduce"],"struct":["A","B","C","I","MatmulChipReduce"]};
+window.SIDEBAR_ITEMS = {"constant":["matmul_chip_reduce"],"struct":["A","B","C","I","__furiosa_opt_matmul_chip_reduce"]};

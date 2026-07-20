@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["struct_passthrough","tuple_passthrough"],"struct":["A","B","Inputs","StructPassthrough","TuplePassthrough"]};
+window.SIDEBAR_ITEMS = {"constant":["struct_passthrough","tuple_passthrough"],"struct":["A","B","Inputs","__furiosa_opt_struct_passthrough","__furiosa_opt_tuple_passthrough"]};

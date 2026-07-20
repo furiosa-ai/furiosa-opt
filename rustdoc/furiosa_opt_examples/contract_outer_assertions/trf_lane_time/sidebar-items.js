@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["invalid_lane_exceeds_time"],"struct":["InvalidLaneExceedsTime"]};
+window.SIDEBAR_ITEMS = {"constant":["invalid_lane_exceeds_time"],"struct":["__furiosa_opt_invalid_lane_exceeds_time"]};

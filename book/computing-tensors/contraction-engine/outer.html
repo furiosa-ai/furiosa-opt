@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-bf8d000f.js"></script>
+        <script src="../../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -203,33 +203,59 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
     B: Backend,
 &gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
-    /// Runs the Outer stage: Stream Adapter + TRF Sequencer broadcast both operands to a matching
-    /// computation shape, then the Multiplier widens to the contraction output type and multiplies
-    /// them elementwise. The result is a single multiplied tensor ready for the Packet Reducer.
+    /// Runs the Outer stage: stashes the two un-broadcast operands (widened to the accumulator type)
+    /// and the layouts [`super::lane::contract_lane`] needs to fuse them into a [`LazyContraction`]. No
+    /// materializing alternative, no per-backend branch -- every backend fuses the same way.
     #[primitive(TuTensor::contract_outer)]
-    pub fn contract_outer&lt;OutTime: M, OutPacket: M, Lane: M, TrfElement: M&gt;(
+    pub fn contract_outer&lt;OutTime: M, OutPacket: M, Lane: M, TrfElement: M, TrfD&gt;(
         self,
-        trf_tensor: &amp;TrfTensor&lt;D, Chip, Cluster, Slice, Lane, TrfElement, B&gt;,
-    ) -&gt; ContractOuterTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, OutTime, OutPacket, B&gt;
+        trf_tensor: &amp;TrfTensor&lt;TrfD, Chip, Cluster, Slice, Lane, TrfElement, B&gt;,
+    ) -&gt; ContractOuterTensor&lt;'l, T, &lt;D as ContractionCast&gt;::Output, D, Chip, Cluster, Slice, Lane, OutTime, OutPacket, B&gt;
     where
         D: Cast&lt;&lt;D as ContractionCast&gt;::Output&gt;,
+        // The weight (TRF) type must form a valid contraction-engine operand pair with the
+        // stream type `D`: same type, or a mixed integer precision within a
+        // family (i4/i5 x i4/i5, i8/i9 x i8/i9). Both operands widen to the
+        // stream's accumulator for the multiply.
+        TrfD: Scalar + ContractionWeight&lt;D&gt; + Cast&lt;&lt;D as ContractionCast&gt;::Output&gt;,
     {
-        verify_contract_outer::&lt;D, Lane, Time, Packet, OutTime, OutPacket&gt;();
+        type Out&lt;D&gt; = &lt;D as ContractionCast&gt;::Output;
 
-        // Broadcast both operands into the joint computation mapping.
-        let lhs = stream_adapter::contract_outer::&lt;D, Chip, Cluster, Slice, Lane, Time, Packet, OutTime, OutPacket, B&gt;(
-            self.inner,
-        );
-        let trf = trf_sequencer::contract_outer::&lt;D, Chip, Cluster, Slice, Lane, TrfElement, OutTime, OutPacket, B&gt;(
-            trf_tensor,
-        );
+        // Skipping the broadcast transpose does not skip its validity contract -- a malformed
+        // contraction would otherwise slip past these asserts and panic far downstream instead.
+        stream_adapter::verify_stream_adapter::&lt;D, Lane, Time, Packet, OutTime, OutPacket&gt;();
+        trf_sequencer::verify_trf_sequencer::&lt;TrfD, Lane, TrfElement, OutTime, OutPacket&gt;();
 
-        // Multiplier: widen to D::Output, then elementwise multiply.
-        let lhs = lhs.map(|v| v.map(|v| v.cast()));
-        let trf = trf.map(|v| v.map(|v| v.cast()));
-        let inner = lhs.zip_with(&amp;trf, |a, b| a * b);
+        // The operands keep their own compact layouts: lhs is `[Chip, Cluster, Slice, Time, Packet]`
+        // (`self.inner`), rhs is `[Chip, Cluster, Slice, Lane, TrfElement]` (`trf_tensor`). A
+        // bare-buffer backend reads its strides from these; `MathStorage` ignores them (its axes live
+        // in the storage).
+        let lhs_map = &lt;m![{ Chip }, { Cluster }, { Slice }, { Time }, { Packet }]&gt;::to_value();
+        let rhs_map = &lt;m![{ Chip }, { Cluster }, { Slice }, { Lane }, { TrfElement }]&gt;::to_value();
+        let pre_reduce = &lt;m![{ Chip }, { Cluster }, { Slice }, { Lane }, { OutTime }, { OutPacket }]&gt;::to_value();
 
-        ContractOuterTensor { ctx: self.ctx, inner }
+        // Widen each operand to the `Out&lt;D&gt;` accumulator up front, at the operand's own (compact) size,
+        // not pre_reduce's -- the fold at `contract_lane` then runs entirely in `Out&lt;D&gt;`. Parity-identical
+        // to the old per-cell widen (same `Cast::cast` per element), it just never allocates the
+        // pre_reduce-shaped broadcast this stage used to build.
+        //
+        // `map_bounded`, NOT the plain `map`: `D` (the stream side) and `TrfD` (the TRF side) may each
+        // legitimately be a non-`MaterializableScalar` staging type (`i5`/`i9`, produced by
+        // `fetch_zero_point_sub` -- "an i5/i9 may still be a contraction weight resident in the TRF" per
+        // its own doc). Such a type's storage-native length recovery over-reports (its `BITS` names a
+        // real-hardware wire width, disconnected from its host in-memory size), so a plain `map`'s
+        // internal whole-buffer walk reads/writes past the buffer once the count crosses the true
+        // element count -- this is the ONE place either operand is read back as a whole tensor before
+        // `contract_lane`'s fused `Backend::contraction` (its only other lifetime is written-once by
+        // `fetch_zero_point_sub`, never read back that way), so it is also the one place this matters.
+        let contraction = LazyContraction {
+            lhs: self.inner.map_bounded(|v| -&gt; Out&lt;D&gt; { v.cast() }).inner,
+            rhs: trf_tensor.inner.map_bounded(|v| -&gt; Out&lt;D&gt; { v.cast() }).inner,
+            lhs_map,
+            rhs_map,
+            pre_reduce,
+        };
+        ContractOuterTensor::new(self.ctx, contraction)
     }
 }</code></pre>
 <p>After their respective adapters (Stream Adapter for the streaming path, TRF Sequencer for the TRF path), both paths feed <code>Lane</code> / <code>Time</code> / <code>Packet</code> of matching shape, and the Multiplier multiplies them elementwise at aligned positions.</p>
@@ -273,21 +299,27 @@ OutPacket = PackPacket
 </span>axes![M = 32, N = 8, K = 16, L = 2, B = 5];
 
 fn stream_adapter_example&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, { T }, bf16, m![1], m![1], m![1], m![M, L], m![K]&gt;,
-    trf: &amp;TrfTensor&lt;bf16, m![1], m![1], m![1], m![N], m![B, L, K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, { T }, bf16, m![1], m![1], m![1], m![N], m![M, B], m![L, K]&gt; {
+    input: CollectTensor&lt;'l, { T }, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt;,
+    trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt;,
+) -&gt; ContractOuterTensor&lt;'l, { T }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M, B], m![L, K]&gt; {
     // Packing (PackSize = 2):
     //   L = 2 (innermost Time) absorbed into Packet.
     //   PackTime = [M = 32], PackPacket = [L = 2, K = 16] = 32 bf16 = 64B.
     // Lane Broadcast: same packet to all N = 8 lanes.
     // Time Broadcast: B = 5 (TRF-only) added at innermost OutTime.
     //   OutTime = [M, B = 5], OutPacket = [L = 2, K = 16].
-    input.contract_outer::&lt;m![M, B], m![L, K], _, _&gt;(trf)
+    input.contract_outer::&lt;m![M, B], m![L, K], _, _, _&gt;(trf)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let _o = stream_adapter_example(a, &amp;b);
+</span><span class="boring">}</span></code></pre>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
 <ul>
-<li><code>OutPacket::SIZE * D::SIZE ∈ {32, 64}</code> bytes (on RNGD): 32 for <code>PackSize = 1</code>, 64 for <code>PackSize = 2</code>. The user picks this size and Packing’s collect-flit count follows.</li>
+<li><code>OutPacket::SIZE * Storage::SIZE ∈ {32, 64}</code> bytes (on RNGD), where <code>Storage</code> is the pre-widen operand dtype (e.g. <code>bf16</code> = 2 B, <em>not</em> the widened <code>f32</code> accumulator the result tensor carries): 32 for <code>PackSize = 1</code>, 64 for <code>PackSize = 2</code>. The user picks this size and Packing’s collect-flit count follows.</li>
 <li><code>PackSize ∈ {1, 2}</code> (see <a href="#packing">Packing</a>).</li>
 <li><code>Lane::SIZE ∈ {1, 2, 4, 8}</code>.</li>
 </ul>
@@ -323,17 +355,23 @@ The TRF Sequencer uses the same nested-loop configuration as all other <a href="
 </span>axes![M = 32, N = 8, K = 32];
 
 fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![M, K / 16], m![K % 16]&gt;,
-    trf: &amp;TrfTensor&lt;bf16, m![1], m![1], m![1], m![N], m![K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![N], m![M], m![K]&gt; {
+    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt;,
+    trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt;,
+) -&gt; ContractOuterTensor&lt;'l, T, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![K]&gt; {
     // Element         = K
     // ReadSize        = 32
     // PacketBroadcast = 1
     // OutTime         = M      (sequencing over [K / 32] (= 1), broadcast M)
     // OutPacket       = K      (= [1, K % 32])
-    input.contract_outer::&lt;m![M], m![K], _, _&gt;(trf)
+    input.contract_outer::&lt;m![M], m![K], _, _, _&gt;(trf)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let _o = trf_sequencer_full_read(a, &amp;b);
+</span><span class="boring">}</span></code></pre>
 <p>In this example, <code>ReadSize</code> covers only part of <code>Element</code>, so <code>Element / ReadSize</code> is non-trivial and the sequencer iterates the outer <code>Element</code> factor alongside a broadcast:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -343,17 +381,23 @@ fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
 </span>axes![M = 32, N = 8, K = 16, L = 2, O = 2];
 
 fn trf_sequencer_partial_read&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![O, M, L], m![K]&gt;,
-    trf: &amp;TrfTensor&lt;bf16, m![1], m![1], m![1], m![N], m![O, K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![N], m![O, M], m![L, K]&gt; {
+    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt;,
+    trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt;,
+) -&gt; ContractOuterTensor&lt;'l, T, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, M], m![L, K]&gt; {
     // Element         = [O, K]
     // ReadSize        = 16
     // PacketBroadcast = L
     // OutTime         = [O, M]    (sequencing over [O, K] / 16 (= O), broadcast M)
     // OutPacket       = [L, K]    (= [L, [O, K] % 16])
-    input.contract_outer::&lt;m![O, M], m![L, K], _, _&gt;(trf)
+    input.contract_outer::&lt;m![O, M], m![L, K], _, _, _&gt;(trf)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let _o = trf_sequencer_partial_read(a, &amp;b);
+</span><span class="boring">}</span></code></pre>
 <h3 id="constraints-1"><a class="header" href="#constraints-1">Constraints</a></h3>
 <ul>
 <li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="../../moving-tensors/sequencer.html#configuration">Sequencer</a>).</li>
@@ -419,7 +463,7 @@ Each <code>Time</code> cycle, every <code>Lane</code> produces a full <code>pack
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-c22b7243.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

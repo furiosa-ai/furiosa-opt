@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-bf8d000f.js"></script>
+        <script src="../../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -183,8 +183,18 @@ No values are summed: the stage folds <code>Lane</code> into another axis rather
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p><code>.contract_lane(mode)</code> invokes the Lane Folder.
 The stage drains the upstream Time Reducer’s buffer through an 8-element-wide output bus one cycle at a time, and <code>LaneMode</code> selects what each cycle’s flit carries.</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
-    ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;
+    'l,
+    const T: Tu,
+    D: ContractionCast + MaterializableScalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Lane: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+&gt; ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
     /// Folds the `Lane` dimension into the output stream.
     /// `LaneMode::Interleaved` relocates `Lane` into `OutPacket`;
@@ -203,7 +213,32 @@ The stage drains the upstream Time Reducer’s buffer through an 8-element-wide 
             self.pre_reduce_time,
             mode,
         );
-        ContractTensor::new(self.ctx, self.inner.transpose(false))
+        // Finalize the carried operands with ONE fused contraction onto this stage's input mapping
+        // `[Chip, Cluster, Slice, Lane, Time, Packet]` (Packet/Time were never actually reduced by the
+        // earlier stages, only relabeled to their post-stage extents). The Lane fold relayout
+        // (`transpose(false)`) then runs on the result, exactly as it always has.
+        //
+        // `out` is rebuilt here from this stage's own type params, independently of the `pre_reduce`
+        // stashed by `contract_outer`; `Backend::contraction` reduces `pre_reduce` onto `out` via
+        // `pre_reduce.carve(out)`, the same mapping-algebra carve `reduce` uses elsewhere, which is the
+        // authority on whether `out` is a valid restriction of `pre_reduce` -- NOT a manual re-check here.
+        // A naive per-symbol `.axes()` comparison is unsound for that: a contracted symbol can split
+        // across a spatial slot this fold never touches (e.g. `Cluster`, carrying a `K`-fragment that
+        // survives to `out` unreduced) and the slots that actually get contracted (`Time`/`Packet`,
+        // carrying the rest of `K`); `pre_reduce`'s canonical `K` term then legitimately has a different
+        // shape (wider modulo) than `out`'s, even though `out` is a correct restriction of `pre_reduce`.
+        let contraction = self.inner;
+        let out = &lt;m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Time }, { Packet }]&gt;::to_value();
+        let reduced: Tensor&lt;D, m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Time }, { Packet }], B&gt; =
+            Tensor::from_inner(B::contraction(
+                &amp;contraction.lhs,
+                &amp;contraction.rhs,
+                &amp;contraction.lhs_map,
+                &amp;contraction.rhs_map,
+                &amp;contraction.pre_reduce,
+                &amp;out,
+            ));
+        ContractTensor::new(self.ctx, reduced.transpose(false))
     }
 }</code></pre>
 <p>The minimal examples below take a <code>ContractTimeTensor</code> (the output of the upstream Time Reducer) and call only <code>.contract_lane(...)</code>, so each example shows the Lane Folder in isolation.
@@ -218,17 +253,29 @@ OutPacket = [Lane # 8]
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![N = 8, M = 4, P = 4];
+</span>axes![N = 8, M = 4, P = 16];
 
 /// Lane folds into OutPacket.
 fn lane_interleaved&lt;'l, const T: Tu&gt;(
     // Input from upstream Time Reducer: Lane = m![N], Time = m![M], Packet = m![P].
-    input: ContractTimeTensor&lt;'l, T, f32, m![1], m![1], m![1], m![N], m![M], m![P]&gt;,
+    input: ContractTimeTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
     // Output: OutTime = m![M, P] = [Time, Packet], OutPacket = m![N] = [Lane].
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, P], m![N]&gt; {
+) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![M, P], m![N]&gt; {
     input.contract_lane::&lt;m![M, P], m![N]&gt;(LaneMode::Interleaved)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">
+</span><span class="boring">let i: ContractTimeTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt; = a 
+</span><span class="boring">    .contract_outer::&lt;m![M], m![P], m![N], m![P], _&gt;(&amp;b)
+</span><span class="boring">    .contract_packet::&lt;m![P]&gt;()
+</span><span class="boring">    .contract_time::&lt;m![M]&gt;();
+</span><span class="boring">
+</span><span class="boring">let _o = lane_interleaved(i);
+</span><span class="boring">}</span></code></pre>
 <h3 id="sequential"><a class="header" href="#sequential">Sequential</a></h3>
 <p>The <code>Lane</code> dimension folds into <code>OutTime</code>: each cycle reads 8 column positions from one lane’s <code>Packet</code> (8 values per flit), with <code>Lane</code> iterating across successive cycles.
 Since each cycle is 8 elements wide, <code>Packet</code> is first padded up to a multiple of 8 (the bus width), then split into <code>PadPacket / 8</code> cycles per lane and <code>PadPacket % 8</code> elements per cycle.</p>
@@ -242,17 +289,29 @@ OutPacket = [PadPacket % 8]
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![N = 8, M = 4, P = 12];
+</span>axes![N = 8, M = 4, P = 16];
 
 /// Lane folds into OutTime.
 fn lane_sequential&lt;'l, const T: Tu&gt;(
     // Input from upstream Time Reducer: Lane = m![N], Time = m![M], Packet = m![P].
-    input: ContractTimeTensor&lt;'l, T, f32, m![1], m![1], m![1], m![N], m![M], m![P]&gt;,
+    input: ContractTimeTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
     // Output: OutTime = m![M, N, P / 8] = [Time, Lane, Packet / 8], OutPacket = m![P % 8] = [Packet % 8].
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1], m![1], m![M, N, P / 8], m![P % 8]&gt; {
+) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![M, N, P / 8], m![P % 8]&gt; {
     input.contract_lane::&lt;m![M, N, P / 8], m![P % 8]&gt;(LaneMode::Sequential)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">
+</span><span class="boring">let i: ContractTimeTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt; = a 
+</span><span class="boring">    .contract_outer::&lt;m![M], m![P], m![N], m![P], _&gt;(&amp;b)
+</span><span class="boring">    .contract_packet::&lt;m![P]&gt;()
+</span><span class="boring">    .contract_time::&lt;m![M]&gt;();
+</span><span class="boring">
+</span><span class="boring">let _o = lane_sequential(i);
+</span><span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
 <p>The Lane Folder has no constraints of its own.
 The <code>LaneMode</code> selected here determines the slot capacity bound that the upstream Time Reducer enforces (see <a href="./time-reducer.html#constraints">Time Reducer Constraints</a>).</p>
@@ -309,7 +368,7 @@ The <code>LaneMode</code> selected here determines the slot capacity bound that 
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-c22b7243.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

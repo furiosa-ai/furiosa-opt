@@ -2,7 +2,7 @@
 <a href=#2 id=2 data-nosnippet>2</a>
 <a href=#3 id=3 data-nosnippet>3</a></span><span class="kw">use </span>std::fmt::{<span class="self">self</span>, Display, Formatter};
 <a href=#4 id=4 data-nosnippet>4</a>
-<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>furiosa_mapping::{Atom, Ident, M};
+<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>furiosa_mapping::{Ident, Index, M, MappingExt};
 <a href=#6 id=6 data-nosnippet>6</a><span class="kw">use </span>furiosa_opt_macro::primitive;
 <a href=#7 id=7 data-nosnippet>7</a><span class="kw">use </span>smart_default::SmartDefault;
 <a href=#8 id=8 data-nosnippet>8</a>
@@ -21,7 +21,7 @@
 <a href=#21 id=21 data-nosnippet>21</a>    <span class="doccomment">/// Toggle group id (0/1) based on axis index.
 <a href=#22 id=22 data-nosnippet>22</a>    </span>AxisToggle {
 <a href=#23 id=23 data-nosnippet>23</a>        <span class="doccomment">/// Axis identifier to toggle on (e.g., Ident::I).
-<a href=#24 id=24 data-nosnippet>24</a>        /// The group ID will be determined by (axis_index % 2).
+<a href=#24 id=24 data-nosnippet>24</a>        /// The group ID will be determined by (coordinate-along-axis % 2).
 <a href=#25 id=25 data-nosnippet>25</a>        </span>axis: Ident,
 <a href=#26 id=26 data-nosnippet>26</a>    },
 <a href=#27 id=27 data-nosnippet>27</a>    <span class="doccomment">/// Set branch id using valid count generator.
@@ -170,7 +170,7 @@
 <a href=#170 id=170 data-nosnippet>170</a>
 <a href=#171 id=171 data-nosnippet>171</a><span class="kw">impl </span>InputCmpI32 {
 <a href=#172 id=172 data-nosnippet>172</a>    <span class="doccomment">/// Check if i32 value matches this comparison
-<a href=#173 id=173 data-nosnippet>173</a>    </span><span class="kw">pub fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, x: i32) -&gt; bool {
+<a href=#173 id=173 data-nosnippet>173</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, x: i32) -&gt; bool {
 <a href=#174 id=174 data-nosnippet>174</a>        <span class="kw">match </span><span class="self">self </span>{
 <a href=#175 id=175 data-nosnippet>175</a>            InputCmpI32::Equal { boundary } =&gt; x == <span class="kw-2">*</span>boundary,
 <a href=#176 id=176 data-nosnippet>176</a>            InputCmpI32::Less { boundary } =&gt; x &lt; <span class="kw-2">*</span>boundary,
@@ -185,7 +185,7 @@
 <a href=#185 id=185 data-nosnippet>185</a>
 <a href=#186 id=186 data-nosnippet>186</a><span class="kw">impl </span>InputCmpF32 {
 <a href=#187 id=187 data-nosnippet>187</a>    <span class="doccomment">/// Check if f32 value matches this comparison
-<a href=#188 id=188 data-nosnippet>188</a>    </span><span class="kw">pub fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, x: f32) -&gt; bool {
+<a href=#188 id=188 data-nosnippet>188</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, x: f32) -&gt; bool {
 <a href=#189 id=189 data-nosnippet>189</a>        <span class="kw">match </span><span class="self">self </span>{
 <a href=#190 id=190 data-nosnippet>190</a>            InputCmpF32::Equal { boundary } =&gt; x == <span class="kw-2">*</span>boundary,
 <a href=#191 id=191 data-nosnippet>191</a>            InputCmpF32::Less { boundary } =&gt; x &lt; <span class="kw-2">*</span>boundary,
@@ -208,7 +208,7 @@
 <a href=#208 id=208 data-nosnippet>208</a>
 <a href=#209 id=209 data-nosnippet>209</a><span class="kw">impl </span>InputCmp {
 <a href=#210 id=210 data-nosnippet>210</a>    <span class="doccomment">/// Generic matches method that dispatches to type-specific implementation
-<a href=#211 id=211 data-nosnippet>211</a>    </span><span class="kw">pub fn </span>matches&lt;D: VeScalar&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, x: D) -&gt; bool {
+<a href=#211 id=211 data-nosnippet>211</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>matches&lt;D: VeScalar&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, x: D) -&gt; bool {
 <a href=#212 id=212 data-nosnippet>212</a>        <span class="kw">use </span>std::any::TypeId;
 <a href=#213 id=213 data-nosnippet>213</a>        <span class="kw">match </span><span class="self">self </span>{
 <a href=#214 id=214 data-nosnippet>214</a>            InputCmp::I32(cmp) =&gt; {
@@ -246,7 +246,7 @@
 <a href=#246 id=246 data-nosnippet>246</a>
 <a href=#247 id=247 data-nosnippet>247</a><span class="kw">impl </span>GroupId {
 <a href=#248 id=248 data-nosnippet>248</a>    <span class="doccomment">/// Returns the bit value of the GroupId.
-<a href=#249 id=249 data-nosnippet>249</a>    </span><span class="kw">pub fn </span>bit_value(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; u8 {
+<a href=#249 id=249 data-nosnippet>249</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>bit_value(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; u8 {
 <a href=#250 id=250 data-nosnippet>250</a>        <span class="kw">match </span><span class="self">self </span>{
 <a href=#251 id=251 data-nosnippet>251</a>            GroupId::Zero =&gt; <span class="number">0</span>,
 <a href=#252 id=252 data-nosnippet>252</a>            GroupId::One =&gt; <span class="number">1</span>,
@@ -279,7 +279,7 @@
 <a href=#279 id=279 data-nosnippet>279</a><span class="kw">impl </span>TagFilter {
 <a href=#280 id=280 data-nosnippet>280</a>    <span class="doccomment">/// Check if this branch config matches the given execution ID.
 <a href=#281 id=281 data-nosnippet>281</a>    /// Only Init values can match - Uninit never matches any config.
-<a href=#282 id=282 data-nosnippet>282</a>    </span><span class="kw">pub fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, exec_id: Opt&lt;u8&gt;) -&gt; bool {
+<a href=#282 id=282 data-nosnippet>282</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>matches(<span class="kw-2">&amp;</span><span class="self">self</span>, exec_id: Opt&lt;u8&gt;) -&gt; bool {
 <a href=#283 id=283 data-nosnippet>283</a>        <span class="kw">match </span>(<span class="self">self</span>, exec_id) {
 <a href=#284 id=284 data-nosnippet>284</a>            (<span class="kw">_</span>, Opt::Uninit) =&gt; <span class="bool-val">false</span>,
 <a href=#285 id=285 data-nosnippet>285</a>            (TagFilter::All, Opt::Init(<span class="kw">_</span>)) =&gt; <span class="bool-val">true</span>,
@@ -295,44 +295,60 @@
 <a href=#295 id=295 data-nosnippet>295</a>}
 <a href=#296 id=296 data-nosnippet>296</a>
 <a href=#297 id=297 data-nosnippet>297</a><span class="doccomment">/// Applies branch unit to generate Tag for each element.
-<a href=#298 id=298 data-nosnippet>298</a></span><span class="kw">pub fn </span>apply_branch_config&lt;D: VeScalar, Mapping: M&gt;(
+<a href=#298 id=298 data-nosnippet>298</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>apply_branch_config&lt;D: VeScalar, Mapping: M&gt;(
 <a href=#299 id=299 data-nosnippet>299</a>    data: <span class="kw-2">&amp;</span>Tensor&lt;D, Mapping&gt;,
 <a href=#300 id=300 data-nosnippet>300</a>    config: <span class="kw-2">&amp;</span>TagMode,
 <a href=#301 id=301 data-nosnippet>301</a>) -&gt; Tensor&lt;u8, Mapping&gt; {
 <a href=#302 id=302 data-nosnippet>302</a>    <span class="kw">match </span>config {
-<a href=#303 id=303 data-nosnippet>303</a>        TagMode::Zero =&gt; data.map(|<span class="kw">_</span>| Opt::Init(<span class="number">0u8</span>)),
-<a href=#304 id=304 data-nosnippet>304</a>        TagMode::AxisToggle { axis } =&gt; Tensor::from_fn(|axes, idx| {
-<a href=#305 id=305 data-nosnippet>305</a>            <span class="kw">let </span>axis_pos = axes.iter().position(|term| {
-<a href=#306 id=306 data-nosnippet>306</a>                <span class="kw">if let </span>Atom::Symbol { symbol, .. } = <span class="kw-2">&amp;</span>term.inner {
-<a href=#307 id=307 data-nosnippet>307</a>                    symbol == axis
-<a href=#308 id=308 data-nosnippet>308</a>                } <span class="kw">else </span>{
-<a href=#309 id=309 data-nosnippet>309</a>                    <span class="bool-val">false
-<a href=#310 id=310 data-nosnippet>310</a>                </span>}
-<a href=#311 id=311 data-nosnippet>311</a>            });
-<a href=#312 id=312 data-nosnippet>312</a>
-<a href=#313 id=313 data-nosnippet>313</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(pos) = axis_pos {
-<a href=#314 id=314 data-nosnippet>314</a>                <span class="kw">let </span>axis_idx = idx[pos];
-<a href=#315 id=315 data-nosnippet>315</a>                <span class="kw">let </span>group_id = (axis_idx % <span class="number">2</span>) <span class="kw">as </span>u8;
-<a href=#316 id=316 data-nosnippet>316</a>                <span class="kw">let </span>exec_id = group_id &lt;&lt; <span class="number">3</span>;
-<a href=#317 id=317 data-nosnippet>317</a>                Opt::Init(exec_id)
-<a href=#318 id=318 data-nosnippet>318</a>            } <span class="kw">else </span>{
-<a href=#319 id=319 data-nosnippet>319</a>                Opt::Init(<span class="number">0u8</span>)
-<a href=#320 id=320 data-nosnippet>320</a>            }
-<a href=#321 id=321 data-nosnippet>321</a>        }),
-<a href=#322 id=322 data-nosnippet>322</a>        TagMode::ValidCount =&gt; <span class="macro">todo!</span>(),
-<a href=#323 id=323 data-nosnippet>323</a>        TagMode::Vrf =&gt; <span class="macro">todo!</span>(<span class="string">"TagMode::Vrf: load execution IDs from VRF (GenBranch::WithLog)"</span>),
-<a href=#324 id=324 data-nosnippet>324</a>        TagMode::Comparison(cmps) =&gt; data.map(|x| <span class="kw">match </span>x {
-<a href=#325 id=325 data-nosnippet>325</a>            Opt::Init(x) =&gt; {
-<a href=#326 id=326 data-nosnippet>326</a>                <span class="kw">let </span><span class="kw-2">mut </span>exec_id: u8 = <span class="number">0</span>;
-<a href=#327 id=327 data-nosnippet>327</a>                <span class="kw">for </span>(bit_pos, cmp) <span class="kw">in </span>cmps.iter().enumerate() {
-<a href=#328 id=328 data-nosnippet>328</a>                    <span class="kw">let </span>bit = <span class="kw">if </span>cmp.matches(<span class="kw-2">*</span>x) { <span class="number">0x1 </span>} <span class="kw">else </span>{ <span class="number">0x0 </span>};
-<a href=#329 id=329 data-nosnippet>329</a>                    exec_id |= bit &lt;&lt; bit_pos;
-<a href=#330 id=330 data-nosnippet>330</a>                }
-<a href=#331 id=331 data-nosnippet>331</a>
-<a href=#332 id=332 data-nosnippet>332</a>                Opt::Init(exec_id)
-<a href=#333 id=333 data-nosnippet>333</a>            }
-<a href=#334 id=334 data-nosnippet>334</a>            Opt::Uninit =&gt; Opt::Uninit,
-<a href=#335 id=335 data-nosnippet>335</a>        }),
-<a href=#336 id=336 data-nosnippet>336</a>    }
-<a href=#337 id=337 data-nosnippet>337</a>}
+<a href=#303 id=303 data-nosnippet>303</a>        TagMode::Zero =&gt; data.map(|<span class="kw">_</span>| <span class="number">0u8</span>),
+<a href=#304 id=304 data-nosnippet>304</a>        TagMode::AxisToggle { axis } =&gt; Tensor::&lt;u8, Mapping&gt;::from_vec(axis_toggle_pattern::&lt;Mapping&gt;(axis)),
+<a href=#305 id=305 data-nosnippet>305</a>        TagMode::ValidCount =&gt; <span class="macro">todo!</span>(),
+<a href=#306 id=306 data-nosnippet>306</a>        TagMode::Vrf =&gt; <span class="macro">todo!</span>(<span class="string">"TagMode::Vrf: load execution IDs from VRF (GenBranch::WithLog)"</span>),
+<a href=#307 id=307 data-nosnippet>307</a>        TagMode::Comparison(cmps) =&gt; data.map(|x| {
+<a href=#308 id=308 data-nosnippet>308</a>            <span class="kw">let </span><span class="kw-2">mut </span>exec_id: u8 = <span class="number">0</span>;
+<a href=#309 id=309 data-nosnippet>309</a>            <span class="kw">for </span>(bit_pos, cmp) <span class="kw">in </span>cmps.iter().enumerate() {
+<a href=#310 id=310 data-nosnippet>310</a>                <span class="kw">let </span>bit = <span class="kw">if </span>cmp.matches(x) { <span class="number">0x1 </span>} <span class="kw">else </span>{ <span class="number">0x0 </span>};
+<a href=#311 id=311 data-nosnippet>311</a>                exec_id |= bit &lt;&lt; bit_pos;
+<a href=#312 id=312 data-nosnippet>312</a>            }
+<a href=#313 id=313 data-nosnippet>313</a>            exec_id
+<a href=#314 id=314 data-nosnippet>314</a>        }),
+<a href=#315 id=315 data-nosnippet>315</a>    }
+<a href=#316 id=316 data-nosnippet>316</a>}
+<a href=#317 id=317 data-nosnippet>317</a>
+<a href=#318 id=318 data-nosnippet>318</a><span class="doccomment">/// Host-side `AxisToggle` tag pattern: `(coord_along_axis % 2) &lt;&lt; 3` per cell, padding cells → 0.
+<a href=#319 id=319 data-nosnippet>319</a></span><span class="kw">fn </span>axis_toggle_pattern&lt;Mapping: M&gt;(axis: <span class="kw-2">&amp;</span>Ident) -&gt; Vec&lt;u8&gt; {
+<a href=#320 id=320 data-nosnippet>320</a>    <span class="kw">let </span>mapping = Mapping::to_value();
+<a href=#321 id=321 data-nosnippet>321</a>    <span class="kw">let </span>axes = mapping.axes();
+<a href=#322 id=322 data-nosnippet>322</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(pos) = <span class="kw">crate</span>::storage::axis_position(<span class="kw-2">&amp;</span>axes, axis) <span class="kw">else </span>{
+<a href=#323 id=323 data-nosnippet>323</a>        <span class="kw">return </span><span class="macro">vec!</span>[<span class="number">0u8</span>; mapping.size()]; <span class="comment">// axis absent: nothing to toggle
+<a href=#324 id=324 data-nosnippet>324</a>    </span>};
+<a href=#325 id=325 data-nosnippet>325</a>    <span class="comment">// The toggle axis's coordinate is its digit in the canonical offset: divide out the inner axes'
+<a href=#326 id=326 data-nosnippet>326</a>    // weight, mod its extent. The lazy wire walk gives each cell's offset (padding → `None` → 0), so
+<a href=#327 id=327 data-nosnippet>327</a>    // no per-cell `finalize`.
+<a href=#328 id=328 data-nosnippet>328</a>    </span><span class="kw">let </span>weight: usize = axes[pos + <span class="number">1</span>..].iter().map(|a| a.modulo).product();
+<a href=#329 id=329 data-nosnippet>329</a>    <span class="kw">let </span>modulo = axes[pos].modulo;
+<a href=#330 id=330 data-nosnippet>330</a>    mapping
+<a href=#331 id=331 data-nosnippet>331</a>        .iter(<span class="kw-2">&amp;</span>axes, <span class="kw-2">&amp;</span>Index::new(), <span class="bool-val">true</span>)
+<a href=#332 id=332 data-nosnippet>332</a>        .map(|offset| offset.map_or(<span class="number">0u8</span>, |o| (((o / weight) % modulo % <span class="number">2</span>) <span class="kw">as </span>u8) &lt;&lt; <span class="number">3</span>))
+<a href=#333 id=333 data-nosnippet>333</a>        .collect()
+<a href=#334 id=334 data-nosnippet>334</a>}
+<a href=#335 id=335 data-nosnippet>335</a>
+<a href=#336 id=336 data-nosnippet>336</a><span class="attr">#[cfg(test)]
+<a href=#337 id=337 data-nosnippet>337</a></span><span class="kw">mod </span>tests {
+<a href=#338 id=338 data-nosnippet>338</a>    <span class="kw">use </span>furiosa_mapping::<span class="kw-2">*</span>;
+<a href=#339 id=339 data-nosnippet>339</a>
+<a href=#340 id=340 data-nosnippet>340</a>    <span class="kw">use </span><span class="kw">super</span>::axis_toggle_pattern;
+<a href=#341 id=341 data-nosnippet>341</a>
+<a href=#342 id=342 data-nosnippet>342</a>    <span class="doccomment">/// `axis_toggle_pattern` decodes each cell's coordinate along the toggle axis (its digit in the
+<a href=#343 id=343 data-nosnippet>343</a>    /// canonical offset) and emits `(coord % 2) &lt;&lt; 3`. Hand-computed for `m![A, B]` (A=4 outer, B=2
+<a href=#344 id=344 data-nosnippet>344</a>    /// inner; wire cell `(a, b)` at `a*2 + b`).
+<a href=#345 id=345 data-nosnippet>345</a>    </span><span class="attr">#[test]
+<a href=#346 id=346 data-nosnippet>346</a>    </span><span class="kw">fn </span>axis_toggle_pattern_decodes_axis_parity() {
+<a href=#347 id=347 data-nosnippet>347</a>        <span class="macro">axes!</span>[A = <span class="number">4</span>, B = <span class="number">2</span>];
+<a href=#348 id=348 data-nosnippet>348</a>        <span class="comment">// Toggle A: cell (a, b) -&gt; (a % 2) &lt;&lt; 3. a = position / 2.
+<a href=#349 id=349 data-nosnippet>349</a>        </span><span class="macro">assert_eq!</span>(axis_toggle_pattern::&lt;<span class="macro">m!</span>[A, B]&gt;(<span class="kw-2">&amp;</span>Ident::A), <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">0</span>, <span class="number">8</span>, <span class="number">8</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">8</span>, <span class="number">8</span>]);
+<a href=#350 id=350 data-nosnippet>350</a>        <span class="comment">// Toggle B: cell (a, b) -&gt; (b % 2) &lt;&lt; 3. b = position % 2.
+<a href=#351 id=351 data-nosnippet>351</a>        </span><span class="macro">assert_eq!</span>(axis_toggle_pattern::&lt;<span class="macro">m!</span>[A, B]&gt;(<span class="kw-2">&amp;</span>Ident::B), <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">8</span>, <span class="number">0</span>, <span class="number">8</span>, <span class="number">0</span>, <span class="number">8</span>, <span class="number">0</span>, <span class="number">8</span>]);
+<a href=#352 id=352 data-nosnippet>352</a>    }
+<a href=#353 id=353 data-nosnippet>353</a>}
 </code></pre></div></section></main></body></html>

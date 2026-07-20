@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -236,11 +236,16 @@ When no inter-slice exchange is needed, skip <code>.switch()</code> and call <a 
 </span>axes![A = 256, B = 64, C = 32];
 
 fn forwarding&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, f32, m![1], m![1], m![A], m![B], m![C # 32]&gt;,
-) -&gt; CollectTensor&lt;'l, T, f32, m![1], m![1], m![A], m![B], m![C # 32]&gt; {
+    input: FetchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A], m![B], m![C]&gt;,
+) -&gt; CollectTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A], m![B, C / 8], m![C % 8]&gt; {
     input.collect()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A], m![B], m![C]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = forwarding(f);
+</span><span class="boring">}</span></code></pre>
 <h3 id="broadcast01"><a class="header" href="#broadcast01">Broadcast01</a></h3>
 <p><code>Broadcast01</code> broadcasts each slice’s data to every slice in a sub-ring, moving both inner <code>Slice</code> sub-dimensions (<code>slice0</code> and <code>slice1</code>) into <code>Time</code>.</p>
 <p>The input dimension structure (outermost to innermost, left to right):</p>
@@ -266,11 +271,11 @@ Every slice sends its packet around the sub-ring, and every slice receives all <
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 256, B = 64, C = 63, D = 8, X = 2, Y = 2];
+</span>axes![A = 256, B = 64, C = 63, D = 2, X = 2, Y = 2];
 
 fn broadcast01&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, f32, m![D / 2], m![D % 2], m![A], m![B], m![C # 64]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, f32, m![D / 2], m![D % 2], m![A / 4, X, Y], m![B / 4, A / 2 % 2, B % 4, A % 2], m![C # 64]&gt; {
+    input: FetchTensor&lt;'l, T, f32, m![1], m![D], m![A], m![B], m![C # 64]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![D], m![A / 4, X, Y], m![B / 4, A / 2 % 2, B % 4, A % 2], m![C # 64]&gt; {
     input.switch::&lt;m![A / 4, X, Y], m![B / 4, A / 2 % 2, B % 4, A % 2]&gt;(
         SwitchConfig::Broadcast01 {
             slice1: 2,
@@ -279,7 +284,12 @@ fn broadcast01&lt;'l, const T: Tu&gt;(
         }
     )
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![D], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o= broadcast01(f);
+</span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 2</code> (size of broadcast <code>X</code>), <code>slice0 = 2</code> (size of broadcast <code>Y</code>), and <code>time0 = 4</code>, the compiler derives <code>slice2 = 64</code>, <code>time1 = 16</code>, and <code>ring_size = 4</code> (64 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 4</code>, <code>slice1 = A / 2 % 2</code>, <code>slice0 = A % 2</code>, <code>time1 = B / 4</code>, <code>time0 = B % 4</code>, giving <code>OutSlice = m![A / 4, X, Y]</code> and <code>OutTime = m![B / 4, A / 2 % 2, B % 4, A % 2]</code>.</p>
 <p><a href="#performance">Cycle estimate</a>: <code>ring_size × Time::SIZE × flits_per_packet = 4 × 64 × 8 = 2048</code>, where <code>Time::SIZE = 64</code> and <code>flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 64 / 32 = 8</code>.</p>
@@ -311,8 +321,8 @@ The new <code>X</code> axis in the output <code>Slice</code> (sized <code>slice1
 </span>axes![A = 256, B = 64, C = 63, X = 4];
 
 fn broadcast1&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1], m![A / 32, X, A % 8], m![B, A / 8 % 4], m![C # 64]&gt; {
+    input: FetchTensor&lt;'l, T, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1 # 2], m![A / 32, X, A % 8], m![B, A / 8 % 4], m![C # 64]&gt; {
     input.switch::&lt;m![A / 32, X, A % 8], m![B, A / 8 % 4]&gt;(
         SwitchConfig::Broadcast1 {
             slice1: 4,
@@ -320,7 +330,12 @@ fn broadcast1&lt;'l, const T: Tu&gt;(
         }
     )
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = broadcast1(f);
+</span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 4</code> (size of broadcast <code>X</code>) and <code>slice0 = 8</code>, the compiler derives <code>slice2 = 8</code> and <code>ring_size = 32</code> (8 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 32</code>, <code>slice1 = A / 8 % 4</code>, <code>slice0 = A % 8</code>, <code>time0 = B</code>, giving <code>OutSlice = m![A / 32, X, A % 8]</code> and <code>OutTime = m![B, A / 8 % 4]</code>.</p>
 <p><a href="#performance">Cycle estimate</a>: <code>ring_size × Time::SIZE × flits_per_packet = 32 × 64 × 2 = 4096</code>, where <code>Time::SIZE = 64</code> and <code>flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 64 / 32 = 2</code>.</p>
@@ -344,14 +359,19 @@ fn broadcast1&lt;'l, const T: Tu&gt;(
 </span>axes![A = 256, B = 64, C = 63];
 
 fn transpose&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1], m![A / 64, A % 2, A / 2 % 32], m![B], m![C # 64]&gt; {
+    input: FetchTensor&lt;'l, T, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1 # 2], m![A / 64, A % 2, A / 2 % 32], m![B], m![C # 64]&gt; {
     input.switch::&lt;m![A / 64, A % 2, A / 2 % 32], m![B]&gt;(SwitchConfig::Transpose {
         slice1: 32,
         slice0: 2,
     })
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = transpose(f);
+</span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 32</code> and <code>slice0 = 2</code>, the compiler derives <code>slice2 = 4</code> and <code>ring_size = 64</code> (4 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 64</code>, <code>slice1 = A / 2 % 32</code>, <code>slice0 = A % 2</code>, <code>time0 = B</code>, giving <code>OutSlice = m![A / 64, A % 2, A / 2 % 32]</code> and <code>OutTime = m![B]</code> (slice0 and slice1 swap; <code>Time</code> is unchanged).</p>
 <p><a href="#performance">Cycle estimate</a>: <code>ring_size × Time::SIZE × flits_per_packet = 64 × 64 × 2 = 8192</code>, where <code>Time::SIZE = 64</code> and <code>flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 64 / 32 = 2</code>.</p>
@@ -387,8 +407,8 @@ fn transpose&lt;'l, const T: Tu&gt;(
 </span>axes![A = 256, B = 8, C = 32];
 
 fn inter_transpose&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, i8, m![1], m![1], m![A], m![B], m![C # 32]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1], m![A / 32, B / 2 % 2, A % 16], m![B / 4, B % 2, A / 16 % 2], m![C # 32]&gt; {
+    input: FetchTensor&lt;'l, T, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1 # 2], m![A / 32, B / 2 % 2, A % 16], m![B / 4, B % 2, A / 16 % 2], m![C # 32]&gt; {
     input.switch::&lt;m![A / 32, B / 2 % 2, A % 16], m![B / 4, B % 2, A / 16 % 2]&gt;(
         SwitchConfig::InterTranspose {
             slice1: 2,
@@ -396,7 +416,12 @@ fn inter_transpose&lt;'l, const T: Tu&gt;(
             time0: 2,
         })
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = inter_transpose(f);
+</span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 2</code>, <code>slice0 = 16</code>, and <code>time0 = 2</code>, the compiler derives <code>slice2 = 8</code>, <code>time2 = 2</code>, and <code>ring_size = 32</code> (8 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 32</code>, <code>slice1 = A / 16 % 2</code>, <code>slice0 = A % 16</code>, <code>time2 = B / 4</code>, <code>time1 = B / 2 % 2</code>, <code>time0 = B % 2</code>, giving <code>OutSlice = m![A / 32, B / 2 % 2, A % 16]</code> and <code>OutTime = m![B / 4, B % 2, A / 16 % 2]</code> (slice1 and time1 swap between <code>Slice</code> and <code>Time</code>).</p>
 <p><a href="#performance">Cycle estimate</a>: <code>ring_size × Time::SIZE × flits_per_packet = 32 × 8 × 1 = 256</code>, where <code>Time::SIZE = 8</code> and <code>flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 32 / 32 = 1</code>.</p>
@@ -426,8 +451,8 @@ An input tensor structured as:</p>
 </span>axes![A = 256, B = 16, C = 32, Y = 8];
 
 fn transposed_broadcast1&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, i8, m![1], m![1], m![A], m![B], m![C # 32]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1], m![A / 64, Y, A / 8 % 8], m![B, A % 8], m![C # 32]&gt; {
+    input: FetchTensor&lt;'l, T, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, i8, m![1], m![1 # 2], m![A / 64, Y, A / 8 % 8], m![B, A % 8], m![C # 32]&gt; {
     input.switch::&lt;m![A / 64, Y, A / 8 % 8], m![B, A % 8]&gt;(
         SwitchConfig::TransposedBroadcast1 {
             slice1: 8,
@@ -435,7 +460,12 @@ fn transposed_broadcast1&lt;'l, const T: Tu&gt;(
         }
     )
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = transposed_broadcast1(f);
+</span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 8</code> and <code>slice0 = 8</code> (size of broadcast <code>Y</code>), the compiler derives <code>slice2 = 4</code> and <code>ring_size = 64</code> (4 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 64</code>, <code>slice1 = A / 8 % 8</code>, <code>slice0 = A % 8</code>, <code>time0 = B</code>, giving <code>OutSlice = m![A / 64, Y, A / 8 % 8]</code> and <code>OutTime = m![B, A % 8]</code>.</p>
 <p><a href="#performance">Cycle estimate</a>: <code>ring_size × Time::SIZE × flits_per_packet = 64 × 16 × 1 = 1024</code>, where <code>Time::SIZE = 16</code> and <code>flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 32 / 32 = 1</code>.</p>
@@ -550,13 +580,18 @@ While the bitmap is loading, the DMA and sub contexts cannot run any other opera
 </span>axes![A = 16, B = 16, C = 8, D = 8, E = 8];
 
 fn arbitrary_permutation&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1], m![B % 4, B / 4, A % 4, A / 4], m![C], m![D, E]&gt; {
+    input: FetchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![B % 4, B / 4, A % 4, A / 4], m![C], m![D, E]&gt; {
     input.switch::&lt;m![B % 4, B / 4, A % 4, A / 4], m![C]&gt;(
         SwitchConfig::CustomBroadcast { ring_size: 256 }
     )
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = arbitrary_permutation(f);
+</span><span class="boring">}</span></code></pre>
 <p>The output <code>Slice = m![B % 4, B / 4, A % 4, A / 4]</code> permutes the input slice shape <code>[0, 1, 2, 3]</code> into <code>[3, 2, 1, 0]</code>, which no regular configuration covers but a custom bitmap does.</p>
 <div class="table-wrapper">
 <table>
@@ -592,13 +627,18 @@ fn arbitrary_permutation&lt;'l, const T: Tu&gt;(
 </span>axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 2, Y = 2];
 
 fn multi_axis_broadcast&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1], m![A / 2, X, B / 2, Y], m![C, A % 2, B % 2], m![D, E]&gt; {
+    input: FetchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A / 2, X, B / 2, Y], m![C, A % 2, B % 2], m![D, E]&gt; {
     input.switch::&lt;m![A / 2, X, B / 2, Y], m![C, A % 2, B % 2]&gt;(
         SwitchConfig::CustomBroadcast { ring_size: 32 }
     )
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = multi_axis_broadcast(f);
+</span><span class="boring">}</span></code></pre>
 <p>The output moves <code>A % 2</code> and <code>B % 2</code> from <code>Slice</code> to <code>Time</code>, broadcasting at their original positions via the broadcast dimensions <code>X</code> and <code>Y</code>.
 <code>Broadcast01</code> supports a similar form but requires the broadcast dimensions (<code>slice0</code>, <code>slice1</code>) to be contiguous in the input slice, so it cannot express non-contiguous dimensions moving from <code>Slice</code> to <code>Time</code>.
 A custom bitmap expresses it instead.</p>
@@ -624,50 +664,57 @@ A custom bitmap expresses it instead.</p>
 <li><code>flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 64 / 32 = 8</code> (<code>Packet = m![D, E]</code>, <code>D::SIZE × E::SIZE = 64</code>)</li>
 </ul>
 <h3 id="example-3-partial-axis-extraction-slicing"><a class="header" href="#example-3-partial-axis-extraction-slicing">Example 3: Partial Axis Extraction (Slicing)</a></h3>
-<p>Unlike Examples 1 and 2, which include every value of the moved dimensions, here only 3 of 4 values in <code>B % 4</code> move from <code>Slice</code> to <code>Time</code>.</p>
+<p>Unlike Examples 1 and 2, which include every value of the moved dimensions, here only the 3 valid values of <code>C # 4</code> move from <code>Slice</code> to <code>Time</code>; its padding cell stays behind.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 4];
+</span>axes![A = 16, B = 4, C = 3, D = 8, E = 8, X = 4];
 
 fn partial_axis_extraction&lt;'l, const T: Tu&gt;(
-    input: FetchTensor&lt;'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]&gt;,
-) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1], m![A, B / 4, X], m![C, B % 4 = 3], m![D, E]&gt; {
-    input.switch::&lt;m![A, B / 4, X], m![C, B % 4 = 3]&gt;(
+    input: FetchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]&gt;,
+) -&gt; SwitchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A, B, X], m![D, C], m![E]&gt; {
+    input.switch::&lt;m![A, B, X], m![D, C]&gt;(
         SwitchConfig::CustomBroadcast { ring_size: 4 }
     )
 }
-<span class="boring">}</span></code></pre>
-<p>The output moves <code>B % 4</code> from <code>Slice</code> to <code>Time</code> with broadcast at the original position, and the fourth value (<code>B % 4 = 3</code>) is discarded so only the first 3 are extracted.
-<code>Broadcast1</code> supports a similar form but always moves the entire dimension, so it cannot express a subset.
-A custom bitmap expresses it instead.</p>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = partial_axis_extraction(f);
+</span><span class="boring">}</span></code></pre>
+<p>The output moves <code>C # 4</code> from <code>Slice</code> to <code>Time</code>, placing a broadcast axis <code>X</code> at its vacated <code>Slice</code> position, and the fourth value (<code>C # 4 = 3</code>), a pure padding cell, is dropped, so only the three valid values <code>C</code> are extracted.
+<code>Broadcast1</code> supports a similar form but always moves the entire dimension, so it cannot express a subset.</p>
+<p>This partial extraction is allowed only because the discarded value is padding: <code>C # 4</code> holds <code>C = 3</code> valid elements in a slot padded to 4, so slicing it down to <code>C</code> (<code>C # 4 → C</code>) throws away nothing real.
+Slicing a valid range would instead discard live input, which the <a href="#dropped-values-must-be-padding">Dropped values must be padding</a> constraint forbids.
+A custom bitmap expresses this padding-only extraction instead.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Bitmap Index</th><th><code>(A, B / 4, B % 4 = 3)</code></th><th><code>(A, B)</code></th><th>Ring Group</th></tr>
+<tr><th>Bitmap Index</th><th><code>(A, B, C # 4)</code> sources</th><th>Ring Group</th></tr>
 </thead>
 <tbody>
-<tr><td>0</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
-<tr><td>1</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
-<tr><td>2</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
-<tr><td>3</td><td>(unused, discarded by partial extraction)</td><td>(none)</td><td>(none)</td></tr>
-<tr><td>4</td><td><code>(0, 1, 0)</code>, <code>(0, 1, 1)</code>, <code>(0, 1, 2)</code></td><td><code>(0, 4)</code>, <code>(0, 5)</code>, <code>(0, 6)</code></td><td><code>4</code>, <code>5</code>, <code>6</code></td></tr>
-<tr><td>…</td><td>…</td><td>…</td><td>…</td></tr>
-<tr><td>255</td><td><code>(15, 3, 0)</code>, <code>(15, 3, 1)</code>, <code>(15, 3, 2)</code></td><td><code>(15, 12)</code>, <code>(15, 13)</code>, <code>(15, 14)</code></td><td><code>252</code>, <code>253</code>, <code>254</code></td></tr>
+<tr><td>0</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
+<tr><td>1</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
+<tr><td>2</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
+<tr><td>3</td><td><code>(0, 0, 0)</code>, <code>(0, 0, 1)</code>, <code>(0, 0, 2)</code></td><td><code>0</code>, <code>1</code>, <code>2</code></td></tr>
+<tr><td>4</td><td><code>(0, 1, 0)</code>, <code>(0, 1, 1)</code>, <code>(0, 1, 2)</code></td><td><code>4</code>, <code>5</code>, <code>6</code></td></tr>
+<tr><td>…</td><td>…</td><td>…</td></tr>
+<tr><td>255</td><td><code>(15, 3, 0)</code>, <code>(15, 3, 1)</code>, <code>(15, 3, 2)</code></td><td><code>252</code>, <code>253</code>, <code>254</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>Plugging into the <a href="#performance">cycle formula</a>, <code>cycles ≈ ring_size × Time::SIZE × flits_per_packet = 4 × 8 × 8 = 256</code>:</p>
+<p>Plugging into the <a href="#performance">cycle formula</a>, <code>cycles ≈ ring_size × Time::SIZE × flits_per_packet = 4 × 24 × 1 = 96</code>:</p>
 <ul>
-<li><code>ring_size = 4</code> (the outer <code>A, B / 4</code> partition needs no inter-sub-ring exchange, so only the innermost 4 slices within each sub-ring communicate)</li>
-<li><code>Time::SIZE = 8</code></li>
-<li><code>flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 64 / 32 = 8</code> (<code>Packet = m![D, E]</code>, <code>D::SIZE × E::SIZE = 64</code>)</li>
+<li><code>ring_size = 4</code> (the outer <code>A, B</code> partition needs no inter-sub-ring exchange, so only the innermost 4 slices (one <code>C # 4</code> group) within each sub-ring communicate)</li>
+<li><code>Time::SIZE = D::SIZE × C::SIZE = 8 × 3 = 24</code></li>
+<li><code>flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 8 / 32 = 1</code> (<code>Packet = m![E]</code>, <code>E::SIZE = 8</code>)</li>
 </ul>
-<p>The bitmap shows partial extraction directly: <code>bitmap[0] = {0, 1, 2}</code> means output slice 0 receives from only 3 input slices, whereas <code>{0, 1, 2, 3}</code> would receive the entire <code>B</code> axis (all 4 values).</p>
+<p>The bitmap shows padding-only extraction directly: <code>bitmap[0] = {0, 1, 2}</code> means output slice 0 receives from the 3 valid input slices in its <code>C # 4</code> group while skipping index 3, the padding cell. Reading <code>{0, 1, 2, 3}</code> would pull that padding in as if it were real data.</p>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
-<p>Custom configurations come with six constraints that bound this flexibility.</p>
+<p>Custom configurations come with seven constraints that bound this flexibility.</p>
 <h4 id="broadcast-axes-must-be-new"><a class="header" href="#broadcast-axes-must-be-new">Broadcast axes must be new</a></h4>
 <p>Same rule as the <a href="#regular-configurations">Regular Configurations</a> intro: each broadcast axis introduced in the output <code>Slice</code> must not appear in the input <code>Slice</code> or input <code>Time</code>.</p>
 <p>For instance, with <code>axes![A = 256, B = 64, C = 32]</code> and input <code>Slice = m![A], Time = m![B], Packet = m![C # 32]</code>, an output <code>Slice = m![A / 4, B / 32, A % 4]</code> violates this constraint because <code>B</code> already appears in the input <code>Time</code>.</p>
@@ -695,6 +742,11 @@ Here <code>A % 2</code> and <code>B % 2</code> preserve their relative order cor
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
 <p><code>Broadcast01</code> works around this constraint via the <code>time0</code> parameter, but custom configurations lack that mechanism and must follow the constraint strictly.</p>
 </blockquote>
+<h4 id="dropped-values-must-be-padding"><a class="header" href="#dropped-values-must-be-padding">Dropped values must be padding</a></h4>
+<p>When fewer values of a dimension move from <code>Slice</code> to <code>Time</code> than the dimension spans (partial extraction, as in <a href="#example-3-partial-axis-extraction-slicing">Example 3</a>), every value left behind must be padding.
+Dropping a valid value would silently discard live input, so the verifier rejects it at kernel compile time.</p>
+<p>For instance, with <code>axes![A = 16, B = 4, C = 3, D = 8, E = 8, X = 4]</code> and input <code>Slice = m![A, B, C # 4]</code>, extracting <code>C # 4 → C</code> is allowed because the dropped fourth value is a padding cell.
+Slicing a fully valid axis, for instance <code>B = 4 → B = 3</code>, violates this constraint, since the dropped value carries real data.</p>
 <h4 id="ring-size"><a class="header" href="#ring-size">Ring size</a></h4>
 <p>The <code>ring_size</code> parameter must be a power of 2.
 The compiler also derives the expected <code>ring_size</code> from the input/output mappings (the outermost non-direct-cast boundary) and rejects any user-supplied value that does not match.</p>
@@ -747,7 +799,7 @@ The compiler also derives the expected <code>ring_size</code> from the input/out
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

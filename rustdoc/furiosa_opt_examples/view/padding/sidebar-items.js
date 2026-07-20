@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["view_padding"],"struct":["A","B","ViewPadding"]};
+window.SIDEBAR_ITEMS = {"constant":["view_padding"],"struct":["A","B","__furiosa_opt_view_padding"]};

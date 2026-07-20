@@ -15,8 +15,8 @@
         <link rel="icon" href="favicon-de23e50b.svg">
         <link rel="shortcut icon" href="favicon-8114d1fc.png">
         <link rel="stylesheet" href="css/variables-8adf115d.css">
-        <link rel="stylesheet" href="css/general-0392ca55.css">
-        <link rel="stylesheet" href="css/chrome-fc474251.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
         <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-bf8d000f.js"></script>
+        <script src="toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -239,7 +239,7 @@ fn fc2(
 <p>Each FC layer computes a matrix-vector multiplication and then adds a bias.
 FC1 also applies ReLU in the same pass.</p>
 <p>The full timeline of the MNIST kernel looks like this:</p>
-<p><img src="images/scheduler-mnist-full-timeline.png" alt="MNIST full timeline"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/scheduler-mnist-full-timeline.png" alt="MNIST full timeline"><span class="img-wrapper"><img src="images/scheduler-mnist-full-timeline.png" alt="MNIST full timeline"></span></label></p>
 <h3 id="execution-contexts"><a class="header" href="#execution-contexts">Execution Contexts</a></h3>
 <p>The hardware exposes three <a href="./computing-tensors/index.html#execution-context">execution contexts</a>:</p>
 <ul>
@@ -247,28 +247,28 @@ FC1 also applies ReLU in the same pass.</p>
 <li><strong>Sub</strong> context (<code>ctx.sub</code>) drives a subset of the Tensor Unit pipeline, commonly used to preload operands into TRF / VRF.</li>
 <li><strong>DMA</strong> context (<code>ctx.tdma</code>) drives the DMA Engine, moving tensors between HBM, DM, and other memory tiers.</li>
 </ul>
-<p><img src="images/scheduler-mnist-contexts.png" alt="MNIST timeline contexts"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/scheduler-mnist-contexts.png" alt="MNIST timeline contexts"><span class="img-wrapper"><img src="images/scheduler-mnist-contexts.png" alt="MNIST timeline contexts"></span></label></p>
 <p>Operations in the same context run sequentially, but operations in different contexts can run in parallel.
 For example, the main context executes MNIST operations sequentially, while the DMA context loads data from memory concurrently.</p>
-<p><img src="images/scheduler-mnist-dma-waits-for-main.png" alt="MNIST DMA context waits for main context"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/scheduler-mnist-dma-waits-for-main.png" alt="MNIST DMA context waits for main context"><span class="img-wrapper"><img src="images/scheduler-mnist-dma-waits-for-main.png" alt="MNIST DMA context waits for main context"></span></label></p>
 <p>However, reads and writes to the same memory address can create <a href="#memory-allocation">memory dependencies</a>, forcing dependent operations to wait.
 In the image above, the DMA context reads a tensor produced by the main context, so the store can begin only after the main context finishes writing that tensor.</p>
 <p>Different contexts also cannot use the same scheduling resource at the same time.
 For example, if both main and sub need the <a href="./computing-tensors/vector-engine/index.html">Vector Engine</a>, one waits while the other uses it.</p>
 <h3 id="operation-order"><a class="header" href="#operation-order">Operation Order</a></h3>
-<p><img src="images/scheduler-mnist-reordered-operations.png" alt="MNIST timeline with reordered operations"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/scheduler-mnist-reordered-operations.png" alt="MNIST timeline with reordered operations"><span class="img-wrapper"><img src="images/scheduler-mnist-reordered-operations.png" alt="MNIST timeline with reordered operations"></span></label></p>
 <p>Operations can be reordered if this yields a better execution schedule.
 For example, unlike the written order in the vISA code, the bias transpose is performed before the matmul.</p>
 <blockquote class="blockquote-tag blockquote-tag-note">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
 <p>This occurs because fetching the input of size <code>H * X</code> takes the most time.
 By computing the bias first, the scheduler overlaps this operation with the input fetch, effectively reducing the initial idle wait time.</p>
-<p><img src="images/scheduler-mnist-input-fetch-timeline.png" alt="MNIST timeline when fetching inputs"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/scheduler-mnist-input-fetch-timeline.png" alt="MNIST timeline when fetching inputs"><span class="img-wrapper"><img src="images/scheduler-mnist-input-fetch-timeline.png" alt="MNIST timeline when fetching inputs"></span></label></p>
 <p>You can see the long input load in the DMA context is paired with the long FC2 bias preparation in the main context, reducing the idle wait time.</p>
 </blockquote>
 <p>Operations are never reordered if doing so would violate a <a href="#memory-allocation">memory dependency</a>.</p>
 <h2 id="memory-allocation"><a class="header" href="#memory-allocation">Memory Allocation</a></h2>
-<p><img src="images/scheduler-mnist-memory-hierarchy.png" alt="MNIST input data moving up the memory hierarchy"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/scheduler-mnist-memory-hierarchy.png" alt="MNIST input data moving up the memory hierarchy"><span class="img-wrapper"><img src="images/scheduler-mnist-memory-hierarchy.png" alt="MNIST input data moving up the memory hierarchy"></span></label></p>
 <p>The Tensor Unit cannot compute directly on tensors residing in HBM.
 Instead, tensors must be explicitly moved up the <a href="./quick-start.html#memory-tiers">memory tiers</a>, which are shared across all contexts.</p>
 <p>When writing in vISA, you should explicitly specify the target memory tier and exact address for every tensor movement.
@@ -289,7 +289,7 @@ let mut trf = ctx.sub
     .begin(weights[0].view())
     .fetch::&lt;...&gt;()
     .collect::&lt;...&gt;()
-    .to_trf(TrfAddress::FirstHalf);
+    .to_trf_at(TrfAddress::FirstHalf);
 
 for i in 0..N {
     // While main reads the current half, sub preloads the next batch into the other half.
@@ -299,7 +299,7 @@ for i in 0..N {
             .begin(weights[i + 1].view())
             .fetch::&lt;...&gt;()
             .collect::&lt;...&gt;()
-            .to_trf(other_half)
+            .to_trf_at(other_half)
     });
 
     ctx.main.begin(input[i].view()).contract_outer::&lt;...&gt;(&amp;trf)...;
@@ -358,7 +358,7 @@ for i in 0..N {
 
         <script src="clipboard-1626706a.min.js"></script>
         <script src="highlight-abc7f01d.js"></script>
-        <script src="book-c22b7243.js"></script>
+        <script src="book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="mermaid-eefea253.min.js"></script>

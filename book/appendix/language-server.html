@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -220,23 +220,23 @@ Defaults to <code>rust-analyzer</code> in <code>PATH</code>.</li>
 <h3 id="call-hierarchy"><a class="header" href="#call-hierarchy">Call Hierarchy</a></h3>
 <p>Provides incoming and outgoing call hierarchy views.
 Function details shown in hierarchy entries are converted into mapping expressions.</p>
-<p><img src="images/language-server-call-hierarchy.png" alt="Call Hierarchy Demo"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/language-server-call-hierarchy.png" alt="Call Hierarchy Demo"><span class="img-wrapper"><img src="images/language-server-call-hierarchy.png" alt="Call Hierarchy Demo"></span></label></p>
 <h3 id="code-actions"><a class="header" href="#code-actions">Code Actions</a></h3>
 <p>Provides quick fixes, refactors, and other editor actions.
 Action title and text edits are converted into mapping expressions.</p>
-<p><img src="images/language-server-code-action.webp" alt="Code Action Demo"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/language-server-code-action.webp" alt="Code Action Demo"><span class="img-wrapper"><img src="images/language-server-code-action.webp" alt="Code Action Demo"></span></label></p>
 <h3 id="code-completions"><a class="header" href="#code-completions">Code Completions</a></h3>
 <p>Provides completion items for names, methods, functions, types, and snippets.
 Completion labels, detail text, and text edits are converted into mapping expressions.</p>
-<p><img src="images/language-server-code-completions.png" alt="Code Completions Demo"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/language-server-code-completions.png" alt="Code Completions Demo"><span class="img-wrapper"><img src="images/language-server-code-completions.png" alt="Code Completions Demo"></span></label></p>
 <h3 id="diagnostics"><a class="header" href="#diagnostics">Diagnostics</a></h3>
 <p>Provides diagnostics from <code>rust-analyzer</code> and <code>rustc</code>.
 Diagnostic messages and related information are converted into mapping expressions.</p>
-<p><img src="images/language-server-diagnostics.png" alt="Diagnostics Demo"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/language-server-diagnostics.png" alt="Diagnostics Demo"><span class="img-wrapper"><img src="images/language-server-diagnostics.png" alt="Diagnostics Demo"></span></label></p>
 <h3 id="hover"><a class="header" href="#hover">Hover</a></h3>
 <p>Shows additional information when hovering over a symbol.
 Hover contents such as inferred types, function signatures, and documentation are converted into mapping expressions.</p>
-<p><img src="images/language-server-hover.png" alt="Hover Demo"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/language-server-hover.png" alt="Hover Demo"><span class="img-wrapper"><img src="images/language-server-hover.png" alt="Hover Demo"></span></label></p>
 <h3 id="inlay-hints"><a class="header" href="#inlay-hints">Inlay Hints</a></h3>
 <p>Shows additional information inline with the source code.
 Inlay hints are converted into mapping expressions.</p>
@@ -245,11 +245,11 @@ Inlay hints are converted into mapping expressions.</p>
 <p>For the most accurate conversion, set <a href="https://rust-analyzer.github.io/book/configuration.html#inlayHints.maxLength"><code>rust-analyzer.inlayHints.maxLength</code></a> to <code>null</code> (unlimited length).
 This reduces how often long inlay hints are truncated into ‘_’.</p>
 </blockquote>
-<p><img src="images/language-server-inlay-hints.png" alt="Inlay Hints Demo"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/language-server-inlay-hints.png" alt="Inlay Hints Demo"><span class="img-wrapper"><img src="images/language-server-inlay-hints.png" alt="Inlay Hints Demo"></span></label></p>
 <h3 id="signature-help"><a class="header" href="#signature-help">Signature Help</a></h3>
 <p>Shows function signatures and the active parameter while writing a call.
 Signature labels, parameter labels, and documentation are rewritten to use mapping notation, including offset-based parameter labels returned by LSP clients.</p>
-<p><img src="images/language-server-signature-help.webp" alt="Signature Help Demo"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/language-server-signature-help.webp" alt="Signature Help Demo"><span class="img-wrapper"><img src="images/language-server-signature-help.webp" alt="Signature Help Demo"></span></label></p>
 <h2 id="caveats"><a class="header" href="#caveats">Caveats</a></h2>
 <p>The language server may incorrectly interpret user-defined types as mapping expressions if they share names with internal mapping components.
 For instance, if you define a custom <code>Symbol&lt;T&gt;</code> struct, the language server might mistakenly display it as <code>m![T]</code> in your IDE.
@@ -259,7 +259,7 @@ This is purely a UI display issue and does not affect the other LSP behaviors.</
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../appendix/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../appendix/cargo-furiosa-opt.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -273,7 +273,7 @@ This is purely a UI display issue and does not affect the other LSP behaviors.</
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../appendix/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../appendix/cargo-furiosa-opt.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
@@ -303,7 +303,7 @@ This is purely a UI display issue and does not affect the other LSP behaviors.</
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

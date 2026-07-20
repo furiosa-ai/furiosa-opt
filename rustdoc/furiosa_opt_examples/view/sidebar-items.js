@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["padding","simpl"]};
+window.SIDEBAR_ITEMS = {"mod":["nested","padding","simpl"]};

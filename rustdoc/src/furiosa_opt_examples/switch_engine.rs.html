@@ -14,7 +14,7 @@
 <a href=#14 id=14 data-nosnippet>14</a>    ctx: <span class="kw-2">&amp;mut </span>Context,
 <a href=#15 id=15 data-nosnippet>15</a>    input: <span class="kw-2">&amp;</span>HbmTensor&lt;bf16, Chip, <span class="macro">m!</span>[A, B, V]&gt;,
 <a href=#16 id=16 data-nosnippet>16</a>) -&gt; HbmTensor&lt;bf16, Chip, <span class="macro">m!</span>[A, Y, B, V]&gt; {
-<a href=#17 id=17 data-nosnippet>17</a>    <span class="kw">let </span>dm: DmTensor&lt;bf16, Chip, Cluster, Slice, <span class="macro">m!</span>[B, V]&gt; = input.to_dm::&lt;Cluster, Slice, <span class="macro">m!</span>[B, V]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0</span>);
+<a href=#17 id=17 data-nosnippet>17</a>    <span class="kw">let </span>dm: DmTensor&lt;bf16, Chip, Cluster, Slice, <span class="macro">m!</span>[B, V]&gt; = input.to_dm::&lt;Cluster, Slice, <span class="macro">m!</span>[B, V]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#18 id=18 data-nosnippet>18</a>
 <a href=#19 id=19 data-nosnippet>19</a>    <span class="kw">let </span>result: DmTensor&lt;bf16, Chip, Cluster, OutSlice, <span class="macro">m!</span>[B, V]&gt; = ctx
 <a href=#20 id=20 data-nosnippet>20</a>        .main
@@ -23,8 +23,8 @@
 <a href=#23 id=23 data-nosnippet>23</a>        .switch::&lt;OutSlice, <span class="macro">m!</span>[B]&gt;(SwitchConfig::CustomBroadcast { ring_size: <span class="number">4 </span>})
 <a href=#24 id=24 data-nosnippet>24</a>        .collect::&lt;<span class="macro">m!</span>[B], <span class="macro">m!</span>[V]&gt;()
 <a href=#25 id=25 data-nosnippet>25</a>        .commit_trim::&lt;<span class="macro">m!</span>[V]&gt;()
-<a href=#26 id=26 data-nosnippet>26</a>        .commit(<span class="number">0x1000</span>);
+<a href=#26 id=26 data-nosnippet>26</a>        .commit();
 <a href=#27 id=27 data-nosnippet>27</a>
-<a href=#28 id=28 data-nosnippet>28</a>    result.to_hbm::&lt;<span class="macro">m!</span>[A, Y, B, V]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x4000</span>)
+<a href=#28 id=28 data-nosnippet>28</a>    result.to_hbm::&lt;<span class="macro">m!</span>[A, Y, B, V]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma)
 <a href=#29 id=29 data-nosnippet>29</a>}
 </code></pre></div></section></main></body></html>

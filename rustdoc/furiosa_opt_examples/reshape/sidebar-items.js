@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["reshape"],"mod":["different_axes"],"struct":["A","B","C","D","E","F","G","H","I","Reshape"]};
+window.SIDEBAR_ITEMS = {"constant":["reshape"],"mod":["different_axes"],"struct":["A","B","C","D","E","F","G","H","I","__furiosa_opt_reshape"]};

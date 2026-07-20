@@ -16,10 +16,10 @@
 <a href=#16 id=16 data-nosnippet>16</a>    out: DmTensorViewMut&lt;<span class="lifetime">'_</span>, i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">8 </span># <span class="number">256</span>], <span class="macro">m!</span>[B, A % <span class="number">8</span>]&gt;,
 <a href=#17 id=17 data-nosnippet>17</a>) {
 <a href=#18 id=18 data-nosnippet>18</a>    <span class="comment">// Load lhs into DM (mainstream data)
-<a href=#19 id=19 data-nosnippet>19</a>    </span><span class="kw">let </span>lhs_dm = lhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">8 </span># <span class="number">256</span>], <span class="macro">m!</span>[B, A % <span class="number">8</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0</span>);
+<a href=#19 id=19 data-nosnippet>19</a>    </span><span class="kw">let </span>lhs_dm = lhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">8 </span># <span class="number">256</span>], <span class="macro">m!</span>[B, A % <span class="number">8</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#20 id=20 data-nosnippet>20</a>
 <a href=#21 id=21 data-nosnippet>21</a>    <span class="comment">// Load rhs into DM
-<a href=#22 id=22 data-nosnippet>22</a>    </span><span class="kw">let </span>rhs_dm = rhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">8 </span># <span class="number">256</span>], <span class="macro">m!</span>[B]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">512</span>);
+<a href=#22 id=22 data-nosnippet>22</a>    </span><span class="kw">let </span>rhs_dm = rhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">8 </span># <span class="number">256</span>], <span class="macro">m!</span>[B]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#23 id=23 data-nosnippet>23</a>
 <a href=#24 id=24 data-nosnippet>24</a>    <span class="comment">// Prepare rhs data for VRF by committing to DM first
 <a href=#25 id=25 data-nosnippet>25</a>    </span><span class="kw">let </span>rhs_vrf: VrfTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">8 </span># <span class="number">256</span>], <span class="macro">m!</span>[B]&gt; = ctx
@@ -28,7 +28,7 @@
 <a href=#28 id=28 data-nosnippet>28</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[B]&gt;()
 <a href=#29 id=29 data-nosnippet>29</a>        .fetch_cast::&lt;i32&gt;()
 <a href=#30 id=30 data-nosnippet>30</a>        .collect::&lt;<span class="macro">m!</span>[B / <span class="number">8</span>], <span class="macro">m!</span>[B % <span class="number">8</span>]&gt;()
-<a href=#31 id=31 data-nosnippet>31</a>        .to_vrf(<span class="number">0</span>);
+<a href=#31 id=31 data-nosnippet>31</a>        .to_vrf();
 <a href=#32 id=32 data-nosnippet>32</a>
 <a href=#33 id=33 data-nosnippet>33</a>    <span class="comment">// Perform addition: lhs_dm + rhs_vrf using vector engine
 <a href=#34 id=34 data-nosnippet>34</a>    </span>ctx.main
@@ -57,6 +57,6 @@
 <a href=#57 id=57 data-nosnippet>57</a>    vrf_add_kernel(ctx, lhs.view(), rhs.view(), result.view_mut());
 <a href=#58 id=58 data-nosnippet>58</a>
 <a href=#59 id=59 data-nosnippet>59</a>    <span class="comment">// Write result back to HBM
-<a href=#60 id=60 data-nosnippet>60</a>    </span>result.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x3000</span>)
+<a href=#60 id=60 data-nosnippet>60</a>    </span>result.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma)
 <a href=#61 id=61 data-nosnippet>61</a>}
 </code></pre></div></section></main></body></html>

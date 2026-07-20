@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -180,14 +180,15 @@
 <p>The Fetch Adapter applies element-wise transformations (type casting, masking, table lookup, zero-point subtraction) to the packet stream emitted by the <a href="../moving-tensors/fetch-engine.html">Fetch Engine</a>, before the <a href="./switch-engine.html">Switch Engine</a> routes it across slices.
 The Fetch Engine itself does not run any of these transforms; they live here under Computing Tensors and are applied as separate stages between the Fetch Engine and the Switch Engine.
 The kernel writer composes the per-stage methods directly on a <code>FetchTensor</code>, and each call advances to the next stage.</p>
-<p>The adapter has three stages, each optional and invoked by calling its method on the stream in hardware pipeline order.
+<p>The adapter has four stages, each optional and invoked by calling its method on the stream in hardware pipeline order.
 A <code>FetchTensor</code> may flow directly into the <a href="./switch-engine.html">Switch Engine</a> or the <a href="./collect-engine.html">Collect Engine</a> with no adapter call at all.</p>
 <ul>
 <li><a href="#masking">Masking</a> zeros the padded slots of the sequencer’s right pad.</li>
 <li><a href="#table-lookup">Table Lookup</a> replaces values via a hardware lookup table.</li>
-<li><a href="#type-casting">Type Casting</a> converts the element type, and for some quantized inputs also subtracts a zero-point in the same call.</li>
+<li><a href="#type-casting">Type Casting</a> converts the element type.</li>
+<li><a href="#zero-point-subtraction">Zero-Point Subtraction</a> subtracts a quantization zero point, widening an integer stream to the <a href="./contraction-engine/index.html">Contraction Engine</a>’s staging type (<code>i4</code> to <code>i5</code>, <code>i8</code> to <code>i9</code>).</li>
 </ul>
-<p>The <a href="./index.html#execution-context">main-context</a> adapter supports all three stages, while the <a href="./index.html#execution-context">sub-context</a> adapter supports only <code>fetch_cast</code> (which covers both type casting and the folded-in zero-point subtraction).</p>
+<p>The <a href="./index.html#execution-context">main-context</a> adapter supports all four stages, while the <a href="./index.html#execution-context">sub-context</a> adapter supports only <code>fetch_cast</code>.</p>
 <p>The example below pads 63 elements to 64, masks the 64th slot to zero, then casts <code>i8</code> → <code>i32</code>.
 The two stages are chained as two method calls on the <code>FetchTensor</code> produced by <code>fetch()</code>, in the mask → cast order matching the hardware pipeline.</p>
 <pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
@@ -209,7 +210,7 @@ fn fetch_mask_then_cast&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_mask_then_cast(x);</span></code></pre>
 <h2 id="masking"><a class="header" href="#masking">Masking</a></h2>
 <p>The Tensor Unit’s internal data paths operate on fixed-width units (32-byte flits of 8 elements at 32 bits each), so axes whose sizes do not align must be padded (for example, 63 rounds up to 64).
@@ -223,9 +224,8 @@ Masking overwrites those slots with zero, tightening the mapping from <code>A # 
     /// Zeroes the padded slots described by the book chapter. `OutTime`
     /// and `OutPacket` carry the pad-kind change at the type level (e.g.
     /// `m![D # n]` → `m![D #{0} n]`). Callers spell them out explicitly
-    /// because downstream methods do not constrain their input shape. The
-    /// hardware masking config is derived by the compiler, so this method
-    /// takes no runtime argument (see [`FetchMaskConfig`]).
+    /// because downstream methods do not constrain their input shape. This
+    /// method takes no runtime argument (see [`FetchMaskConfig`]).
     #[primitive(TuTensor::fetch_mask)]
     pub fn fetch_mask&lt;OutTime: M, OutPacket: M&gt;(
         self,
@@ -257,10 +257,10 @@ fn fetch_mask_contiguous_right&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_mask_contiguous_right(x);</span></code></pre>
 <p>The diagram below shows the intent: the chunk axis <code>B # 96 / 32</code> carries the pad, and the mask zeroes its last 4 slots.</p>
-<p><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"><span class="img-wrapper"><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"></span></label></p>
 <p>From the input and output mappings the compiler emits these sequencer loops (innermost first):</p>
 <pre><code class="language-text">[
     B # 96 % 32 = 32 : 1,    // loop 0: packet axis
@@ -296,10 +296,10 @@ fn fetch_mask_split_right&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_mask_split_right(x);</span></code></pre>
 <p>The diagram below shows the intent: <code>A</code> now sits between <code>B # 96 / 32</code> and <code>B # 96 % 32</code>, so the pad lives on the innermost packet axis instead of an outer chunk axis.</p>
-<p><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"><span class="img-wrapper"><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"></span></label></p>
 <p>The compiler emits these sequencer loops:</p>
 <pre><code class="language-text">[
     B # 96 % 32 = 32 : 1,    // loop 0: packet axis (carries the pad)
@@ -336,10 +336,10 @@ fn fetch_mask_variable_per_chunk&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, f32, m![1], m![1], m![1], m![1], m![A, B # 128]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let x: BeginTensor&lt;'_, _, f32, m![1], m![1], m![1], m![1], m![A, B # 128]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_mask_variable_per_chunk(x);</span></code></pre>
 <p>The diagram below shows the intent: 8 chunks each get their own valid count, so the per-chunk cap no longer constrains the pad.</p>
-<p><img src="images/fetch-adapter-padding-3.png" alt="PADDING_3"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-3.png" alt="PADDING_3"><span class="img-wrapper"><img src="images/fetch-adapter-padding-3.png" alt="PADDING_3"></span></label></p>
 <p>The compiler emits these sequencer loops:</p>
 <pre><code class="language-text">[
     B # 128 % 16 = 16 : 1,    // loop 0: packet axis
@@ -377,7 +377,7 @@ fn fetch_mask_contiguous_left_right&lt;'l, const T: Tu&gt;(
         .fetch_mask::&lt;m![A, (#{0} 2 + B) #{0} 96 / 32], m![(#{0} 2 + B) #{0} 96 % 32]&gt;()
 }</code></pre>
 <p>The diagram below shows the intent.</p>
-<p><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"><span class="img-wrapper"><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"></span></label></p>
 <p>The sequencer shape matches the contiguous-right case, but the base address shifts:</p>
 <pre><code class="language-text">[
     (# 2 + B) # 96 % 32 = 32 : 1,    // loop 0: packet axis
@@ -410,7 +410,7 @@ fn fetch_mask_split_left_right&lt;'l, const T: Tu&gt;(
         .fetch_mask::&lt;m![(#{0} 2 + B) #{0} 96 / 32, A], m![(#{0} 2 + B) #{0} 96 % 32]&gt;()
 }</code></pre>
 <p>The diagram below shows the intent.</p>
-<p><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"><span class="img-wrapper"><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"></span></label></p>
 <p>The sequencer shape matches the split-right case, but the base address shifts:</p>
 <pre><code class="language-text">[
     (# 2 + B) # 96 % 32 = 32 : 1,    // loop 0: packet axis (carries both pads)
@@ -476,9 +476,19 @@ fn fetch_with_table&lt;'l, const T: Tu&gt;(
 <h2 id="type-casting"><a class="header" href="#type-casting">Type Casting</a></h2>
 <p><code>fetch_cast::&lt;OutD&gt;()</code> converts the element type from <code>D</code> to <code>OutD</code>, preserving the <code>Time</code> and <code>Packet</code> mapping.
 Type casting adds 1 to 2 cycles of latency.
-For asymmetrically quantized inputs, the same stage can subtract a zero-point offset alongside the type conversion, so a single <code>fetch_cast</code> call covers both transforms.</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyFetchCast, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
-    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+<code>fetch_cast</code> performs only the type conversion; the integer widenings that hold a zero-point offset (<code>i4</code> to <code>i5</code>, <code>i8</code> to <code>i9</code>) are a separate stage, <a href="#zero-point-subtraction">Zero-Point Subtraction</a>, so <code>fetch_cast</code> never produces an <code>i5</code>/<code>i9</code>.</p>
+<pre><code class="language-rust ignore">impl&lt;
+    'l,
+    const T: Tu,
+    P: CanApplyFetchCast,
+    D: MaterializableScalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Runs the Fetch Adapter's type-casting stage.
     ///
@@ -489,38 +499,24 @@ For asymmetrically quantized inputs, the same stage can subtract a zero-point of
     where
         D: FetchCast&lt;OutD&gt;,
     {
-        FetchCastTensor::new(self.ctx, self.inner.map(|v| v.map(|v| v.cast())))
+        FetchCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
     }
 }</code></pre>
-<p>RNGD supports the following conversions:</p>
+<p>RNGD supports the following <code>fetch_cast</code> conversions (the <code>i4</code> to <code>i5</code> and <code>i8</code> to <code>i9</code> widenings are <a href="#zero-point-subtraction">Zero-Point Subtraction</a>, not type casts):</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Input</th><th>Output</th></tr>
 </thead>
 <tbody>
-<tr><td><code>i4</code></td><td><code>i5</code>, <code>i32</code></td></tr>
-<tr><td><code>i8</code></td><td><code>i9</code>, <code>i32</code></td></tr>
+<tr><td><code>i4</code></td><td><code>i32</code></td></tr>
+<tr><td><code>i8</code></td><td><code>i32</code></td></tr>
 <tr><td><code>i16</code></td><td><code>i32</code></td></tr>
 <tr><td><code>f8e4m3</code></td><td><code>f32</code></td></tr>
 <tr><td><code>f8e5m2</code></td><td><code>f32</code></td></tr>
 <tr><td><code>bf16</code></td><td><code>f32</code></td></tr>
 <tr><td><code>f16</code></td><td><code>f32</code></td></tr>
 <tr><td><code>f32</code></td><td><code>bf16</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>RNGD-S supports the following additional type conversions:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Input</th><th>Output</th></tr>
-</thead>
-<tbody>
-<tr><td><code>i4</code></td><td><code>i9</code></td></tr>
-<tr><td><code>i16</code></td><td><code>i9</code></td></tr>
-<tr><td><code>f8e4m3</code></td><td><code>bf16</code></td></tr>
-<tr><td><code>f8e5m2</code></td><td><code>bf16</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -541,7 +537,7 @@ fn fetch_with_type_cast&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_with_type_cast(x);</span></code></pre>
 <p>Type casting adds an additional limit on <code>read_size</code>.
 The cast output per fetch must fit in a single 32-byte flit (see <a href="./collect-engine.html">Collect Engine</a>).</p>
@@ -559,6 +555,77 @@ The cast output per fetch must fit in a single 32-byte flit (see <a href="./coll
 </ul>
 </li>
 </ul>
+<h2 id="zero-point-subtraction"><a class="header" href="#zero-point-subtraction">Zero-Point Subtraction</a></h2>
+<p><code>fetch_zero_point_sub::&lt;OutD&gt;(zero_point)</code> subtracts the quantization <code>zero_point</code> from each element and widens the stream to the <a href="./contraction-engine/index.html">Contraction Engine</a>’s staging type: <code>i4</code> to <code>i5</code>, <code>i8</code> to <code>i9</code>.
+It is the only stage that produces an <code>i5</code>/<code>i9</code>.</p>
+<pre><code class="language-rust ignore">impl&lt;
+    'l,
+    const T: Tu,
+    P: CanApplyFetchZeroPointSub,
+    D: MaterializableScalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+{
+    /// Runs the Fetch Adapter's zero-point-subtraction stage.
+    ///
+    /// Subtracts `zero_point` and widens the stream from `D` to its contraction-engine staging
+    /// type `OutD` (`i4 -&gt; i5`, `i8 -&gt; i9`), the only way to produce an i5/i9
+    /// stream. The result may only feed `contract_outer`; it is not
+    /// [`MaterializableScalar`], so committing or re-routing it is a compile
+    /// error. The mapping shape is preserved.
+    ///
+    /// Panics if `zero_point` is outside the source type's range
+    /// ([`FetchZeroPointSub::ZERO_POINT_RANGE`]); a zero point in range keeps
+    /// every widened residual within `OutD`, so this one check (independent of
+    /// the stream data) is enough.
+    #[primitive(TuTensor::fetch_zero_point_sub)]
+    pub fn fetch_zero_point_sub&lt;OutD: Scalar&gt;(
+        self,
+        zero_point: i32,
+    ) -&gt; FetchZeroPointSubTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
+    where
+        D: FetchZeroPointSub&lt;OutD&gt;,
+    {
+        let zero_point_range = &lt;D as FetchZeroPointSub&lt;OutD&gt;&gt;::ZERO_POINT_RANGE;
+        assert!(
+            zero_point_range.contains(&amp;zero_point),
+            "zero_point {zero_point} is outside the source type's quantized range {zero_point_range:?}",
+        );
+        FetchZeroPointSubTensor::new(self.ctx, self.inner.map(|v| v.zero_point_sub(zero_point)))
+    }
+}</code></pre>
+<h3 id="why-the-extra-bit"><a class="header" href="#why-the-extra-bit">Why the extra bit</a></h3>
+<p>Subtracting the zero point turns an unsigned-around-<code>zero_point</code> quantized value into a signed residual whose range no longer fits the input width.
+For a symmetric-signed input the residual is a difference of two same-width values:</p>
+<ul>
+<li><code>i4</code> residual: <code>[-8, 7] - [-8, 7] = [-15, 15]</code>, which needs <code>i5</code>’s <code>[-16, 15]</code>.</li>
+<li><code>i8</code> residual: <code>[-128, 127] - [-128, 127] = [-255, 255]</code>, which needs <code>i9</code>’s <code>[-256, 255]</code>.</li>
+</ul>
+<p>The subtraction therefore produces one more bit than it consumes. The conversion checks this at runtime: a residual outside the <code>i5</code>/<code>i9</code> range (an out-of-range <code>zero_point</code> or input) is rejected rather than silently wrapped.</p>
+<h3 id="contraction-engine-specification"><a class="header" href="#contraction-engine-specification">Contraction Engine specification</a></h3>
+<p><code>i5</code> and <code>i9</code> exist only as Contraction Engine operands. The engine multiplies operand pairs drawn from the same integer precision family and accumulates in <code>i32</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stream (activation)</th><th>Weight (TRF)</th><th>Accumulator</th></tr>
+</thead>
+<tbody>
+<tr><td><code>i4</code> or <code>i5</code></td><td><code>i4</code> or <code>i5</code></td><td><code>i32</code></td></tr>
+<tr><td><code>i8</code> or <code>i9</code></td><td><code>i8</code> or <code>i9</code></td><td><code>i32</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>Either operand may be the raw form (<code>i4</code>/<code>i8</code>) or its zero-point-subtracted staging (<code>i5</code>/<code>i9</code>); the two operands need not match within a family, but they may not cross families (no <code>i4</code> against <code>i8</code>) or kinds (no integer against float).
+Floating-point contraction pairs (<code>bf16</code>, <code>f8e4m3</code>, <code>f8e5m2</code>) must match exactly and are never zero-point-subtracted.</p>
+<h3 id="staging-is-contraction-only"><a class="header" href="#staging-is-contraction-only">Staging is contraction-only</a></h3>
+<p>An <code>i5</code>/<code>i9</code> stream may flow through the <a href="./switch-engine.html">Switch Engine</a> and <a href="./collect-engine.html">Collect Engine</a>, but from there its <strong>only</strong> legal consumer is <code>contract_outer</code>.
+It cannot be committed to memory, stored to a register file (<code>to_trf</code>/<code>to_vrf</code>), transposed, or fed to any other engine.</p>
+<p>This restriction is enforced at compile time, not by a runtime check: passing an <code>i5</code>/<code>i9</code> stream to any consumer other than <code>contract_outer</code> is a compile error.</p>
 
                     </main>
 
@@ -608,7 +675,7 @@ The cast output per fetch must fit in a single 32-byte flit (see <a href="./coll
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-bf8d000f.js"></script>
+        <script src="../../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -192,11 +192,9 @@
         self,
     ) -&gt; ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, OutTime, Packet, B&gt; {
         verify_contract_time(Time::to_value(), OutTime::to_value());
-        ContractTimeTensor {
-            ctx: self.ctx,
-            inner: self.inner.reduce_add(),
-            pre_reduce_time: Time::to_value(),
-        }
+        // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
+        // performs this Time reduction too. This stage only re-types the carrier to `OutTime`.
+        ContractTimeTensor::new(self.ctx, self.inner, Time::to_value())
     }
 }</code></pre>
 <p>For example, the kernel below reduces a 2D tensor along <code>B</code> (surviving only <code>A</code>).</p>
@@ -205,31 +203,37 @@
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 2048, B = 8];
+</span>axes![A = 2048, B = 32];
 
 /// Reduces along B; A survives.
 fn reduce_b&lt;'l, const T: Tu&gt;(
     // Streaming operand: Slice = m![A / 8] (256 outer A chunks across slices).
-    // Time = m![B / 4, A % 8]; Packet = m![B % 4].
-    // B splits across Packet (B % 4) and Time (B / 4): each cycle produces a partial sum.
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1], m![A / 8], m![B / 4, A % 8], m![B % 4]&gt;,
+    // Time = m![B / 16, A % 8]; Packet = m![B % 16].
+    // B splits across Packet (B % 16) and Time (B / 16): each cycle produces a partial sum.
+    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt;,
     // TRF operand: single-lane weight per slice.
-    trf: &amp;TrfTensor&lt;bf16, m![1], m![1], m![A / 8], m![1], m![B]&gt;,
+    trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt;,
     // Output: one f32 per (slice, A % 8) cell.
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1], m![A / 8], m![A % 8], m![1]&gt; {
+) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A / 8], m![A % 8], m![1 # 8]&gt; {
     input
-         // Outer: Lane = m![1], OutTime = m![B / 4, A % 8], OutPacket = m![B % 4].
-         .contract_outer::&lt;m![B / 4, A % 8], m![B % 4], _, _&gt;(trf)
-         // Packet Reducer: OutPacket = m![1]. Collapses B % 4 spatially.
+         // Outer: Lane = m![1], OutTime = m![B / 16, A % 8], OutPacket = m![B % 16].
+         .contract_outer::&lt;m![B / 16, A % 8], m![B % 16], _, _, _&gt;(trf)
+         // Packet Reducer: OutPacket = m![1]. Collapses B % 16 spatially.
          .contract_packet::&lt;m![1]&gt;()
          // Time Reducer: OutTime = m![A % 8]. Accumulator receives
-         // Time::SIZE = (B / 4) × (A % 8) = 2 × 8 = 16 flits; B / 4 outer
+         // Time::SIZE = (B / 16) × (A % 8) = 2 × 8 = 16 flits; B / 16 outer
          // chunks accumulate into 8 slots indexed by A % 8.
          .contract_time::&lt;m![A % 8]&gt;()
          // Lane Folder: Lane folds into OutPacket. Sequential mode (Lane = m![1]).
-         .contract_lane::&lt;m![A % 8], m![1]&gt;(LaneMode::Sequential)
+         .contract_lane::&lt;m![A % 8], m![1 # 8]&gt;(LaneMode::Sequential)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let _o = reduce_b(a, &amp;b);
+</span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
 <p>The Time Reducer receives the Packet Reducer’s per-cycle <code>[Lane, Packet]</code> output.
 The hardware caps <code>Lane::SIZE ≤ 8</code> (spatially parallel lanes) and <code>Packet::SIZE ≤ 32</code> upstream.</p>
@@ -331,7 +335,7 @@ The effective output rate is <code>1 / N</code> of the input after reducing <cod
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-c22b7243.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

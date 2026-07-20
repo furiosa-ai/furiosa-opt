@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["invalid_cluster_size","valid_cluster_size"],"struct":["InvalidClusterSize","ValidClusterSize"]};
+window.SIDEBAR_ITEMS = {"constant":["valid_cluster_size"],"struct":["__furiosa_opt_valid_cluster_size"]};

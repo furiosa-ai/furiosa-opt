@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,8 +181,19 @@
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p><code>CollectTensor</code> and <code>VectorFinalTensor</code> both expose <code>.transpose()</code>.
 The <code>VectorFinalTensor</code> entry point feeds the Transpose Engine directly from the Vector Engine output.</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyTranspose, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
-    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">// `D: MaterializableScalar` (see its doc) excludes i5/i9 stagings from transpose.
+impl&lt;
+    'l,
+    const T: Tu,
+    P: CanApplyTranspose,
+    D: MaterializableScalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Performs the transpose operation.
     #[primitive(TuTensor::transpose)]
@@ -204,11 +215,16 @@ It is reused as the running example throughout the rest of this page.</p>
 </span>axes![P = 256, B = 2, C = 8, D = 2, E = 8];
 
 fn basic_transpose&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i8, m![1], m![1], m![P], m![B, C, D], m![E # 32]&gt;,
-) -&gt; TransposeTensor&lt;'l, T, i8, m![1], m![1], m![P], m![B, D, E], m![C # 32]&gt; {
+    input: CollectTensor&lt;'l, T, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt;,
+) -&gt; TransposeTensor&lt;'l, T, i8, m![1], m![1 # 2], m![P], m![B, D, E], m![C # 32]&gt; {
     input.transpose()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = basic_transpose(c);
+</span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
 <p>The five transpose stages below are illustrated using the running example from <a href="#interface">Interface</a>.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
@@ -287,14 +303,19 @@ With <code>in_flits = 16</code>, <code>out_rows = 16</code>, and <code>n = 2</co
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![P = 64, A = 4, B = 2];
+</span>axes![P = 256, A = 4, B = 2];
 
 fn small_transpose&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i8, m![1], m![1], m![P], m![A], m![B # 32]&gt;,
-) -&gt; TransposeTensor&lt;'l, T, i8, m![1], m![1], m![P], m![B], m![A # 32]&gt; {
+    input: CollectTensor&lt;'l, T, i8, m![1], m![1 # 2], m![P], m![A], m![B # 32]&gt;,
+) -&gt; TransposeTensor&lt;'l, T, i8, m![1], m![1 # 2], m![P], m![B], m![A # 32]&gt; {
     input.transpose()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![A], m![B # 32]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = small_transpose(c);
+</span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
 <table>
@@ -328,11 +349,16 @@ With <code>in_flits = 4</code>, <code>out_rows = 2</code>, and <code>n = 1</code
 </span>axes![P = 256, B = 2, C = 8, D = 4, E = 8];
 
 fn large_col_transpose&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i8, m![1], m![1], m![P], m![B, C, D], m![E # 32]&gt;,
-) -&gt; TransposeTensor&lt;'l, T, i8, m![1], m![1], m![P], m![B, D, E], m![C # 32]&gt; {
+    input: CollectTensor&lt;'l, T, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt;,
+) -&gt; TransposeTensor&lt;'l, T, i8, m![1], m![1 # 2], m![P], m![B, D, E], m![C # 32]&gt; {
     input.transpose()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = large_col_transpose(c);
+</span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
 <table>
@@ -366,11 +392,16 @@ With <code>in_flits = 32</code>, <code>out_rows = 32</code>, and <code>n = 2</co
 </span>axes![P = 256, C = 8, D = 4, E = 8];
 
 fn bf16_transpose&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1], m![P], m![C, D], m![E # 16]&gt;,
-) -&gt; TransposeTensor&lt;'l, T, bf16, m![1], m![1], m![P], m![C, E], m![D # 16]&gt; {
+    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![P], m![C, D], m![E # 16]&gt;,
+) -&gt; TransposeTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![P], m![C, E], m![D # 16]&gt; {
     input.transpose()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![P], m![C, D], m![E # 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = bf16_transpose(c);
+</span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
 <table>
@@ -404,11 +435,16 @@ With <code>in_flits = 4</code>, <code>out_rows = 8</code>, and <code>n = 8</code
 </span>axes![P = 256, B = 4, C = 16, E = 16];
 
 fn i4_transpose&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i4, m![1], m![1], m![P], m![B, C], m![E # 64]&gt;,
-) -&gt; TransposeTensor&lt;'l, T, i4, m![1], m![1], m![P], m![B, E], m![C # 64]&gt; {
+    input: CollectTensor&lt;'l, T, i4, m![1], m![1 # 2], m![P], m![B, C], m![E # 64]&gt;,
+) -&gt; TransposeTensor&lt;'l, T, i4, m![1], m![1 # 2], m![P], m![B, E], m![C # 64]&gt; {
     input.transpose()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i4, m![1], m![1 # 2], m![P], m![B, C], m![E # 64]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = i4_transpose(c);
+</span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
 <table>
@@ -443,11 +479,16 @@ The wider element drops max <code>in_rows</code> to 2 (2 × 4 bytes = 8 bytes) a
 </span>axes![P = 256, B = 4, D = 2, E = 8];
 
 fn f32_transpose&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, f32, m![1], m![1], m![P], m![B, D], m![E # 8]&gt;,
-) -&gt; TransposeTensor&lt;'l, T, f32, m![1], m![1], m![P], m![B, E], m![D # 8]&gt; {
+    input: CollectTensor&lt;'l, T, f32, m![1], m![1 # 2], m![P], m![B, D], m![E # 8]&gt;,
+) -&gt; TransposeTensor&lt;'l, T, f32, m![1], m![1 # 2], m![P], m![B, E], m![D # 8]&gt; {
     input.transpose()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![1 # 2], m![P], m![B, D], m![E # 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = f32_transpose(c);
+</span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
 <table>
@@ -536,7 +577,7 @@ Both buffers are used together, so input and output add together each iteration.
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

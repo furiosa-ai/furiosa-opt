@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["matmul_with_split_reduce"],"struct":["A","B","I","MatmulWithSplitReduce","X"]};
+window.SIDEBAR_ITEMS = {"constant":["matmul_with_split_reduce"],"struct":["A","B","I","X","__furiosa_opt_matmul_with_split_reduce"]};

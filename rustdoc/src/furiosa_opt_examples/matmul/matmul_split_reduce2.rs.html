@@ -15,13 +15,13 @@
 <a href=#15 id=15 data-nosnippet>15</a>    <span class="kw">type </span>Chip = <span class="macro">m!</span>[<span class="number">1</span>];
 <a href=#16 id=16 data-nosnippet>16</a>    <span class="kw">type </span>Cluster = <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">2</span>];
 <a href=#17 id=17 data-nosnippet>17</a>
-<a href=#18 id=18 data-nosnippet>18</a>    <span class="kw">let </span><span class="kw-2">mut </span>acc: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M], <span class="macro">m!</span>[N]&gt; = acc_zero.to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x0000_0000</span>);
+<a href=#18 id=18 data-nosnippet>18</a>    <span class="kw">let </span><span class="kw-2">mut </span>acc: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M], <span class="macro">m!</span>[N]&gt; = acc_zero.to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#19 id=19 data-nosnippet>19</a>
 <a href=#20 id=20 data-nosnippet>20</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">4 </span>{
 <a href=#21 id=21 data-nosnippet>21</a>        <span class="kw">let </span>t87: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M], <span class="macro">m!</span>[K % <span class="number">128</span>]&gt; = a
 <a href=#22 id=22 data-nosnippet>22</a>            .view()
 <a href=#23 id=23 data-nosnippet>23</a>            .tile::&lt;<span class="macro">m!</span>[K / <span class="number">128</span>], <span class="number">1</span>, <span class="macro">m!</span>[M, <span class="number">1 </span># <span class="number">8</span>, K % <span class="number">128</span>]&gt;(i * <span class="number">2</span>)
-<a href=#24 id=24 data-nosnippet>24</a>            .to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x0000_0100</span>);
+<a href=#24 id=24 data-nosnippet>24</a>            .to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#25 id=25 data-nosnippet>25</a>
 <a href=#26 id=26 data-nosnippet>26</a>        <span class="kw">let </span>t95: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M / <span class="number">8</span>, M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>/ <span class="number">16</span>, K % <span class="number">128 </span>% <span class="number">16</span>]&gt; =
 <a href=#27 id=27 data-nosnippet>27</a>            <span class="kw">unsafe </span>{ t87.reshape() };
@@ -36,11 +36,11 @@
 <a href=#36 id=36 data-nosnippet>36</a>            })
 <a href=#37 id=37 data-nosnippet>37</a>            .collect::&lt;<span class="macro">m!</span>[M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt;()
 <a href=#38 id=38 data-nosnippet>38</a>            .commit_trim::&lt;<span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt;()
-<a href=#39 id=39 data-nosnippet>39</a>            .commit(<span class="number">0x0000_0200</span>);
+<a href=#39 id=39 data-nosnippet>39</a>            .commit();
 <a href=#40 id=40 data-nosnippet>40</a>        <span class="kw">let </span>t72: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, K % <span class="number">128 </span>/ <span class="number">2</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">2</span>, N]&gt; = b
 <a href=#41 id=41 data-nosnippet>41</a>            .view()
 <a href=#42 id=42 data-nosnippet>42</a>            .tile::&lt;<span class="macro">m!</span>[K / <span class="number">128</span>], <span class="number">1</span>, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>, K % <span class="number">128</span>, N]&gt;(i * <span class="number">2</span>)
-<a href=#43 id=43 data-nosnippet>43</a>            .to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x0000_0300</span>);
+<a href=#43 id=43 data-nosnippet>43</a>            .to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#44 id=44 data-nosnippet>44</a>        <span class="kw">let </span>t89: DmTensor&lt;
 <a href=#45 id=45 data-nosnippet>45</a>            bf16,
 <a href=#46 id=46 data-nosnippet>46</a>            Chip,
@@ -53,7 +53,7 @@
 <a href=#53 id=53 data-nosnippet>53</a>            .begin(t89.view())
 <a href=#54 id=54 data-nosnippet>54</a>            .fetch::&lt;<span class="macro">m!</span>[M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt;()
 <a href=#55 id=55 data-nosnippet>55</a>            .collect::&lt;<span class="macro">m!</span>[M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt;()
-<a href=#56 id=56 data-nosnippet>56</a>            .to_trf(TrfAddress::FirstHalf);
+<a href=#56 id=56 data-nosnippet>56</a>            .to_trf();
 <a href=#57 id=57 data-nosnippet>57</a>        <span class="kw">let </span>t88: DmTensor&lt;
 <a href=#58 id=58 data-nosnippet>58</a>            bf16,
 <a href=#59 id=59 data-nosnippet>59</a>            Chip,
@@ -69,7 +69,7 @@
 <a href=#69 id=69 data-nosnippet>69</a>                SwitchConfig::TransposedBroadcast1 { slice1: <span class="number">8</span>, slice0: <span class="number">8 </span>},
 <a href=#70 id=70 data-nosnippet>70</a>            )
 <a href=#71 id=71 data-nosnippet>71</a>            .collect::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>, K % <span class="number">128 </span>% <span class="number">2</span>, K % <span class="number">128 </span>/ <span class="number">2 </span>% <span class="number">8</span>, N % <span class="number">32 </span>/ <span class="number">16</span>], <span class="macro">m!</span>[N % <span class="number">32 </span>% <span class="number">16</span>]&gt;()
-<a href=#72 id=72 data-nosnippet>72</a>            .contract_outer::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>, K % <span class="number">128 </span>% <span class="number">2</span>, K % <span class="number">128 </span>/ <span class="number">2 </span>% <span class="number">8</span>], <span class="macro">m!</span>[N % <span class="number">32</span>], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>t94)
+<a href=#72 id=72 data-nosnippet>72</a>            .contract_outer::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>, K % <span class="number">128 </span>% <span class="number">2</span>, K % <span class="number">128 </span>/ <span class="number">2 </span>% <span class="number">8</span>], <span class="macro">m!</span>[N % <span class="number">32</span>], <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>t94)
 <a href=#73 id=73 data-nosnippet>73</a>            .contract_packet::&lt;<span class="macro">m!</span>[N % <span class="number">32</span>]&gt;()
 <a href=#74 id=74 data-nosnippet>74</a>            .contract_time::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>]&gt;()
 <a href=#75 id=75 data-nosnippet>75</a>            .contract_lane::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>, M % <span class="number">8</span>, N % <span class="number">32 </span>/ <span class="number">8</span>], <span class="macro">m!</span>[N % <span class="number">32 </span>% <span class="number">8</span>]&gt;(LaneMode::Sequential)
@@ -78,18 +78,18 @@
 <a href=#78 id=78 data-nosnippet>78</a>            .vector_final()
 <a href=#79 id=79 data-nosnippet>79</a>            .cast::&lt;bf16, <span class="macro">m!</span>[N % <span class="number">32 </span>% <span class="number">8 </span># <span class="number">16</span>]&gt;()
 <a href=#80 id=80 data-nosnippet>80</a>            .commit_trim::&lt;<span class="macro">m!</span>[N % <span class="number">32 </span>% <span class="number">8</span>]&gt;()
-<a href=#81 id=81 data-nosnippet>81</a>            .commit(<span class="number">0x0000_0100</span>);
+<a href=#81 id=81 data-nosnippet>81</a>            .commit();
 <a href=#82 id=82 data-nosnippet>82</a>
 <a href=#83 id=83 data-nosnippet>83</a>        <span class="kw">let </span>t108: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M], <span class="macro">m!</span>[K % <span class="number">128</span>]&gt; = a
 <a href=#84 id=84 data-nosnippet>84</a>            .view()
 <a href=#85 id=85 data-nosnippet>85</a>            .tile::&lt;<span class="macro">m!</span>[K / <span class="number">128</span>], <span class="number">1</span>, <span class="macro">m!</span>[M, <span class="number">1 </span># <span class="number">8</span>, K % <span class="number">128</span>]&gt;(<span class="number">1 </span>+ i * <span class="number">2</span>)
-<a href=#86 id=86 data-nosnippet>86</a>            .to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x0000_0200</span>);
+<a href=#86 id=86 data-nosnippet>86</a>            .to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#87 id=87 data-nosnippet>87</a>        <span class="kw">let </span>t116: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M / <span class="number">8</span>, M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>/ <span class="number">16</span>, K % <span class="number">128 </span>% <span class="number">16</span>]&gt; =
 <a href=#88 id=88 data-nosnippet>88</a>            <span class="kw">unsafe </span>{ t108.reshape() };
 <a href=#89 id=89 data-nosnippet>89</a>        <span class="kw">let </span>t103: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, K % <span class="number">128 </span>/ <span class="number">2</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">2</span>, N]&gt; = b
 <a href=#90 id=90 data-nosnippet>90</a>            .view()
 <a href=#91 id=91 data-nosnippet>91</a>            .tile::&lt;<span class="macro">m!</span>[K / <span class="number">128</span>], <span class="number">1</span>, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>, K % <span class="number">128</span>, N]&gt;(<span class="number">1 </span>+ i * <span class="number">2</span>)
-<a href=#92 id=92 data-nosnippet>92</a>            .to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x0000_0500</span>);
+<a href=#92 id=92 data-nosnippet>92</a>            .to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#93 id=93 data-nosnippet>93</a>        <span class="kw">let </span>t109: DmTensor&lt;
 <a href=#94 id=94 data-nosnippet>94</a>            bf16,
 <a href=#95 id=95 data-nosnippet>95</a>            Chip,
@@ -111,7 +111,7 @@
 <a href=#111 id=111 data-nosnippet>111</a>            })
 <a href=#112 id=112 data-nosnippet>112</a>            .collect::&lt;<span class="macro">m!</span>[M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt;()
 <a href=#113 id=113 data-nosnippet>113</a>            .commit_trim::&lt;<span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt;()
-<a href=#114 id=114 data-nosnippet>114</a>            .commit(<span class="number">0x0000_0300</span>);
+<a href=#114 id=114 data-nosnippet>114</a>            .commit();
 <a href=#115 id=115 data-nosnippet>115</a>        <span class="kw">let </span>t110: DmTensor&lt;
 <a href=#116 id=116 data-nosnippet>116</a>            bf16,
 <a href=#117 id=117 data-nosnippet>117</a>            Chip,
@@ -132,14 +132,14 @@
 <a href=#132 id=132 data-nosnippet>132</a>            .vector_final()
 <a href=#133 id=133 data-nosnippet>133</a>            .cast::&lt;bf16, <span class="macro">m!</span>[N % <span class="number">8 </span># <span class="number">16</span>]&gt;()
 <a href=#134 id=134 data-nosnippet>134</a>            .commit_trim::&lt;<span class="macro">m!</span>[N % <span class="number">8</span>]&gt;()
-<a href=#135 id=135 data-nosnippet>135</a>            .commit(<span class="number">0x0000_0200</span>);
+<a href=#135 id=135 data-nosnippet>135</a>            .commit();
 <a href=#136 id=136 data-nosnippet>136</a>
 <a href=#137 id=137 data-nosnippet>137</a>        <span class="kw">let </span>t115: TrfTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M / <span class="number">8</span>, K % <span class="number">128 </span>/ <span class="number">16</span>], <span class="macro">m!</span>[M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt; = ctx
 <a href=#138 id=138 data-nosnippet>138</a>            .sub
 <a href=#139 id=139 data-nosnippet>139</a>            .begin(t110.view())
 <a href=#140 id=140 data-nosnippet>140</a>            .fetch::&lt;<span class="macro">m!</span>[M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt;()
 <a href=#141 id=141 data-nosnippet>141</a>            .collect::&lt;<span class="macro">m!</span>[M % <span class="number">8</span>], <span class="macro">m!</span>[K % <span class="number">128 </span>% <span class="number">16</span>]&gt;()
-<a href=#142 id=142 data-nosnippet>142</a>            .to_trf(TrfAddress::SecondHalf);
+<a href=#142 id=142 data-nosnippet>142</a>            .to_trf();
 <a href=#143 id=143 data-nosnippet>143</a>
 <a href=#144 id=144 data-nosnippet>144</a>        <span class="kw">let </span>t111: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M / <span class="number">8</span>, M % <span class="number">8</span>], <span class="macro">m!</span>[N / <span class="number">32</span>, N % <span class="number">32</span>]&gt; = ctx
 <a href=#145 id=145 data-nosnippet>145</a>            .main
@@ -149,7 +149,7 @@
 <a href=#149 id=149 data-nosnippet>149</a>                SwitchConfig::TransposedBroadcast1 { slice1: <span class="number">8</span>, slice0: <span class="number">8 </span>},
 <a href=#150 id=150 data-nosnippet>150</a>            )
 <a href=#151 id=151 data-nosnippet>151</a>            .collect::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>, K % <span class="number">128 </span>% <span class="number">2</span>, K % <span class="number">128 </span>/ <span class="number">2 </span>% <span class="number">8</span>, N % <span class="number">32 </span>/ <span class="number">16</span>], <span class="macro">m!</span>[N % <span class="number">32 </span>% <span class="number">16</span>]&gt;()
-<a href=#152 id=152 data-nosnippet>152</a>            .contract_outer::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>, K % <span class="number">128 </span>% <span class="number">2</span>, K % <span class="number">128 </span>/ <span class="number">2 </span>% <span class="number">8</span>], <span class="macro">m!</span>[N % <span class="number">32</span>], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>t115)
+<a href=#152 id=152 data-nosnippet>152</a>            .contract_outer::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>, K % <span class="number">128 </span>% <span class="number">2</span>, K % <span class="number">128 </span>/ <span class="number">2 </span>% <span class="number">8</span>], <span class="macro">m!</span>[N % <span class="number">32</span>], <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>t115)
 <a href=#153 id=153 data-nosnippet>153</a>            .contract_packet::&lt;<span class="macro">m!</span>[N % <span class="number">32</span>]&gt;()
 <a href=#154 id=154 data-nosnippet>154</a>            .contract_time::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>]&gt;()
 <a href=#155 id=155 data-nosnippet>155</a>            .contract_lane::&lt;<span class="macro">m!</span>[N / <span class="number">32</span>, M % <span class="number">8</span>, N % <span class="number">32 </span>/ <span class="number">8</span>], <span class="macro">m!</span>[N % <span class="number">32 </span>% <span class="number">8</span>]&gt;(LaneMode::Sequential)
@@ -158,7 +158,7 @@
 <a href=#158 id=158 data-nosnippet>158</a>            .vector_final()
 <a href=#159 id=159 data-nosnippet>159</a>            .cast::&lt;bf16, <span class="macro">m!</span>[N % <span class="number">32 </span>% <span class="number">8 </span># <span class="number">16</span>]&gt;()
 <a href=#160 id=160 data-nosnippet>160</a>            .commit_trim::&lt;<span class="macro">m!</span>[N % <span class="number">32 </span>% <span class="number">8</span>]&gt;()
-<a href=#161 id=161 data-nosnippet>161</a>            .commit(<span class="number">0x0000_0100</span>);
+<a href=#161 id=161 data-nosnippet>161</a>            .commit();
 <a href=#162 id=162 data-nosnippet>162</a>        <span class="kw">let </span>t105: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, M], <span class="macro">m!</span>[N]&gt; = <span class="kw">unsafe </span>{ t111.reshape() };
 <a href=#163 id=163 data-nosnippet>163</a>
 <a href=#164 id=164 data-nosnippet>164</a>        acc = ctx
@@ -173,9 +173,9 @@
 <a href=#173 id=173 data-nosnippet>173</a>            .vector_final()
 <a href=#174 id=174 data-nosnippet>174</a>            .cast::&lt;bf16, <span class="macro">m!</span>[N % <span class="number">8 </span># <span class="number">16</span>]&gt;()
 <a href=#175 id=175 data-nosnippet>175</a>            .commit_trim::&lt;<span class="macro">m!</span>[N % <span class="number">8</span>]&gt;()
-<a href=#176 id=176 data-nosnippet>176</a>            .commit(<span class="number">0x0000_0000</span>);
+<a href=#176 id=176 data-nosnippet>176</a>            .commit();
 <a href=#177 id=177 data-nosnippet>177</a>    }
 <a href=#178 id=178 data-nosnippet>178</a>
-<a href=#179 id=179 data-nosnippet>179</a>    acc.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x3000</span>)
+<a href=#179 id=179 data-nosnippet>179</a>    acc.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma)
 <a href=#180 id=180 data-nosnippet>180</a>}
 </code></pre></div></section></main></body></html>

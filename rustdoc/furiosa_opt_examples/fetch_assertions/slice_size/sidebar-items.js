@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["invalid_slice_size","valid_slice_size"],"struct":["InvalidSliceSize","ValidSliceSize"]};
+window.SIDEBAR_ITEMS = {"constant":["valid_slice_size"],"struct":["__furiosa_opt_valid_slice_size"]};

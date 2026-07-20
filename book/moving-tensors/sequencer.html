@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,13 +181,13 @@
 The Fetch and Commit Engines each use one sequencer to address DM.
 The DMA Engine chains a read sequencer and a write sequencer to move data among DM, SPM, and HBM without intermediate buffers.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<p><code>BufTensor</code> and <code>StreamTensor</code> are pedagogical pseudo types that capture the buffer-stream pattern in isolation, so this page can explain sequencer mechanics without dragging in each engine’s full type machinery.
-The real engine APIs use different types (<code>DmTensor</code>, <code>HbmTensor</code>, <code>TuTensor</code>, …), but every concrete pair maps onto the same <code>BufTensor</code> → <code>StreamTensor</code> shape illustrated below.</p>
-<p><code>BufTensor</code> holds data in some memory mapping <code>Buf</code>, and any concrete buffer tensor (DM, SPM, HBM) plays this role.</p>
+<p><code>MemTensor</code> and <code>StreamTensor</code> are pedagogical pseudo types that capture the buffer-stream pattern in isolation, so this page can explain sequencer mechanics without dragging in each engine’s full type machinery.
+The real engine APIs use different types (<code>DmTensor</code>, <code>HbmTensor</code>, <code>TuTensor</code>, …), but every concrete pair maps onto the same <code>MemTensor</code> → <code>StreamTensor</code> shape illustrated below.</p>
+<p><code>MemTensor</code> holds data in some memory mapping <code>Buf</code>, and any concrete buffer tensor (DM, SPM, HBM) plays this role.</p>
 <pre><code class="language-rust ignore">/// A generic buffer-backed tensor.
 /// Anything that holds data in a memory `Buf` and can be streamed in or out.
 #[derive(Debug)]
-pub struct BufTensor&lt;D: Scalar, Buf: M&gt; {
+pub struct MemTensor&lt;D: Scalar, Buf: M&gt; {
     inner: Tensor&lt;D, Buf&gt;,
 }</code></pre>
 <p><code>StreamTensor</code> is a tensor in flight.
@@ -200,9 +200,9 @@ pub struct StreamTensor&lt;'l, D: Scalar, Time: M, Packet: M&gt; {
     inner: Tensor&lt;D, Pair&lt;Time, Packet&gt;&gt;,
     _marker: PhantomData&lt;&amp;'l ()&gt;,
 }</code></pre>
-<p><code>read</code> converts a <code>BufTensor</code> into a <code>StreamTensor</code> and <code>write</code> reverses it, both preserving values.
+<p><code>read</code> converts a <code>MemTensor</code> into a <code>StreamTensor</code> and <code>write</code> reverses it, both preserving values.
 Each engine’s full API adds spatial dimensions (<code>Chip</code>, <code>Cluster</code>, <code>Slice</code>) on top, covered in the engine-specific pages.</p>
-<pre><code class="language-rust ignore">impl&lt;D: Scalar, Buf: M&gt; BufTensor&lt;D, Buf&gt; {
+<pre><code class="language-rust ignore">impl&lt;D: Scalar, Buf: M&gt; MemTensor&lt;D, Buf&gt; {
     /// Reads a stream from this buffer with the supplied `Time` and `Packet` mapping.
     /// `(Time, Packet)` may be a broadcast of `Buf` (matches Fetch / Switch / DMA-read behavior).
     pub fn read&lt;'l, Time: M, Packet: M&gt;(&amp;'l self) -&gt; StreamTensor&lt;'l, D, Time, Packet&gt; {
@@ -218,7 +218,7 @@ Each engine’s full API adds spatial dimensions (<code>Chip</code>, <code>Clust
         self.inner = stream.inner.transpose(false);
     }
 }</code></pre>
-<p>For any <code>BufTensor</code>, many valid <code>Time</code> and <code>Packet</code> combinations exist, each producing a different <code>StreamTensor</code>.
+<p>For any <code>MemTensor</code>, many valid <code>Time</code> and <code>Packet</code> combinations exist, each producing a different <code>StreamTensor</code>.
 Among valid choices, larger <code>Packet</code> sizes improve bandwidth utilization, and <a href="./memory-performance.html">Memory Performance</a> covers the trade-offs in detail.</p>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
 <p>The following examples show common read and write patterns using the core API above.
@@ -227,21 +227,21 @@ Among valid choices, larger <code>Packet</code> sizes improve bandwidth utilizat
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![A = 8, B = 512, N = 4, C = 3, H = 8, W = 8, T = 4, P = 4];
 
 /// Strided access: read 8×512 tensor as 128 packets of 32 elements.
 /// Time = m![A, B / 32] produces 8 * 16 = 128 time steps.
 /// Packet = m![B % 32] delivers 32 consecutive elements per packet.
 fn strided_read&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;bf16, m![A, B]&gt;,
+    buf: &amp;'l MemTensor&lt;bf16, m![A, B]&gt;,
 ) -&gt; StreamTensor&lt;'l, bf16, m![A, B / 32], m![B % 32]&gt; {
     buf.read()  // Automatic type inference
 }
 
 /// Strided write: write 128 packets of 32 elements back to 8×512 tensor.
 fn strided_write(
-    buf: &amp;mut BufTensor&lt;bf16, m![A, B]&gt;,
+    buf: &amp;mut MemTensor&lt;bf16, m![A, B]&gt;,
     stream: StreamTensor&lt;bf16, m![A, B / 32], m![B % 32]&gt;,
 ) {
     buf.write(stream)
@@ -251,14 +251,14 @@ fn strided_write(
 /// Time = m![W, H, C, N] iterates in reversed axis order.
 /// Packet = m![1] delivers single-element packets.
 fn axis_reordering_read&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;bf16, m![N, C, H, W]&gt;,
+    buf: &amp;'l MemTensor&lt;bf16, m![N, C, H, W]&gt;,
 ) -&gt; StreamTensor&lt;'l, bf16, m![W, H, C, N], m![1]&gt; {
     buf.read()
 }
 
 /// Axis reordering write: write [W, H, C, N] stream back to [N, C, H, W] buffer.
 fn axis_reordering_write(
-    buf: &amp;mut BufTensor&lt;bf16, m![N, C, H, W]&gt;,
+    buf: &amp;mut MemTensor&lt;bf16, m![N, C, H, W]&gt;,
     stream: StreamTensor&lt;bf16, m![W, H, C, N], m![1]&gt;,
 ) {
     buf.write(stream)
@@ -268,14 +268,14 @@ fn axis_reordering_write(
 /// Time = m![A % 2, B % 4, A / 2, B / 4] tiles A into 2 × 4, B into 4 × 128 blocks.
 /// Packet = m![C # 32] pads C to 32 elements per packet.
 fn tiling_read&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![A, B, C # 8]&gt;,
+    buf: &amp;'l MemTensor&lt;i8, m![A, B, C # 8]&gt;,
 ) -&gt; StreamTensor&lt;'l, i8, m![A % 2, B % 4, A / 2, B / 4], m![C # 32]&gt; {
     buf.read()
 }
 
 /// Tiling write: write tiled stream back to buffer.
 fn tiling_write(
-    buf: &amp;mut BufTensor&lt;i8, m![A, B, C # 8]&gt;,
+    buf: &amp;mut MemTensor&lt;i8, m![A, B, C # 8]&gt;,
     stream: StreamTensor&lt;i8, m![A % 2, B % 4, A / 2, B / 4], m![C # 32]&gt;,
 ) {
     buf.write(stream)
@@ -285,7 +285,7 @@ fn tiling_write(
 /// Time = m![T, A] broadcasts T temporally (same data repeated T times).
 /// Packet = m![P] broadcasts P spatially (same element fills packet).
 fn broadcasting_read&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![A]&gt;,
+    buf: &amp;'l MemTensor&lt;i8, m![A]&gt;,
 ) -&gt; StreamTensor&lt;'l, i8, m![T, A], m![P]&gt; {
     buf.read()
 }
@@ -294,38 +294,38 @@ fn broadcasting_read&lt;'l&gt;(
 /// This is rejected as each `Buf` slot must have exactly one source position in `(Time, Packet)`
 /// This code will panic when run
 fn broadcasting_write(
-    buf: &amp;mut BufTensor&lt;i8, m![A]&gt;,
+    buf: &amp;mut MemTensor&lt;i8, m![A]&gt;,
     stream: StreamTensor&lt;i8, m![T, A], m![P]&gt;,
 ) {
     buf.write(stream)
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;bf16, m![A, B]&gt;::from_buf(vec![bf16::from_f32(1f32); 8 * 512]);
-</span><span class="boring">let mut buf_write = BufTensor::&lt;bf16, m![A, B]&gt;::from_buf(vec![bf16::from_f32(1f32); 8 * 512]);
+</span><span class="boring">let buf_read = MemTensor::&lt;bf16, m![A, B]&gt;::from_vec(vec![bf16::from_f32(1f32); 8 * 512]);
+</span><span class="boring">let mut buf_write = MemTensor::&lt;bf16, m![A, B]&gt;::from_vec(vec![bf16::from_f32(1f32); 8 * 512]);
 </span><span class="boring">
 </span><span class="boring">let stream = strided_read(&amp;buf_read);
 </span><span class="boring">strided_write(&amp;mut buf_write, stream);
 </span><span class="boring">
 </span><span class="boring">// -----------------------------------------------------------------------------------
 </span><span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;bf16, m![N, C, H, W]&gt;::from_buf(vec![bf16::from_f32(1f32); 4 * 3 * 8 * 8]);
-</span><span class="boring">let mut buf_write = BufTensor::&lt;bf16, m![N, C, H, W]&gt;::from_buf(vec![bf16::from_f32(0f32); 4 * 3 * 8 * 8]);
+</span><span class="boring">let buf_read = MemTensor::&lt;bf16, m![N, C, H, W]&gt;::from_vec(vec![bf16::from_f32(1f32); 4 * 3 * 8 * 8]);
+</span><span class="boring">let mut buf_write = MemTensor::&lt;bf16, m![N, C, H, W]&gt;::from_vec(vec![bf16::from_f32(0f32); 4 * 3 * 8 * 8]);
 </span><span class="boring">
 </span><span class="boring">let stream = axis_reordering_read(&amp;buf_read);
 </span><span class="boring">axis_reordering_write(&amp;mut buf_write, stream);
 </span><span class="boring">
 </span><span class="boring">// -----------------------------------------------------------------------------------
 </span><span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B, C # 8]&gt;::from_buf(vec![1i8; 8 * 512 * 8]);
-</span><span class="boring">let mut buf_write = BufTensor::&lt;i8, m![A, B, C # 8]&gt;::from_buf(vec![0i8; 8 * 512 * 8]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![A, B, C # 8]&gt;::from_vec(vec![1i8; 8 * 512 * 8]);
+</span><span class="boring">let mut buf_write = MemTensor::&lt;i8, m![A, B, C # 8]&gt;::from_vec(vec![0i8; 8 * 512 * 8]);
 </span><span class="boring">
 </span><span class="boring">let stream = tiling_read(&amp;buf_read);
 </span><span class="boring">tiling_write(&amp;mut buf_write, stream);
 </span><span class="boring">
 </span><span class="boring">// -----------------------------------------------------------------------------------
 </span><span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A]&gt;::from_buf(vec![1i8; 8 ]);
-</span><span class="boring">let mut buf_write = BufTensor::&lt;i8, m![A]&gt;::from_buf(vec![0i8; 8 ]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![A]&gt;::from_vec(vec![1i8; 8 ]);
+</span><span class="boring">let mut buf_write = MemTensor::&lt;i8, m![A]&gt;::from_vec(vec![0i8; 8 ]);
 </span><span class="boring">
 </span><span class="boring">let stream = broadcasting_read(&amp;buf_read);
 </span><span class="boring">let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -406,7 +406,7 @@ See <a href="#non-contiguous-packets">Non-Contiguous Packets</a> for a case wher
 Since <code>Packet = m![1]</code>, <code>Packet::SIZE = max_access_size = 1</code> and the sequencer issues one DM access per loop iteration.</p>
 <pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span><span class="boring">struct Config {
 </span><span class="boring">    entries: Vec&lt;Entry&gt;,
 </span><span class="boring">    packet_size: usize,
@@ -417,7 +417,7 @@ Since <code>Packet = m![1]</code>, <code>Packet::SIZE = max_access_size = 1</cod
 </span><span class="boring">}
 </span>axes![N = 4, C = 3, H = 8, W = 8];
 
-fn read_nchw_whcn(buf: &amp;BufTensor&lt;bf16, m![N, C, H, W]&gt;) -&gt;
+fn read_nchw_whcn(buf: &amp;MemTensor&lt;bf16, m![N, C, H, W]&gt;) -&gt;
                      StreamTensor&lt;bf16, m![W, H, C, N], m![1]&gt; {
     // Compiler-generated configuration: [8 : 1, 8 : 8, 3 : 64, 4 : 192] : 1
     let config = Config {
@@ -446,7 +446,7 @@ fn read_nchw_whcn(buf: &amp;BufTensor&lt;bf16, m![N, C, H, W]&gt;) -&gt;
     buf.read()
 }
 
-fn write_whcn_nchw(buf: &amp;mut BufTensor&lt;bf16, m![N, C, H, W]&gt;,
+fn write_whcn_nchw(buf: &amp;mut MemTensor&lt;bf16, m![N, C, H, W]&gt;,
                   stream: StreamTensor&lt;bf16, m![W, H, C, N], m![1]&gt;) {
     // The compiler generates an identical config for writing
     // The hardware executes the configuration as nested loops:
@@ -470,16 +470,16 @@ fn write_whcn_nchw(buf: &amp;mut BufTensor&lt;bf16, m![N, C, H, W]&gt;,
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![A = 8, B = 8, C = 8];
 
 fn read_rearranging&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![A, B, C # 32]&gt;,  // Buf
+    buf: &amp;'l MemTensor&lt;i8, m![A, B, C # 32]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![B, A], m![C # 16]&gt; {  // Time, Packet
     buf.read()
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B, C # 32]&gt;::from_buf(vec![1i8; 8 * 8 * 32]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![A, B, C # 32]&gt;::from_vec(vec![1i8; 8 * 8 * 32]);
 </span><span class="boring">let _stream = read_rearranging(&amp;buf_read);
 </span><span class="boring">}</span></code></pre>
 <p>The compiler generates configuration entries by processing the combined mapping <code>m![B, A, C # 16]</code> term by term, transforming <code>Buf</code> along the way.
@@ -505,16 +505,16 @@ The innermost entry <code>16 : 1</code> is contiguous, so the hardware transfers
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![A = 8, B = 8, C = 4];
 
 fn read_splitting&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![A, B, C # 8]&gt;,  // Buf
+    buf: &amp;'l MemTensor&lt;i8, m![A, B, C # 8]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![A % 2, B % 4, A / 2, B / 4], m![C # 32]&gt; {  // Time, Packet
     buf.read()
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B, C # 8]&gt;::from_buf(vec![1i8; 8 * 8 * 8]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![A, B, C # 8]&gt;::from_vec(vec![1i8; 8 * 8 * 8]);
 </span><span class="boring">let _stream = read_splitting(&amp;buf_read);
 </span><span class="boring">}</span></code></pre>
 <p>Expressions like <code>A % 2</code> and <code>A / 2</code> split axis <code>A</code> into separate entries.
@@ -538,16 +538,16 @@ The compiler processes <code>m![A % 2, B % 4, A / 2, B / 4, C # 32]</code> term 
 <p>Slicing reads only a partial range of indices from the memory layout, a condition that arises when an indexed view selects a subset of the original tensor.</p>
 <pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![A = 16, B = 8, C = 8];
 
 fn read_slicing&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![A, B, C]&gt;,  // Buf
+    buf: &amp;'l MemTensor&lt;i8, m![A, B, C]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![A / 4, A % 4 = 3, B / 4, B % 4 = 2], m![C]&gt; {  // Time, Packet
     buf.read()
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B, C]&gt;::from_buf(vec![1i8; 16 * 8 * 8]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![A, B, C]&gt;::from_vec(vec![1i8; 16 * 8 * 8]);
 </span><span class="boring">let _stream = read_slicing(&amp;buf_read);</span></code></pre>
 <p>The <code>= 3</code> notation limits <code>A % 4</code> to only 3 iterations instead of 4, restricting the hardware to a sub-region of the tensor.
 The compiler processes <code>m![A / 4, A % 4 = 3, B / 4, B % 4 = 2, C]</code> term by term:</p>
@@ -573,16 +573,16 @@ Any axis (or partial-axis fragment like <code>N / 512</code>) present in <code>T
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![A = 16, T = 4, P = 4];
 
 fn read_broadcasting&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![A]&gt;,  // Buf
+    buf: &amp;'l MemTensor&lt;i8, m![A]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![T, A], m![P]&gt; {  // Time, Packet
     buf.read()
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A]&gt;::from_buf(vec![1i8; 16]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![A]&gt;::from_vec(vec![1i8; 16]);
 </span><span class="boring">let _stream = read_broadcasting(&amp;buf_read);
 </span><span class="boring">}</span></code></pre>
 <p>The compiler processes <code>m![T, A, P]</code> term by term:</p>
@@ -610,16 +610,16 @@ Adjacent entries <code>(n1 : s1)</code> and <code>(n2 : s2)</code> merge into <c
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![N = 8, C = 8, H = 8, W = 32];
 
 fn read_merging&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![N, C, H, W]&gt;,  // Buf
+    buf: &amp;'l MemTensor&lt;i8, m![N, C, H, W]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![W / 16, H % 2, H / 2, C / 2, C % 2, N / 2, N % 2, W / 8 % 2], m![W % 8]&gt; {  // Time, Packet
     buf.read()
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![N, C, H, W]&gt;::from_buf(vec![1i8; 8 * 8 * 8 * 32]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![N, C, H, W]&gt;::from_vec(vec![1i8; 8 * 8 * 8 * 32]);
 </span><span class="boring">let _stream = read_merging(&amp;buf_read);
 </span><span class="boring">}</span></code></pre>
 <p>The compiler processes <code>m![W / 16, H % 2, H / 2, C / 2, C % 2, N / 2, N % 2, W / 8 % 2, W % 8]</code> term by term, producing 9 initial entries:</p>
@@ -669,11 +669,11 @@ A’s stride is 16 rather than 8, so the packet span is not contiguous and the h
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![A = 4, B = 8];
 
 fn write_padded(
-    buf: &amp;mut BufTensor&lt;i8, m![A, B # 16]&gt;,
+    buf: &amp;mut MemTensor&lt;i8, m![A, B # 16]&gt;,
     stream: StreamTensor&lt;i8, m![1], m![A, B]&gt;,
 ) {
     // Compiler-generated configuration: [
@@ -683,8 +683,8 @@ fn write_padded(
     buf.write(stream)
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A, B]&gt;::from_buf(vec![1i8; 4 * 8]);
-</span><span class="boring">let mut buf_write = BufTensor::&lt;i8, m![A, B # 16]&gt;::from_buf(vec![0i8; 4 * 16]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![A, B]&gt;::from_vec(vec![1i8; 4 * 8]);
+</span><span class="boring">let mut buf_write = MemTensor::&lt;i8, m![A, B # 16]&gt;::from_vec(vec![0i8; 4 * 16]);
 </span><span class="boring">let stream = buf_read.read();
 </span><span class="boring">write_padded(&amp;mut buf_write, stream);
 </span><span class="boring">}</span></code></pre>
@@ -697,7 +697,7 @@ Placing <code>m![N, H, W]</code> in <code>Packet</code> skips <code>C</code>, so
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![N = 4, C = 3, H = 4, W = 8];
 
 // Compiler-generated configuration: [
@@ -709,12 +709,12 @@ Placing <code>m![N, H, W]</code> in <code>Packet</code> skips <code>C</code>, so
 // contiguous_run = 8 (W); ×4 (H): 8==8×1 ✓; ×3 (C): 32==4×8 ✓; ×4 (N): 96==3×32 ✓; all axes contiguous
 // max_access_size = gcd(packet_size, contiguous_run) = packet_size = 8
 fn read_contiguous&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![N, C, H, W]&gt;,
+    buf: &amp;'l MemTensor&lt;i8, m![N, C, H, W]&gt;,
 ) -&gt; StreamTensor&lt;'l, i8, m![N, C, H], m![W]&gt; {
     buf.read()
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![N, C, H, W]&gt;::from_buf(vec![1i8; 4 * 3 * 4 * 8]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![N, C, H, W]&gt;::from_vec(vec![1i8; 4 * 3 * 4 * 8]);
 </span><span class="boring">let _stream = read_contiguous(&amp;buf_read);
 </span>
 // Compiler-generated configuration: [
@@ -726,12 +726,12 @@ fn read_contiguous&lt;'l&gt;(
 // contiguous_run = 8 (W); ×4 (H): 8==8×1 ✓ → 32; ×4 (N): 96!=4×8 ✗ stop → 32
 // max_access_size = gcd(128, 32) = 32; hardware issues 128/32 = 4 accesses per packet
 fn read_non_contiguous&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![N, C, H, W]&gt;,
+    buf: &amp;'l MemTensor&lt;i8, m![N, C, H, W]&gt;,
 ) -&gt; StreamTensor&lt;'l, i8, m![C], m![N, H, W]&gt; {
     buf.read()
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![N, C, H, W]&gt;::from_buf(vec![1i8; 4 * 3 * 4 * 8]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![N, C, H, W]&gt;::from_vec(vec![1i8; 4 * 3 * 4 * 8]);
 </span><span class="boring">let _stream = read_non_contiguous(&amp;buf_read);
 </span><span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
@@ -756,16 +756,16 @@ When <code>Buf</code> splits an axis one way and the stream splits it another wi
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span><span class="boring">use furiosa_opt_std::pseudo::{BufTensor, StreamTensor};
+</span><span class="boring">use furiosa_opt_std::pseudo::{MemTensor, StreamTensor};
 </span>axes![A = 15];
 
 fn read_incompatible&lt;'l&gt;(
-    buf: &amp;'l BufTensor&lt;i8, m![A % 5, A / 5]&gt;,  // Buf
+    buf: &amp;'l MemTensor&lt;i8, m![A % 5, A / 5]&gt;,  // Buf
 ) -&gt; StreamTensor&lt;'l, i8, m![1], m![A % 3, A / 3]&gt; {  // Time, Packet
     buf.read() // Compilation error: incompatible decomposition
 }
 <span class="boring">
-</span><span class="boring">let buf_read = BufTensor::&lt;i8, m![A % 5, A / 5]&gt;::from_buf(vec![1i8; 15]);
+</span><span class="boring">let buf_read = MemTensor::&lt;i8, m![A % 5, A / 5]&gt;::from_vec(vec![1i8; 15]);
 </span><span class="boring">let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { read_incompatible(&amp;buf_read) }));
 </span><span class="boring">assert!(result.is_err());
 </span><span class="boring">}</span></code></pre>
@@ -825,7 +825,7 @@ This supports operations like embedding lookups where indices are determined at 
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

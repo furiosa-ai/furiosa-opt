@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -199,10 +199,51 @@ The kernel writer calls <code>.to_dm()</code>, <code>.to_hbm()</code>, or relate
     pub fn to_dm&lt;Cluster: M, Slice: M, Element2: M&gt;(
         &amp;self,
         _dma: &amp;mut DmaContext&lt;{ Dma::Tensor }&gt;,
+    ) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element2, B&gt; {
+        assert_dma_layout::&lt;
+            D,
+            m![{ Chip }, { Element }],
+            Element,
+            m![{ Chip }, { Cluster }, { Slice }, { Element2 }],
+            Element2,
+        &gt;(DMA_SRAM_WRITE_WIDTH);
+        DmTensor::new(self.inner.transpose(true), None)
+    }
+
+    /// Converts to data memory tensor at `address`.
+    #[primitive(HbmTensor::to_dm_at)]
+    pub fn to_dm_at&lt;Cluster: M, Slice: M, Element2: M&gt;(
+        &amp;self,
+        _dma: &amp;mut DmaContext&lt;{ Dma::Tensor }&gt;,
         address: Address,
     ) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element2, B&gt; {
-        assert_dma_layout::&lt;D, m![{ Chip }, { Element }], Element2&gt;(DMA_SRAM_WRITE_WIDTH);
-        DmTensor::new(self.inner.transpose(true), address)
+        assert_dma_layout::&lt;
+            D,
+            m![{ Chip }, { Element }],
+            Element,
+            m![{ Chip }, { Cluster }, { Slice }, { Element2 }],
+            Element2,
+        &gt;(DMA_SRAM_WRITE_WIDTH);
+        DmTensor::new(self.inner.transpose(true), Some(address))
+    }
+
+    /// Reshapes the tensor to a different mapping at the same HBM address, consuming `self`.
+    /// The HBM analogue of [`DmTensor::reshape`]; both delegate to [`Tensor::reshape`].
+    ///
+    /// # Safety
+    ///
+    /// The per-level sizes (`Chip::SIZE == Chip2::SIZE`, `Element`) are asserted at compile time below
+    /// (see [`constraints::assert_hbm_reshape_dimension_preserved`]); the genuine precondition is
+    /// [`Tensor::reshape`]'s: the old and new mappings must lay the elements out in the SAME physical
+    /// (wire) order, so the relabel moves no data. Axis regrouping (merge/split) preserves wire order
+    /// and is valid; a permutation is not (use a transpose). Equal sizes do not guarantee this.
+    /// Consuming `self` is the safety contract made explicit: the old-shaped handle cannot survive to
+    /// alias the same HBM bytes under a conflicting mapping.
+    #[primitive(HbmTensor::reshape)]
+    pub unsafe fn reshape&lt;Chip2: M, Element2: M&gt;(self) -&gt; HbmTensor&lt;D, Chip2, Element2, B&gt; {
+        constraints::assert_hbm_reshape_dimension_preserved::&lt;Chip, Chip2, Element, Element2&gt;();
+        let reshaped = unsafe { self.inner.reshape::&lt;m![{ Chip2 }, { Element2 }]&gt;() };
+        HbmTensor::new(reshaped, self.address)
     }
 }</code></pre>
 <p>The compiler derives the read and write sequencer configurations from the source and destination tensor types.
@@ -219,10 +260,10 @@ fn transpose_simple(
     input: &amp;HbmTensor&lt;f32, m![1], m![A, B, C]&gt;,
 ) -&gt; HbmTensor&lt;f32, m![1], m![C, A, B]&gt; {
     // Step 1: [A, B, C] → [A, C, B]
-    let intermediate: HbmTensor&lt;f32, m![1], m![A, C, B]&gt; = input.to_hbm(&amp;mut ctx.tdma, 0);
+    let intermediate: HbmTensor&lt;f32, m![1], m![A, C, B]&gt; = input.to_hbm(&amp;mut ctx.tdma);
 
     // Step 2: [A, C, B] → [C, A, B]
-    intermediate.to_hbm(&amp;mut ctx.tdma, 0x1000)
+    intermediate.to_hbm(&amp;mut ctx.tdma)
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
@@ -241,7 +282,7 @@ fn hbm_to_dm(
     ctx: &amp;mut Context,
     input: &amp;HbmTensor&lt;i8, m![1], m![A]&gt;,
 ) -&gt; DmTensor&lt;i8, m![1], m![1 # 2], m![A / 8], m![A % 8]&gt; {
-    input.to_dm::&lt;m![1 # 2], m![A / 8], m![A % 8]&gt;(&amp;mut ctx.tdma, 0)
+    input.to_dm::&lt;m![1 # 2], m![A / 8], m![A % 8]&gt;(&amp;mut ctx.tdma)
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
@@ -671,12 +712,13 @@ fn cluster_shuffle(
 The other shuffle methods, and DMA pairs like HBM ↔ DM and DM ↔ DM in general, are not context-generic.</p>
 <h2 id="scatter-and-gather"><a class="header" href="#scatter-and-gather">Scatter and Gather</a></h2>
 <p>Scatter and gather move tensor elements at addresses computed from an index tensor rather than at fixed strides.</p>
-<p><code>DmTensor::dma_scatter</code> writes DM values to HBM at indices given by an index tensor.
-<code>HbmTensor::dma_gather</code> reads HBM rows into DM at indices given by an index tensor.</p>
+<p><code>DmTensor::dma_scatter</code> writes DM values to HBM rows chosen by an index tensor.
+<code>HbmTensor::dma_gather_scaled</code> and <code>HbmTensor::dma_gather_unscaled</code> read HBM rows into DM at rows chosen by an index tensor.
+The two gather variants differ only in where the index lives and how its values are read, described below.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">extern crate tokio;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![K = 512, D = 128, C = 612];
+</span>axes![K = 512, D = 128, C = 612, G = 512, CL = 2];
 
 fn scatter_minimal(
     ctx: &amp;mut Context,
@@ -685,32 +727,51 @@ fn scatter_minimal(
     output: &amp;mut HbmTensor&lt;bf16, m![1], m![C, D]&gt;,
 ) {
     let data_dm: DmTensor&lt;bf16, m![1], m![1 # 2], m![K / 2], m![K % 2, D]&gt; =
-        data.to_dm(&amp;mut ctx.tdma, 0x0);
+        data.to_dm(&amp;mut ctx.tdma);
 
-    data_dm.dma_scatter::&lt;m![K], _, _&gt;(index, output, true);
+    data_dm.dma_scatter::&lt;m![K], _, _&gt;(index, output);
 }
 
 fn gather_minimal(
     table: &amp;HbmTensor&lt;bf16, m![1], m![K, D]&gt;,
-    index: &amp;HbmTensor&lt;i32, m![1], m![C]&gt;,
-) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![C / 2], m![C % 2, D]&gt; {
-    table.dma_gather::&lt;m![1 # 2], m![C / 2], m![C % 2, D], _&gt;(index, 0x0, true)
+    index: &amp;HbmTensor&lt;i32, m![1], m![G]&gt;,
+    // The gather axis itself partitions into Slice x Element (`G / 2 = 256`, a valid slice count)
+    // with `D` folded into the Element side alongside the `G % 2` remainder; `C = 612` (used above
+    // for the scatter cache) has no divisor landing on a valid 64 | 128 | 256 slice count, so the
+    // gather count here is the separate, slice-friendly `G` instead.
+) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![G / 2], m![G % 2, D]&gt; {
+    table.dma_gather_scaled(index)
+}
+
+fn gather_unscaled(
+    ctx: &amp;mut Context,
+    table: &amp;HbmTensor&lt;bf16, m![1], m![K, D]&gt;,
+    // Raw row positions per cluster. The gather reads the index off SPM, so the kernel first
+    // stages it on-chip with `to_dm`; a real per-cluster (`CL`) partition avoids broadcast padding.
+    index: &amp;HbmTensor&lt;i32, m![1], m![CL, G]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![CL], m![G / 2], m![G % 2, D]&gt; {
+    let index_dm: DmTensor&lt;i32, m![1], m![CL], m![G / 2], m![G % 2]&gt; =
+        index.to_dm(&amp;mut ctx.tdma);
+    table.dma_gather_unscaled(&amp;index_dm)
 }
 <span class="boring">
 </span><span class="boring">#[tokio::main]
 </span><span class="boring">async fn main() {
 </span><span class="boring">    let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">    let index = &amp;(HostTensor::&lt;i32, m![K]&gt;::zero().to_hbm(&amp;mut ctx.pdma, 0).await);
+</span><span class="boring">    let index = &amp;(HostTensor::&lt;i32, m![K]&gt;::zero().to_hbm(&amp;mut ctx.pdma).await);
 </span><span class="boring">    let data = unsafe { HbmTensor::&lt;bf16, m![1], m![K, D]&gt;::from_addr(0) };
 </span><span class="boring">    let mut output_hbm = unsafe { HbmTensor::&lt;bf16, m![1], m![C, D]&gt;::from_addr(0) };
 </span><span class="boring">
 </span><span class="boring">    scatter_minimal(&amp;mut ctx, &amp;data, &amp;index, &amp;mut output_hbm);
-</span><span class="boring">    gather_minimal(&amp;data, &amp;(HostTensor::&lt;i32, m![C]&gt;::zero().to_hbm(&amp;mut ctx.pdma, 0).await));
+</span><span class="boring">    gather_minimal(&amp;data, &amp;(HostTensor::&lt;i32, m![G]&gt;::zero().to_hbm(&amp;mut ctx.pdma).await));
+</span><span class="boring">    let placed_index = &amp;(HostTensor::&lt;i32, m![CL, G]&gt;::zero().to_hbm(&amp;mut ctx.pdma).await);
+</span><span class="boring">    gather_unscaled(&amp;mut ctx, &amp;data, placed_index);
 </span><span class="boring">}</span></code></pre>
-<p><code>scaled</code> matches <code>dma_scatter</code>’s convention.
-<code>true</code> treats index values as byte-offsets along the gather axis (divided internally to recover the row position).
-<code>false</code> treats index values as raw row positions.</p>
+<p>The scaled variants (<code>dma_gather_scaled</code>, <code>dma_scatter</code>) take the index from an <code>HbmTensor</code> in DRAM and read its values as byte offsets along the gather/scatter axis: to address row <code>r</code>, pass <code>r</code> times one row’s byte size (its element count times the element’s byte size; e.g. <code>128 * 2 = 256</code> for a 128-wide <code>bf16</code> row).
+<code>dma_gather_unscaled</code> instead takes an on-chip <code>DmTensor</code> index, staged from DRAM with <code>to_dm</code>, and reads its values as raw row positions, for indices computed on-chip such as paged-attention block tables.
+Note a side effect: the seed reads the index off SPM, so the compiler emits an extra DM to SPM DMA to stage the index (SPM is the on-chip tier noted above, not yet a user-facing type).
+Its scatter counterpart <code>dma_scatter_unscaled</code> is not yet implemented.</p>
 <h2 id="pcie-dma"><a class="header" href="#pcie-dma">PCIe DMA</a></h2>
 <p>PCIe DMA (<code>Context::pdma</code>) moves tensors between host system memory and device HBM.
 It is a separate physical engine from the on-chip Tensor DMA.
@@ -726,8 +787,8 @@ async fn upload_and_download(ctx: &amp;mut Context) {
     let mut rng = SmallRng::seed_from_u64(0);
     let host: HostTensor&lt;i8, m![A, B]&gt; = HostTensor::rand(&amp;mut rng);
 
-    // Host → HBM at address 0x1000
-    let hbm: HbmTensor&lt;i8, m![A], m![B]&gt; = host.to_hbm(&amp;mut ctx.pdma, 0x1000).await;
+    // Host → HBM (allocator-assigned address)
+    let hbm: HbmTensor&lt;i8, m![A], m![B]&gt; = host.to_hbm(&amp;mut ctx.pdma).await;
 
     // HBM → host (back to system memory)
     let _round_tripped: HostTensor&lt;i8, m![A, B]&gt; = hbm.to_host(&amp;mut ctx.pdma).await;
@@ -785,7 +846,7 @@ Algorithms should minimize host ↔ device traffic, uploading data once and reus
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

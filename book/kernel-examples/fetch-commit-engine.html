@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -183,16 +183,16 @@
 <p>This example demonstrates tensor reshaping by permuting axes during a fetch-commit cycle, using the Switch Engine to reorder axes without additional computation.</p>
 <pre><code class="language-rust ignore">axes![A = 3, B = 5, C = 2];
 
-// Input: shape [A, B, C] at address 0
+// Input: shape [A, B, C]
 let input: DmTensor&lt;f8, m![1], m![1], m![1], m![A, B, C]&gt; = ...;
 
-// Output: shape [B, A, C] at address 1024 (permuted layout)
+// Output: shape [B, A, C] (permuted layout)
 let output: DmTensor&lt;f8, m![1], m![1], m![1], m![B, A, C # 6]&gt; = ctx
     .main
     .begin(input.view())
     .fetch::&lt;m![A, B], m![C # 6]&gt;()           // Time=[A,B], Packet=[C] padded to 8 bytes
     .collect::&lt;m![A, B], m![C # 30]&gt;()        // Pad to 32-byte flit (forwarding switch implied)
-    .commit(1024);                            // Write with permuted sequencer config</code></pre>
+    .commit();                                // Write with permuted sequencer config</code></pre>
 <h4 id="input-tensor"><a class="header" href="#input-tensor">Input Tensor</a></h4>
 <p>The input is a 3D tensor stored in SRAM with dimensions <code>[A=3, B=5, C=2]</code>, containing 30 elements total:</p>
 <ul>
@@ -321,7 +321,7 @@ let output: DmTensor&lt;f8, m![1], m![1], m![1], m![A, [B, C] # 22]&gt; = ctx
     .begin(input.view())
     .fetch::&lt;m![A], m![[B, C] # 22]&gt;()        // Time=[A], Packet=[B,C] padded to 32 bytes
     .collect::&lt;m![A], m![[B, C] # 22]&gt;()      // Already 32-byte flit, identity collect
-    .commit(1024);                            // Full-flit commit: 3 cycles vs 15 in Example 1</code></pre>
+    .commit();                                // Full-flit commit: 3 cycles vs 15 in Example 1</code></pre>
 <h4 id="input-tensor-1"><a class="header" href="#input-tensor-1">Input Tensor</a></h4>
 <p>The input tensor is identical to Example 1, but committed with a different memory layout that allows full-flit writes:</p>
 <ul>
@@ -416,14 +416,14 @@ let out_7: DmTensor&lt;f8, m![1], m![1], m![1], m![B, A # 72]&gt; = ctx.main
     .begin(input.view())
     .fetch::&lt;m![B * (A # 72) / 24], m![A % 24]&gt;()
     .collect::&lt;m![B * (A # 72) / 24], m![A % 24 # 8]&gt;()
-    .commit(1024);
+    .commit();
 
 // Option 2: dummy=31, fetch_size=32 bytes, 6 cycles (best performance)
 let out_31: DmTensor&lt;f8, m![1], m![1], m![1], m![B, A # 96]&gt; = ctx.main
     .begin(input.view())
     .fetch::&lt;m![B * (A # 96) / 32], m![A % 32]&gt;()
     .collect::&lt;m![B * (A # 96) / 32], m![A % 32]&gt;()
-    .commit(1024);</code></pre>
+    .commit();</code></pre>
 <p>In the mapping expression <code>m![A # 72]</code>, the <code># 72</code> pads <code>A</code> up to 72 elements.
 The pads are referred to as <code>dummy</code> in the hardware configuration below.</p>
 <h4 id="the-problem"><a class="header" href="#the-problem">The Problem</a></h4>
@@ -666,14 +666,14 @@ let seg_0: DmTensor&lt;f8, m![1], m![1], m![1], m![A % 1024, B]&gt; = ctx.main
     .begin(input.view().slice(A, 0..1024))
     .fetch::&lt;m![A % 1024], m![B]&gt;()
     .collect::&lt;m![A % 1024], m![B]&gt;()
-    .commit(256 * 1024);  // Write to 256K
+    .commit();
 
 // Execution #1: second half of A
 let seg_1: DmTensor&lt;f8, m![1], m![1], m![1], m![A @ 1024, B]&gt; = ctx.main
     .begin(input.view().slice(A, 1024..2048))
     .fetch::&lt;m![A @ 1024], m![B]&gt;()
     .collect::&lt;m![A @ 1024], m![B]&gt;()
-    .commit(256 * 1024 + 32 * 1024);  // Write to 256K + 32K</code></pre>
+    .commit();</code></pre>
 <h4 id="the-problem-1"><a class="header" href="#the-problem-1">The Problem</a></h4>
 <p>The Vector Engine’s VRF has only 8KB of capacity per slice. Tensors requiring more storage than this cannot be fetched and processed in one operation. Segmentation splits the tensor across multiple executions.</p>
 <p>The 8KB limit is per-slice, not total.
@@ -844,7 +844,7 @@ Tensor segmentation is essential for practical deep learning workloads:</p>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

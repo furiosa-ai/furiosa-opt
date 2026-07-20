@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -189,23 +189,30 @@ These register files must be populated before their consumer engine runs.</p>
 pub struct TrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Element: M, B: Backend = CurrentBackend&gt; {
     pub(crate) inner: Tensor&lt;D, Pair&lt;Chip, Pair&lt;Cluster, Pair&lt;Slice, Pair&lt;Lane, Element&gt;&gt;&gt;&gt;, B&gt;,
     #[expect(dead_code)]
-    address: TrfAddress,
+    address: Option&lt;TrfAddress&gt;,
     _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Lane, Element)&gt;,
 }</code></pre>
 <p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source. <code>Lane</code> indexes the spatial parallelism (1, 2, 4, or 8 active lanes). <code>Element</code> holds the per-lane layout.</p>
 <h4 id="from-collect-engine"><a class="header" href="#from-collect-engine">From Collect Engine</a></h4>
-<p><code>.to_trf::&lt;Lane, Element&gt;(address)</code> on <code>CollectTensor</code> produces a <code>TrfTensor</code>:</p>
+<p><code>.to_trf::&lt;Lane, Element&gt;()</code> on <code>CollectTensor</code> produces a <code>TrfTensor</code> in the full TRF; <code>.to_trf_at::&lt;Lane, Element&gt;(address)</code> targets a <code>TrfAddress</code> region:</p>
 <pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
     TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Stores to the tensor register file.
     #[primitive(TuTensor::to_trf)]
-    pub fn to_trf&lt;Lane: M, Element: M&gt;(
+    pub fn to_trf&lt;Lane: M, Element: M&gt;(self) -&gt; TrfTensor&lt;D, Chip, Cluster, Slice, Lane, Element, B&gt; {
+        verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;(&amp;TrfAddress::Full);
+        TrfTensor::new(self.inner.transpose(false), None)
+    }
+
+    /// Stores to the tensor register file at `address`.
+    #[primitive(TuTensor::to_trf_at)]
+    pub fn to_trf_at&lt;Lane: M, Element: M&gt;(
         self,
         address: TrfAddress,
     ) -&gt; TrfTensor&lt;D, Chip, Cluster, Slice, Lane, Element, B&gt; {
         verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;(&amp;address);
-        TrfTensor::new(self.inner.transpose(false), address)
+        TrfTensor::new(self.inner.transpose(false), Some(address))
     }
 }</code></pre>
 <p><code>.to_trf</code> reshapes the streaming <code>Time</code> / <code>Packet</code> into <code>Lane</code> / <code>Element</code>:</p>
@@ -223,17 +230,22 @@ Element = [Time % FlitsPerLane, Packet]
 
 type Chip    = m![1];
 type Cluster = m![V / 16];
-type Slice   = m![V % 16];
-type Lane     = m![N];
+type Slice   = m![V % 16 # 256];
+type Lane    = m![N];
 
 /// Stores matmul weights into TRF for consumption by `bmatmul` in
 /// [Contraction Engine: Example: Batched MatMul](./contraction-engine/index.md#example-batched-matmul).
 fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
     input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt;,
 ) -&gt; TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; {
-    input.to_trf(TrfAddress::FirstHalf)
+    input.to_trf_at(TrfAddress::FirstHalf)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = store_bmatmul_trf(c);
+</span><span class="boring">}</span></code></pre>
 <h4 id="from-data-memory"><a class="header" href="#from-data-memory">From Data Memory</a></h4>
 <p>For completely contiguous input access (no gaps or reordering), TRF supports a <em>short command</em> (StoTRF), a compact hardware instruction that loads data from Data Memory directly into the TRF, bypassing the full Fetch → Switch → Collect → <code>to_trf()</code> pipeline.
 The shortcut trades arbitrary-layout support for lower setup overhead.</p>
@@ -287,19 +299,25 @@ Wide reads (64 bytes) occupy both banks every cycle, so each cache miss blocks t
 pub struct VrfTensor&lt;D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend = CurrentBackend&gt; {
     pub(crate) inner: Tensor&lt;D, Pair&lt;Chip, Pair&lt;Cluster, Pair&lt;Slice, Element&gt;&gt;&gt;, B&gt;,
     #[expect(dead_code)]
-    address: Address,
+    address: Option&lt;Address&gt;,
     _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Element)&gt;,
 }</code></pre>
 <p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source. <code>Element</code> holds the per-(slice) layout.</p>
 <h4 id="from-collect-engine-1"><a class="header" href="#from-collect-engine-1">From Collect Engine</a></h4>
-<p><code>.to_vrf::&lt;Element2&gt;(address)</code> on <code>CollectTensor</code> stores the flits into the VRF at a raw <code>Address</code> and produces a <code>VrfTensor</code>:</p>
+<p><code>.to_vrf::&lt;Element2&gt;()</code> on <code>CollectTensor</code> stores the flits into the VRF and produces a <code>VrfTensor</code>; <code>.to_vrf_at::&lt;Element2&gt;(address)</code> stores at a raw <code>Address</code>:</p>
 <pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
     TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Stores to the vector register file.
     #[primitive(TuTensor::to_vrf)]
-    pub fn to_vrf&lt;Element: M&gt;(self, address: Address) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
-        VrfTensor::new(self.inner.transpose(false), address)
+    pub fn to_vrf&lt;Element: M&gt;(self) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
+        VrfTensor::new(self.inner.transpose(false), None)
+    }
+
+    /// Stores to the vector register file at `address`.
+    #[primitive(TuTensor::to_vrf_at)]
+    pub fn to_vrf_at&lt;Element: M&gt;(self, address: Address) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
+        VrfTensor::new(self.inner.transpose(false), Some(address))
     }
 }</code></pre>
 <p><code>.to_vrf</code> flattens the streaming <code>Time</code> / <code>Packet</code> into <code>Element2</code>:</p>
@@ -316,9 +334,14 @@ pub struct VrfTensor&lt;D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, 
 fn store_vrf&lt;'l, const T: Tu&gt;(
     input: CollectTensor&lt;'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt;,
 ) -&gt; VrfTensor&lt;i32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
-    input.to_vrf(0)
+    input.to_vrf()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = store_vrf(c);
+</span><span class="boring">}</span></code></pre>
 <h4 id="from-data-memory-1"><a class="header" href="#from-data-memory-1">From Data Memory</a></h4>
 <p>For completely contiguous input access (no gaps or reordering), VRF supports a <em>short command</em> (StoVRF), a compact hardware instruction that loads data from Data Memory directly into the VRF, bypassing the full Fetch → Switch → Collect → <code>to_vrf()</code> pipeline.
 The shortcut trades arbitrary-layout support for lower setup overhead.</p>
@@ -372,7 +395,7 @@ The shortcut trades arbitrary-layout support for lower setup overhead.</p>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

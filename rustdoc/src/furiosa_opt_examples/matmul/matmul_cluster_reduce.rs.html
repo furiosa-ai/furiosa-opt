@@ -17,10 +17,10 @@
 <a href=#17 id=17 data-nosnippet>17</a>    rhs: <span class="kw-2">&amp;</span>HbmTensor&lt;i8, Chip, <span class="macro">m!</span>[B, C]&gt;,
 <a href=#18 id=18 data-nosnippet>18</a>) -&gt; HbmTensor&lt;i8, Chip, <span class="macro">m!</span>[A, C]&gt; {
 <a href=#19 id=19 data-nosnippet>19</a>    <span class="comment">// Load lhs: [A=1024, B=2] with B mapped to Cluster
-<a href=#20 id=20 data-nosnippet>20</a>    </span><span class="kw">let </span>lhs = lhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0</span>);
+<a href=#20 id=20 data-nosnippet>20</a>    </span><span class="kw">let </span>lhs = lhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#21 id=21 data-nosnippet>21</a>
 <a href=#22 id=22 data-nosnippet>22</a>    <span class="comment">// Load rhs: [B=2, C=1024] with B mapped to Cluster
-<a href=#23 id=23 data-nosnippet>23</a>    </span><span class="kw">let </span>rhs = rhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[C / <span class="number">4</span>], <span class="macro">m!</span>[C % <span class="number">4 </span># <span class="number">8</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">128 </span>* <span class="number">1024</span>);
+<a href=#23 id=23 data-nosnippet>23</a>    </span><span class="kw">let </span>rhs = rhs.to_dm::&lt;Cluster, <span class="macro">m!</span>[C / <span class="number">4</span>], <span class="macro">m!</span>[C % <span class="number">4 </span># <span class="number">8</span>]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#24 id=24 data-nosnippet>24</a>
 <a href=#25 id=25 data-nosnippet>25</a>    <span class="comment">// Load rhs into VRF
 <a href=#26 id=26 data-nosnippet>26</a>    </span><span class="kw">let </span>rhs_broadcasted: DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">4</span>, C % <span class="number">4 </span># <span class="number">8</span>]&gt; = ctx
@@ -34,14 +34,14 @@
 <a href=#34 id=34 data-nosnippet>34</a>        })
 <a href=#35 id=35 data-nosnippet>35</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">4</span>], <span class="macro">m!</span>[C % <span class="number">4 </span># <span class="number">32</span>]&gt;()
 <a href=#36 id=36 data-nosnippet>36</a>        .commit_trim::&lt;<span class="macro">m!</span>[C % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#37 id=37 data-nosnippet>37</a>        .commit(<span class="number">0</span>);
+<a href=#37 id=37 data-nosnippet>37</a>        .commit();
 <a href=#38 id=38 data-nosnippet>38</a>    <span class="kw">let </span>rhs_vrf: VrfTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">4</span>, C % <span class="number">4 </span># <span class="number">8</span>]&gt; = ctx
 <a href=#39 id=39 data-nosnippet>39</a>        .sub
 <a href=#40 id=40 data-nosnippet>40</a>        .begin(rhs_broadcasted.view())
-<a href=#41 id=41 data-nosnippet>41</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">4</span>], <span class="macro">m!</span>[C % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#41 id=41 data-nosnippet>41</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">4</span>], <span class="macro">m!</span>[C % <span class="number">4</span>]&gt;()
 <a href=#42 id=42 data-nosnippet>42</a>        .fetch_cast::&lt;i32&gt;()
 <a href=#43 id=43 data-nosnippet>43</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">4</span>], <span class="macro">m!</span>[C % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#44 id=44 data-nosnippet>44</a>        .to_vrf(<span class="number">0</span>);
+<a href=#44 id=44 data-nosnippet>44</a>        .to_vrf();
 <a href=#45 id=45 data-nosnippet>45</a>
 <a href=#46 id=46 data-nosnippet>46</a>    <span class="comment">// Perform elementwise mul
 <a href=#47 id=47 data-nosnippet>47</a>    // The B dimension is in Cluster, so after contraction we still have Cluster=2
@@ -58,13 +58,13 @@
 <a href=#58 id=58 data-nosnippet>58</a>        .vector_final()
 <a href=#59 id=59 data-nosnippet>59</a>        .cast::&lt;i8, <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">32</span>]&gt;()
 <a href=#60 id=60 data-nosnippet>60</a>        .commit_trim::&lt;<span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#61 id=61 data-nosnippet>61</a>        .commit(<span class="number">0</span>);
+<a href=#61 id=61 data-nosnippet>61</a>        .commit();
 <a href=#62 id=62 data-nosnippet>62</a>
 <a href=#63 id=63 data-nosnippet>63</a>    <span class="comment">// Now reduce over the Cluster dimension using ReduceScatter pattern
 <a href=#64 id=64 data-nosnippet>64</a>    </span><span class="kw">let </span>reduced = reduce_over_cluster(ctx, <span class="kw-2">&amp;</span>mul_result);
 <a href=#65 id=65 data-nosnippet>65</a>
 <a href=#66 id=66 data-nosnippet>66</a>    <span class="comment">// Write back to HBM
-<a href=#67 id=67 data-nosnippet>67</a>    </span>reduced.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="number">0x3000</span>)
+<a href=#67 id=67 data-nosnippet>67</a>    </span>reduced.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma)
 <a href=#68 id=68 data-nosnippet>68</a>}
 <a href=#69 id=69 data-nosnippet>69</a>
 <a href=#70 id=70 data-nosnippet>70</a><span class="doccomment">/// Reduce over cluster axis using ReduceScatter pattern.
@@ -108,7 +108,7 @@
 <a href=#108 id=108 data-nosnippet>108</a>
 <a href=#109 id=109 data-nosnippet>109</a>    ctx.main
 <a href=#110 id=110 data-nosnippet>110</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sliced0.view(), shuffled1.view())
-<a href=#111 id=111 data-nosnippet>111</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">4 </span>% <span class="number">128</span>, C % <span class="number">4</span>, I], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#111 id=111 data-nosnippet>111</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">4 </span>% <span class="number">128</span>, C % <span class="number">4</span>, I], <span class="macro">m!</span>[A % <span class="number">4</span>]&gt;()
 <a href=#112 id=112 data-nosnippet>112</a>        .fetch_cast::&lt;i32&gt;()
 <a href=#113 id=113 data-nosnippet>113</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">4 </span>% <span class="number">128</span>, C % <span class="number">4</span>, I], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
 <a href=#114 id=114 data-nosnippet>114</a>        .vector_init()

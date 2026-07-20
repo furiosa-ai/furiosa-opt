@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["invalid_hbm_to_dm"],"struct":["A","B","InvalidHbmToDm"]};
+window.SIDEBAR_ITEMS = {"constant":["invalid_hbm_to_dm","padded_tail_alignment"],"struct":["A","B","PA","PC","__furiosa_opt_invalid_hbm_to_dm","__furiosa_opt_padded_tail_alignment"]};

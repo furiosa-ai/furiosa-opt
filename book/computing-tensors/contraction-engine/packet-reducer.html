@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-bf8d000f.js"></script>
+        <script src="../../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -185,7 +185,8 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
 <pre><code class="language-rust ignore">impl&lt;
     'l,
     const T: Tu,
-    D: Scalar + ContractionCast,
+    D: Scalar,
+    Storage: ContractionCast&lt;Output = D&gt;,
     Chip: M,
     Cluster: M,
     Slice: M,
@@ -193,21 +194,19 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
     Time: M,
     Packet: M,
     B: Backend,
-&gt; ContractOuterTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+&gt; ContractOuterTensor&lt;'l, T, D, Storage, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
-    /// Spatial reduction within `Packet`: reduce-add along the contracted axes inside `Packet`
-    /// of the product already produced by the Outer stage.
-    /// The product type is the widened contraction output type: `i4`/`i8` -&gt; `i32`, `f8`/`bf16` -&gt; `f32`.
+    /// Spatial reduction within `Packet`: validates the reduce-add along the contracted axes inside
+    /// `Packet` that the fused fold at `contract_lane` will perform. `D` is the widened accumulator the
+    /// deferred carrier stays keyed on; the DPE input packet is still sized in `Storage` bytes.
     #[primitive(ContractOuterTensor::contract_packet)]
     pub fn contract_packet&lt;OutPacket: M&gt;(
         self,
-    ) -&gt; ContractPacketTensor&lt;'l, T, &lt;D as ContractionCast&gt;::Output, Chip, Cluster, Slice, Lane, Time, OutPacket, B&gt;
-    {
-        verify_contract_packet::&lt;D, Packet, OutPacket&gt;();
-        ContractPacketTensor {
-            ctx: self.ctx,
-            inner: self.inner.reduce_add(),
-        }
+    ) -&gt; ContractPacketTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, OutPacket, B&gt; {
+        verify_contract_packet::&lt;Storage, Packet, OutPacket&gt;();
+        // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
+        // performs this Packet reduction too. This stage only re-types the carrier to `OutPacket`.
+        ContractPacketTensor::new(self.ctx, self.inner)
     }
 }</code></pre>
 <p>The kernel below uses all 8 lanes in parallel: tree depth 5 sums over the 32 <code>bf16</code> elements of <code>B</code>, producing one <code>f32</code> per <code>A</code> position.</p>
@@ -219,18 +218,24 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
 </span>axes![A = 32, B = 32, C = 8];
 
 fn matmul&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![A, B / 16], m![B % 16]&gt;,
-    trf: &amp;TrfTensor&lt;bf16, m![1], m![1], m![1], m![C], m![B]&gt;,
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1], m![1], m![A], m![C]&gt; {
+    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt;,
+    trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt;,
+) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![A], m![C]&gt; {
     //
     // Spatial reduction: tree depth 5 reduces 32 bf16 elements along B → f32
     // Output (Interleaved): Time = [A], Packet = [C]
-    input.contract_outer::&lt;m![A], m![B], _, _&gt;(&amp;trf)
+    input.contract_outer::&lt;m![A], m![B], _, _, _&gt;(&amp;trf)
          .contract_packet::&lt;m![1]&gt;()
          .contract_time::&lt;m![A]&gt;()
          .contract_lane::&lt;m![A], m![C]&gt;(LaneMode::Interleaved)
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let _o = matmul(a, &amp;b);
+</span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
 <pre><code class="language-text">ReducePacket = Packet / 2^d        for 0 ≤ d ≤ log2(Packet::SIZE)
 OutPacket    = ReducePacket        if ReducePacket::SIZE ≤ 32
@@ -297,7 +302,7 @@ The adder tree is fully pipelined, so depth adds first-output latency but does n
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-c22b7243.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

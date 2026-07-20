@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_TAGS"],"mod":["alu","branch","layer","op","operand","scalar","stage","tensor"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_TAGS"],"mod":["alu","branch","layer","op","operand","scalar","stage","stash_slot","tensor"]};

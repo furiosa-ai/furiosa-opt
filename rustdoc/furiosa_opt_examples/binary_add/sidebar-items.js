@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["binary_add_2048"],"struct":["A","BinaryAdd2048","I"]};
+window.SIDEBAR_ITEMS = {"constant":["binary_add_2048"],"struct":["A","I","__furiosa_opt_binary_add_2048"]};

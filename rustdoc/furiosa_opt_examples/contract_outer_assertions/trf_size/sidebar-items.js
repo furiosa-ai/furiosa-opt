@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["invalid_to_trf_full","invalid_to_trf_half","valid_to_trf_full","valid_to_trf_half"],"struct":["InvalidToTrfFull","InvalidToTrfHalf","ValidToTrfFull","ValidToTrfHalf"]};
+window.SIDEBAR_ITEMS = {"constant":["invalid_to_trf_full","invalid_to_trf_half","valid_to_trf_full","valid_to_trf_half"],"struct":["__furiosa_opt_invalid_to_trf_full","__furiosa_opt_invalid_to_trf_half","__furiosa_opt_valid_to_trf_full","__furiosa_opt_valid_to_trf_half"]};

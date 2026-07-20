@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-bf8d000f.js"></script>
+        <script src="../../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -211,7 +211,7 @@ impl&lt;'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Pa
     pub fn vector_intra_slice_tag(
         self,
         branch: TagMode,
-    ) -&gt; VectorBranchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, D, NoTensor, { VeOrder::IntraFirst }&gt; {
+    ) -&gt; VectorBranchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, D, Fresh, { VeOrder::IntraFirst }&gt; {
         VectorBranchTensor::new(self.ctx, self.inner, branch)
     }
 
@@ -234,9 +234,7 @@ impl&lt;'l, const T: Tu, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
         op: InterSliceReduceOpI32,
     ) -&gt; VectorInterSliceReduceTensor&lt;'l, T, i32, Chip, Cluster, OutSlice, OutTime, Packet, { VeOrder::InterFirst }&gt;
     {
-        let reduced = self
-            .inner
-            .reduce_then_broadcast_with(op.lifted_reduce_fn(), Opt::Uninit);
+        let reduced = self.inner.reduce(op.reduce_fn(), op.identity(), true);
         create_inter_slice_reduce_tensor(self.ctx, reduced)
     }
 }</code></pre>
@@ -249,14 +247,14 @@ impl&lt;'l, const T: Tu, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![B = 2, K = 256, M = 128, N = 256];
+</span>axes![B = 2, K = 256, M = 16, N = 16];
 
 // ReLU activation after batched matrix multiplication.
 // Chain-only pass, so the reducer is skipped and the path trivially resolves to IntraFirst.
 // Both clusters (B = 2) and all 256 slices (K) carry real data, no padding.
 fn relu&lt;'l, const T: Tu&gt;(
-    input: ContractTensor&lt;'l, T, f32, m![1], m![B], m![K], m![M], m![N]&gt;,
-) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![K], m![M], m![N]&gt; {
+    input: ContractTensor&lt;'l, T, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]&gt; {
     input
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
@@ -264,7 +262,12 @@ fn relu&lt;'l, const T: Tu&gt;(
         .vector_clip(ClipBinaryOpF32::Max, 0.0f32)
         .vector_final()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: ContractTensor&lt;'_, _, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]&gt; = ContractTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = relu(c);
+</span><span class="boring">}</span></code></pre>
 <h3 id="relu-then-reduce"><a class="header" href="#relu-then-reduce">ReLU Then Reduce</a></h3>
 <p>This pass applies ReLU per slice and then reduces across <code>R</code>, giving \(output[a, b] = \sum_{r \in R} \max(input[a, b, r], 0)\).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
@@ -289,7 +292,12 @@ fn relu_then_reduce&lt;'l, const T: Tu&gt;(
         .vector_inter_slice_reduce::&lt;m![A / 8, 1 # 4], m![1]&gt;(InterSliceReduceOpI32::AddSat)
         .vector_final()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = relu_then_reduce(c);
+</span><span class="boring">}</span></code></pre>
 <h3 id="reduce-then-bias"><a class="header" href="#reduce-then-bias">Reduce Then Bias</a></h3>
 <p>This pass reduces across <code>R</code> and then adds a constant bias, giving \(output[a, b] = \left(\sum_{r \in R} input[a, b, r]\right) + 100\).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
@@ -314,7 +322,12 @@ fn reduce_then_add&lt;'l, const T: Tu&gt;(
         .vector_fxp(FxpBinaryOp::AddFxp, 100)
         .vector_final()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = reduce_then_add(c);
+</span><span class="boring">}</span></code></pre>
 <h3 id="intra--and-inter-slice-reduction"><a class="header" href="#intra--and-inter-slice-reduction">Intra- and Inter-Slice Reduction</a></h3>
 <p>This pass reduces <code>R</code> entirely by combining the intra-slice reducer (over <code>R</code>’s Time and Packet portions) and the inter-slice reducer (over <code>R</code>’s Slice portion).
 The einsum form is <code>BR -&gt; B</code>, with saturating addition.</p>
@@ -344,7 +357,12 @@ fn full_sum&lt;'l, const T: Tu&gt;(
         .vector_inter_slice_reduce::&lt;m![1 # 256], m![1]&gt;(InterSliceReduceOpI32::AddSat)
         .vector_final()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![R / 32], m![R % 32 / 4], m![R % 4 # 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = full_sum(c);
+</span><span class="boring">}</span></code></pre>
 <h3 id="pair-add"><a class="header" href="#pair-add">Pair Add</a></h3>
 <p>This pass unzips two interleaved groups along <code>I</code> and adds them pair-wise.
 The einsum form is <code>ABI -&gt; AB</code>.</p>
@@ -368,7 +386,12 @@ fn pair_add&lt;'l, const T: Tu&gt;(
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = pair_add(c);
+</span><span class="boring">}</span></code></pre>
 
                     </main>
 
@@ -418,7 +441,7 @@ fn pair_add&lt;'l, const T: Tu&gt;(
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-c22b7243.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../../mermaid-eefea253.min.js"></script>

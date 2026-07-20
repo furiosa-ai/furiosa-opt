@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -194,7 +194,7 @@ impl&lt;'l, const T: Tu, P: CanApplyCast, D: VeScalar, Chip: M, Cluster: M, Slic
         D: Cast&lt;OutD&gt;,
     {
         verify_cast::&lt;D, OutD, Packet, OutPacket&gt;();
-        CastTensor::new(self.ctx, self.inner.map(|v| v.map(|v| v.cast())).transpose(false))
+        CastTensor::new(self.ctx, self.inner.map(|v| v.cast()).transpose(false))
     }
 }</code></pre>
 <p><code>.cast::&lt;OutD, OutPacket&gt;()</code> converts each element to type <code>OutD</code> and pads the output back to one 32-byte flit.
@@ -212,11 +212,16 @@ After the cast, the 8 elements occupy 8 bytes, so <code>A # 32</code> pads the o
 </span>axes![B = 4, A = 8];
 
 fn cast_i32_to_i8&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i32, m![1], m![1], m![1], m![B], m![A]&gt;,
-) -&gt; CastTensor&lt;'l, T, i8, m![1], m![1], m![1], m![B], m![A # 32]&gt; {
+    input: CollectTensor&lt;'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]&gt;,
+) -&gt; CastTensor&lt;'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![B], m![A # 32]&gt; {
     input.cast()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = cast_i32_to_i8(c);
+</span><span class="boring">}</span></code></pre>
 <p>The input data may not fill 32 bytes.
 The example below casts an <code>i32</code> input where 4 data elements are padded to 8 (<code>A # 8</code>, 32 bytes) into an <code>i8</code> output where the same 4 elements are padded to 32 (<code>A # 32</code>, also 32 bytes):</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
@@ -227,11 +232,16 @@ The example below casts an <code>i32</code> input where 4 data elements are padd
 </span>axes![A = 4];
 
 fn cast_padded&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i32, m![1], m![1], m![1], m![1], m![A # 8]&gt;,
-) -&gt; CastTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A # 32]&gt; {
+    input: CollectTensor&lt;'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]&gt;,
+) -&gt; CastTensor&lt;'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 32]&gt; {
     input.cast()
 }
-<span class="boring">}</span></code></pre>
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = cast_padded(c);
+</span><span class="boring">}</span></code></pre>
 <h2 id="supported-casts"><a class="header" href="#supported-casts">Supported Casts</a></h2>
 <p>Each input is a 32-byte flit.
 The supported source types are <code>f32</code> and <code>i32</code>, each with specific target types:</p>
@@ -298,7 +308,7 @@ The downstream <a href="../moving-tensors/commit-engine.html">Commit Engine</a> 
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

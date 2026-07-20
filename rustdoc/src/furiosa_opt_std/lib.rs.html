@@ -13,35 +13,33 @@
 <a href=#13 id=13 data-nosnippet>13</a>
 <a href=#14 id=14 data-nosnippet>14</a></span><span class="kw">mod </span>array_vec;
 <a href=#15 id=15 data-nosnippet>15</a><span class="kw">mod </span>cast;
-<a href=#16 id=16 data-nosnippet>16</a><span class="kw">mod </span>context;
-<a href=#17 id=17 data-nosnippet>17</a><span class="kw">pub mod </span>diag;
+<a href=#16 id=16 data-nosnippet>16</a><span class="kw">mod </span>constraints;
+<a href=#17 id=17 data-nosnippet>17</a><span class="kw">mod </span>context;
 <a href=#18 id=18 data-nosnippet>18</a><span class="kw">mod </span>engine;
 <a href=#19 id=19 data-nosnippet>19</a><span class="kw">mod </span>float;
 <a href=#20 id=20 data-nosnippet>20</a><span class="kw">mod </span>scalar;
-<a href=#21 id=21 data-nosnippet>21</a><span class="kw">mod </span>tensor;
-<a href=#22 id=22 data-nosnippet>22</a><span class="kw">mod </span>tensor_state;
+<a href=#21 id=21 data-nosnippet>21</a><span class="kw">mod </span>storage;
+<a href=#22 id=22 data-nosnippet>22</a><span class="kw">mod </span>tensor;
 <a href=#23 id=23 data-nosnippet>23</a>
-<a href=#24 id=24 data-nosnippet>24</a><span class="kw">pub mod </span>runtime;
-<a href=#25 id=25 data-nosnippet>25</a>
-<a href=#26 id=26 data-nosnippet>26</a><span class="attr">#[doc(hidden)]
-<a href=#27 id=27 data-nosnippet>27</a></span><span class="kw">pub use </span>tensor::{BufRawTensor, MathRawTensor, PhantomRawTensor};
-<a href=#28 id=28 data-nosnippet>28</a><span class="kw">pub use </span>tokio::sync::OnceCell;
-<a href=#29 id=29 data-nosnippet>29</a>
-<a href=#30 id=30 data-nosnippet>30</a><span class="kw">pub use </span>tensor::BufferConvertError;
-<a href=#31 id=31 data-nosnippet>31</a>
-<a href=#32 id=32 data-nosnippet>32</a><span class="kw">pub use </span>tensor::pseudo;
-<a href=#33 id=33 data-nosnippet>33</a>
-<a href=#34 id=34 data-nosnippet>34</a><span class="doccomment">/// Prelude module that re-exports commonly used items.
-<a href=#35 id=35 data-nosnippet>35</a></span><span class="kw">pub mod </span>prelude {
-<a href=#36 id=36 data-nosnippet>36</a>    <span class="kw">pub use </span><span class="kw">super</span>::cast::{Cast, ContractionCast, FetchCast};
-<a href=#37 id=37 data-nosnippet>37</a>    <span class="kw">pub use </span><span class="kw">super</span>::engine::<span class="kw-2">*</span>;
-<a href=#38 id=38 data-nosnippet>38</a>    <span class="kw">pub use </span><span class="kw">super</span>::tensor::memory::<span class="kw-2">*</span>;
-<a href=#39 id=39 data-nosnippet>39</a>    <span class="kw">pub use </span><span class="kw">super</span>::tensor::tu::<span class="kw-2">*</span>;
-<a href=#40 id=40 data-nosnippet>40</a>    <span class="kw">pub use </span>super::{array_vec::<span class="kw-2">*</span>, context::<span class="kw-2">*</span>, runtime::<span class="kw-2">*</span>, scalar::<span class="kw-2">*</span>, tensor::<span class="kw-2">*</span>};
-<a href=#41 id=41 data-nosnippet>41</a>    <span class="comment">// Stage types are accessed via stage::Init, stage::Tag, etc.
-<a href=#42 id=42 data-nosnippet>42</a>    </span><span class="kw">pub use </span><span class="kw">super</span>::engine::vector::{alu::<span class="kw-2">*</span>, branch::<span class="kw-2">*</span>, layer::<span class="kw-2">*</span>, op::<span class="kw-2">*</span>, operand::<span class="kw-2">*</span>, scalar::<span class="kw-2">*</span>, stage, tensor::<span class="kw-2">*</span>};
-<a href=#43 id=43 data-nosnippet>43</a>    <span class="kw">pub use </span><span class="kw">super</span>::tensor_state::<span class="kw-2">*</span>;
-<a href=#44 id=44 data-nosnippet>44</a>    <span class="kw">pub use </span>furiosa_mapping::<span class="kw-2">*</span>;
-<a href=#45 id=45 data-nosnippet>45</a>    <span class="kw">pub use </span>furiosa_opt_macro::{DeviceSend, device};
-<a href=#46 id=46 data-nosnippet>46</a>}
+<a href=#24 id=24 data-nosnippet>24</a><span class="kw">pub mod </span>backend;
+<a href=#25 id=25 data-nosnippet>25</a><span class="kw">pub mod </span>runtime;
+<a href=#26 id=26 data-nosnippet>26</a>
+<a href=#27 id=27 data-nosnippet>27</a><span class="kw">pub use </span>tokio::sync::OnceCell;
+<a href=#28 id=28 data-nosnippet>28</a>
+<a href=#29 id=29 data-nosnippet>29</a><span class="kw">pub use </span>context::Device;
+<a href=#30 id=30 data-nosnippet>30</a>
+<a href=#31 id=31 data-nosnippet>31</a><span class="kw">pub use </span>tensor::pseudo;
+<a href=#32 id=32 data-nosnippet>32</a>
+<a href=#33 id=33 data-nosnippet>33</a><span class="doccomment">/// Prelude module that re-exports commonly used items.
+<a href=#34 id=34 data-nosnippet>34</a></span><span class="kw">pub mod </span>prelude {
+<a href=#35 id=35 data-nosnippet>35</a>    <span class="kw">pub use </span><span class="kw">super</span>::cast::{Cast, ContractionCast, ContractionWeight, FetchCast, FetchZeroPointSub};
+<a href=#36 id=36 data-nosnippet>36</a>    <span class="kw">pub use </span><span class="kw">super</span>::engine::vector::stash_slot::<span class="kw-2">*</span>;
+<a href=#37 id=37 data-nosnippet>37</a>    <span class="kw">pub use </span><span class="kw">super</span>::engine::vector::{alu::<span class="kw-2">*</span>, branch::<span class="kw-2">*</span>, layer::<span class="kw-2">*</span>, op::<span class="kw-2">*</span>, operand::<span class="kw-2">*</span>, scalar::<span class="kw-2">*</span>, stage, tensor::<span class="kw-2">*</span>};
+<a href=#38 id=38 data-nosnippet>38</a>    <span class="kw">pub use </span><span class="kw">super</span>::engine::<span class="kw-2">*</span>;
+<a href=#39 id=39 data-nosnippet>39</a>    <span class="kw">pub use </span><span class="kw">super</span>::tensor::memory::<span class="kw-2">*</span>;
+<a href=#40 id=40 data-nosnippet>40</a>    <span class="kw">pub use </span><span class="kw">super</span>::tensor::tu::<span class="kw-2">*</span>;
+<a href=#41 id=41 data-nosnippet>41</a>    <span class="kw">pub use </span>super::{array_vec::<span class="kw-2">*</span>, backend::<span class="kw-2">*</span>, context::<span class="kw-2">*</span>, runtime::<span class="kw-2">*</span>, scalar::<span class="kw-2">*</span>, storage::<span class="kw-2">*</span>, tensor::<span class="kw-2">*</span>};
+<a href=#42 id=42 data-nosnippet>42</a>    <span class="kw">pub use </span>furiosa_mapping::<span class="kw-2">*</span>;
+<a href=#43 id=43 data-nosnippet>43</a>    <span class="kw">pub use </span>furiosa_opt_macro::{DeviceSend, device};
+<a href=#44 id=44 data-nosnippet>44</a>}
 </code></pre></div></section></main></body></html>

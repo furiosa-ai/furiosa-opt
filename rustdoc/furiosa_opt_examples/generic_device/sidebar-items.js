@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["a","b"],"struct":["B"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["custom_broadcast"],"struct":["A","B","CustomBroadcast","V","Y"]};
+window.SIDEBAR_ITEMS = {"constant":["custom_broadcast"],"struct":["A","B","V","Y","__furiosa_opt_custom_broadcast"]};

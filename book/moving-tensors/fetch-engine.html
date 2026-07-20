@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f20ec7b.js";
+            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-bf8d000f.js"></script>
+        <script src="../toc-65a723fd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -194,7 +194,7 @@ The <code>assert_eq!</code> calls enforce hardware constraints on <code>Cluster:
     /// `fetch_mask` / `fetch_table_lookup` / `fetch_cast` methods.
     #[primitive(TuTensor::fetch)]
     pub fn fetch&lt;OutTime: M, OutPacket: M&gt;(self) -&gt; FetchTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
-        verify_fetch::&lt;D, Cluster, Slice, Time, Packet, OutTime, OutPacket&gt;();
+        verify_fetch::&lt;Cluster, Slice, Time, Packet, OutTime, OutPacket&gt;();
         FetchTensor::new(self.ctx, self.inner.transpose(true))
     }
 }</code></pre>
@@ -277,16 +277,16 @@ fn fetch_batch_4&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_1(b);
 </span><span class="boring">
-</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_2(b);
 </span><span class="boring">
-</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_3(b);
 </span><span class="boring">
-</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_4(b);
 </span><span class="boring">}</span></code></pre>
 <h2 id="interleaving"><a class="header" href="#interleaving">Interleaving</a></h2>
@@ -373,11 +373,11 @@ fn fetch_packet_ABC&lt;'l, const T: Tu&gt;(
 
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let x: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_C(x);
-</span><span class="boring">let y: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let y: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_BC(y);
-</span><span class="boring">let z: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::uninit());
+</span><span class="boring">let z: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_ABC(z);
 </span><span class="boring">}</span></code></pre>
 <p>In these examples, padding reads beyond the actual data, but this is safe because padding values do not affect computation.
@@ -431,7 +431,7 @@ Different padding strategies produce different <code>FetchTensor</code> mappings
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-c22b7243.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
         <script src="../mermaid-eefea253.min.js"></script>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["commit_view_bottom_pad","dm_pcopy","dm_relayout","dm_view_pcopy","hbm_chip_shuffle"],"struct":["A","B","Q","T","__furiosa_opt_commit_view_bottom_pad","__furiosa_opt_dm_pcopy","__furiosa_opt_dm_relayout","__furiosa_opt_dm_view_pcopy","__furiosa_opt_hbm_chip_shuffle"]};
