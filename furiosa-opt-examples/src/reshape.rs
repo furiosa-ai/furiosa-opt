@@ -9,14 +9,13 @@ pub fn reshape(
     ctx: &mut Context,
     hbm_tensor: &HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]>,
 ) -> HbmTensor<i32, m![C], m![D, E, F, G, H, I]> {
-    let hbm_transposed: HbmTensor<i32, m![A / 4 % 4], m![A % 4, B, A / 16]> =
-        hbm_tensor.to_hbm(&mut ctx.tdma, 0x100000);
+    let hbm_transposed: HbmTensor<i32, m![A / 4 % 4], m![A % 4, B, A / 16]> = hbm_tensor.to_hbm(&mut ctx.tdma);
     let dm_tensor: DmTensor<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]> =
-        hbm_transposed.to_dm(&mut ctx.tdma, 0);
+        hbm_transposed.to_dm(&mut ctx.tdma);
 
     let reshaped: DmTensor<i32, m![C], m![D], m![E, F], m![G, H, I]> = unsafe { dm_tensor.reshape() };
 
-    reshaped.to_hbm(&mut ctx.tdma, 0x2000)
+    reshaped.to_hbm(&mut ctx.tdma)
 }
 
 // Note: This test uses different shape definitions, so it's in a separate module
@@ -30,8 +29,7 @@ pub mod different_axes {
         ctx: &mut Context,
         hbm_tensor: &HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]>,
     ) -> HbmTensor<i32, m![C], m![D, E, F]> {
-        let hbm_transposed: HbmTensor<i32, m![A / 4 % 4], m![A % 4, B, A / 16]> =
-            hbm_tensor.to_hbm(&mut ctx.tdma, 0x100000);
+        let hbm_transposed: HbmTensor<i32, m![A / 4 % 4], m![A % 4, B, A / 16]> = hbm_tensor.to_hbm(&mut ctx.tdma);
 
         let dm_tensor: DmTensor<
             i32,
@@ -39,10 +37,10 @@ pub mod different_axes {
             m![A / 2 % 2],
             m![B % 16, B / 16 % 16],
             m![B / 256, A % 2, A / 16],
-        > = hbm_transposed.to_dm(&mut ctx.tdma, 0);
+        > = hbm_transposed.to_dm(&mut ctx.tdma);
 
         let reshaped: DmTensor<i32, m![C], m![D], m![E], m![F]> = unsafe { dm_tensor.reshape() };
 
-        reshaped.to_hbm(&mut ctx.tdma, 0x2000)
+        reshaped.to_hbm(&mut ctx.tdma)
     }
 }

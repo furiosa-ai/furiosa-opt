@@ -18,10 +18,8 @@ use std::marker::ConstParamTy;
 // Tensor context markers
 // ============================================================================
 
-/// Marker trait for VE tensor context state.
-/// Used to distinguish tensor contexts and restrict available operations.
-/// there are three Contexts: Standalone/Group/Zipped.
-/// depending on the TensorContext, commit/stash/filter operations may be allowed or disallowed.
+/// Marker trait for VE tensor context state (`Standalone` / `Group` / `Zipped`), which
+/// restricts the commit/stash/filter operations available on a tensor view.
 pub trait VeTensorContext {}
 
 /// Standalone tensor - represents a single tensor view that can use the full VE API
@@ -52,7 +50,6 @@ impl Commitable for Standalone {}
 impl Commitable for Zipped {}
 
 // ============================================================================
-// ============================================================================
 // VE entry order (IntraFirst)
 // ============================================================================
 
@@ -80,14 +77,22 @@ pub enum VeOrder {
 /// Float operations are only available in `Way4`, enforced at compile time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ConstParamTy)]
 pub enum Way {
-    /// 8-way (default). Full 8-element flit.
-    /// Float operations are NOT available.
-    /// Use `vector_narrow_split` (>4 real elements) or `vector_narrow_trim` (≤4 real elements) to transition to `Way4`.
+    /// 8-way (default): full 8-element flit. Transition to `Way4` via `vector_narrow_split`
+    /// (>4 real elements) or `vector_narrow_trim` (≤4).
     Way8,
-    /// 4-way. Front-4-only flit after `vector_narrow_split` or `vector_narrow_trim`.
-    /// Float operations are available.
-    /// Use `vector_widen_concat` or `vector_widen_pad` to transition back to `Way8`.
+    /// 4-way: front-4-only flit. Transition back to `Way8` via `vector_widen_concat` or
+    /// `vector_widen_pad`.
     Way4,
+}
+
+impl Way {
+    /// Valid packet elements per flit: 8 for `Way8`, 4 for `Way4`.
+    pub const fn packet_elements(self) -> usize {
+        match self {
+            Way::Way8 => 8,
+            Way::Way4 => 4,
+        }
+    }
 }
 
 // ============================================================================
@@ -116,7 +121,7 @@ impl Stage for Tag {}
 impl IntraSliceStage for Tag {}
 impl Stashable for Tag {}
 
-/// Logic cluster stage (max 5 ops).
+/// Logic cluster stage.
 #[derive(Debug, Clone, Copy)]
 pub struct Logic;
 impl Logic {
@@ -127,7 +132,7 @@ impl Stage for Logic {}
 impl IntraSliceStage for Logic {}
 impl Stashable for Logic {}
 
-/// Fixed-point cluster stage (max 4 ops).
+/// Fixed-point cluster stage.
 #[derive(Debug, Clone, Copy)]
 pub struct Fxp;
 impl Fxp {
@@ -151,7 +156,7 @@ impl Stage for Narrow {}
 impl IntraSliceStage for Narrow {}
 impl Stashable for Narrow {}
 
-/// Fp cluster stage (max 5 ops).
+/// Fp cluster stage.
 #[derive(Debug, Clone, Copy)]
 pub struct Fp;
 impl Fp {
@@ -187,7 +192,7 @@ pub struct FpToFxp;
 impl Stage for FpToFxp {}
 impl IntraSliceStage for FpToFxp {}
 
-/// Clip cluster stage (max 3 ops).
+/// Clip cluster stage.
 #[derive(Debug, Clone, Copy)]
 pub struct Clip;
 impl Clip {

@@ -16,9 +16,9 @@ pub fn matmul_chip_reduce(
     lhs: &HbmTensor<i8, Chip, m![A]>,
     rhs: &HbmTensor<i8, Chip, m![C]>,
 ) -> HbmTensor<i8, m![C / 2 % 4], m![A, C / 8, C % 2]> {
-    let lhs = lhs.to_dm::<Cluster, m![A / 4], m![A % 4 # 8]>(&mut ctx.tdma, 0);
+    let lhs = lhs.to_dm::<Cluster, m![A / 4], m![A % 4 # 8]>(&mut ctx.tdma);
 
-    let rhs = rhs.to_dm::<Cluster, m![C / 4], m![C % 4 # 8]>(&mut ctx.tdma, 128 * 1024);
+    let rhs = rhs.to_dm::<Cluster, m![C / 4], m![C % 4 # 8]>(&mut ctx.tdma);
 
     // Load rhs into VRF
     let rhs_broadcasted: DmTensor<i8, Chip, Cluster, m![A / 4], m![C / 4, C % 4 # 8]> = ctx
@@ -32,14 +32,14 @@ pub fn matmul_chip_reduce(
         })
         .collect::<m![C / 4], m![C % 4 # 32]>()
         .commit_trim::<m![C % 4 # 8]>()
-        .commit(0);
+        .commit();
     let rhs_vrf: VrfTensor<i32, Chip, Cluster, m![A / 4], m![C / 4, C % 4 # 8]> = ctx
         .sub
         .begin(rhs_broadcasted.view())
-        .fetch::<m![C / 4], m![C % 4 # 8]>()
+        .fetch::<m![C / 4], m![C % 4]>()
         .fetch_cast::<i32>()
         .collect::<m![C / 4], m![C % 4 # 8]>()
-        .to_vrf(0);
+        .to_vrf();
 
     // Perform elementwise mul
     // The B dimension is in Chip (=4), which will be reduced later via reduce_over_chip
@@ -55,13 +55,13 @@ pub fn matmul_chip_reduce(
         .vector_fxp(FxpBinaryOp::MulInt, &rhs_vrf)
         .vector_final()
         .commit_trim::<m![A % 4 # 8]>()
-        .commit(0);
+        .commit();
 
     // Now reduce over the Chip dimension using ReduceScatter pattern (for 4 chips)
     let reduced = reduce_over_chip(ctx, &mul_result);
 
     // Write back to HBM
-    reduced.to_hbm(&mut ctx.tdma, 0x3000)
+    reduced.to_hbm(&mut ctx.tdma)
 }
 
 /// Reduce over chip axis using ReduceScatter pattern for Chip=4.
@@ -128,7 +128,7 @@ fn reduce_over_chip(
     // Add T0 + T1
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sliced0.view(), shuffled1.view())
-        .fetch::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch::<m![C / 8, C % 2, I], m![A % 4]>()
         .fetch_cast::<i32>()
         .collect::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
         .vector_init()
@@ -142,7 +142,7 @@ fn reduce_over_chip(
     // Add (TO + T1) + T2
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sum01.view(), shuffled2.view())
-        .fetch::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch::<m![C / 8, C % 2, I], m![A % 4]>()
         .fetch_cast::<i32>()
         .collect::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
         .vector_init()
@@ -159,7 +159,7 @@ fn reduce_over_chip(
 
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sum012.view(), shuffled3.view())
-        .fetch::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
+        .fetch::<m![C / 8, C % 2, I], m![A % 4]>()
         .fetch_cast::<i32>()
         .collect::<m![C / 8, C % 2, I], m![A % 4 # 8]>()
         .vector_init()

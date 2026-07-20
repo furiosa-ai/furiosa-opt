@@ -30,7 +30,7 @@ Install three pieces:
 
    The same channel is pinned in [`rust-toolchain.toml`](https://github.com/furiosa-ai/furiosa-opt/blob/main/rust-toolchain.toml); cargo activates it automatically when you cd into a project that includes that file.
 
-2. **`cargo-furiosa-opt`**: the cargo subcommand that injects the right `--cfg backend="..."` and pre-compiles kernels for NPU.
+2. **[`cargo-furiosa-opt`](./appendix/cargo-furiosa-opt.md)**: the cargo subcommand that injects the right `--cfg backend="..."` and pre-compiles kernels for NPU.
 
    ```bash
    cargo +nightly-2026-05-01 install cargo-binstall
@@ -39,9 +39,7 @@ Install three pieces:
 
 3. **Furiosa SDK + physical NPU** *(only for `--backend npu`)*: the NPU backend dispatches to real hardware via the SDK's kernel driver and PE runtime (`furiosa-driver-rngd`, `furiosa-smi`, etc.; see the [SDK documentation](https://developer.furiosa.ai/latest/en/)).
 
-   **The `simulation` and `typecheck` backends do not require the SDK.** They run host-side with no NPU dependency, so a customer who only intends to develop or evaluate kernels does not need to install the SDK at all.
-
-   There is **no on-host NPU simulator in the public SDK distribution today**. Without physical NPU access, use `--backend simulation` (host-side interpretation) or `--backend typecheck` (mapping/shape verification only).
+   **The `emulation` and `typecheck` backends do not require the SDK.** They run host-side with no NPU dependency, so a customer who only intends to develop or evaluate kernels does not need to install the SDK at all.
 
 ## Your First Program
 
@@ -57,11 +55,10 @@ cd base-template
 
 ```text
 base-template/
-├── Cargo.toml
+├── Cargo.toml                               # `[package.metadata.furiosa-opt]` marks it a kernel package
 ├── README.md
 ├── rust-toolchain.toml
 └── src/
-    ├── furiosa-opt.tag                       # marker the rustc plugin scans for; must sit at src/
     ├── lib.rs                                # `pub mod kernel;`
     ├── kernel/                               # every #[device] function lives here
     │   ├── mod.rs                            # `pub mod {constant_add,...}_kernel;`
@@ -79,7 +76,7 @@ base-template/
 
 Keep these layout rules intact:
 
-- `src/furiosa-opt.tag` is a marker file. It must stay directly under `src/`.
+- A package opts into kernel compilation by declaring `[package.metadata.furiosa-opt]` in its `Cargo.toml`.
 - Host programs should live as direct `src/*.rs` files and are registered with explicit `[[bin]] path = "src/<name>.rs"` entries in `Cargo.toml`.
 - Do not move host programs into `src/bin/`, `examples/`, or `tests/`; the rustc plugin scans cargo targets rooted at `src/` and skips those other locations.
 
@@ -90,7 +87,7 @@ The value comparison against a host-side reference lives in a `#[cfg(test)] mod 
 ### Run a worked example
 
 ```bash
-# Host-side simulation (default; no NPU hardware required).
+# Host-side emulation (default; no NPU hardware required).
 cargo furiosa-opt run --release --bin gemm
 
 # Mapping/shape verification only — kernel body runs against phantom (empty) tensors.
@@ -103,7 +100,7 @@ cargo furiosa-opt --backend npu run --release --bin gemm
 ### Verify against the reference
 
 ```bash
-# Full numeric comparison on simulated values.
+# Full numeric comparison on emulated values.
 cargo furiosa-opt test --release --bin gemm
 
 # Under typecheck the comparison loop trivially passes: `actual` is the
@@ -131,11 +128,11 @@ A vISA program is a Rust program that uses the `furiosa-opt-std` API. `cargo fur
 | Backend     | Default? | What runs                                   | Use when                                                                             |
 |-------------|----------|---------------------------------------------|--------------------------------------------------------------------------------------|
 | `typecheck` |          | Kernel body runs with phantom (empty) tensors | Catching mapping/shape errors fast (value computation skipped)                       |
-| `simulation`  | yes      | Full host-side interpretation               | Default for development; verifies numerical correctness                              |
+| `emulation`  | yes      | Full host-side interpretation over the physical buffer | Default for development; verifies numerical correctness                              |
 | `npu`       |          | Compiled EDF on hardware (or NVP simulator) | End-to-end including the hardware path                                               |
 
 ```bash
-# Default: simulation backend, no NPU hardware needed.
+# Default: emulation backend, no NPU hardware needed.
 cargo furiosa-opt run --release
 
 # Fast mapping/shape verification (kernel body runs with phantom tensors).
@@ -150,9 +147,11 @@ cargo furiosa-opt --backend npu run --release
 `cargo furiosa-opt` forwards every cargo flag verbatim, so `cargo run`, `cargo test`, `cargo check`, and `cargo build` all have direct equivalents:
 
 ```bash
-cargo furiosa-opt build              # cargo build with simulation backend
+cargo furiosa-opt build              # cargo build with emulation backend
 cargo furiosa-opt --backend npu test # cargo test on real NPU
 ```
+
+See the [`cargo furiosa-opt` appendix](./appendix/cargo-furiosa-opt.md) for the complete command reference.
 
 
 ### Language Server

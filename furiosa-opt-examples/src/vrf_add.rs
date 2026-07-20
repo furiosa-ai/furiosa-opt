@@ -16,10 +16,10 @@ fn vrf_add_kernel(
     out: DmTensorViewMut<'_, i32, Chip, Cluster, m![A / 8 # 256], m![B, A % 8]>,
 ) {
     // Load lhs into DM (mainstream data)
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 8 # 256], m![B, A % 8]>(&mut ctx.tdma, 0);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 8 # 256], m![B, A % 8]>(&mut ctx.tdma);
 
     // Load rhs into DM
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 8 # 256], m![B]>(&mut ctx.tdma, 512);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 8 # 256], m![B]>(&mut ctx.tdma);
 
     // Prepare rhs data for VRF by committing to DM first
     let rhs_vrf: VrfTensor<i32, Chip, Cluster, m![A / 8 # 256], m![B]> = ctx
@@ -28,7 +28,7 @@ fn vrf_add_kernel(
         .fetch::<m![1], m![B]>()
         .fetch_cast::<i32>()
         .collect::<m![B / 8], m![B % 8]>()
-        .to_vrf(0);
+        .to_vrf();
 
     // Perform addition: lhs_dm + rhs_vrf using vector engine
     ctx.main
@@ -57,5 +57,5 @@ pub fn vrf_add(
     vrf_add_kernel(ctx, lhs.view(), rhs.view(), result.view_mut());
 
     // Write result back to HBM
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }

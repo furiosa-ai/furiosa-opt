@@ -17,38 +17,8 @@ use super::alu::{FpMulAlu, RngdAlu};
 use furiosa_opt_macro::primitive;
 
 // ============================================================================
-// Common traits
-// ============================================================================
-
-/// Common trait for Vector Engine operations.
-pub trait VeOperation {
-    /// Returns the argument mode for this operation.
-    fn arg_mode(&self) -> ArgMode;
-}
-
-// ============================================================================
 // Logic cluster
 // ============================================================================
-
-/// Logic cluster operations for i32 (internal, with mode).
-#[derive(Debug, Clone, Copy)]
-pub struct LogicOpI {
-    pub(crate) op: LogicBinaryOpI32,
-    pub(crate) arg_mode: BinaryArgMode,
-}
-
-impl LogicOpI {
-    /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl VeOperation for LogicOpI {
-    fn arg_mode(&self) -> ArgMode {
-        ArgMode::Binary(self.arg_mode)
-    }
-}
 
 /// Logic cluster binary operations for i32 (user-facing, mode-free).
 #[primitive(op::LogicBinaryOpI32)]
@@ -82,21 +52,8 @@ impl Display for LogicBinaryOpI32 {
 }
 
 impl LogicBinaryOpI32 {
-    /// Converts to LogicOpI with default mode (Mode01).
-    pub fn into_logic_op(self) -> LogicOpI {
-        self.with_mode(BinaryArgMode::Mode01)
-    }
-
-    /// Converts to LogicOpI with the specified arg mode.
-    pub fn with_mode(self, mode: BinaryArgMode) -> LogicOpI {
-        LogicOpI {
-            op: self,
-            arg_mode: mode,
-        }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         match self {
             Self::BitAnd => RngdAlu::LogicAnd,
             Self::BitOr => RngdAlu::LogicOr,
@@ -104,26 +61,6 @@ impl LogicBinaryOpI32 {
             Self::LeftShift => RngdAlu::LogicLshift,
             Self::LogicRightShift | Self::ArithRightShift => RngdAlu::LogicRshift,
         }
-    }
-}
-
-/// Logic cluster operations for f32 (internal, with mode).
-#[derive(Debug, Clone, Copy)]
-pub struct LogicOpF {
-    pub(crate) op: LogicBinaryOpF32,
-    pub(crate) arg_mode: BinaryArgMode,
-}
-
-impl LogicOpF {
-    /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl VeOperation for LogicOpF {
-    fn arg_mode(&self) -> ArgMode {
-        ArgMode::Binary(self.arg_mode)
     }
 }
 
@@ -150,21 +87,8 @@ impl Display for LogicBinaryOpF32 {
 }
 
 impl LogicBinaryOpF32 {
-    /// Converts to LogicOpF with default mode (Mode01).
-    pub fn into_logic_op(self) -> LogicOpF {
-        self.with_mode(BinaryArgMode::Mode01)
-    }
-
-    /// Converts to LogicOpF with the specified arg mode.
-    pub fn with_mode(self, mode: BinaryArgMode) -> LogicOpF {
-        LogicOpF {
-            op: self,
-            arg_mode: mode,
-        }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         match self {
             Self::BitAnd => RngdAlu::LogicAnd,
             Self::BitOr => RngdAlu::LogicOr,
@@ -176,26 +100,6 @@ impl LogicBinaryOpF32 {
 // ============================================================================
 // Fxp cluster
 // ============================================================================
-
-/// Fxp cluster operations (internal, with mode).
-#[derive(Debug, Clone, Copy)]
-pub struct FxpOp {
-    pub(crate) op: FxpBinaryOp,
-    pub(crate) arg_mode: BinaryArgMode,
-}
-
-impl FxpOp {
-    /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl VeOperation for FxpOp {
-    fn arg_mode(&self) -> ArgMode {
-        ArgMode::Binary(self.arg_mode)
-    }
-}
 
 /// Fxp cluster binary operations (user-facing, mode-free).
 #[primitive(op::FxpBinaryOp)]
@@ -244,21 +148,8 @@ impl Display for FxpBinaryOp {
 }
 
 impl FxpBinaryOp {
-    /// Converts to FxpOp with default mode (Mode01).
-    pub fn into_fxp_op(self) -> FxpOp {
-        self.with_mode(BinaryArgMode::Mode01)
-    }
-
-    /// Converts to FxpOp with the specified arg mode.
-    pub fn with_mode(self, mode: BinaryArgMode) -> FxpOp {
-        FxpOp {
-            op: self,
-            arg_mode: mode,
-        }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         match self {
             Self::AddFxp | Self::AddFxpSat | Self::SubFxp | Self::SubFxpSat => RngdAlu::FxpAdd,
             Self::LeftShift | Self::LeftShiftSat => RngdAlu::FxpLshift,
@@ -271,51 +162,6 @@ impl FxpBinaryOp {
 // ============================================================================
 // Fp cluster
 // ============================================================================
-
-/// Fp cluster operations (internal, with mode).
-#[derive(Debug, Clone)]
-pub enum FpOp {
-    /// Unary fp operation. Always runs as `op(mainstream)`.
-    UnaryOp {
-        /// The unary operation.
-        op: FpUnaryOp,
-    },
-    /// Binary fp operation with op and mode.
-    BinaryOp {
-        /// The binary operation.
-        op: FpBinaryOp,
-        /// The argument mode.
-        mode: BinaryArgMode,
-    },
-    /// Ternary fp operation with op and mode.
-    TernaryOp {
-        /// The ternary operation.
-        op: FpTernaryOp,
-        /// The argument mode.
-        mode: TernaryArgMode,
-    },
-}
-
-impl FpOp {
-    /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
-        match self {
-            FpOp::UnaryOp { op, .. } => op.alu(),
-            FpOp::BinaryOp { op, .. } => op.alu(),
-            FpOp::TernaryOp { op, .. } => op.alu(),
-        }
-    }
-}
-
-impl VeOperation for FpOp {
-    fn arg_mode(&self) -> ArgMode {
-        match self {
-            FpOp::UnaryOp { .. } => ArgMode::Unary,
-            FpOp::BinaryOp { mode, .. } => ArgMode::Binary(*mode),
-            FpOp::TernaryOp { mode, .. } => ArgMode::Ternary(*mode),
-        }
-    }
-}
 
 /// Fp unary operations (user-facing, mode-free).
 #[primitive(op::FpUnaryOp)]
@@ -358,13 +204,8 @@ impl Display for FpUnaryOp {
 }
 
 impl FpUnaryOp {
-    /// Converts to [`FpOp`].
-    pub fn into_fp_op(self) -> FpOp {
-        FpOp::UnaryOp { op: self }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         match self {
             Self::Exp | Self::NegExp => RngdAlu::FpExp,
             _ => RngdAlu::FpFpu,
@@ -382,28 +223,16 @@ pub enum FpBinaryOp {
     SubF,
     /// Floating-point multiplication.
     MulF(FpMulAlu),
-    /// Masked floating-point multiplication.
-    MaskMulF(FpMulAlu),
     /// Floating-point division.
     DivF,
 }
 
 impl FpBinaryOp {
-    /// Converts to FpOp with default mode (Mode01).
-    pub fn into_fp_op(self) -> FpOp {
-        self.with_mode(BinaryArgMode::Mode01)
-    }
-
-    /// Converts to FpOp with the specified arg mode.
-    pub fn with_mode(self, mode: BinaryArgMode) -> FpOp {
-        FpOp::BinaryOp { op: self, mode }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         match self {
             Self::AddF | Self::SubF => RngdAlu::FpFma,
-            Self::MulF(alu) | Self::MaskMulF(alu) => alu.to_alu(),
+            Self::MulF(alu) => alu.to_alu(),
             Self::DivF => RngdAlu::FpFpu,
         }
     }
@@ -415,32 +244,19 @@ impl FpBinaryOp {
 pub enum FpTernaryOp {
     /// Fused multiply-add: a * b + c.
     FmaF,
-    /// Masked fused multiply-add.
-    MaskFmaF,
 }
 
 impl Display for FpTernaryOp {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::FmaF => write!(f, "FpTernaryOp::FmaF"),
-            Self::MaskFmaF => write!(f, "FpTernaryOp::MaskFmaF"),
         }
     }
 }
 
 impl FpTernaryOp {
-    /// Converts to FpOp with default mode (Mode012).
-    pub fn into_fp_op(self) -> FpOp {
-        self.with_mode(TernaryArgMode::Mode012)
-    }
-
-    /// Converts to FpOp with the specified arg mode.
-    pub fn with_mode(self, mode: TernaryArgMode) -> FpOp {
-        FpOp::TernaryOp { op: self, mode }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         RngdAlu::FpFma
     }
 }
@@ -463,7 +279,7 @@ pub enum IntraSliceReduceOpI32 {
 
 impl IntraSliceReduceOpI32 {
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         RngdAlu::ReduceAccTree
     }
 }
@@ -482,7 +298,7 @@ pub enum IntraSliceReduceOpF32 {
 
 impl IntraSliceReduceOpF32 {
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         RngdAlu::ReduceAccTree
     }
 }
@@ -523,27 +339,6 @@ pub enum InterSliceReduceOpF32 {
 // FpDiv
 // ============================================================================
 
-/// Floating Point Division operation (internal, with mode).
-#[primitive(op::FpDivOp)]
-#[derive(Debug, Clone, Copy)]
-pub struct FpDivOp {
-    pub(crate) op: FpDivBinaryOp,
-    pub(crate) mode: BinaryArgMode,
-}
-
-impl FpDivOp {
-    /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl VeOperation for FpDivOp {
-    fn arg_mode(&self) -> ArgMode {
-        ArgMode::Binary(self.mode)
-    }
-}
-
 /// FpDiv binary operations (user-facing, mode-free).
 #[primitive(op::FpDivBinaryOp)]
 #[derive(Debug, Clone, Copy)]
@@ -561,14 +356,8 @@ impl Display for FpDivBinaryOp {
 }
 
 impl FpDivBinaryOp {
-    /// Converts to FpDivOp with the specified arg mode.
-    #[primitive(op::FpDivBinaryOp::with_mode)]
-    pub fn with_mode(self, mode: BinaryArgMode) -> FpDivOp {
-        FpDivOp { op: self, mode }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         RngdAlu::ReduceFpDiv
     }
 }
@@ -576,26 +365,6 @@ impl FpDivBinaryOp {
 // ============================================================================
 // Clip cluster
 // ============================================================================
-
-/// Clip cluster operations for i32 (internal, with mode).
-#[derive(Debug, Clone, Copy)]
-pub struct ClipOpI {
-    pub(crate) op: ClipBinaryOpI32,
-    pub(crate) mode: BinaryArgMode,
-}
-
-impl ClipOpI {
-    /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl VeOperation for ClipOpI {
-    fn arg_mode(&self) -> ArgMode {
-        ArgMode::Binary(self.mode)
-    }
-}
 
 /// Clip binary operations for i32 (user-facing, mode-free).
 #[primitive(op::ClipBinaryOpI32)]
@@ -629,43 +398,13 @@ impl Display for ClipBinaryOpI32 {
 }
 
 impl ClipBinaryOpI32 {
-    /// Converts to ClipOpI with default mode (Mode01).
-    pub fn into_clip_op(self) -> ClipOpI {
-        self.with_mode(BinaryArgMode::Mode01)
-    }
-
-    /// Converts to ClipOpI with the specified arg mode.
-    pub fn with_mode(self, mode: BinaryArgMode) -> ClipOpI {
-        ClipOpI { op: self, mode }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         match self {
             Self::AddFxp | Self::AddFxpSat => RngdAlu::ClipAdd,
             Self::Max | Self::AbsMax => RngdAlu::ClipMax,
             Self::Min | Self::AbsMin => RngdAlu::ClipMin,
         }
-    }
-}
-
-/// Clip cluster operations for f32 (internal, with mode).
-#[derive(Debug, Clone, Copy)]
-pub struct ClipOpF {
-    pub(crate) op: ClipBinaryOpF32,
-    pub(crate) mode: BinaryArgMode,
-}
-
-impl ClipOpF {
-    /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl VeOperation for ClipOpF {
-    fn arg_mode(&self) -> ArgMode {
-        ArgMode::Binary(self.mode)
     }
 }
 
@@ -698,81 +437,12 @@ impl Display for ClipBinaryOpF32 {
 }
 
 impl ClipBinaryOpF32 {
-    /// Converts to ClipOpF with default mode (Mode01).
-    pub fn into_clip_op(self) -> ClipOpF {
-        self.with_mode(BinaryArgMode::Mode01)
-    }
-
-    /// Converts to ClipOpF with the specified arg mode.
-    pub fn with_mode(self, mode: BinaryArgMode) -> ClipOpF {
-        ClipOpF { op: self, mode }
-    }
-
     /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
+    pub(crate) fn alu(&self) -> RngdAlu {
         match self {
             Self::Add => RngdAlu::ClipAdd,
             Self::Max | Self::AbsMax => RngdAlu::ClipMax,
             Self::Min | Self::AbsMin => RngdAlu::ClipMin,
-        }
-    }
-}
-
-// ============================================================================
-// Unified VeOp enum
-// ============================================================================
-
-/// Vector Engine operations (unified enum for runtime storage).
-#[derive(Debug, Clone)]
-pub enum VeOp {
-    /// Logic operations (integer)
-    LogicOpI(LogicOpI),
-    /// Logic operations (fp)
-    LogicOpF(LogicOpF),
-    /// Fxp operations
-    FxpOp(FxpOp),
-    /// Fp operations
-    FpOp(FpOp),
-    /// Intra-Slice Reduce operations (integer)
-    IntraSliceReduceOpI32(IntraSliceReduceOpI32),
-    /// Intra-Slice Reduce operations (fp)
-    IntraSliceReduceOpF32(IntraSliceReduceOpF32),
-    /// Fp Division operation
-    FpDivOp(FpDivOp),
-    /// Clip operations (integer)
-    ClipOpI(ClipOpI),
-    /// Clip operations (fp)
-    ClipOpF(ClipOpF),
-}
-
-impl VeOp {
-    /// Returns the ALU type for this operation.
-    pub fn alu(&self) -> RngdAlu {
-        match self {
-            VeOp::LogicOpI(op) => op.alu(),
-            VeOp::LogicOpF(op) => op.alu(),
-            VeOp::FxpOp(op) => op.alu(),
-            VeOp::FpOp(op) => op.alu(),
-            VeOp::IntraSliceReduceOpI32(op) => op.alu(),
-            VeOp::IntraSliceReduceOpF32(op) => op.alu(),
-            VeOp::FpDivOp(op) => op.alu(),
-            VeOp::ClipOpI(op) => op.alu(),
-            VeOp::ClipOpF(op) => op.alu(),
-        }
-    }
-}
-
-impl VeOperation for VeOp {
-    fn arg_mode(&self) -> ArgMode {
-        match self {
-            VeOp::LogicOpI(op) => op.arg_mode(),
-            VeOp::LogicOpF(op) => op.arg_mode(),
-            VeOp::FxpOp(op) => op.arg_mode(),
-            VeOp::FpOp(op) => op.arg_mode(),
-            VeOp::IntraSliceReduceOpI32(_) | VeOp::IntraSliceReduceOpF32(_) => ArgMode::Unary,
-            VeOp::FpDivOp(op) => op.arg_mode(),
-            VeOp::ClipOpI(op) => op.arg_mode(),
-            VeOp::ClipOpF(op) => op.arg_mode(),
         }
     }
 }

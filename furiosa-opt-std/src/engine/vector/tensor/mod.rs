@@ -53,13 +53,18 @@ mod verify;
 
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
+use std::marker::PhantomData;
 pub use vector_tensor::*;
 pub use vector_tensor_pair::*;
 
-use crate::context::Tu;
+use crate::backend::Backend;
+use crate::constraints;
+use crate::context::{Tu, TuContext};
 use crate::engine::CanApplyVectorInit;
 use crate::engine::vector::scalar::VeScalar;
 use crate::runtime::CurrentBackend;
+use crate::scalar::Scalar;
+use crate::tensor::Tensor;
 use crate::tensor::tu::{Position, TuTensor};
 
 pub(crate) type VeTensorShape<Chip, Cluster, Slice, Time, Packet> =
@@ -76,6 +81,27 @@ impl Position for PositionVectorFinal {}
 /// Tensor after the vector engine (after `vector_final()`).
 pub type VectorFinalTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionVectorFinal, D, Chip, Cluster, Slice, Time, Packet, B>;
+
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    VectorFinalTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+        constraints::assert_packet_one_flit::<D, Packet>();
+    }
+
+    #[doc(hidden)]
+    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
 
 //
 // The Vector Engine accepts only `VeScalar` inputs (hardware constraint), so

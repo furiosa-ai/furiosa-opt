@@ -17,10 +17,10 @@ pub fn matmul_cluster_reduce(
     rhs: &HbmTensor<i8, Chip, m![B, C]>,
 ) -> HbmTensor<i8, Chip, m![A, C]> {
     // Load lhs: [A=1024, B=2] with B mapped to Cluster
-    let lhs = lhs.to_dm::<Cluster, m![A / 4], m![A % 4 # 8]>(&mut ctx.tdma, 0);
+    let lhs = lhs.to_dm::<Cluster, m![A / 4], m![A % 4 # 8]>(&mut ctx.tdma);
 
     // Load rhs: [B=2, C=1024] with B mapped to Cluster
-    let rhs = rhs.to_dm::<Cluster, m![C / 4], m![C % 4 # 8]>(&mut ctx.tdma, 128 * 1024);
+    let rhs = rhs.to_dm::<Cluster, m![C / 4], m![C % 4 # 8]>(&mut ctx.tdma);
 
     // Load rhs into VRF
     let rhs_broadcasted: DmTensor<i8, Chip, Cluster, m![A / 4], m![C / 4, C % 4 # 8]> = ctx
@@ -34,14 +34,14 @@ pub fn matmul_cluster_reduce(
         })
         .collect::<m![C / 4], m![C % 4 # 32]>()
         .commit_trim::<m![C % 4 # 8]>()
-        .commit(0);
+        .commit();
     let rhs_vrf: VrfTensor<i32, Chip, Cluster, m![A / 4], m![C / 4, C % 4 # 8]> = ctx
         .sub
         .begin(rhs_broadcasted.view())
-        .fetch::<m![C / 4], m![C % 4 # 8]>()
+        .fetch::<m![C / 4], m![C % 4]>()
         .fetch_cast::<i32>()
         .collect::<m![C / 4], m![C % 4 # 8]>()
-        .to_vrf(0);
+        .to_vrf();
 
     // Perform elementwise mul
     // The B dimension is in Cluster, so after contraction we still have Cluster=2
@@ -58,13 +58,13 @@ pub fn matmul_cluster_reduce(
         .vector_final()
         .cast::<i8, m![A % 4 # 32]>()
         .commit_trim::<m![A % 4 # 8]>()
-        .commit(0);
+        .commit();
 
     // Now reduce over the Cluster dimension using ReduceScatter pattern
     let reduced = reduce_over_cluster(ctx, &mul_result);
 
     // Write back to HBM
-    reduced.to_hbm(&mut ctx.tdma, 0x3000)
+    reduced.to_hbm(&mut ctx.tdma)
 }
 
 /// Reduce over cluster axis using ReduceScatter pattern.
@@ -108,7 +108,7 @@ fn reduce_over_cluster(
 
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sliced0.view(), shuffled1.view())
-        .fetch::<m![C / 4 % 128, C % 4, I], m![A % 4 # 8]>()
+        .fetch::<m![C / 4 % 128, C % 4, I], m![A % 4]>()
         .fetch_cast::<i32>()
         .collect::<m![C / 4 % 128, C % 4, I], m![A % 4 # 8]>()
         .vector_init()

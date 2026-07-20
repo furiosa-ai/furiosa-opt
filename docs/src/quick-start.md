@@ -98,8 +98,8 @@ Every device kernel has two execution contexts running concurrently on separate 
 `sub` runs a concurrent pipeline, typically used to prefetch operands into TRF or VRF while `main` computes.
 If `main` needs operands that `sub` is still fetching, `main` automatically waits for `sub`'s execution to ensure synchronization.
 
-Both contexts share the same flat on-chip SRAM, so the programmer must explicitly assign DM addresses (e.g., the `addr` argument in `.to_dm()`, `.commit()`) to prevent tensors from overlapping.
-Addresses must not collide, but they can be non-contiguous.
+Both contexts share the same flat on-chip SRAM.
+DM addresses are optional: omit them (as in `.to_dm()` and `.commit()`) to let placement be assigned automatically, or pin a specific address with the `_at` variants (`.to_dm_at(addr)`, `.commit_at(addr)`) when a kernel needs explicit, non-overlapping control.
 
 In type signatures, the const-generic `Tu` identifies which context a tensor flows through (`{ Tu::Main }` or `{ Tu::Sub }`).
 
@@ -173,8 +173,8 @@ flowchart TB
 ```
 
 This example introduces the `sub` context, which preloads one operand into the VRF while the `main` context streams.
-The `sub` context loads `rhs_dm` into the VRF through the Fetch → Collect → `.to_vrf(0)` pipeline.
-`rhs_dm` is allocated at a different base address (`1 << 12`) to avoid overlapping with `lhs_dm`.
+The `sub` context loads `rhs_dm` into the VRF through the Fetch → Collect → `.to_vrf()` pipeline.
+`rhs_dm` occupies a DM region disjoint from `lhs_dm` so the two do not overlap.
 The `main` context then streams `lhs_dm` and multiplies each element by its VRF counterpart using `MulInt`.
 The hardware runs both contexts concurrently where possible.
 

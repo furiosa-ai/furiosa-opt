@@ -59,6 +59,6 @@ fn hbm_to_dm(
     ctx: &mut Context,
     hbm: &HbmTensor<bf16, m![A], m![B]>,
 ) -> DmTensor<bf16, m![A], m![1], m![B / 2], m![B % 2]> {
-    hbm.to_dm(&mut ctx.tdma, 1 << 16) // 64KB offset
+    hbm.to_dm(&mut ctx.tdma)
 }
 ```

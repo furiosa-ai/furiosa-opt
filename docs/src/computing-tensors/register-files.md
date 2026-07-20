@@ -18,7 +18,7 @@ A `TrfTensor` is a tensor stored in the TRF:
 
 #### From Collect Engine
 
-`.to_trf::<Lane, Element>(address)` on `CollectTensor` produces a `TrfTensor`:
+`.to_trf::<Lane, Element>()` on `CollectTensor` produces a `TrfTensor` in the full TRF; `.to_trf_at::<Lane, Element>(address)` targets a `TrfAddress` region:
 
 ```rust,ignore
 {{#include ../../../furiosa-opt-std/src/engine/collect.rs:collect_to_trf}}
@@ -43,16 +43,21 @@ axes![V = 32, M = 32, N = 8, K = 32];
 
 type Chip    = m![1];
 type Cluster = m![V / 16];
-type Slice   = m![V % 16];
-type Lane     = m![N];
+type Slice   = m![V % 16 # 256];
+type Lane    = m![N];
 
 /// Stores matmul weights into TRF for consumption by `bmatmul` in
 /// [Contraction Engine: Example: Batched MatMul](./contraction-engine/index.md#example-batched-matmul).
 fn store_bmatmul_trf<'l, const T: Tu>(
     input: CollectTensor<'l, T, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]>,
 ) -> TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> {
-    input.to_trf(TrfAddress::FirstHalf)
+    input.to_trf_at(TrfAddress::FirstHalf)
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = store_bmatmul_trf(c);
 ```
 
 #### From Data Memory
@@ -127,7 +132,7 @@ A `VrfTensor` is a tensor stored in the VRF:
 
 #### From Collect Engine
 
-`.to_vrf::<Element2>(address)` on `CollectTensor` stores the flits into the VRF at a raw `Address` and produces a `VrfTensor`:
+`.to_vrf::<Element2>()` on `CollectTensor` stores the flits into the VRF and produces a `VrfTensor`; `.to_vrf_at::<Element2>(address)` stores at a raw `Address`:
 
 ```rust,ignore
 {{#include ../../../furiosa-opt-std/src/engine/collect.rs:collect_to_vrf}}
@@ -150,8 +155,13 @@ axes![B = 64];
 fn store_vrf<'l, const T: Tu>(
     input: CollectTensor<'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]>,
 ) -> VrfTensor<i32, m![1], m![1 # 2], m![1 # 256], m![B]> {
-    input.to_vrf(0)
+    input.to_vrf()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = store_vrf(c);
 ```
 
 #### From Data Memory

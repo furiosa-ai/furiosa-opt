@@ -106,8 +106,8 @@ pub fn device_send(input: TokenStream) -> TokenStream {
         tys.iter()
             .map(|ty| {
                 quote! {
-                    ::std::vec::Vec<::furiosa_opt_std::runtime::npu::Buffer>:
-                        ::furiosa_opt_std::runtime::npu::ExtendBuffers<#ty>
+                    ::std::vec::Vec<::furiosa_opt_std::backend::npu::Buffer>:
+                        ::furiosa_opt_std::backend::npu::ExtendBuffers<#ty>
                 }
             })
             .collect(),
@@ -119,14 +119,14 @@ pub fn device_send(input: TokenStream) -> TokenStream {
 
         // Flatten fields into buffers in declaration order (must match the compiler's
         // parameter lowering).
-        impl #impl_generics ::furiosa_opt_std::runtime::npu::ExtendBuffers<#name #ty_generics>
-            for ::std::vec::Vec<::furiosa_opt_std::runtime::npu::Buffer>
+        impl #impl_generics ::furiosa_opt_std::backend::npu::ExtendBuffers<#name #ty_generics>
+            for ::std::vec::Vec<::furiosa_opt_std::backend::npu::Buffer>
         #bufferable
         {
             fn extend<__I: ::core::iter::IntoIterator<Item = #name #ty_generics>>(&mut self, iter: __I) {
                 for value in iter {
                     #(
-                        ::furiosa_opt_std::runtime::npu::ExtendBuffers::extend(
+                        ::furiosa_opt_std::backend::npu::ExtendBuffers::extend(
                             self,
                             ::core::iter::once(value.#accessors),
                         );
@@ -145,16 +145,6 @@ pub fn device_send(input: TokenStream) -> TokenStream {
 /// `cargo furiosa-opt <subcommand>`: `execute()` loads the compiled EDF and runs on NPU.
 #[proc_macro_attribute]
 pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
-    fn to_camel(s: &str) -> String {
-        s.split('_')
-            .map(|w| {
-                let mut c = w.chars();
-                c.next()
-                    .map_or(String::new(), |ch| ch.to_uppercase().collect::<String>() + c.as_str())
-            })
-            .collect()
-    }
-
     let attr_str = attr.to_string();
     let attr_int = |key: &str, default: usize| -> usize {
         attr_str
@@ -164,8 +154,8 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
             .and_then(|(_, v)| v.trim().parse().ok())
             .unwrap_or(default)
     };
-    let device_chip = attr_int("chip", 1);
-    let device_pe = attr_int("pe", 8);
+    let device_chip = attr_int("chip", 1) as u8;
+    let device_pe = attr_int("pe", 8) as u8;
     let func = match parse_macro_input!(item as Item) {
         Item::Fn(f) => f,
         other => {
@@ -179,7 +169,6 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
     let name = &func.sig.ident;
     let name_str = name.to_string();
     let hidden = syn::Ident::new(&format!("__furiosa_opt_{name}"), name.span());
-    let struct_name = syn::Ident::new(&to_camel(&name_str), name.span());
     let syn::Signature {
         inputs,
         output,
@@ -230,9 +219,9 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
         .collect();
 
     let tensor_stmts: TokenStream2 = quote! {
-        let mut __furiosa_opt_bufs: ::std::vec::Vec<furiosa_opt_std::runtime::npu::Buffer> =
+        let mut __furiosa_opt_bufs: ::std::vec::Vec<furiosa_opt_std::backend::npu::Buffer> =
             ::std::vec::Vec::new();
-        furiosa_opt_std::runtime::npu::ExtendBuffers::extend(
+        furiosa_opt_std::backend::npu::ExtendBuffers::extend(
             &mut __furiosa_opt_bufs,
             ::std::iter::once((#(#tensor_param_names,)*)),
         );
@@ -276,19 +265,24 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote!((#(#param_names),*))
     };
 
+    // Under `furiosa_opt` (the driver's scan/compile passes) no `.bin` exists yet, so embed nothing.
     let npu_body = quote! {
-        furiosa_opt_std::runtime::npu::set_device(#device_chip, #device_pe);
-        static __FURIOSA_OPT_KERNEL: furiosa_opt_std::OnceCell<furiosa_opt_std::runtime::npu::Kernel> =
+        static __FURIOSA_OPT_KERNEL: furiosa_opt_std::OnceCell<furiosa_opt_std::backend::npu::Kernel> =
             furiosa_opt_std::OnceCell::const_new();
-        let __furiosa_opt_kernel = __FURIOSA_OPT_KERNEL.get_or_init(|| async {
-            let __furiosa_opt_path = furiosa_opt_std::runtime::npu::kernel_path(
-                env!("FURIOSA_OPT_OUT_DIR"),
-                env!("CARGO_PKG_NAME"),
-                module_path!(),
-                #name_str,
-            );
-            furiosa_opt_std::runtime::npu::Kernel::load(&__furiosa_opt_path).await
-        }).await;
+        #[cfg(furiosa_opt)]
+        let __furiosa_opt_kernel = __FURIOSA_OPT_KERNEL
+            .get_or_init(|| async { furiosa_opt_std::backend::npu::Kernel::load(&[]).await })
+            .await;
+        #[cfg(not(furiosa_opt))]
+        let __furiosa_opt_kernel = __FURIOSA_OPT_KERNEL
+            .get_or_init(|| async {
+                furiosa_opt_std::backend::npu::Kernel::load(include_bytes!(concat!(
+                    env!("FURIOSA_OPT_OUT_DIR"), "/", env!("CARGO_PKG_NAME"), "/",
+                    module_path!(), "::", #name_str, ".bin"
+                )))
+                .await
+            })
+            .await;
         #tensor_stmts
         #run_body
     };
@@ -302,16 +296,25 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[allow(dead_code, unused, clippy::too_many_arguments)]
         fn #hidden #generics (#inputs) #output #block
 
+        // Marker struct: the `__furiosa_opt_` prefix dodges a same-named module, and the braced (non-unit)
+        // form keeps it out of the value namespace so it coexists with the hidden fn; npu `scan` strips it.
+        #[allow(non_camel_case_types)]
         #[derive(Debug)]
-        #vis struct #struct_name;
+        #vis struct #hidden {}
 
-        // `#[allow]`: `#[expect]` requires the lint to fire, which it does
-        // for names like `my_fn` but NOT for capitalized device-function
-        // names like `MatMul`.
+        // `#[allow]`: the const keeps the snake device-fn name, which trips `non_upper_case_globals`.
         #[allow(non_upper_case_globals)]
-        #vis const #name: #struct_name = #struct_name;
+        #vis const #name: #hidden = #hidden {};
 
-        impl #generics furiosa_opt_std::runtime::DeviceFn<#tuple_type> for #struct_name {
+        impl #hidden {
+            /// The logical [`furiosa_opt_std::Device`] this kernel runs on, from `#[device(chip, pe)]`.
+            /// Pass to `Context::acquire().bind(..)` before any host I/O.
+            pub fn device(&self) -> furiosa_opt_std::Device {
+                furiosa_opt_std::Device { chip: #device_chip, pe: #device_pe }
+            }
+        }
+
+        impl #generics furiosa_opt_std::runtime::DeviceFn<#tuple_type> for #hidden {
             type Output = #return_ty;
             fn execute(#body_destructure: #tuple_type) -> impl std::future::Future<Output = Self::Output> {
                 async move {

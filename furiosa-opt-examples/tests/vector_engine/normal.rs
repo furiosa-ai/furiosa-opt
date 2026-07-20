@@ -3,7 +3,7 @@ use furiosa_opt_examples::vector_engine::{
     A, B, ve_elementwise_full_pipeline, ve_elementwise_fxp_chain, ve_elementwise_fxp_const, ve_elementwise_logic,
     ve_elementwise_multi_vrf, ve_elementwise_stash_f32, ve_elementwise_stash_i32, ve_elementwise_ternary,
     ve_elementwise_ternary_stash, ve_elementwise_vrf, ve_stash_fp_fp, ve_stash_fp_fxp, ve_stash_fxp_fp,
-    ve_stash_fxp_fxp,
+    ve_stash_fxp_fxp, ve_vrf_read_twice_ok_f32,
 };
 use furiosa_opt_examples::vrf_add::vrf_add;
 use furiosa_opt_std::prelude::*;
@@ -27,8 +27,8 @@ async fn test_vrf_add() {
     let rhs = HostTensor::<i32, m![B]>::rand(&mut rng);
 
     // Transfer to HBM
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     // Execute the operation
     let out_hbm = launch(vrf_add, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
@@ -39,9 +39,9 @@ async fn test_vrf_add() {
     // Verify: each element should be lhs[i] + rhs[i]
     let expected = lhs
         .into_inner()
-        .zip_with(&rhs.into_inner().transpose(true), |a, b| a + b);
+        .zip_with(&rhs.into_inner().transpose(true), |x, y| x + y);
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 // =============================================================================
@@ -55,16 +55,16 @@ async fn test_ve_elementwise_fxp_const() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_fxp_const, (&mut *ctx, &input_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = input + 100
-    let expected = input.into_inner().map(|x| x.map(|x| x.wrapping_add(100)));
+    let expected = input.into_inner().map(|x| x.wrapping_add(100));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 /// This test verifies that ALU conflicts are properly detected.
@@ -78,7 +78,7 @@ async fn test_ve_elementwise_fxp_chain() {
             let mut rng = SmallRng::seed_from_u64(42);
             let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-            let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+            let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
             launch(ve_elementwise_fxp_chain, (&mut *ctx, &input_hbm)).await;
         });
@@ -97,7 +97,7 @@ async fn test_ve_elementwise_full_pipeline() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_full_pipeline, (&mut *ctx, &input_hbm)).await;
 
@@ -105,13 +105,11 @@ async fn test_ve_elementwise_full_pipeline() {
 
     // Verify: output = clamp(((input + 100) as f32 * 2.5) as i32, 0, 1000)
     let expected = input.into_inner().map(|x| {
-        x.map(|x| {
-            let v = ((x.wrapping_add(100) as f32) * 2.5).round() as i32;
-            v.clamp(0, 1000)
-        })
+        let v = ((x.wrapping_add(100) as f32) * 2.5).round() as i32;
+        v.clamp(0, 1000)
     });
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -121,16 +119,35 @@ async fn test_ve_elementwise_stash_f32() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_stash_f32, (&mut *ctx, &input_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = max(input * 2.0, input)
-    let expected = input.into_inner().map(|x| x.map(|x| f32::max(x * 2.0, x)));
+    let expected = input.into_inner().map(|x| f32::max(x * 2.0, x));
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+}
+
+#[tokio::test]
+async fn test_ve_vrf_read_twice_ok_f32() {
+    let mut ctx = Context::acquire();
+
+    let mut rng = SmallRng::seed_from_u64(42);
+    let input = HostTensor::<f32, m![A]>::rand(&mut rng);
+
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
+
+    let out_hbm = launch(ve_vrf_read_twice_ok_f32, (&mut *ctx, &input_hbm)).await;
+
+    let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
+
+    // Two VRF reads of `z`: Mul0 (z·z) then Mul1 ((z·z)·z) => z³.
+    let expected = input.into_inner().map(|x| x * x * x);
+
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }
 
 #[tokio::test]
@@ -140,16 +157,16 @@ async fn test_ve_elementwise_stash_i32() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_stash_i32, (&mut *ctx, &input_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = max(input * 2, input)
-    let expected = input.into_inner().map(|x| x.map(|x| i32::max(x.wrapping_mul(2), x)));
+    let expected = input.into_inner().map(|x| i32::max(x.wrapping_mul(2), x));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -159,16 +176,16 @@ async fn test_ve_stash_fxp_fxp() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_stash_fxp_fxp, (&mut *ctx, &input_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = max(input * 2, input)
-    let expected = input.into_inner().map(|x| x.map(|x| i32::max(x.wrapping_mul(2), x)));
+    let expected = input.into_inner().map(|x| i32::max(x.wrapping_mul(2), x));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 /// This test verifies that cross-type stash reads (i32 -> f32) are properly rejected.
@@ -182,7 +199,7 @@ async fn test_ve_stash_fxp_fp() {
             let mut rng = SmallRng::seed_from_u64(42);
             let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-            let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+            let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
             launch(ve_stash_fxp_fp, (&mut *ctx, &input_hbm)).await;
         });
@@ -201,7 +218,7 @@ async fn test_ve_stash_fp_fp() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_stash_fp_fp, (&mut *ctx, &input_hbm)).await;
 
@@ -209,9 +226,9 @@ async fn test_ve_stash_fp_fp() {
 
     // Verify: stash (input * 2.0), then * 3.0, then max with stashed
     // output = max(input * 2.0 * 3.0, input * 2.0) = max(input * 6.0, input * 2.0)
-    let expected = input.into_inner().map(|x| x.map(|x| f32::max(x * 6.0, x * 2.0)));
+    let expected = input.into_inner().map(|x| f32::max(x * 6.0, x * 2.0));
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }
 
 /// This test verifies that cross-type stash reads (f32 -> i32) are properly rejected.
@@ -225,7 +242,7 @@ async fn test_ve_stash_fp_fxp() {
             let mut rng = SmallRng::seed_from_u64(42);
             let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-            let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+            let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
             launch(ve_stash_fp_fxp, (&mut *ctx, &input_hbm)).await;
         });
@@ -244,16 +261,16 @@ async fn test_ve_elementwise_logic() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_logic, (&mut *ctx, &input_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = (input & 0xFF) | 0x100
-    let expected = input.into_inner().map(|x| x.map(|x| (x & 0xFF) | 0x100));
+    let expected = input.into_inner().map(|x| (x & 0xFF) | 0x100);
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -265,8 +282,8 @@ async fn test_ve_elementwise_vrf() {
     let lhs = HostTensor::<i32, m![A, B]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![B]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_vrf, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
@@ -275,9 +292,9 @@ async fn test_ve_elementwise_vrf() {
     // Verify: output = lhs + rhs (broadcasted)
     let expected = lhs
         .into_inner()
-        .zip_with(&rhs.into_inner().transpose(true), |a, b| a + b);
+        .zip_with(&rhs.into_inner().transpose(true), |x, y| x + y);
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -289,9 +306,9 @@ async fn test_ve_elementwise_multi_vrf() {
     let vrf1 = HostTensor::<i32, m![B]>::rand(&mut rng);
     let vrf2 = HostTensor::<i32, m![B]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let vrf1_hbm = vrf1.to_hbm(&mut ctx.pdma, 1 << 28).await;
-    let vrf2_hbm = vrf2.to_hbm(&mut ctx.pdma, 2 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
+    let vrf1_hbm = vrf1.to_hbm(&mut ctx.pdma).await;
+    let vrf2_hbm = vrf2.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_multi_vrf, (&mut *ctx, &input_hbm, &vrf1_hbm, &vrf2_hbm)).await;
 
@@ -303,11 +320,11 @@ async fn test_ve_elementwise_multi_vrf() {
     let vrf2_t = vrf2.into_inner().transpose(true);
     let expected = input
         .into_inner()
-        .zip_with(&vrf1_t, |a, b| a.zip_map(b, |x, y| x.wrapping_add(y)))
-        .zip_with(&vrf2_t, |a, b| a.zip_map(b, |x, y| x.wrapping_mul(y)))
-        .zip_with(&vrf1_t, |a, b| a.zip_map(b, |x, y| x.wrapping_add(y)));
+        .zip_with(&vrf1_t, |x, y| x.wrapping_add(y))
+        .zip_with(&vrf2_t, |x, y| x.wrapping_mul(y))
+        .zip_with(&vrf1_t, |x, y| x.wrapping_add(y));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 // =============================================================================
@@ -321,16 +338,16 @@ async fn test_ve_elementwise_ternary() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_ternary, (&mut *ctx, &input_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: FmaF = input * 2.0 + 3.0
-    let expected = input.into_inner().map(|x| x.map(|x| x.mul_add(2.0, 3.0)));
+    let expected = input.into_inner().map(|x| x.mul_add(2.0, 3.0));
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }
 
 #[tokio::test]
@@ -340,14 +357,14 @@ async fn test_ve_elementwise_ternary_stash() {
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut ctx.pdma, 0 << 28).await;
+    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_elementwise_ternary_stash, (&mut *ctx, &input_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: FmaF with stash = input * input + 1.0 = input^2 + 1.0
-    let expected = input.into_inner().map(|x| x.map(|x| x.mul_add(x, 1.0)));
+    let expected = input.into_inner().map(|x| x.mul_add(x, 1.0));
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }

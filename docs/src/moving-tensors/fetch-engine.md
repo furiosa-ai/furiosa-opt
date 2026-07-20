@@ -99,16 +99,16 @@ fn fetch_batch_4<'l, const T: Tu>(
 #
 # let mut ctx = Context::acquire();
 #
-# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_batch_1(b);
 #
-# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_batch_2(b);
 #
-# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_batch_3(b);
 #
-# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_batch_4(b);
 ```
 
@@ -197,11 +197,11 @@ fn fetch_packet_ABC<'l, const T: Tu>(
 
 #
 # let mut ctx = Context::acquire();
-# let x: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let x: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_packet_C(x);
-# let y: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let y: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_packet_BC(y);
-# let z: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let z: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_packet_ABC(z);
 ```
 

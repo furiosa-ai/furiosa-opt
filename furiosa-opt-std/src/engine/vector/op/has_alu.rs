@@ -1,8 +1,8 @@
 //! HasAlu trait for ops that provide ALU information.
 
 use super::{
-    ClipBinaryOpF32, ClipBinaryOpI32, ClipOpF, ClipOpI, FpBinaryOp, FpDivBinaryOp, FpDivOp, FpTernaryOp, FpUnaryOp,
-    FxpBinaryOp, FxpOp, LogicBinaryOpF32, LogicBinaryOpI32, LogicOpF, LogicOpI,
+    ClipBinaryOpF32, ClipBinaryOpI32, FpBinaryOp, FpDivBinaryOp, FpTernaryOp, FpUnaryOp, FxpBinaryOp, LogicBinaryOpF32,
+    LogicBinaryOpI32,
 };
 use crate::engine::vector::alu::RngdAlu;
 
@@ -58,12 +58,6 @@ impl HasAlu for FpDivBinaryOp {
     }
 }
 
-impl HasAlu for FpDivOp {
-    fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
 impl HasAlu for ClipBinaryOpI32 {
     fn alu(&self) -> RngdAlu {
         ClipBinaryOpI32::alu(self)
@@ -77,32 +71,3 @@ impl HasAlu for ClipBinaryOpF32 {
 }
 
 // HasAlu implementations for "with mode" types
-impl HasAlu for FxpOp {
-    fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl HasAlu for LogicOpI {
-    fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl HasAlu for LogicOpF {
-    fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl HasAlu for ClipOpI {
-    fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}
-
-impl HasAlu for ClipOpF {
-    fn alu(&self) -> RngdAlu {
-        self.op.alu()
-    }
-}

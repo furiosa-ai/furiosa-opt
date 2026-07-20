@@ -6,8 +6,8 @@ pub fn ve_group_pair_add(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -20,9 +20,9 @@ pub fn ve_group_pair_add(
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
@@ -31,8 +31,8 @@ pub fn ve_group_pair_preprocess_both(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -46,9 +46,9 @@ pub fn ve_group_pair_preprocess_both(
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
@@ -57,8 +57,8 @@ pub fn ve_group_pair_preprocess_g0(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -72,9 +72,9 @@ pub fn ve_group_pair_preprocess_g0(
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
@@ -83,8 +83,8 @@ pub fn ve_group_pair_preprocess_g1(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -98,9 +98,9 @@ pub fn ve_group_pair_preprocess_g1(
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
@@ -109,8 +109,8 @@ pub fn ve_group_pair_chain(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -125,9 +125,9 @@ pub fn ve_group_pair_chain(
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 #[device(chip = 1)]
 pub fn ve_group_pair_fxp(
@@ -135,8 +135,8 @@ pub fn ve_group_pair_fxp(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -149,9 +149,9 @@ pub fn ve_group_pair_fxp(
         .vector_fxp_zip(FxpBinaryOp::MulInt)
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
@@ -160,8 +160,8 @@ pub fn ve_group_pair_logic(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -174,9 +174,9 @@ pub fn ve_group_pair_logic(
         .vector_logic_zip(LogicBinaryOpI32::BitXor)
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
@@ -185,8 +185,8 @@ pub fn ve_group_pair_fp(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -202,9 +202,9 @@ pub fn ve_group_pair_fp(
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Same pipeline as `ve_group_pair_fp`, but with an extra `Q` axis threaded
@@ -217,8 +217,8 @@ pub fn ve_group_pair_fp_multi_packet(
     lhs: &HbmTensor<i32, Chip, m![Q, A]>,
     rhs: &HbmTensor<i32, Chip, m![Q, A]>,
 ) -> HbmTensor<f32, Chip, m![Q, A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![Q, A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![Q, A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![Q, A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![Q, A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![Q, A % 2]> = ctx
         .main
@@ -234,9 +234,9 @@ pub fn ve_group_pair_fp_multi_packet(
         .vector_widen_concat::<m![Q], m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
@@ -245,8 +245,8 @@ pub fn ve_group_pair_unary(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -263,9 +263,9 @@ pub fn ve_group_pair_unary(
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
@@ -274,8 +274,8 @@ pub fn ve_group_pair_unary_selective(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -292,9 +292,9 @@ pub fn ve_group_pair_unary_selective(
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 // =============================================================================
@@ -305,7 +305,7 @@ pub fn ve_group_pair_unary_selective(
 /// output = input * 2.0 + 3.0  (using MulAdd: a*b+c where a=input, b=2.0, c=3.0)
 #[device(chip = 1)]
 pub fn ve_elementwise_ternary(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![A]>) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -322,9 +322,9 @@ pub fn ve_elementwise_ternary(ctx: &mut Context, input: &HbmTensor<f32, Chip, m!
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Ternary operation with stash as operand0.
@@ -335,7 +335,7 @@ pub fn ve_elementwise_ternary_stash(
     ctx: &mut Context,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -352,9 +352,9 @@ pub fn ve_elementwise_ternary_stash(
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// VectorTensorPair ternary operation example.
@@ -367,8 +367,8 @@ pub fn ve_group_pair_ternary(
     lhs: &HbmTensor<f32, Chip, m![A]>,
     rhs: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -385,9 +385,9 @@ pub fn ve_group_pair_ternary(
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// VectorTensorPair ternary operation with selective groups.
@@ -400,8 +400,8 @@ pub fn ve_group_pair_ternary_selective(
     lhs: &HbmTensor<f32, Chip, m![A]>,
     rhs: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x1000);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma, 0x2000);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -418,9 +418,9 @@ pub fn ve_group_pair_ternary_selective(
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x3000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x4000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 // =============================================================================

@@ -3,10 +3,6 @@
 //! This module provides a type-safe API for processing two groups of interleaved data
 //! with different preprocessing operations before combining them with a binary operation.
 //!
-//! # Key Types
-//! - `VectorTensorPair`: Manages both groups together with unified operations
-//! - `GroupOperand`: Optional operand for each group (`None` skips the operation)
-//!
 //! # Pipeline Flow
 //! ```text
 //! CollectTensor
@@ -22,7 +18,6 @@
 //!
 //! # Example
 //! ```ignore
-//! // Simple binary add (no preprocessing)
 //! ctx.main
 //!     .begin_interleaved(lhs.view(), rhs.view())
 //!     .fetch::<m![I], m![A % 8]>()
@@ -30,20 +25,7 @@
 //!     .collect::<m![I], m![A % 8]>()
 //!     .vector_init()
 //!     .vector_intra_slice_unzip::<{ Ident::I }, m![1 # 2], m![1]>()
-//!     .vector_clip_zip(ClipBinaryOpI32::AddFxp)
-//!     .vector_final()
-//!     .commit_trim::<OutPacket>()
-//!     .commit(addr)
-//!
-//! // With group preprocessing (both groups at once)
-//! ctx.main
-//!     .begin_interleaved(lhs.view(), rhs.view())
-//!     .fetch::<m![I], m![A % 8]>()
-//!     .switch::<m![A / 8], m![I]>(config)
-//!     .collect::<m![I], m![A % 8]>()
-//!     .vector_init()
-//!     .vector_intra_slice_unzip::<{ Ident::I }, m![1 # 2], m![1]>()
-//!     .vector_fxp(FxpBinaryOp::MulInt, Some(operands0), Some(operands1))
+//!     .vector_fxp(FxpBinaryOp::MulInt, Some(operands0), Some(operands1)) // optional preprocessing
 //!     .vector_clip_zip(ClipBinaryOpI32::AddFxp)
 //!     .vector_final()
 //!     .commit_trim::<OutPacket>()
@@ -71,32 +53,16 @@ use crate::engine::vector::stage::markers::{
     Way::{self, Way4, Way8},
 };
 use crate::engine::vector::stage::state::VeState;
+use crate::engine::vector::stash_slot::Fresh;
 use crate::engine::vector::tensor::verify::{verify_vector_narrow_split, verify_vector_widen_concat};
 use crate::prelude::RngdAlu;
 use crate::prelude::semantics::HasConversionOp;
-use crate::scalar::Opt;
 use crate::tensor::*;
-use crate::tensor_state::NoTensor;
 
 use super::vector_tensor::{
     VeTensorData, VectorClipTensor, VectorFpTensor, VectorFxpTensor, VectorLogicTensor, apply_binary_op,
     apply_ternary_op,
 };
-
-/// Combines two tensors using a binary operation.
-/// Used by VectorTensorPair::combine operations.
-/// - When both values are Init, applies the operation
-/// - Otherwise returns Uninit
-fn zip_groups<D: VeScalar, Mapping: M>(
-    op_fn: impl Fn(Opt<D>, Opt<D>) -> Opt<D>,
-    lhs: &Tensor<D, Mapping>,
-    rhs: &Tensor<D, Mapping>,
-) -> Tensor<D, Mapping> {
-    lhs.zip_with(rhs, |l, r| match (l, r) {
-        (Opt::Init(_), Opt::Init(_)) => op_fn(l, r),
-        _ => Opt::Uninit,
-    })
-}
 
 // ============================================================================
 // Type aliases
@@ -104,22 +70,15 @@ fn zip_groups<D: VeScalar, Mapping: M>(
 
 /// Type alias for group tensor data with Group state.
 type GroupTensorData<S, D, Chip, Cluster, Slice, Time, Packet, const W: Way = { Way8 }> =
-    VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, D, NoTensor, { VeOrder::IntraFirst }, stage::Group, W>;
+    VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, D, Fresh, { VeOrder::IntraFirst }, stage::Group, W>;
 
 // ============================================================================
 // VectorTensorPair - Manages both groups together
 // ============================================================================
 
-/// Pair of tensors that manages both groups together.
-///
-/// Unified operations apply to both groups simultaneously:
-/// - `vector_fxp()`, `vector_logic()`, `vector_clip()`, etc.
-/// - Each takes `GroupOperand` for both groups; `None` skips the operation for that group
-///
-/// Common operations (FxpToFp, Narrow, Widen, FpToFxp) apply to both sides simultaneously.
-///
-/// After a binary operation (`vector_clip_zip`, `vector_fxp_zip`, etc.), the pair is combined
-/// into a single `VectorTensor` with `Zipped` state.
+/// Pair of tensors that manages both groups together. Unified operations apply to both groups
+/// at once (`None` in a `GroupOperand` skips that group); a binary `*_zip` then combines the
+/// pair into a single `VectorTensor` with `Zipped` state.
 ///
 /// Each group uses `VeTensorData` with `Group` state, which prevents:
 /// - `stash()` operations on individual groups
@@ -139,10 +98,8 @@ pub struct VectorTensorPair<
 > {
     pub(crate) ctx: &'l mut TuContext<{ T }>,
 
-    /// Group 0 tensor data (with Group state)
     pub(crate) group0: GroupTensorData<S, D, Chip, Cluster, Slice, SplitTime, Packet, W>,
 
-    /// Group 1 tensor data (with Group state)
     pub(crate) group1: GroupTensorData<S, D, Chip, Cluster, Slice, SplitTime, Packet, W>,
 }
 
@@ -167,13 +124,11 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Packet: M, Spl
             "VectorTensorPair requires Packet of 8 elements (one flit) in Way8 mode, got {}",
             Packet::SIZE,
         );
-        // SAFETY: We're transmuting between tensor shapes that differ only in the Time dimension.
-        // The tile operation produces TileTime (with the interleaved group axis replaced by 1 # 2), and we transmute
-        // to SplitTime which should have the same memory layout.
+        // `tile` produces TileTime; `transmute` rewraps to the same-layout SplitTime shape.
         let (g0_inner, g1_inner): (
             Tensor<D, VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
             Tensor<D, VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
-        ) = unsafe {
+        ) = {
             let g0 = inner
                 .view()
                 .tile::<Symbol<I>, m![{ Chip }, { Cluster }, { Slice }, { TileTime }, { Packet }], 1>(0)
@@ -187,9 +142,8 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Packet: M, Spl
             (g0, g1)
         };
 
-        // Create default tag (all zeros)
-        let g0_tag = g0_inner.map(|_| Opt::Init(0u8));
-        let g1_tag = g1_inner.map(|_| Opt::Init(0u8));
+        let g0_tag = g0_inner.map(|_| 0u8);
+        let g1_tag = g1_inner.map(|_| 0u8);
 
         VectorTensorPair {
             ctx,
@@ -231,9 +185,6 @@ impl<
     /// Internal helper for applying binary operations to both groups.
     /// The target stage is determined by the caller.
     /// Uses trait bounds to get ALU and operation function from the operation type.
-    ///
-    /// Note: ALU state is updated for both groups when either group has an operand,
-    /// because ALU is a global resource shared between groups.
     fn apply_binary_to_both<TargetStage, Op>(
         self,
         op: Op,
@@ -266,6 +217,9 @@ impl<
     }
 
     /// Internal helper for applying custom operations to both groups.
+    ///
+    /// Marks the ALU used on both groups when either group has an operation, because the ALU
+    /// is a global resource shared between groups.
     fn apply_op_to_both<TargetStage, F0, F1>(
         mut self,
         alu: RngdAlu,
@@ -281,7 +235,6 @@ impl<
             Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>,
         ) -> Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>,
     {
-        // ALU Resource Management: when any group operation is present, mark ALU as used
         if fn_group0.is_some() || fn_group1.is_some() {
             self.group0.ve_state.use_alu(alu);
             self.group1.ve_state.use_alu(alu);
@@ -326,13 +279,11 @@ impl<
     {
         let op_fn = op.conversion_op_fn();
 
-        let fn_group0 = |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
-            data.map(|&v| v.map(&op_fn))
-        };
+        let fn_group0 =
+            |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| data.map(&op_fn);
 
-        let fn_group1 = |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
-            data.map(|&v| v.map(&op_fn))
-        };
+        let fn_group1 =
+            |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| data.map(&op_fn);
 
         VectorTensorPair {
             ctx: self.ctx,
@@ -363,9 +314,6 @@ impl<'l, const T: Tu, S: stage::Stage, Chip: M, Cluster: M, Slice: M, SplitTime:
 {
     /// Internal helper for applying unary operations to both groups.
     /// Uses trait bounds to get ALU and operation function from the operation type.
-    ///
-    /// Note: ALU state is updated for both groups when either group applies the operation,
-    /// because ALU is a global resource shared between groups.
     fn apply_unary_to_both<TargetStage, Op>(
         self,
         op: Op,
@@ -380,15 +328,11 @@ impl<'l, const T: Tu, S: stage::Stage, Chip: M, Cluster: M, Slice: M, SplitTime:
         let alu = op.alu();
 
         let fn_group0 = group0_apply.then_some(
-            |data: Tensor<f32, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
-                data.map(|&v| op_fn(v))
-            },
+            |data: Tensor<f32, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| data.map(&op_fn),
         );
 
         let fn_group1 = group1_apply.then_some(
-            |data: Tensor<f32, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
-                data.map(|&v| op_fn(v))
-            },
+            |data: Tensor<f32, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| data.map(&op_fn),
         );
 
         self.apply_op_to_both(alu, fn_group0, fn_group1)
@@ -396,9 +340,6 @@ impl<'l, const T: Tu, S: stage::Stage, Chip: M, Cluster: M, Slice: M, SplitTime:
 
     /// Internal helper for applying ternary operations to both groups.
     /// Uses trait bounds to get ALU and operation function from the operation type.
-    ///
-    /// Note: ALU state is updated for both groups when either group has an operand,
-    /// because ALU is a global resource shared between groups.
     fn apply_ternary_to_both<TargetStage, Op>(
         self,
         op: Op,
@@ -794,14 +735,7 @@ impl<
     ///
     /// # Example
     /// ```ignore
-    /// // Apply ternary op only to group0
-    /// pair.vector_fp_ternary(op, (2.0f32, 3.0f32), ())
-    ///
-    /// // Apply to both groups with different operands
-    /// pair.vector_fp_ternary(op, (2.0f32, 3.0f32), (4.0f32, 5.0f32))
-    ///
-    /// // With stash as operand0 for group0
-    /// pair.vector_fp_ternary(op, (Stash, 3.0f32), ())
+    /// pair.vector_fp_ternary(op, (2.0f32, 3.0f32), ()) // group0 only; () skips a group
     /// ```
     #[primitive(VectorTensorPair::vector_fp_ternary)]
     pub fn vector_fp_ternary(
@@ -949,19 +883,10 @@ impl<
 }
 
 // ============================================================================
-// vector_widen_pad is intentionally NOT available on `VectorTensorPair`.
-//
-// Symmetric to the `vector_narrow_trim` block above: the LIR realization of
-// `vector_widen_pad` is `Concat(Bypass)`, which zero-pads the group
-// execution-id tensor on the back 4 Way8 lanes. Any downstream op that
-// filters by `Group` on Way8 then only matches the front 4 lanes while
-// the cache is still laid out with 8 lanes per partition — the same
-// Way8-filter-vs-Way8-cache misalignment that motivates blocking
-// `vector_narrow_trim`. Pair tensors must use the buffered `vector_widen_concat`
-// instead (it actually moves data between the front and back halves, so
-// exec-ids stay meaningful). Zipping the pair first (`vector_fp_zip`,
-// `vector_clip_zip`, `vector_fxp_zip`) and then calling `vector_widen_pad`
-// on the resulting single `VectorTensor` remains fine.
+// vector_widen_pad is intentionally NOT available on `VectorTensorPair` — symmetric to the
+// `vector_narrow_trim` block above: its `Concat(Bypass)` LIR zero-pads exec-ids on the back 4
+// Way8 lanes, the same Way8-filter-vs-cache misalignment. Use the buffered `vector_widen_concat`,
+// or zip the pair first and call `vector_widen_pad` on the resulting single `VectorTensor`.
 // ============================================================================
 
 // ============================================================================
@@ -1108,7 +1033,10 @@ impl<
 
 // ============================================================================
 // VectorTensorPair - Combine operations (returns VectorTensor)
-// These operations combine both groups into a single tensor.
+// Each `vector_*_zip` merges both groups: result = op(group0, group1), placed in Group 1
+// positions and returned as a `VectorTensor` with `Zipped` state (filter/stash not available);
+// all require `Way8`. The `*_with_mode` variants take a `BinaryArgMode` where 0/1 select the two
+// grouped streams directly (0 = Group 0, 1 = Group 1).
 // Ordered by target stage: Logic → Fxp → Fp → Clip
 // ============================================================================
 
@@ -1125,8 +1053,6 @@ impl<
 > VectorTensorPair<'l, T, i32, S, Chip, Cluster, Slice, Time, Packet, { Way8 }>
 {
     /// Binary logic operation merging Group 0 and Group 1. Requires `Way8` mode.
-    /// Result = op(group0, group1), result is placed in Group 1 positions.
-    /// Returns VectorTensor with Zipped state (filter/stash not available).
     #[primitive(VectorTensorPair::vector_logic_zip)]
     pub fn vector_logic_zip(
         mut self,
@@ -1141,20 +1067,18 @@ impl<
         Time,
         Packet,
         i32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(None), &self.group0.inner, &self.group1.inner);
+        let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
         VectorLogicTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary logic operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
-    /// In this zipped form, `BinaryArgMode` uses the two grouped streams directly:
-    /// `0` means Group 0 and `1` means Group 1.
     #[primitive(VectorTensorPair::vector_logic_zip_with_mode)]
     pub fn vector_logic_zip_with_mode(
         mut self,
@@ -1170,14 +1094,17 @@ impl<
         Time,
         Packet,
         i32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(Some(mode)), &self.group0.inner, &self.group1.inner);
+        let result = self
+            .group0
+            .inner
+            .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
         VectorLogicTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 }
@@ -1195,8 +1122,6 @@ impl<
 > VectorTensorPair<'l, T, f32, S, Chip, Cluster, Slice, Time, Packet, { Way8 }>
 {
     /// Binary logic operation merging Group 0 and Group 1. Requires `Way8` mode.
-    /// Result = op(group0, group1), result is placed in Group 1 positions.
-    /// Returns VectorTensor with Zipped state (filter/stash not available).
     #[primitive(VectorTensorPair::vector_logic_zip)]
     pub fn vector_logic_zip(
         mut self,
@@ -1211,20 +1136,18 @@ impl<
         Time,
         Packet,
         f32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(None), &self.group0.inner, &self.group1.inner);
+        let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
         VectorLogicTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary logic operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
-    /// In this zipped form, `BinaryArgMode` uses the two grouped streams directly:
-    /// `0` means Group 0 and `1` means Group 1.
     #[primitive(VectorTensorPair::vector_logic_zip_with_mode)]
     pub fn vector_logic_zip_with_mode(
         mut self,
@@ -1240,14 +1163,17 @@ impl<
         Time,
         Packet,
         f32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(Some(mode)), &self.group0.inner, &self.group1.inner);
+        let result = self
+            .group0
+            .inner
+            .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
         VectorLogicTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 }
@@ -1257,8 +1183,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fxp>, Chip: M, Cl
     VectorTensorPair<'l, T, i32, S, Chip, Cluster, Slice, Time, Packet, { Way8 }>
 {
     /// Binary fxp operation merging Group 0 and Group 1. Requires `Way8` mode.
-    /// Result = op(group0, group1), result is placed in Group 1 positions.
-    /// Returns VectorTensor with Zipped state (filter/stash not available).
     #[primitive(VectorTensorPair::vector_fxp_zip)]
     pub fn vector_fxp_zip(
         mut self,
@@ -1273,20 +1197,18 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fxp>, Chip: M, Cl
         Time,
         Packet,
         i32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(None), &self.group0.inner, &self.group1.inner);
+        let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
         VectorFxpTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary fxp operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
-    /// In this zipped form, `BinaryArgMode` uses the two grouped streams directly:
-    /// `0` means Group 0 and `1` means Group 1.
     #[primitive(VectorTensorPair::vector_fxp_zip_with_mode)]
     pub fn vector_fxp_zip_with_mode(
         mut self,
@@ -1302,14 +1224,17 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fxp>, Chip: M, Cl
         Time,
         Packet,
         i32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(Some(mode)), &self.group0.inner, &self.group1.inner);
+        let result = self
+            .group0
+            .inner
+            .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
         VectorFxpTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 }
@@ -1319,8 +1244,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fp>, Chip: M, Clu
     VectorTensorPair<'l, T, f32, S, Chip, Cluster, Slice, Time, Packet, { Way4 }>
 {
     /// Binary fp operation merging Group 0 and Group 1.
-    /// Result = op(group0, group1), result is placed in Group 1 positions.
-    /// Returns VectorTensor with Zipped state (filter/stash not available).
     #[primitive(VectorTensorPair::vector_fp_zip)]
     pub fn vector_fp_zip(
         mut self,
@@ -1335,20 +1258,18 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fp>, Chip: M, Clu
         Time,
         Packet,
         f32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way4 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(None), &self.group0.inner, &self.group1.inner);
+        let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
         VectorFpTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary fp operation merging Group 0 and Group 1 with explicit mode.
-    /// In this zipped form, `BinaryArgMode` uses the two grouped streams directly:
-    /// `0` means Group 0 and `1` means Group 1.
     #[primitive(VectorTensorPair::vector_fp_zip_with_mode)]
     pub fn vector_fp_zip_with_mode(
         mut self,
@@ -1364,14 +1285,17 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fp>, Chip: M, Clu
         Time,
         Packet,
         f32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way4 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(Some(mode)), &self.group0.inner, &self.group1.inner);
+        let result = self
+            .group0
+            .inner
+            .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
         VectorFpTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 }
@@ -1381,8 +1305,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
     VectorTensorPair<'l, T, i32, S, Chip, Cluster, Slice, Time, Packet, { Way8 }>
 {
     /// Binary clip operation merging Group 0 and Group 1. Requires `Way8` mode.
-    /// Result = op(group0, group1), result is placed in Group 1 positions.
-    /// Returns VectorTensor with Zipped state (filter/stash not available).
     #[primitive(VectorTensorPair::vector_clip_zip)]
     pub fn vector_clip_zip(
         mut self,
@@ -1397,20 +1319,18 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         Time,
         Packet,
         i32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(None), &self.group0.inner, &self.group1.inner);
+        let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
         VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary clip operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
-    /// In this zipped form, `BinaryArgMode` uses the two grouped streams directly:
-    /// `0` means Group 0 and `1` means Group 1.
     #[primitive(VectorTensorPair::vector_clip_zip_with_mode)]
     pub fn vector_clip_zip_with_mode(
         mut self,
@@ -1426,14 +1346,17 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         Time,
         Packet,
         i32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(Some(mode)), &self.group0.inner, &self.group1.inner);
+        let result = self
+            .group0
+            .inner
+            .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
         VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 }
@@ -1443,8 +1366,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
     VectorTensorPair<'l, T, f32, S, Chip, Cluster, Slice, Time, Packet, { Way8 }>
 {
     /// Binary clip operation merging Group 0 and Group 1. Requires `Way8` mode.
-    /// Result = op(group0, group1), result is placed in Group 1 positions.
-    /// Returns VectorTensor with Zipped state (filter/stash not available).
     #[primitive(VectorTensorPair::vector_clip_zip)]
     pub fn vector_clip_zip(
         mut self,
@@ -1459,20 +1380,18 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         Time,
         Packet,
         f32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(None), &self.group0.inner, &self.group1.inner);
+        let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
         VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary clip operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
-    /// In this zipped form, `BinaryArgMode` uses the two grouped streams directly:
-    /// `0` means Group 0 and `1` means Group 1.
     #[primitive(VectorTensorPair::vector_clip_zip_with_mode)]
     pub fn vector_clip_zip_with_mode(
         mut self,
@@ -1488,14 +1407,17 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         Time,
         Packet,
         f32,
-        NoTensor,
+        Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
         { Way8 },
     > {
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
-        let result = zip_groups(op.binary_op_fn(Some(mode)), &self.group0.inner, &self.group1.inner);
+        let result = self
+            .group0
+            .inner
+            .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
         VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
     }
 }

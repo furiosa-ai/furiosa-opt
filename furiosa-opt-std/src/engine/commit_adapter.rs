@@ -13,17 +13,20 @@
 //! - `commit_cast::<OutD>(Activation)` → `CommitCastTensor` (main; ReLU only ever fuses into the cast)
 //! - `commit_valid_count_pack(count)` → `CommitValidCountPackTensor` (sub)
 
+use std::marker::PhantomData;
+
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
+use crate::backend::Backend;
 use crate::cast::Cast;
+use crate::constraints;
 use crate::context::*;
 use crate::engine::{CanApplyCommitCast, CanApplyCommitTrim, CanApplyCommitValidCountPack};
-use crate::runtime::{Backend, CurrentBackend};
+use crate::runtime::CurrentBackend;
 use crate::scalar::*;
+use crate::tensor::Tensor;
 use crate::tensor::tu::{Position, TuTensor};
-
-pub(super) use furiosa_opt_lower::COMMIT_VALID_PACKET_SIZES;
 
 /// Element-wise activation fused into the Commit Adapter's type-casting
 /// stage. ReLU is not a standalone hardware stage: it exists only fused
@@ -47,6 +50,27 @@ impl Position for PositionCommitTrim {}
 pub type CommitTrimTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionCommitTrim, D, Chip, Cluster, Slice, Time, Packet, B>;
 
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    CommitTrimTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+        constraints::assert_packet_aligned_by_access_width_max_flit::<D, Packet>();
+    }
+
+    #[doc(hidden)]
+    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
+
 /// After the Commit Adapter's type-casting stage.
 #[derive(Debug)]
 pub struct PositionCommitCast;
@@ -56,6 +80,26 @@ impl Position for PositionCommitCast {}
 /// Tensor streamed after `commit_cast`.
 pub type CommitCastTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionCommitCast, D, Chip, Cluster, Slice, Time, Packet, B>;
+
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    CommitCastTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+    }
+
+    #[doc(hidden)]
+    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
 
 /// After the Commit Adapter's valid-count-packing stage.
 #[derive(Debug)]
@@ -67,9 +111,40 @@ impl Position for PositionCommitValidCountPack {}
 pub type CommitValidCountPackTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionCommitValidCountPack, D, Chip, Cluster, Slice, Time, Packet, B>;
 
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    CommitValidCountPackTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+    }
+
+    #[doc(hidden)]
+    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
+
 // ANCHOR: commit_trim_impl
-impl<'l, const T: Tu, P: CanApplyCommitTrim, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
-    TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
+// `D: MaterializableScalar` here (trim is the commit path's mandatory first stage) keeps i5/i9 uncommittable.
+impl<
+    'l,
+    const T: Tu,
+    P: CanApplyCommitTrim,
+    D: MaterializableScalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
     /// Runs the Commit Adapter's trimming stage.
     ///
@@ -87,8 +162,18 @@ impl<'l, const T: Tu, P: CanApplyCommitTrim, D: Scalar, Chip: M, Cluster: M, Sli
 // ANCHOR_END: commit_trim_impl
 
 // ANCHOR: commit_cast_impl
-impl<'l, const T: Tu, P: CanApplyCommitCast, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
-    TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
+impl<
+    'l,
+    const T: Tu,
+    P: CanApplyCommitCast,
+    D: MaterializableScalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
     /// Runs the Commit Adapter's type-casting stage, optionally fusing a
     /// ReLU.
@@ -106,7 +191,7 @@ impl<'l, const T: Tu, P: CanApplyCommitCast, D: Scalar, Chip: M, Cluster: M, Sli
         D: Cast<OutD>,
     {
         verify_commit_cast::<D, OutD>();
-        CommitCastTensor::new(self.ctx, self.inner.map(|v| v.map(|v| v.cast())))
+        CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
     }
 }
 // ANCHOR_END: commit_cast_impl
@@ -142,25 +227,11 @@ impl<
 }
 // ANCHOR_END: commit_valid_count_pack_impl
 
-/// Verifies the Commit Adapter's trimming-stage constraints.
-///
-/// 1. Output packet must be 8, 16, 24, or 32 bytes (where 32 means no
-///    trim).
-/// 2. `OutPacket` must be a `# m` → `# n` style resize of the input
-///    `Packet` (`n` ≤ `m`).
+/// Validates the Commit Adapter's trimming stage via [`furiosa_opt_lower::config_commit_trim`]
+/// (width / resize rules documented there).
 pub(crate) fn verify_commit_trim<D: Scalar, Packet: M, OutPacket: M>() {
-    let out_packet_bytes = D::size_in_bytes_from_length(OutPacket::SIZE);
-    assert!(
-        COMMIT_VALID_PACKET_SIZES.contains(&out_packet_bytes),
-        "commit_trim output packet must be one of {COMMIT_VALID_PACKET_SIZES:?} bytes, got {out_packet_bytes}",
-    );
-
-    let out_packet = OutPacket::to_value();
-    let expected_packet = Packet::to_value();
-    assert!(
-        out_packet.is_resize_of(&expected_packet),
-        "commit_trim packet mismatch. Expected {expected_packet} or a trimming of it, got {out_packet}",
-    );
+    furiosa_opt_lower::config_commit_trim(&Packet::to_value(), &OutPacket::to_value(), D::BITS)
+        .unwrap_or_else(|message| panic!("{message}"));
 }
 
 #[allow(clippy::extra_unused_type_parameters)]

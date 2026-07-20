@@ -37,12 +37,12 @@ fn cast_commit<'l, const T: Tu>(
     // After cast: N = 8 bf16 elements padded to 16 (32 bytes).
     // After trim: N # 16 trimmed into N = 8.
     // The sequencer writes across P = 256 slices.
-    input.cast::<bf16, m![N # 16]>().commit_trim::<m![N]>().commit(0)
+    input.cast::<bf16, m![N # 16]>().commit_trim::<m![N]>().commit()
 }
 #
 # let mut ctx = Context::acquire();
 #
-# let c: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![P], m![M], m![N]> = ContractTensor::new(&mut ctx.main, Tensor::uninit());
+# let c: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![P], m![M], m![N]> = ContractTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = cast_commit(c);
 ```
 
@@ -76,7 +76,7 @@ axes![M = 4, K = 2, W = 8, N = 16, L = 32];
 fn no_transpose<'l, const T: Tu>(
     input: CastTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]>,
 ) -> DmTensor<i8, m![1], m![1 # 2], m![1 # 256], m![M, K, L]> {
-    input.commit_trim::<m![L]>().commit(0)
+    input.commit_trim::<m![L]>().commit()
 }
 
 // Compiler-generated configuration: [
@@ -88,7 +88,7 @@ fn no_transpose<'l, const T: Tu>(
 fn transpose<'l, const T: Tu>(
     input: ContractTensor<'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]>,
 ) -> DmTensor<f32, m![1], m![1 # 2], m![1 # 256], m![K, M, W]> {
-    input.commit_trim::<m![W]>().commit(0)
+    input.commit_trim::<m![W]>().commit()
 }
 
 // Compiler-generated configuration: [
@@ -100,16 +100,16 @@ fn transpose<'l, const T: Tu>(
 fn transpose_with_trimming<'l, const T: Tu>(
     input: CastTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]>,
 ) -> DmTensor<i8, m![1], m![1 # 2], m![1 # 256], m![K, M, N]> {
-    input.commit_trim::<m![N]>().commit(0)
+    input.commit_trim::<m![N]>().commit()
 }
 
 #
 # let mut ctx = Context::acquire();
-# let a: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]> = CastTensor::new(&mut ctx.main, Tensor::uninit());
+# let a: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]> = CastTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = no_transpose(a);
-# let b: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]> = ContractTensor::new(&mut ctx.main, Tensor::uninit());
+# let b: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]> = ContractTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = transpose(b);
-# let c: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]> = CastTensor::new(&mut ctx.main, Tensor::uninit());
+# let c: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]> = CastTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = transpose_with_trimming(c);
 ```
 

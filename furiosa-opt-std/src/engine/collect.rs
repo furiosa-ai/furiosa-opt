@@ -10,12 +10,16 @@
 
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
+use std::marker::PhantomData;
 
+use crate::backend::Backend;
+use crate::constraints;
 use crate::context::*;
 use crate::engine::vector::scalar::VeScalar;
-use crate::engine::{CanApplyCollect, CanApplyToTrf, CanApplyToVrf, FLIT_BYTES, align_up, exact_div};
-use crate::runtime::{Backend, CurrentBackend};
+use crate::engine::{CanApplyCollect, CanApplyToTrf, CanApplyToVrf};
+use crate::runtime::CurrentBackend;
 use crate::scalar::*;
+use crate::tensor::Tensor;
 use crate::tensor::memory::{Address, TrfAddress, TrfTensor, VrfTensor};
 use crate::tensor::tu::{Position, TuTensor};
 
@@ -28,6 +32,27 @@ impl Position for PositionCollect {}
 /// Tensor after collect engine: packet is exactly 32 bytes (one flit).
 pub type CollectTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionCollect, D, Chip, Cluster, Slice, Time, Packet, B>;
+
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    CollectTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+        constraints::assert_packet_one_flit::<D, Packet>();
+    }
+
+    #[doc(hidden)]
+    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
 
 // ANCHOR: collect_impl
 impl<'l, const T: Tu, P: CanApplyCollect, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
@@ -52,12 +77,19 @@ impl<'l, const T: Tu, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M
 {
     /// Stores to the tensor register file.
     #[primitive(TuTensor::to_trf)]
-    pub fn to_trf<Lane: M, Element: M>(
+    pub fn to_trf<Lane: M, Element: M>(self) -> TrfTensor<D, Chip, Cluster, Slice, Lane, Element, B> {
+        verify_to_trf::<D, Lane, Time, Packet, Element>(&TrfAddress::Full);
+        TrfTensor::new(self.inner.transpose(false), None)
+    }
+
+    /// Stores to the tensor register file at `address`.
+    #[primitive(TuTensor::to_trf_at)]
+    pub fn to_trf_at<Lane: M, Element: M>(
         self,
         address: TrfAddress,
     ) -> TrfTensor<D, Chip, Cluster, Slice, Lane, Element, B> {
         verify_to_trf::<D, Lane, Time, Packet, Element>(&address);
-        TrfTensor::new(self.inner.transpose(false), address)
+        TrfTensor::new(self.inner.transpose(false), Some(address))
     }
 }
 // ANCHOR_END: collect_to_trf
@@ -68,99 +100,55 @@ impl<'l, const T: Tu, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice:
 {
     /// Stores to the vector register file.
     #[primitive(TuTensor::to_vrf)]
-    pub fn to_vrf<Element: M>(self, address: Address) -> VrfTensor<D, Chip, Cluster, Slice, Element, B> {
-        VrfTensor::new(self.inner.transpose(false), address)
+    pub fn to_vrf<Element: M>(self) -> VrfTensor<D, Chip, Cluster, Slice, Element, B> {
+        VrfTensor::new(self.inner.transpose(false), None)
+    }
+
+    /// Stores to the vector register file at `address`.
+    #[primitive(TuTensor::to_vrf_at)]
+    pub fn to_vrf_at<Element: M>(self, address: Address) -> VrfTensor<D, Chip, Cluster, Slice, Element, B> {
+        VrfTensor::new(self.inner.transpose(false), Some(address))
     }
 }
 // ANCHOR_END: collect_to_vrf
 
-/// Validates collect engine constraints: normalizes packet to exactly one flit (32 bytes).
-///
-/// Pads the input packet to flit-aligned boundary, then splits:
-/// - Inner 32 bytes → Packet2 (one flit)
-/// - Outer flit portion → absorbed into Time2
-///
-/// For packets already ≤ 32 bytes, only padding is added.
+/// Validates the Collect engine via [`furiosa_opt_lower::config_collect`] (packet / time rules
+/// documented there).
 pub(crate) fn verify_collect<D: Scalar, Time: M, Packet: M, Time2: M, Packet2: M>() {
-    let in_packet_bytes = D::size_in_bytes_from_length(Packet::SIZE);
-    let aligned_bytes = align_up(in_packet_bytes, FLIT_BYTES);
-    let flit_elements = D::length_from_bytes(FLIT_BYTES);
-
-    // Output packet must be exactly one flit.
-    assert_eq!(
-        D::size_in_bytes_from_length(Packet2::SIZE),
-        FLIT_BYTES,
-        "Collect output packet must be exactly {FLIT_BYTES} bytes (one flit)."
-    );
-
-    // Pad input packet to flit-aligned boundary, then split at flit boundary.
-    let padded = Packet::to_value().replace_padding(D::length_from_bytes(aligned_bytes));
-    let (in_outer, in_flit) = padded.split_at(flit_elements);
-
-    // Output packet = inner flit.
-    let expected_packet = in_flit.normalize();
-    let out_packet = Packet2::to_value().normalize();
-    assert_eq!(
-        expected_packet, out_packet,
-        "Collect packet mismatch. Expected: {expected_packet}, got: {out_packet}"
-    );
-
-    // Time2 = Time × outer flit portion.
-    let expected_time = Time::to_value().pair(in_outer).normalize();
-    let out_time = Time2::to_value().normalize();
-    assert_eq!(
-        expected_time, out_time,
-        "Collect time mismatch. Expected: {expected_time}, got: {out_time}"
-    );
+    furiosa_opt_lower::config_collect(
+        &Time::to_value(),
+        &Packet::to_value(),
+        &Time2::to_value(),
+        &Packet2::to_value(),
+        D::BITS,
+    )
+    .unwrap_or_else(|message| panic!("{message}"));
 }
 
-/// Validates `to_trf` constraints: reshapes `[Time, Packet]` into `[Lane, Element]`.
-///
-/// - `Lane::SIZE` must be 1, 2, 4, or 8.
-/// - Total bytes `Lane::SIZE * Element::SIZE * sizeof(D)` must fit in the chosen TRF region.
-/// - `Lane::SIZE` must divide `Time::SIZE`, with the outer factors of `Time` equal to `Lane`.
-/// - The remaining inner factors of `Time` concatenated with `Packet` must equal `Element`.
+/// Validates `to_trf` via [`furiosa_opt_lower::config_to_trf`] (lane / capacity / element rules
+/// documented there).
 pub(crate) fn verify_to_trf<D: Scalar, Lane: M, Time: M, Packet: M, Element: M>(address: &TrfAddress) {
-    assert!(
-        [1, 2, 4, 8].contains(&Lane::SIZE),
-        "Lane::SIZE must be 1, 2, 4, or 8, got {}",
-        Lane::SIZE
-    );
-
-    // Trf data should fit in the register file.
-    let capacity = address.capacity();
-    let total_trf_bytes = D::size_in_bytes_from_length(Lane::SIZE * Element::SIZE);
-    assert!(
-        total_trf_bytes <= capacity,
-        "TRF data ({} bytes = {} lanes x {} bytes) exceeds register file capacity ({} bytes for {})",
-        total_trf_bytes,
-        Lane::SIZE,
-        D::size_in_bytes_from_length(Element::SIZE),
-        capacity,
-        address,
-    );
-
-    // [time_outer] = [Lane]
-    let time = Time::to_value();
-    let (time_outer, time_inner) = time.split_at(exact_div(Time::SIZE, Lane::SIZE).unwrap_or_else(|| {
-        panic!(
-            "Lane::SIZE ({}) does not divide Time::SIZE ({})",
-            Lane::SIZE,
-            Time::SIZE
-        )
-    }));
-    let time_outer = time_outer.normalize();
-    let lane = Lane::to_value().normalize();
-    assert_eq!(
-        time_outer, lane,
-        "`to_trf` lane mismatch: time_outer != Lane: {time_outer} != {lane}",
-    );
-
-    // [time_inner, Packet] = [Element]
-    let expected_element = time_inner.pair(Packet::to_value()).normalize();
-    let element = Element::to_value().normalize();
-    assert_eq!(
-        expected_element, element,
-        "`to_trf` element mismatch: [time_inner, Packet] != Element: {expected_element} != {element}",
-    );
+    use furiosa_opt_lower::ToTrfError;
+    furiosa_opt_lower::config_to_trf(
+        &Lane::to_value(),
+        &Time::to_value(),
+        &Packet::to_value(),
+        &Element::to_value(),
+        address.capacity(),
+        D::BITS,
+    )
+    .unwrap_or_else(|error| match error {
+        // `config_to_trf` cannot name the frontend-only `TrfAddress`, so it reports the bare capacity;
+        // name the region here, where the address is known, so the message says which TRF was overrun.
+        ToTrfError::ExceedsCapacity {
+            total_bytes,
+            lanes,
+            per_lane_bytes,
+            capacity,
+        } => panic!(
+            "TRF data ({total_bytes} bytes = {lanes} lanes x {per_lane_bytes} bytes) \
+             exceeds register file capacity ({capacity} bytes for {address})"
+        ),
+        other => panic!("{other}"),
+    });
 }

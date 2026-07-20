@@ -8,15 +8,14 @@ axes![A = 1024, B = 2048, X = 32, I = 2];
 type Chip = m![1];
 type Cluster = m![A / 512 % 2];
 
-/// Generic over output element `D`: `cast::<D>` is identity for `i32`, narrowing for `i8`.
-fn add_split_contractions<D: Scalar>(
+/// Accumulate two i32 partial sums into another i32 tile. The output stays i32, so no
+/// cast is needed (a `cast::<i32>` would be identity) — `A % 8` is already one i32 flit (32 B).
+fn add_split_contractions_i32(
     ctx: &mut Context,
     lhs: &DmTensor<i32, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>,
     rhs: &DmTensor<i32, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>,
-    out: DmTensorViewMut<'_, D, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>,
-) where
-    i32: Cast<D>,
-{
+    out: DmTensorViewMut<'_, i32, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>,
+) {
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(rhs.view(), lhs.view())
         .fetch::<m![A / 8 % 8, I], m![A % 8]>()
@@ -26,7 +25,28 @@ fn add_split_contractions<D: Scalar>(
         .vector_intra_slice_unzip::<I, m![A / 8 % 8, 1 # 2], m![A / 8 % 8]>()
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
-        .cast::<D, m![A % 8 # 32]>()
+        .commit_trim::<m![A % 8]>()
+        .commit_view(out)
+}
+
+/// Accumulate two i32 partial sums and narrow the result to i8. The narrowing `cast::<i8>`
+/// pads the 8-element packet to a full flit (`A % 8 # 32` = 32 i8 = 32 B).
+fn narrow_split_contractions_i8(
+    ctx: &mut Context,
+    lhs: &DmTensor<i32, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>,
+    rhs: &DmTensor<i32, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>,
+    out: DmTensorViewMut<'_, i8, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>,
+) {
+    ctx.main
+        .begin_interleaved::<I, _, _, _, _, _>(rhs.view(), lhs.view())
+        .fetch::<m![A / 8 % 8, I], m![A % 8]>()
+        .fetch_cast::<i32>()
+        .collect::<m![A / 8 % 8, I], m![A % 8]>()
+        .vector_init()
+        .vector_intra_slice_unzip::<I, m![A / 8 % 8, 1 # 2], m![A / 8 % 8]>()
+        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+        .vector_final()
+        .cast::<i8, m![A % 8 # 32]>()
         .commit_trim::<m![A % 8]>()
         .commit_view(out)
 }
@@ -52,18 +72,18 @@ pub fn matmul_with_split_reduce(
         let lhs_tile = lhs
             .view()
             .tile::<m![B / 512], 1, m![A, 1 # 4, B % 512]>(j)
-            .to_dm::<Cluster, m![A / 64 % 8, B / 16 % 32], m![A % 64, B % 16]>(&mut ctx.tdma, 0);
+            .to_dm::<Cluster, m![A / 64 % 8, B / 16 % 32], m![A % 64, B % 16]>(&mut ctx.tdma);
         let rhs_tile = rhs
             .view()
             .tile::<m![B / 512], 1, m![1 # 4, B % 512]>(j)
-            .to_dm::<Cluster, m![A / 64 % 8, B / 16 % 32], m![B % 16]>(&mut ctx.tdma, 256 * 1024);
+            .to_dm::<Cluster, m![A / 64 % 8, B / 16 % 32], m![B % 16]>(&mut ctx.tdma);
         let rhs_trf: TrfTensor<i8, Chip, Cluster, m![A / 64 % 8, B / 16 % 32], m![1], m![B % 16 # 32]> = ctx
             .sub
             .begin(rhs_tile.view())
             .fetch::<m![1], m![B % 16]>()
             .fetch_cast::<i8>()
             .collect::<m![1], m![B % 16 # 32]>()
-            .to_trf(TrfAddress::Full);
+            .to_trf();
 
         // Perform contraction for this tile
         if j == 0 {
@@ -73,7 +93,7 @@ pub fn matmul_with_split_reduce(
                 .fetch::<m![A / 2 % 32], m![A % 2, B % 16]>()
                 .fetch_cast::<i8>()
                 .collect::<m![A / 2 % 32], m![A % 2, B % 16]>()
-                .contract_outer::<m![A / 4 % 16], m![A % 4, B % 16], _, _>(&rhs_trf)
+                .contract_outer::<m![A / 4 % 16], m![A % 4, B % 16], _, _, _>(&rhs_trf)
                 .contract_packet::<m![A % 4]>()
                 .contract_time::<m![A / 4 % 16]>()
                 .contract_lane::<m![A / 4 % 16], m![A % 4 # 8]>(LaneMode::Sequential)
@@ -89,7 +109,7 @@ pub fn matmul_with_split_reduce(
                 .fetch::<m![A / 2 % 32], m![A % 2, B % 16]>()
                 .fetch_cast::<i8>()
                 .collect::<m![A / 2 % 32], m![A % 2, B % 16]>()
-                .contract_outer::<m![A / 4 % 16], m![A % 4, B % 16], _, _>(&rhs_trf)
+                .contract_outer::<m![A / 4 % 16], m![A % 4, B % 16], _, _, _>(&rhs_trf)
                 .contract_packet::<m![A % 4]>()
                 .contract_time::<m![A / 4 % 16]>()
                 .contract_lane::<m![A / 4 % 16], m![A % 4 # 8]>(LaneMode::Sequential)
@@ -100,7 +120,7 @@ pub fn matmul_with_split_reduce(
                 .commit_view(temp.view_mut());
 
             // Accumulate using vector engine: stash previous partial sums and zip with new ones
-            add_split_contractions::<i8>(ctx, &result0, &temp, output.view_mut());
+            narrow_split_contractions_i8(ctx, &result0, &temp, output.view_mut());
         } else {
             // Subsequent iterations: store in temp and accumulate
             ctx.main
@@ -108,7 +128,7 @@ pub fn matmul_with_split_reduce(
                 .fetch::<m![A / 2 % 32], m![A % 2, B % 16]>()
                 .fetch_cast::<i8>()
                 .collect::<m![A / 2 % 32], m![A % 2, B % 16]>()
-                .contract_outer::<m![A / 4 % 16], m![A % 4, B % 16], _, _>(&rhs_trf)
+                .contract_outer::<m![A / 4 % 16], m![A % 4, B % 16], _, _, _>(&rhs_trf)
                 .contract_packet::<m![A % 4]>()
                 .contract_time::<m![A / 4 % 16]>()
                 .contract_lane::<m![A / 4 % 16], m![A % 4 # 8]>(LaneMode::Sequential)
@@ -120,9 +140,9 @@ pub fn matmul_with_split_reduce(
 
             // Accumulate using vector engine: stash the older tile internally and zipped with the new tile
             if j % 2 == 1 {
-                add_split_contractions::<i32>(ctx, &result0, &temp, result1.view_mut());
+                add_split_contractions_i32(ctx, &result0, &temp, result1.view_mut());
             } else {
-                add_split_contractions::<i32>(ctx, &result1, &temp, result0.view_mut());
+                add_split_contractions_i32(ctx, &result1, &temp, result0.view_mut());
             }
         }
     }

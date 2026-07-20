@@ -28,7 +28,7 @@ pub(crate) fn mlp(
     down_weight: &HbmTensor<bf16, Chip, m![H, M]>,
 ) -> HbmTensor<bf16, Chip, m![S, H]> {
     let gate_dm: DmTensor<bf16, Chip, Cluster, m![M / 76, M / 19 % 4], m![M % 19, H]> =
-        gate_weight.to_dm(&mut ctx.tdma, 0x0);
+        gate_weight.to_dm(&mut ctx.tdma);
 
     let gate_it: DmTensor<bf16, Chip, Cluster, m![M / 76, H / 224], m![M / 19 % 4, M % 19, H % 224]> = ctx
         .main
@@ -41,7 +41,7 @@ pub(crate) fn mlp(
         })
         .collect::<m![M / 19 % 4, M % 19, H / 16 % 14], m![H % 16]>()
         .commit_trim::<m![H % 16]>()
-        .commit(0x10000);
+        .commit();
 
     // Reshape gate_it Slice to match TRF Slice for alignment.
     let gate_it: DmTensor<bf16, Chip, Cluster, m![M / 1216, X, H / 224], m![M / 19 % 4, M % 19, H % 224]> =
@@ -59,8 +59,8 @@ pub(crate) fn mlp(
         .begin(input.view())
         .fetch::<m![S % 8], m![H / 8 % 7, H % 8]>()
         .switch::<m![M / 1216, X, H / 224], m![S % 8]>(SwitchConfig::Broadcast1 { slice1: 16, slice0: 8 })
-        .collect::<m![S % 8], m![H / 8 % 7, H / 56 % 4, S / 32, S % 8 # 16]>()
-        .to_trf(TrfAddress::SecondHalf);
+        .collect::<m![S % 8, H / 8 % 7, H / 56 % 4, S / 32], m![S % 8 # 16]>()
+        .to_trf_at(TrfAddress::SecondHalf);
 
     let input_trf_first: TrfTensor<
         bf16,
@@ -74,48 +74,48 @@ pub(crate) fn mlp(
         .begin(input.view())
         .fetch::<m![S % 8], m![H / 8 % 7, H % 8]>()
         .switch::<m![M / 1216, X, H / 224], m![S % 8]>(SwitchConfig::Broadcast1 { slice1: 16, slice0: 8 })
-        .collect::<m![S % 8], m![H / 8 % 7, H / 56 % 4, S / 32, S % 8 # 16]>()
-        .to_trf(TrfAddress::FirstHalf);
+        .collect::<m![S % 8, H / 8 % 7, H / 56 % 4, S / 32], m![S % 8 # 16]>()
+        .to_trf_at(TrfAddress::FirstHalf);
 
     let gate_second: DmTensor<bf16, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .main
         .begin(gate_it.view())
         .fetch::<m![M / 19 % 4, M % 19], m![H / 16 % 14, H % 16]>()
         .collect::<m![M / 19 % 4, M % 19, H / 16 % 14], m![H % 16]>()
-        .contract_outer::<m![M / 19 % 4, M % 19], m![H / 16 % 14, H % 16], _, _>(&input_trf_second)
+        .contract_outer::<m![M / 19 % 4, M % 19, H / 32 % 7], m![H % 32], _, _, _>(&input_trf_second)
         .contract_packet::<m![1]>()
         .contract_time::<m![M % 19, S / 8 % 16]>()
         .contract_lane::<m![M % 19, S / 8 % 16], m![S % 8]>(LaneMode::Interleaved)
         .vector_init()
-        .vector_inter_slice_reduce::<m![M / 19, S / 128], m![M % 19, S % 128]>(InterSliceReduceOpF32::Add)
+        .vector_inter_slice_reduce::<m![M / 19, S / 128], m![M % 19, S / 8 % 16]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![S % 128]>()
-        .commit_trim::<m![S % 128]>()
-        .commit(0x0);
+        .cast::<bf16, m![S % 8 # 16]>()
+        .commit_trim::<m![S % 8]>()
+        .commit();
 
     let gate_first_raw: DmTensor<bf16, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .main
         .begin(gate_it.view())
         .fetch::<m![M / 19 % 4, M % 19], m![H / 16 % 14, H % 16]>()
         .collect::<m![M / 19 % 4, M % 19, H / 16 % 14], m![H % 16]>()
-        .contract_outer::<m![M / 19 % 4, M % 19], m![H / 16 % 14, H % 16], _, _>(&input_trf_first)
+        .contract_outer::<m![M / 19 % 4, M % 19, H / 32 % 7], m![H % 32], _, _, _>(&input_trf_first)
         .contract_packet::<m![1]>()
         .contract_time::<m![M % 19, S / 8 % 16]>()
         .contract_lane::<m![M % 19, S / 8 % 16], m![S % 8]>(LaneMode::Interleaved)
         .vector_init()
-        .vector_inter_slice_reduce::<m![M / 19, S / 128], m![M % 19, S % 128]>(InterSliceReduceOpF32::Add)
+        .vector_inter_slice_reduce::<m![M / 19, S / 128], m![M % 19, S / 8 % 16]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![S % 128]>()
-        .commit_trim::<m![S % 128]>()
-        .commit(0x10000);
+        .cast::<bf16, m![S % 8 # 16]>()
+        .commit_trim::<m![S % 8]>()
+        .commit();
 
     let gate_second_vrf: VrfTensor<f32, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .sub
         .begin(gate_second.view())
         .fetch::<m![M % 19], m![S % 128]>()
         .fetch_cast::<f32>()
-        .collect::<m![M % 19], m![S % 128]>()
-        .to_vrf(0);
+        .collect::<m![M % 19, S / 8 % 16], m![S % 8]>()
+        .to_vrf();
 
     let gate_sum: DmTensor<bf16, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .main
@@ -131,7 +131,7 @@ pub(crate) fn mlp(
         .vector_final()
         .cast::<bf16, m![S % 8 # 16]>()
         .commit_trim::<m![S % 8]>()
-        .commit(0x10000);
+        .commit();
 
     let gate_sigmoid: DmTensor<bf16, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .main
@@ -147,10 +147,9 @@ pub(crate) fn mlp(
         .vector_final()
         .cast::<bf16, m![S % 8 # 16]>()
         .commit_trim::<m![S % 8]>()
-        .commit(0x18000);
+        .commit();
 
-    let up_dm: DmTensor<bf16, Chip, Cluster, m![M / 76, M / 19 % 4], m![M % 19, H]> =
-        up_weight.to_dm(&mut ctx.tdma, 0x20000);
+    let up_dm: DmTensor<bf16, Chip, Cluster, m![M / 76, M / 19 % 4], m![M % 19, H]> = up_weight.to_dm(&mut ctx.tdma);
 
     let up_it: DmTensor<bf16, Chip, Cluster, m![M / 76, H / 224], m![M / 19 % 4, M % 19, H % 224]> = ctx
         .main
@@ -163,7 +162,7 @@ pub(crate) fn mlp(
         })
         .collect::<m![M / 19 % 4, M % 19, H / 16 % 14], m![H % 16]>()
         .commit_trim::<m![H % 16]>()
-        .commit(0x28000);
+        .commit();
 
     // Reshape up_it Slice to match TRF Slice for alignment.
     let up_it: DmTensor<bf16, Chip, Cluster, m![M / 1216, X, H / 224], m![M / 19 % 4, M % 19, H % 224]> =
@@ -174,32 +173,32 @@ pub(crate) fn mlp(
         .begin(up_it.view())
         .fetch::<m![M / 19 % 4, M % 19], m![H / 16 % 14, H % 16]>()
         .collect::<m![M / 19 % 4, M % 19, H / 16 % 14], m![H % 16]>()
-        .contract_outer::<m![M / 19 % 4, M % 19, H / 32 % 7], m![H % 32], _, _>(&input_trf_second)
+        .contract_outer::<m![M / 19 % 4, M % 19, H / 32 % 7], m![H % 32], _, _, _>(&input_trf_second)
         .contract_packet::<m![1]>()
         .contract_time::<m![M % 19, S / 8 % 16]>()
         .contract_lane::<m![M % 19, S / 8 % 16], m![S % 8]>(LaneMode::Interleaved)
         .vector_init()
-        .vector_inter_slice_reduce::<m![M / 19, S / 128], m![M % 19, S % 128]>(InterSliceReduceOpF32::Add)
+        .vector_inter_slice_reduce::<m![M / 19, S / 128], m![M % 19, S / 8 % 16]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![S % 128]>()
-        .commit_trim::<m![S % 128]>()
-        .commit(0x20000);
+        .cast::<bf16, m![S % 8 # 16]>()
+        .commit_trim::<m![S % 8]>()
+        .commit();
 
     let up_first_raw: DmTensor<bf16, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .main
         .begin(up_it.view())
         .fetch::<m![M / 19 % 4, M % 19], m![H / 16 % 14, H % 16]>()
         .collect::<m![M / 19 % 4, M % 19, H / 16 % 14], m![H % 16]>()
-        .contract_outer::<m![M / 19 % 4, M % 19, H / 32 % 7], m![H % 32], _, _>(&input_trf_first)
+        .contract_outer::<m![M / 19 % 4, M % 19, H / 32 % 7], m![H % 32], _, _, _>(&input_trf_first)
         .contract_packet::<m![1]>()
         .contract_time::<m![M % 19, S / 8 % 16]>()
         .contract_lane::<m![M % 19, S / 8 % 16], m![S % 8]>(LaneMode::Interleaved)
         .vector_init()
-        .vector_inter_slice_reduce::<m![M / 19, S / 128], m![M % 19, S % 128]>(InterSliceReduceOpF32::Add)
+        .vector_inter_slice_reduce::<m![M / 19, S / 128], m![M % 19, S / 8 % 16]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![S % 128]>()
-        .commit_trim::<m![S % 128]>()
-        .commit(0x30000);
+        .cast::<bf16, m![S % 8 # 16]>()
+        .commit_trim::<m![S % 8]>()
+        .commit();
 
     let up_second_vrf: VrfTensor<f32, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .sub
@@ -207,7 +206,7 @@ pub(crate) fn mlp(
         .fetch::<m![M % 19], m![S % 128]>()
         .fetch_cast::<f32>()
         .collect::<m![M % 19, S / 8 % 16], m![S % 8]>()
-        .to_vrf(0);
+        .to_vrf();
 
     let up_sum: DmTensor<bf16, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .main
@@ -223,7 +222,7 @@ pub(crate) fn mlp(
         .vector_final()
         .cast::<bf16, m![S % 8 # 16]>()
         .commit_trim::<m![S % 8]>()
-        .commit(0x38000);
+        .commit();
 
     let up_vrf: VrfTensor<f32, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .sub
@@ -231,7 +230,7 @@ pub(crate) fn mlp(
         .fetch::<m![M % 19], m![S % 128]>()
         .fetch_cast::<f32>()
         .collect::<m![M % 19, S / 8 % 16], m![S % 8]>()
-        .to_vrf(0);
+        .to_vrf();
 
     let gated: DmTensor<bf16, Chip, Cluster, m![M / 19, S / 128], m![M % 19, S % 128]> = ctx
         .main
@@ -247,12 +246,11 @@ pub(crate) fn mlp(
         .vector_final()
         .cast::<bf16, m![S % 8 # 16]>()
         .commit_trim::<m![S % 8]>()
-        .commit(0x0);
+        .commit();
 
-    let gated_hbm: HbmTensor<bf16, Chip, m![M, S]> = gated.to_hbm(&mut ctx.tdma, 0x256d000);
+    let gated_hbm: HbmTensor<bf16, Chip, m![M, S]> = gated.to_hbm(&mut ctx.tdma);
 
-    let gated_retiled: DmTensor<bf16, Chip, Cluster, m![Y, M / 76], m![M % 76, S]> =
-        gated_hbm.to_dm(&mut ctx.tdma, 0x9000);
+    let gated_retiled: DmTensor<bf16, Chip, Cluster, m![Y, M / 76], m![M % 76, S]> = gated_hbm.to_dm(&mut ctx.tdma);
 
     // Reshape gated activation Slice for down-projection TRF alignment.
     let gated_retiled: DmTensor<bf16, Chip, Cluster, m![H / 224, M / 152, M / 76 % 2], m![M % 76, S]> =
@@ -263,10 +261,10 @@ pub(crate) fn mlp(
         .sub
         .begin(gated_retiled.view())
         .fetch::<m![M % 76], m![S]>()
-        .collect::<m![M % 76], m![S]>()
-        .to_trf(TrfAddress::Full);
+        .collect::<m![M % 76, S / 16], m![S % 16]>()
+        .to_trf();
     let down_dm: DmTensor<bf16, Chip, Cluster, m![H / 224, M / 152, H / 112 % 2], m![H % 112, M % 152]> =
-        down_weight.to_dm(&mut ctx.tdma, 0x30000);
+        down_weight.to_dm(&mut ctx.tdma);
     let down_it: DmTensor<
         bf16,
         Chip,
@@ -282,25 +280,25 @@ pub(crate) fn mlp(
             slice0: 1,
             time0: 1,
         })
-        .collect::<m![H / 112 % 2, H % 112], m![M % 76 # 80]>()
-        .commit_trim::<m![M % 76 # 80]>()
-        .commit(0x34000);
+        .collect::<m![H / 112 % 2, H % 112, M % 76 # 80 / 16], m![M % 76 # 80 % 16]>()
+        .commit_trim::<m![M % 76 # 80 % 16]>()
+        .commit();
     // Reorder down-projection weight tiles for contraction alignment.
     let down_transposed: DmTensor<bf16, Chip, Cluster, m![H / 224, M / 152, M / 76 % 2], m![M % 76, H % 224]> = ctx
         .main
         .begin(down_it.view())
         .fetch::<m![H / 112 % 2, H % 112], m![M % 76]>()
-        .collect::<m![M % 76], m![H % 224]>()
-        .commit_trim::<m![H % 224]>()
-        .commit(0x20000);
+        .collect::<m![M % 76, H / 16 % 14], m![H % 16]>()
+        .commit_trim::<m![H % 16]>()
+        .commit();
 
     // Compute down projection with gated activation staged in TRF.
     let down_raw: DmTensor<bf16, Chip, Cluster, m![H / 56, S / 16], m![H % 56, S % 16]> = ctx
         .main
         .begin(down_transposed.view())
         .fetch::<m![M % 76], m![H % 224]>()
-        .collect::<m![M % 76], m![H % 224]>()
-        .contract_outer::<m![M % 76], m![H % 224], _, _>(&gated_trf)
+        .collect::<m![M % 76, H / 16 % 14], m![H % 16]>()
+        .contract_outer::<m![M % 76, H / 32 % 7], m![H % 32], _, _, _>(&gated_trf)
         .contract_packet::<m![1]>()
         .contract_time::<m![1]>()
         .contract_lane::<m![M % 76], m![1 # 8]>(LaneMode::Sequential)
@@ -309,16 +307,16 @@ pub(crate) fn mlp(
         .vector_final()
         .cast::<bf16, m![S % 16]>()
         .commit_trim::<m![S % 16]>()
-        .commit(0x8000);
+        .commit();
 
     let down_result: DmTensor<bf16, Chip, Cluster, m![H / 56, S / 16], m![S % 32, H % 56]> = ctx
         .main
         .begin(down_raw.view())
         .fetch::<m![H % 56, S / 16 % 2], m![S % 16]>()
-        .collect::<m![S % 32], m![H % 56]>()
-        .commit_trim::<m![H % 56]>()
-        .commit(0x0);
+        .collect::<m![S % 32, H % 56 # 64 / 16], m![H % 56 # 64 % 16]>()
+        .commit_trim::<m![H % 56 # 64 % 16]>()
+        .commit();
 
     // Write final MLP output tensor to HBM.
-    down_result.to_hbm(&mut ctx.tdma, 0x10e50000)
+    down_result.to_hbm(&mut ctx.tdma)
 }

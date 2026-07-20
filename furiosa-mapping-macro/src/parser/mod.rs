@@ -20,6 +20,27 @@ fn padding_kind_ident(kind: PaddingKind) -> proc_macro2::Ident {
     proc_macro2::Ident::new(name, proc_macro2::Span::call_site())
 }
 
+/// A numeric argument in a mapping operator (`/ % = #`): either a literal, or an escaped
+/// `{ const_expr }` that resolves to a `usize` (e.g. `m![A # { Out::SIZE }]`).
+#[derive(Debug, Clone)]
+pub enum Num {
+    /// A bare integer literal.
+    Lit(usize),
+    /// An escaped constant expression, expanded as a braced const-generic argument.
+    Const(proc_macro2::TokenStream),
+}
+
+impl Num {
+    /// Expand as a const-generic argument: a bare literal, or a braced const expression
+    /// (`{ Out::SIZE }`) so non-literal paths are accepted in const-generic position.
+    fn expand(&self) -> proc_macro2::TokenStream {
+        match self {
+            Self::Lit(n) => quote! { #n },
+            Self::Const(tokens) => quote! { { #tokens } },
+        }
+    }
+}
+
 /// Parser-level representation of furiosa_mapping_types::PaddingKind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PaddingKind {
@@ -59,19 +80,19 @@ pub enum Mapping {
     },
     Stride {
         inner: Box<Self>,
-        stride: usize,
+        stride: Num,
     },
     Modulo {
         inner: Box<Self>,
-        modulo: usize,
+        modulo: Num,
     },
     Resize {
         inner: Box<Self>,
-        resize: usize,
+        resize: Num,
     },
     Padding {
         inner: Box<Self>,
-        padding: usize,
+        padding: Num,
         kind: PaddingKind,
     },
     Pair {
@@ -99,6 +120,7 @@ impl Mapping {
                 stride: value,
             } => {
                 let l = left.expand();
+                let value = value.expand();
                 quote! { Stride<#l, #value> }
             }
             Self::Modulo {
@@ -106,6 +128,7 @@ impl Mapping {
                 modulo: value,
             } => {
                 let l = left.expand();
+                let value = value.expand();
                 quote! { Modulo<#l, #value> }
             }
             Self::Resize {
@@ -113,6 +136,7 @@ impl Mapping {
                 resize: value,
             } => {
                 let l = left.expand();
+                let value = value.expand();
                 quote! { Resize<#l, #value> }
             }
             Self::Padding {
@@ -121,6 +145,7 @@ impl Mapping {
                 kind,
             } => {
                 let l = left.expand();
+                let value = value.expand();
                 let kind_ident = padding_kind_ident(*kind);
                 quote! { Padding<#l, #value, { PaddingKind::#kind_ident }> }
             }
@@ -173,6 +198,7 @@ impl Mapping {
             }
             Self::Stride { inner, stride } => {
                 let inner_expanded = inner.expand();
+                let stride = stride.expand();
                 quote! {
                     {
                         use ::furiosa_mapping as m;
@@ -186,6 +212,7 @@ impl Mapping {
             }
             Self::Modulo { inner, modulo } => {
                 let inner_expanded = inner.expand();
+                let modulo = modulo.expand();
                 quote! {
                     {
                         use ::furiosa_mapping as m;
@@ -199,6 +226,7 @@ impl Mapping {
             }
             Self::Resize { inner, resize } => {
                 let inner_expanded = inner.expand();
+                let resize = resize.expand();
                 quote! {
                     {
                         use ::furiosa_mapping as m;
@@ -212,6 +240,7 @@ impl Mapping {
             }
             Self::Padding { inner, padding, kind } => {
                 let inner_expanded = inner.expand();
+                let padding = padding.expand();
                 let kind_ident = padding_kind_ident(*kind);
                 let pad_ty = quote! {
                     m::Padding<#inner_expanded, #padding, { m::PaddingKind::#kind_ident }>

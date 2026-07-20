@@ -13,13 +13,13 @@ async fn test_compile_llama3_1_mlperf_latest_8pe_4chip_w8a16kv16_prefill_first_b
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input_ids = HostTensor::<i32, m![S]>::rand(&mut rng)
-        .to_hbm::<Chip, m![S]>(&mut ctx.pdma, 0)
+        .to_hbm::<Chip, m![S]>(&mut ctx.pdma)
         .await;
-    let embedding_table = HostTensor::<bf16, m![V, E]>::uninit()
-        .to_hbm::<Chip, m![V, E]>(&mut ctx.pdma, 0x92487000)
+    let embedding_table = HostTensor::<bf16, m![V, E]>::zero()
+        .to_hbm::<Chip, m![V, E]>(&mut ctx.pdma)
         .await;
     let norm_weight = HostTensor::<f32, m![E]>::rand(&mut rng)
-        .to_hbm::<Chip, m![E]>(&mut ctx.pdma, 0x92487000)
+        .to_hbm::<Chip, m![E]>(&mut ctx.pdma)
         .await;
 
     launch(

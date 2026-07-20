@@ -26,12 +26,11 @@ pub(crate) fn o_proj(
     weight: &HbmTensor<bf16, Chip, m![H, H]>,
 ) -> HbmTensor<bf16, Chip, m![S, H]> {
     // Load input to SRAM with 112-wide hidden tiling.
-    let input_dm: DmTensor<bf16, Chip, Cluster, m![Z, H / 112, S / 8], m![S % 8, H % 112]> =
-        input.to_dm(&mut ctx.tdma, 0xbb00);
+    let input_dm: DmTensor<bf16, Chip, Cluster, m![Z, H / 112, S / 8], m![S % 8, H % 112]> = input.to_dm(&mut ctx.tdma);
 
     // Load projection weights to SRAM.
     let weight_dm: DmTensor<bf16, Chip, Cluster, m![H / 28, H / 448, H / 7 % 4], m![H % 7, H % 448]> =
-        weight.to_dm(&mut ctx.tdma, 0x8900);
+        weight.to_dm(&mut ctx.tdma);
 
     // Reorder weight tiles for contraction over 112 hidden channels.
     let weight_it: DmTensor<bf16, Chip, Cluster, m![H / 28, H / 448, H / 112 % 4], m![H / 7 % 4, H % 7, H % 112]> = ctx
@@ -43,9 +42,9 @@ pub(crate) fn o_proj(
             slice0: 1,
             time0: 1,
         })
-        .collect::<m![H / 7 % 4, H % 7], m![H % 112]>()
-        .commit_trim::<m![H % 112]>()
-        .commit(0xa200);
+        .collect::<m![H / 7 % 4, H % 7, H % 112 / 16], m![H % 112 % 16]>()
+        .commit_trim::<m![H % 112 % 16]>()
+        .commit();
 
     // Stage input in TRF FirstHalf for reversed matmul ordering.
     let input_trf: TrfTensor<
@@ -60,8 +59,8 @@ pub(crate) fn o_proj(
         .begin(input_dm.view())
         .fetch::<m![S % 8], m![H % 112]>()
         .switch::<m![H / 448, X, H / 112], m![S % 8]>(SwitchConfig::Broadcast1 { slice1: 16, slice0: 8 })
-        .collect::<m![S % 8], m![H / 16 % 7, S / 8, S % 8 # 16]>()
-        .to_trf(TrfAddress::FirstHalf);
+        .collect::<m![S % 8, H / 16 % 7, S / 8], m![S % 8 # 16]>()
+        .to_trf_at(TrfAddress::FirstHalf);
 
     // Reshape weight Slice to match TRF Slice for alignment.
     let weight_it: DmTensor<bf16, Chip, Cluster, m![H / 448, X, H / 112], m![H / 7 % 4, H % 7, H % 112]> =
@@ -72,18 +71,18 @@ pub(crate) fn o_proj(
         .main
         .begin(weight_it.view())
         .fetch::<m![H / 7 % 4, H % 7], m![H / 16 % 7, H % 16]>()
-        .collect::<m![H / 7 % 4, H % 7], m![H / 16 % 7, H % 16]>()
-        .contract_outer::<m![H / 7 % 4, H % 7], m![H / 16 % 7, H % 16], _, _>(&input_trf)
+        .collect::<m![H / 7 % 4, H % 7, H / 16 % 7], m![H % 16]>()
+        .contract_outer::<m![H / 7 % 4, H % 7, H / 16 % 7], m![H % 16], _, _, _>(&input_trf)
         .contract_packet::<m![1]>()
         .contract_time::<m![H % 7, S / 8 % 8]>()
         .contract_lane::<m![H % 7, S / 8 % 8], m![S % 8]>(LaneMode::Interleaved)
         .vector_init()
-        .vector_inter_slice_reduce::<m![H / 7, S / 64], m![H % 7, S % 64]>(InterSliceReduceOpF32::Add)
+        .vector_inter_slice_reduce::<m![H / 7, S / 64], m![H % 7, S / 8 % 8]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![S % 64]>()
-        .commit_trim::<m![S % 64]>()
-        .commit(0x8400);
+        .cast::<bf16, m![S % 8 # 16]>()
+        .commit_trim::<m![S % 8]>()
+        .commit();
 
     // Store projected output to HBM.
-    result.to_hbm(&mut ctx.tdma, 0x10e36000)
+    result.to_hbm(&mut ctx.tdma)
 }

@@ -9,7 +9,7 @@ use furiosa_opt_macro::primitive;
 /// Each ALU can only be used once per VE configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RngdAlu {
-    // Logic cluster (max 5 ops)
+    // Logic cluster
     /// Logic AND ALU
     LogicAnd,
     /// Logic OR ALU
@@ -21,7 +21,7 @@ pub enum RngdAlu {
     /// Logic right shift ALU
     LogicRshift,
 
-    // Fxp cluster (max 4 ops)
+    // Fxp cluster
     /// Fixed-point add ALU
     FxpAdd,
     /// Fixed-point left shift ALU
@@ -31,7 +31,7 @@ pub enum RngdAlu {
     /// Fixed-point right shift ALU
     FxpRshift,
 
-    // Float cluster (max 5 ops)
+    // Float cluster
     /// Floating-point FMA ALU
     FpFma,
     /// Floating-point FPU ALU (sqrt, tanh, sigmoid, etc.)
@@ -43,7 +43,7 @@ pub enum RngdAlu {
     /// Floating-point multiply ALU 1
     FpMul1,
 
-    // Clip cluster (max 3 ops)
+    // Clip cluster
     /// Clip add ALU
     ClipAdd,
     /// Clip max ALU
@@ -60,7 +60,7 @@ pub enum RngdAlu {
 
 /// Float cluster Mul ALU selection.
 ///
-/// Used to specify which ALU to use for MulF/MaskMulF operations,
+/// Used to specify which ALU to use for MulF operations,
 /// since they can use FpMul0, FpMul1, or FpFma.
 #[primitive(ve::FpMulAlu)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -85,7 +85,7 @@ impl Display for FpMulAlu {
 
 impl FpMulAlu {
     /// Converts to the corresponding RngdAlu.
-    pub fn to_alu(self) -> RngdAlu {
+    pub(crate) fn to_alu(self) -> RngdAlu {
         match self {
             FpMulAlu::Mul0 => RngdAlu::FpMul0,
             FpMulAlu::Mul1 => RngdAlu::FpMul1,

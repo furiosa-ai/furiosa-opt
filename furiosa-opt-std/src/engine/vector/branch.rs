@@ -2,7 +2,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use furiosa_mapping::{Atom, Ident, M};
+use furiosa_mapping::{Ident, Index, M, MappingExt};
 use furiosa_opt_macro::primitive;
 use smart_default::SmartDefault;
 
@@ -21,7 +21,7 @@ pub enum TagMode {
     /// Toggle group id (0/1) based on axis index.
     AxisToggle {
         /// Axis identifier to toggle on (e.g., Ident::I).
-        /// The group ID will be determined by (axis_index % 2).
+        /// The group ID will be determined by (coordinate-along-axis % 2).
         axis: Ident,
     },
     /// Set branch id using valid count generator.
@@ -170,7 +170,7 @@ impl Display for InputCmpF32 {
 
 impl InputCmpI32 {
     /// Check if i32 value matches this comparison
-    pub fn matches(&self, x: i32) -> bool {
+    pub(crate) fn matches(&self, x: i32) -> bool {
         match self {
             InputCmpI32::Equal { boundary } => x == *boundary,
             InputCmpI32::Less { boundary } => x < *boundary,
@@ -185,7 +185,7 @@ impl InputCmpI32 {
 
 impl InputCmpF32 {
     /// Check if f32 value matches this comparison
-    pub fn matches(&self, x: f32) -> bool {
+    pub(crate) fn matches(&self, x: f32) -> bool {
         match self {
             InputCmpF32::Equal { boundary } => x == *boundary,
             InputCmpF32::Less { boundary } => x < *boundary,
@@ -208,7 +208,7 @@ impl InputCmpF32 {
 
 impl InputCmp {
     /// Generic matches method that dispatches to type-specific implementation
-    pub fn matches<D: VeScalar>(&self, x: D) -> bool {
+    pub(crate) fn matches<D: VeScalar>(&self, x: D) -> bool {
         use std::any::TypeId;
         match self {
             InputCmp::I32(cmp) => {
@@ -246,7 +246,7 @@ pub enum GroupId {
 
 impl GroupId {
     /// Returns the bit value of the GroupId.
-    pub fn bit_value(&self) -> u8 {
+    pub(crate) fn bit_value(&self) -> u8 {
         match self {
             GroupId::Zero => 0,
             GroupId::One => 1,
@@ -279,7 +279,7 @@ pub enum TagFilter {
 impl TagFilter {
     /// Check if this branch config matches the given execution ID.
     /// Only Init values can match - Uninit never matches any config.
-    pub fn matches(&self, exec_id: Opt<u8>) -> bool {
+    pub(crate) fn matches(&self, exec_id: Opt<u8>) -> bool {
         match (self, exec_id) {
             (_, Opt::Uninit) => false,
             (TagFilter::All, Opt::Init(_)) => true,
@@ -295,43 +295,59 @@ impl From<GroupId> for TagFilter {
 }
 
 /// Applies branch unit to generate Tag for each element.
-pub fn apply_branch_config<D: VeScalar, Mapping: M>(
+pub(crate) fn apply_branch_config<D: VeScalar, Mapping: M>(
     data: &Tensor<D, Mapping>,
     config: &TagMode,
 ) -> Tensor<u8, Mapping> {
     match config {
-        TagMode::Zero => data.map(|_| Opt::Init(0u8)),
-        TagMode::AxisToggle { axis } => Tensor::from_fn(|axes, idx| {
-            let axis_pos = axes.iter().position(|term| {
-                if let Atom::Symbol { symbol, .. } = &term.inner {
-                    symbol == axis
-                } else {
-                    false
-                }
-            });
-
-            if let Some(pos) = axis_pos {
-                let axis_idx = idx[pos];
-                let group_id = (axis_idx % 2) as u8;
-                let exec_id = group_id << 3;
-                Opt::Init(exec_id)
-            } else {
-                Opt::Init(0u8)
-            }
-        }),
+        TagMode::Zero => data.map(|_| 0u8),
+        TagMode::AxisToggle { axis } => Tensor::<u8, Mapping>::from_vec(axis_toggle_pattern::<Mapping>(axis)),
         TagMode::ValidCount => todo!(),
         TagMode::Vrf => todo!("TagMode::Vrf: load execution IDs from VRF (GenBranch::WithLog)"),
-        TagMode::Comparison(cmps) => data.map(|x| match x {
-            Opt::Init(x) => {
-                let mut exec_id: u8 = 0;
-                for (bit_pos, cmp) in cmps.iter().enumerate() {
-                    let bit = if cmp.matches(*x) { 0x1 } else { 0x0 };
-                    exec_id |= bit << bit_pos;
-                }
-
-                Opt::Init(exec_id)
+        TagMode::Comparison(cmps) => data.map(|x| {
+            let mut exec_id: u8 = 0;
+            for (bit_pos, cmp) in cmps.iter().enumerate() {
+                let bit = if cmp.matches(x) { 0x1 } else { 0x0 };
+                exec_id |= bit << bit_pos;
             }
-            Opt::Uninit => Opt::Uninit,
+            exec_id
         }),
+    }
+}
+
+/// Host-side `AxisToggle` tag pattern: `(coord_along_axis % 2) << 3` per cell, padding cells → 0.
+fn axis_toggle_pattern<Mapping: M>(axis: &Ident) -> Vec<u8> {
+    let mapping = Mapping::to_value();
+    let axes = mapping.axes();
+    let Some(pos) = crate::storage::axis_position(&axes, axis) else {
+        return vec![0u8; mapping.size()]; // axis absent: nothing to toggle
+    };
+    // The toggle axis's coordinate is its digit in the canonical offset: divide out the inner axes'
+    // weight, mod its extent. The lazy wire walk gives each cell's offset (padding → `None` → 0), so
+    // no per-cell `finalize`.
+    let weight: usize = axes[pos + 1..].iter().map(|a| a.modulo).product();
+    let modulo = axes[pos].modulo;
+    mapping
+        .iter(&axes, &Index::new(), true)
+        .map(|offset| offset.map_or(0u8, |o| (((o / weight) % modulo % 2) as u8) << 3))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use furiosa_mapping::*;
+
+    use super::axis_toggle_pattern;
+
+    /// `axis_toggle_pattern` decodes each cell's coordinate along the toggle axis (its digit in the
+    /// canonical offset) and emits `(coord % 2) << 3`. Hand-computed for `m![A, B]` (A=4 outer, B=2
+    /// inner; wire cell `(a, b)` at `a*2 + b`).
+    #[test]
+    fn axis_toggle_pattern_decodes_axis_parity() {
+        axes![A = 4, B = 2];
+        // Toggle A: cell (a, b) -> (a % 2) << 3. a = position / 2.
+        assert_eq!(axis_toggle_pattern::<m![A, B]>(&Ident::A), vec![0, 0, 8, 8, 0, 0, 8, 8]);
+        // Toggle B: cell (a, b) -> (b % 2) << 3. b = position % 2.
+        assert_eq!(axis_toggle_pattern::<m![A, B]>(&Ident::B), vec![0, 8, 0, 8, 0, 8, 0, 8]);
     }
 }

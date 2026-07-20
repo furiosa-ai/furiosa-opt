@@ -12,21 +12,22 @@
 //! earlier stage's tensor as input (mask can chain into table-lookup,
 //! table-lookup into cast, and so on).
 //!
-//! `fetch_cast` is fully implemented. `fetch_mask` and
-//! `fetch_table_lookup` are stubs whose `verify_*()` helpers `todo!()` at
-//! runtime. The masking config (`FetchMaskConfig`) is not a kernel-author
-//! argument: `fetch_mask` takes no runtime parameter, and the compiler
-//! derives the config from the difference between the input and output
-//! mappings.
+//! `fetch_cast` is fully implemented. `fetch_mask` and `fetch_table_lookup` are stubs whose
+//! `verify_*()` helpers `todo!()` at runtime.
+
+use std::marker::PhantomData;
 
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
-use crate::cast::FetchCast;
+use crate::backend::Backend;
+use crate::cast::{FetchCast, FetchZeroPointSub};
+use crate::constraints;
 use crate::context::*;
-use crate::engine::{CanApplyFetchCast, CanApplyFetchMask, CanApplyFetchTableLookup};
-use crate::runtime::{Backend, CurrentBackend};
+use crate::engine::{CanApplyFetchCast, CanApplyFetchMask, CanApplyFetchTableLookup, CanApplyFetchZeroPointSub};
+use crate::runtime::CurrentBackend;
 use crate::scalar::*;
+use crate::tensor::Tensor;
 use crate::tensor::tu::{Position, TuTensor};
 
 /// Compiler-derived configuration for the Fetch Adapter's masking stage.
@@ -72,6 +73,26 @@ impl Position for PositionFetchMask {}
 pub type FetchMaskTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionFetchMask, D, Chip, Cluster, Slice, Time, Packet, B>;
 
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    FetchMaskTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+    }
+
+    #[doc(hidden)]
+    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
+
 /// After the Fetch Adapter's table-lookup stage.
 #[derive(Debug)]
 pub struct PositionFetchTableLookup;
@@ -81,6 +102,26 @@ impl Position for PositionFetchTableLookup {}
 /// Tensor streamed after `fetch_table_lookup`.
 pub type FetchTableLookupTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionFetchTableLookup, D, Chip, Cluster, Slice, Time, Packet, B>;
+
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    FetchTableLookupTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+    }
+
+    #[doc(hidden)]
+    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
 
 /// After the Fetch Adapter's type-casting stage.
 #[derive(Debug)]
@@ -92,6 +133,26 @@ impl Position for PositionFetchCast {}
 pub type FetchCastTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionFetchCast, D, Chip, Cluster, Slice, Time, Packet, B>;
 
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    FetchCastTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+    }
+
+    #[doc(hidden)]
+    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
+
 // ANCHOR: fetch_mask_impl
 impl<'l, const T: Tu, P: CanApplyFetchMask, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
     TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
@@ -101,9 +162,8 @@ impl<'l, const T: Tu, P: CanApplyFetchMask, D: Scalar, Chip: M, Cluster: M, Slic
     /// Zeroes the padded slots described by the book chapter. `OutTime`
     /// and `OutPacket` carry the pad-kind change at the type level (e.g.
     /// `m![D # n]` → `m![D #{0} n]`). Callers spell them out explicitly
-    /// because downstream methods do not constrain their input shape. The
-    /// hardware masking config is derived by the compiler, so this method
-    /// takes no runtime argument (see [`FetchMaskConfig`]).
+    /// because downstream methods do not constrain their input shape. This
+    /// method takes no runtime argument (see [`FetchMaskConfig`]).
     #[primitive(TuTensor::fetch_mask)]
     pub fn fetch_mask<OutTime: M, OutPacket: M>(
         self,
@@ -141,8 +201,18 @@ impl<
 // ANCHOR_END: fetch_table_lookup_impl
 
 // ANCHOR: fetch_cast_impl
-impl<'l, const T: Tu, P: CanApplyFetchCast, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
-    TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
+impl<
+    'l,
+    const T: Tu,
+    P: CanApplyFetchCast,
+    D: MaterializableScalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
     /// Runs the Fetch Adapter's type-casting stage.
     ///
@@ -153,10 +223,86 @@ impl<'l, const T: Tu, P: CanApplyFetchCast, D: Scalar, Chip: M, Cluster: M, Slic
     where
         D: FetchCast<OutD>,
     {
-        FetchCastTensor::new(self.ctx, self.inner.map(|v| v.map(|v| v.cast())))
+        FetchCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
     }
 }
 // ANCHOR_END: fetch_cast_impl
+
+/// After the Fetch Adapter's zero-point-subtraction stage.
+#[derive(Debug)]
+pub struct PositionFetchZeroPointSub;
+
+impl Position for PositionFetchZeroPointSub {}
+
+/// Tensor streamed after `fetch_zero_point_sub`. Its element type is a
+/// zero-point-subtracted staging type ([`i5`]/[`i9`]); the type system routes
+/// it only into `contract_outer`.
+pub type FetchZeroPointSubTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
+    TuTensor<'l, { T }, PositionFetchZeroPointSub, D, Chip, Cluster, Slice, Time, Packet, B>;
+
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    FetchZeroPointSubTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+    }
+
+    #[doc(hidden)]
+    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
+
+// ANCHOR: fetch_zero_point_sub_impl
+impl<
+    'l,
+    const T: Tu,
+    P: CanApplyFetchZeroPointSub,
+    D: MaterializableScalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    /// Runs the Fetch Adapter's zero-point-subtraction stage.
+    ///
+    /// Subtracts `zero_point` and widens the stream from `D` to its contraction-engine staging
+    /// type `OutD` (`i4 -> i5`, `i8 -> i9`), the only way to produce an i5/i9
+    /// stream. The result may only feed `contract_outer`; it is not
+    /// [`MaterializableScalar`], so committing or re-routing it is a compile
+    /// error. The mapping shape is preserved.
+    ///
+    /// Panics if `zero_point` is outside the source type's range
+    /// ([`FetchZeroPointSub::ZERO_POINT_RANGE`]); a zero point in range keeps
+    /// every widened residual within `OutD`, so this one check (independent of
+    /// the stream data) is enough.
+    #[primitive(TuTensor::fetch_zero_point_sub)]
+    pub fn fetch_zero_point_sub<OutD: Scalar>(
+        self,
+        zero_point: i32,
+    ) -> FetchZeroPointSubTensor<'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B>
+    where
+        D: FetchZeroPointSub<OutD>,
+    {
+        let zero_point_range = <D as FetchZeroPointSub<OutD>>::ZERO_POINT_RANGE;
+        assert!(
+            zero_point_range.contains(&zero_point),
+            "zero_point {zero_point} is outside the source type's quantized range {zero_point_range:?}",
+        );
+        FetchZeroPointSubTensor::new(self.ctx, self.inner.map(|v| v.zero_point_sub(zero_point)))
+    }
+}
+// ANCHOR_END: fetch_zero_point_sub_impl
 
 #[allow(clippy::extra_unused_type_parameters)]
 fn verify_fetch_mask<Time: M, Packet: M, OutTime: M, OutPacket: M>() {

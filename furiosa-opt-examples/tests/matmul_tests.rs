@@ -1,6 +1,5 @@
 use furiosa_opt_examples::matmul::{
-    matmul_4096, matmul_16384, matmul_chip_reduce, matmul_cluster_reduce, matmul_with_split_reduce,
-    matmul_with_split_reduce2, matmul_wo_broadcast,
+    matmul_4096, matmul_16384, matmul_chip_reduce, matmul_cluster_reduce, matmul_with_split_reduce, matmul_wo_broadcast,
 };
 use furiosa_opt_std::prelude::*;
 use rand::SeedableRng;
@@ -21,8 +20,8 @@ async fn test_matmul_16384() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i8, m![A, B]>::rand(&mut rng);
     let rhs = HostTensor::<i8, m![B, C]>::rand(&mut rng);
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     // Call the device function.
     let out = launch(matmul_16384, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
@@ -30,7 +29,10 @@ async fn test_matmul_16384() {
     // Verify the output tensor content.
     let expected: Tensor<_, m![A, C]> =
         Tensor::<_, m![A, C]>::contraction::<m![A, B, C], _, _>(&lhs.into_inner(), &rhs.into_inner());
-    assert_eq!(expected.to_buf(), out.to_host::<m![A, C]>(&mut ctx.pdma).await.to_buf());
+    assert_eq!(
+        expected.into_vec(),
+        out.to_host::<m![A, C]>(&mut ctx.pdma).await.into_vec()
+    );
 }
 
 #[tokio::test]
@@ -48,15 +50,18 @@ async fn test_matmul_4096() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i8, m![A, B]>::rand(&mut rng);
     let rhs = HostTensor::<i8, m![B]>::rand(&mut rng);
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     // Call the device function.
     let out = launch(matmul_4096, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     // Verify the output tensor content.
     let expected: Tensor<_, m![A]> = Tensor::contraction::<m![A, B], _, _>(&lhs.into_inner(), &rhs.into_inner());
-    assert_eq!(expected.to_buf(), out.to_host::<m![A]>(&mut ctx.pdma).await.to_buf());
+    assert_eq!(
+        expected.into_vec(),
+        out.to_host::<m![A]>(&mut ctx.pdma).await.into_vec()
+    );
 }
 
 #[tokio::test]
@@ -74,13 +79,16 @@ async fn test_matmul_wo_broadcast() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i8, m![A, B]>::rand(&mut rng);
     let rhs = HostTensor::<i8, m![A, B]>::rand(&mut rng);
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out = launch(matmul_wo_broadcast, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     let expected: Tensor<_, m![1]> = Tensor::contraction::<m![A, B], _, _>(&lhs.into_inner(), &rhs.into_inner());
-    assert_eq!(expected.to_buf(), out.to_host::<m![1]>(&mut ctx.pdma).await.to_buf());
+    assert_eq!(
+        expected.into_vec(),
+        out.to_host::<m![1]>(&mut ctx.pdma).await.into_vec()
+    );
 }
 
 #[tokio::test]
@@ -98,33 +106,36 @@ async fn test_matmul_with_split_reduce() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i8, m![A, B]>::rand(&mut rng);
     let rhs = HostTensor::<i8, m![B]>::rand(&mut rng);
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out = launch(matmul_with_split_reduce, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     let expected: Tensor<_, m![A]> = Tensor::contraction::<m![A, B], _, _>(&lhs.into_inner(), &rhs.into_inner());
-    assert_eq!(expected.to_buf(), out.to_host::<m![A]>(&mut ctx.pdma).await.to_buf());
+    assert_eq!(
+        expected.into_vec(),
+        out.to_host::<m![A]>(&mut ctx.pdma).await.into_vec()
+    );
 }
 
-// `to_buf_opt` is a Simulation/Typecheck-only host-side `Opt<D>` view, so this
-// body can't even compile on npu. `cfg_attr(.., ignore)` is only a runtime skip,
-// so it wouldn't help — compile the whole test out on npu instead.
+// `M, K, N = 64, 1024, 128` (see `matmul_split_reduce2`) are all dense, so this kernel has no
+// padding and every output element is always real; the comparison below is a plain
+// approximate-equality tolerance loop over `bf16` pairs.
 #[cfg(not(backend = "npu"))]
 #[tokio::test]
 async fn test_matmul_with_split_reduce2() {
-    use furiosa_opt_examples::matmul::matmul_split_reduce2::{K, M, N};
+    use furiosa_opt_examples::matmul::matmul_split_reduce2::{K, M, N, matmul_with_split_reduce2};
 
     let mut ctx = Context::acquire();
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<bf16, m![M, K]>::rand(&mut rng);
     let rhs = HostTensor::<bf16, m![K, N]>::rand(&mut rng);
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let acc_zero = HostTensor::<bf16, m![M, N]>::zero();
-    let acc_zero_hbm = acc_zero.to_hbm(&mut ctx.pdma, 2 << 28).await;
+    let acc_zero_hbm = acc_zero.to_hbm(&mut ctx.pdma).await;
 
     let out = launch(
         matmul_with_split_reduce2,
@@ -133,24 +144,18 @@ async fn test_matmul_with_split_reduce2() {
     .await;
 
     let expected =
-        Tensor::<bf16, m![M, N]>::contraction::<m![M, K, N], _, _>(&lhs.into_inner(), &rhs.into_inner()).to_buf_opt();
-    let out = out.to_host::<m![M, N]>(&mut ctx.pdma).await.to_buf_opt();
+        Tensor::<bf16, m![M, N]>::contraction::<m![M, K, N], _, _>(&lhs.into_inner(), &rhs.into_inner()).into_vec();
+    let out = out.to_host::<m![M, N]>(&mut ctx.pdma).await.into_vec();
 
     assert_eq!(expected.len(), out.len(), "output length mismatch");
     for (expected, out) in expected.into_iter().zip(out) {
-        match (expected, out) {
-            (Opt::Init(expected), Opt::Init(out)) => {
-                let (x, y) = (f64::from(expected.to_f32()), f64::from(out.to_f32()));
-                let diff = (x - y).abs();
-                let norm = (x.abs() + y.abs()).min(f32::MAX as f64);
-                assert!(
-                    (expected.to_f32().is_nan() && out.to_f32().is_nan()) || diff <= 1.5_f64.max(norm * 0.2),
-                    "{expected:?} != {out:?}",
-                );
-            }
-            (Opt::Uninit, Opt::Uninit) => (),
-            _ => panic!("{expected:?} != {out:?}"),
-        }
+        let (x, y) = (f64::from(expected.to_f32()), f64::from(out.to_f32()));
+        let diff = (x - y).abs();
+        let norm = (x.abs() + y.abs()).min(f32::MAX as f64);
+        assert!(
+            (expected.to_f32().is_nan() && out.to_f32().is_nan()) || diff <= 1.5_f64.max(norm * 0.2),
+            "{expected:?} != {out:?}",
+        );
     }
 }
 
@@ -170,8 +175,8 @@ async fn test_matmul_with_cluster_reduce() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i8, m![A, B]>::rand(&mut rng);
     let rhs = HostTensor::<i8, m![B, C]>::rand(&mut rng);
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     // Call the device function.
     let out = launch(matmul_cluster_reduce, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
@@ -179,7 +184,10 @@ async fn test_matmul_with_cluster_reduce() {
     // Verify the output tensor content.
     let expected: Tensor<_, m![A, C]> =
         Tensor::<_, m![A, C]>::contraction::<m![A, B, C], _, _>(&lhs.into_inner(), &rhs.into_inner());
-    assert_eq!(expected.to_buf(), out.to_host::<m![A, C]>(&mut ctx.pdma).await.to_buf());
+    assert_eq!(
+        expected.into_vec(),
+        out.to_host::<m![A, C]>(&mut ctx.pdma).await.into_vec()
+    );
 }
 
 #[tokio::test]
@@ -198,8 +206,8 @@ async fn test_matmul_with_chip_reduce() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i8, m![A, B]>::rand(&mut rng);
     let rhs = HostTensor::<i8, m![B, C]>::rand(&mut rng);
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     // Call the device function (4 chips).
     let out = launch(matmul_chip_reduce, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
@@ -207,5 +215,8 @@ async fn test_matmul_with_chip_reduce() {
     // Verify the output tensor content.
     let expected: Tensor<_, m![A, C]> =
         Tensor::<_, m![A, C]>::contraction::<m![A, B, C], _, _>(&lhs.into_inner(), &rhs.into_inner());
-    assert_eq!(expected.to_buf(), out.to_host::<m![A, C]>(&mut ctx.pdma).await.to_buf());
+    assert_eq!(
+        expected.into_vec(),
+        out.to_host::<m![A, C]>(&mut ctx.pdma).await.into_vec()
+    );
 }

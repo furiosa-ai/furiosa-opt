@@ -29,12 +29,17 @@ The `FetchTensor` entry point bypasses the Switch Engine when no slice distribut
 axes![A = 8, B = 32];
 
 fn collect_identity<'l, const T: Tu>(
-    input: SwitchTensor<'l, T, i8, m![1], m![1], m![1], m![A], m![B]>,
-) -> CollectTensor<'l, T, i8, m![1], m![1], m![1], m![A], m![B # 32]> {
+    input: SwitchTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]>,
+) -> CollectTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B # 32]> {
     // B=32 elements × 1 byte (i8) = 32 bytes = one flit.
     // Time and Packet pass through unchanged.
     input.collect()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = collect_identity(c);
 ```
 
 When the input packet is already exactly 32 bytes, `collect` passes it through unchanged (`B = 32` elements × 1 byte for `i8` = 32 bytes).
@@ -62,13 +67,18 @@ After:    Time = m![A]
 axes![A = 8, B = 16];
 
 fn collect_padding<'l, const T: Tu>(
-    input: SwitchTensor<'l, T, i8, m![1], m![1], m![1], m![A], m![B]>,
-) -> CollectTensor<'l, T, i8, m![1], m![1], m![1], m![A], m![B # 32]> {
+    input: SwitchTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]>,
+) -> CollectTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B # 32]> {
     // B=16 elements × 1 byte = 16 bytes < 32 bytes.
     // Padded to 32 bytes: Packet2 = m![B # 32].
     // Time unchanged since it fits in one flit.
     input.collect()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = collect_padding(c);
 ```
 
 When the input packet is smaller than 32 bytes, `collect` pads to 32 bytes (`B = 16` elements × 1 byte for `i8` = 16 bytes).
@@ -96,13 +106,18 @@ After:    Time = m![A]
 axes![A = 8, B = 32];
 
 fn collect_multi_flit<'l, const T: Tu>(
-    input: SwitchTensor<'l, T, bf16, m![1], m![1], m![1], m![A], m![B]>,
-) -> CollectTensor<'l, T, bf16, m![1], m![1], m![1], m![A, B / 16], m![B % 16]> {
+    input: SwitchTensor<'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![A], m![B]>,
+) -> CollectTensor<'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]> {
     // B=32 elements × 2 bytes (bf16) = 64 bytes = 2 flits.
     // Inner 16 elements = 32 bytes → Packet2 = m![B % 16].
     // Outer 2 flits → absorbed into Time2 = m![A, B / 16].
     input.collect()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: SwitchTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = collect_multi_flit(c);
 ```
 
 When the input packet exceeds 32 bytes, `collect` splits into flits and absorbs the outer flit count into Time (`B = 32` elements × 2 bytes for `bf16` = 64 bytes, so `B / 16 = 2` flits).
@@ -128,17 +143,22 @@ After:    Time = m![A, B / 16]
 # #![feature(adt_const_params)]
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
-axes![A = 8, B = 51];
+axes![A = 8, B = 56];
 
 fn collect_multi_flit_padded<'l, const T: Tu>(
-    input: SwitchTensor<'l, T, i8, m![1], m![1], m![1], m![A], m![B]>,
-) -> CollectTensor<'l, T, i8, m![1], m![1], m![1], m![A, B # 64 / 32], m![B # 64 % 32]> {
+    input: SwitchTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]>,
+) -> CollectTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![A, B # 64 / 32], m![B # 64 % 32]> {
     // B is not 32-byte aligned; first pad B to a multiple of 32 bytes.
     // B # 64=64 elements × 1 byte (i8) = 64 bytes = 2 flits.
     // Inner 32 elements = 32 bytes → Packet2 = m![B # 64 % 32].
     // Outer 2 flits → absorbed into Time2 = m![A, B # 64 / 32].
     input.collect()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut ctx.main, Tensor::zero());
+# let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { collect_multi_flit_padded(c) }));
 ```
 
 When the input packet is not aligned to 32 bytes, it is first padded (`B = 51` elements × 1 byte for `i8` = 51 bytes, padded to 64).
@@ -173,13 +193,13 @@ The "To TRF" / "To VRF" subsections below describe the store mechanism (`time_in
 
 ### To TRF
 
-`.to_trf::<Row, Element>(address)` partitions the TRF along its row dimension.
+`.to_trf::<Row, Element>()` partitions the TRF along its row dimension.
 The kernel writer chooses `Row` (the row layout in the TRF, with `Row::SIZE` in {1, 2, 4, 8}) and `Element` (the per-row element layout).
 The compiler then finds a `time_inner` such that `Time` decomposes into `[Row, time_inner]` and `[time_inner, Packet]` is sequenced into `Element`, so each row of the TRF is filled by `time_inner` consecutive flits.
 
-`address` is a `TrfAddress` that selects the TRF region:
+`.to_trf()` uses the entire TRF (`TrfAddress::Full`). To let two tensors occupy the TRF independently, use `.to_trf_at::<Row, Element>(address)` with a `TrfAddress` that selects the region:
 - `Full`: the entire TRF.
-- `FirstHalf` / `SecondHalf`: the TRF split into two halves, allowing two tensors to occupy it independently.
+- `FirstHalf` / `SecondHalf`: the TRF split into two halves.
 
 The compiler bounds the resulting tensor's total byte size by the chosen region's capacity.
 
@@ -187,18 +207,23 @@ The compiler bounds the resulting tensor's total byte size by the chosen region'
 # #![feature(adt_const_params)]
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
-axes![B = 64];
+axes![B = 32];
 
 fn load_trf<'l, const T: Tu>(
     input: CollectTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]>,
 ) -> TrfTensor<i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]> {
-    input.to_trf(TrfAddress::Full)
+    input.to_trf()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = load_trf(c);
 ```
 
 ### To VRF
 
-`.to_vrf::<Element>(address)` stores the flits into the VRF at a raw `Address` (no bounded-region selection).
+`.to_vrf::<Element>()` stores the flits into the VRF; `.to_vrf_at::<Element>(address)` stores at a raw `Address` (no bounded-region selection).
 The kernel writer chooses `Element`, the destination element layout in the VRF.
 Unlike `.to_trf` (which accepts any `Scalar` element type), `.to_vrf` requires a `VeScalar` element type (i.e., `i32` or `f32`) because the Vector Engine downstream consumes these types only.
 
@@ -211,7 +236,12 @@ axes![B = 64];
 fn load_vrf<'l, const T: Tu>(
     input: CollectTensor<'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]>,
 ) -> VrfTensor<i32, m![1], m![1 # 2], m![1 # 256], m![B]> {
-    input.to_vrf(0)
+    input.to_vrf()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = load_vrf(c);
 ```
 

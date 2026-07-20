@@ -21,11 +21,11 @@ fn binary_add_kernel(
 ) {
     // Load lhs from HBM to DM with the desired layout
     // Slice: [A/8], Element: [A%8]
-    let lhs = lhs.to_dm::<Cluster, m![A / 8], m![A % 8]>(&mut ctx.tdma, 0);
+    let lhs = lhs.to_dm::<Cluster, m![A / 8], m![A % 8]>(&mut ctx.tdma);
 
     // Load rhs from HBM to DM with the desired layout
     // Slice: [A/8], Element: [A%8]
-    let rhs = rhs.to_dm::<Cluster, m![A / 8], m![A % 8]>(&mut ctx.tdma, 32 * 1024);
+    let rhs = rhs.to_dm::<Cluster, m![A / 8], m![A % 8]>(&mut ctx.tdma);
 
     // Perform element-wise addition using VectorTensorPair API
     // lhs will have Group 0, rhs will have Group 1
@@ -62,5 +62,5 @@ pub fn binary_add_2048(
     binary_add_kernel(ctx, lhs.view(), rhs.view(), result.view_mut());
 
     // Write result back to HBM
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }

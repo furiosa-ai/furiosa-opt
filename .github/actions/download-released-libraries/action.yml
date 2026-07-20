@@ -18,12 +18,18 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
       shell: bash
       run: |
-        VERSION="v$(grep -m1 '^version' furiosa-mapping/Cargo.toml | cut -d'"' -f2)"
+        VERSION="v$(awk -F'"' '/^version[[:space:]]*=[[:space:]]*"/ {print $2; exit}' furiosa-mapping/Cargo.toml)"
+        if [ "${GITHUB_REF}" = "refs/heads/snapshot" ]; then
+          RELEASE_TAG=$(git log -1 --format=%B HEAD | grep 'Snapshot tag:' | awk '{print $3}')
+          [ -n "${RELEASE_TAG}" ] || { echo "ERROR: 'Snapshot tag:' not found in the latest commit message" >&2; exit 1; }
+        else
+          RELEASE_TAG="${VERSION}"
+        fi
         PREBUILT_DIR=/tmp/furiosa-prebuilt
         mkdir -p "${PREBUILT_DIR}"
         cd "${PREBUILT_DIR}"
         for i in 1 2 3; do
-          gh release download "${VERSION}" \
+          gh release download "${RELEASE_TAG}" \
             --repo "${{ github.repository }}" \
             --clobber && \
           sha256sum --check SHA256SUMS && break

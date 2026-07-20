@@ -15,8 +15,8 @@ pub fn dot_product_kernel(
     rhs: &HbmTensor<bf16, Chip, m![A]>,
 ) -> HbmTensor<bf16, Chip, m![1]> {
     // HBM → DM
-    let lhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = lhs.to_dm(&mut ctx.tdma, 0);
-    let rhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = rhs.to_dm(&mut ctx.tdma, 1 << 12);
+    let lhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = lhs.to_dm(&mut ctx.tdma);
+    let rhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = rhs.to_dm(&mut ctx.tdma);
 
     // Sub context: load rhs into TRF (TrfAddress::Full dedicates the entire TRF to this tensor)
     let rhs: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![A]> = ctx
@@ -24,7 +24,7 @@ pub fn dot_product_kernel(
         .begin(rhs.view())
         .fetch::<Time, m![A]>()
         .collect::<m![{ Time }, A / 16], m![A % 16]>()
-        .to_trf(TrfAddress::Full);
+        .to_trf();
 
     // Main context: stream lhs through the Contraction Engine, reduce along A
     let result: DmTensor<bf16, Chip, Cluster, Slice, m![1 # 8]> = ctx
@@ -33,14 +33,14 @@ pub fn dot_product_kernel(
         .fetch::<Time, m![A]>()
         .collect::<m![A / 16], m![A % 16]>()
         // Pair consecutive 32-byte flits into 64-byte packets, halving time steps (A/16 → A/32)
-        .contract_outer::<m![A / 32], m![A % 32], _, _>(&rhs)
+        .contract_outer::<m![A / 32], m![A % 32], _, _, _>(&rhs)
         .contract_packet::<m![1]>()
         .contract_time::<m![1]>()
         .contract_lane::<m![1], m![1 # 8]>(LaneMode::Interleaved)
         .cast::<bf16, m![1 # 16]>() // cast f32 accumulator output back to bf16
         .commit_trim::<m![1 # 8]>()
-        .commit(1 << 13);
+        .commit();
 
     // DM → HBM
-    result.to_hbm(&mut ctx.tdma, 2 << 28)
+    result.to_hbm(&mut ctx.tdma)
 }

@@ -23,14 +23,14 @@ pub fn tuple_passthrough(
 ) -> HbmTensor<i8, Chip, m![A, B]> {
     inputs
         .0
-        .to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma, 0)
-        .to_hbm(&mut ctx.tdma, 0x3000)
+        .to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma)
+        .to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]
 pub fn struct_passthrough(ctx: &mut Context, inputs: Inputs<'_>) -> HbmTensor<i8, Chip, m![A, B]> {
     inputs
         .x
-        .to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma, 0)
-        .to_hbm(&mut ctx.tdma, 0x3000)
+        .to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma)
+        .to_hbm(&mut ctx.tdma)
 }

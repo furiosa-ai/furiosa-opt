@@ -1,16 +1,19 @@
 use std::fmt::Debug;
 use std::marker::ConstParamTy;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::LazyLock;
 use std::sync::Mutex;
+use std::sync::MutexGuard;
 
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
+use crate::backend::Backend;
 use crate::prelude::DmTensor;
 
-use super::scalar::Scalar;
+use super::scalar::{MaterializableScalar, Scalar};
 use super::tensor::Tensor;
 use super::tensor::memory::DmTensorView;
 use super::tensor::tu::BeginTensor;
@@ -51,6 +54,15 @@ pub struct DmaContext<const DMA: Dma> {
 
 impl<const DMA: Dma> crate::runtime::DeviceSend for &mut DmaContext<DMA> {}
 
+/// Logical device a kernel runs on, declared by `#[device(chip, pe)]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Device {
+    /// Number of chips.
+    pub chip: u8,
+    /// Number of PEs per chip.
+    pub pe: u8,
+}
+
 /// Device context.
 #[primitive(Context)]
 #[derive(Debug)]
@@ -68,8 +80,9 @@ pub struct Context {
 impl crate::runtime::DeviceSend for &mut Context {}
 
 impl Context {
-    /// Acquire the tensor units.
-    pub fn acquire() -> impl DerefMut<Target = Context> {
+    /// Acquire the tensor units. Chain [`Acquired::bind`] to fix the NPU device before any host
+    /// I/O (`to_hbm`/`from_hbm`) initializes the runtime.
+    pub fn acquire() -> Acquired {
         static SINGLETON: LazyLock<Mutex<Context>> = LazyLock::new(|| {
             Mutex::new(Context {
                 main: TuContext::<{ Tu::Main }> { _marker: PhantomData },
@@ -78,19 +91,47 @@ impl Context {
                 pdma: DmaContext::<{ Dma::Pcie }> { _marker: PhantomData },
             })
         });
-        SINGLETON.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        Acquired(SINGLETON.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
+    }
+}
+
+/// Process-wide [`Context`] handle returned by [`Context::acquire`].
+#[derive(Debug)]
+pub struct Acquired(MutexGuard<'static, Context>);
+
+impl Deref for Acquired {
+    type Target = Context;
+    fn deref(&self) -> &Context {
+        &self.0
+    }
+}
+
+impl DerefMut for Acquired {
+    fn deref_mut(&mut self) -> &mut Context {
+        &mut self.0
+    }
+}
+
+impl Acquired {
+    /// Binds the process to a kernel's logical [`Device`] (`kernel.device()`) before any host I/O
+    /// initializes the runtime. First bind wins; a conflicting one panics. Non-NPU backends ignore
+    /// the device.
+    pub fn bind(self, device: Device) -> Self {
+        crate::runtime::CurrentBackend::bind_device(device);
+        self
     }
 }
 
 impl<const T: Tu> TuContext<{ T }> {
     /// Begin a tensor unit operation in this context.
     #[primitive(TuContext::begin)]
-    pub fn begin<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M>(
+    pub fn begin<'l, D: MaterializableScalar, Chip: M, Cluster: M, Slice: M, Element: M>(
         &'l mut self,
         tensor: DmTensorView<'l, D, Chip, Cluster, Slice, Element>,
     ) -> BeginTensor<'l, { T }, D, Chip, Cluster, Slice, Identity, Element> {
-        // SAFETY: the mappings differ only by `Identity`.
-        BeginTensor::new(self, unsafe { tensor.inner.read().transmute() })
+        // The mappings differ only by `Identity`; `transmute` is a safe rewrap after the storage
+        // mapping erasure.
+        BeginTensor::new(self, tensor.inner.read().transmute())
     }
 
     /// Begin a tensor unit operation in this context with interleaved tensors.
@@ -105,8 +146,8 @@ impl<const T: Tu> TuContext<{ T }> {
         for (i, input) in [lhs, rhs].into_iter().enumerate() {
             output
                 .view_mut()
-                .tile::<Symbol<I>, m![{ Chip }, { Cluster }, { Slice }, 1 # 2, { Element }], 1>(i)
-                .write_transpose(input.inner, false);
+                .tile::<Symbol<I>, m![{ Chip }, { Cluster }, { Slice }, 1 #{!} 2, { Element }], 1>(i)
+                .transpose(input.inner, false);
         }
 
         BeginTensor::new(self, output)
@@ -114,20 +155,11 @@ impl<const T: Tu> TuContext<{ T }> {
 }
 
 impl TuContext<{ Tu::Sub }> {
-    /// Perform asymmetric cluster slice operation using ParallelCopy (stos command).
-    /// This operation allows different clusters to select different slice positions.
+    /// Asymmetric cluster slice via ParallelCopy (stos): each cluster selects its own slice
+    /// position from `slice_indices` (one per cluster) — e.g. `[1, 0]` gives cluster 0 slice 1,
+    /// cluster 1 slice 0.
     ///
-    /// # Arguments
-    /// * `tensor` - Input tensor with cluster dimension
-    /// * `slice_indices` - Array of slice indices, one per cluster
-    ///
-    /// # Example
-    /// For Cluster=2 with slice_indices=\[1,0\]:
-    /// - Cluster 0 selects slice position 1
-    /// - Cluster 1 selects slice position 0
-    ///
-    /// # Restrictions
-    /// The `AxisToSlice` should be the outermost axis in `Element`.
+    /// `AxisToSlice` must be the outermost axis in `Element`.
     #[primitive(TuContext::parallel_copy_cluster_slice)]
     pub fn parallel_copy_cluster_slice<
         'l,
@@ -155,26 +187,18 @@ impl TuContext<{ Tu::Sub }> {
                     self,
                     sliced
                         .view_mut()
-                        .cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM>>(cluster_idx),
+                        .cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM, { PaddingKind::Bottom }>>(
+                            cluster_idx,
+                        ),
                 );
         }
 
         sliced
     }
 
-    /// Perform asymmetric chip slice operation using ParallelCopy (stos command).
-    /// This operation allows different chips to select different slice positions.
-    ///
-    /// # Arguments
-    /// * `tensor` - Input tensor with chip dimension
-    /// * `slice_indices` - Array of slice indices, one per chip
-    ///
-    /// # Example
-    /// For Chip=4 with slice_indices=\[3,0,1,2\]:
-    /// - Chip 0 selects slice position 3
-    /// - Chip 1 selects slice position 0
-    /// - Chip 2 selects slice position 1
-    /// - Chip 3 selects slice position 2
+    /// Asymmetric chip slice via ParallelCopy (stos): each chip selects its own slice position
+    /// from `slice_indices` (one per chip) — e.g. `[3, 0, 1, 2]` gives chip 0 slice 3, chip 1
+    /// slice 0, chip 2 slice 1, chip 3 slice 2.
     #[primitive(TuContext::parallel_copy_chip_slice)]
     pub fn parallel_copy_chip_slice<
         'l,
@@ -202,7 +226,7 @@ impl TuContext<{ Tu::Sub }> {
                     self,
                     sliced
                         .view_mut()
-                        .chip_tile::<Chip, 1, Padding<Identity, CHIP_DIM>>(chip_idx),
+                        .chip_tile::<Chip, 1, Padding<Identity, CHIP_DIM, { PaddingKind::Bottom }>>(chip_idx),
                 );
         }
 

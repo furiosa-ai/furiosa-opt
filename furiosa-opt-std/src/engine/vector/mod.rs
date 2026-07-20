@@ -8,6 +8,7 @@ pub mod op;
 pub mod operand;
 pub mod scalar;
 pub mod stage;
+pub mod stash_slot;
 pub mod tensor;
 
 /// Maximum number of concurrent branches the Vector Engine supports.

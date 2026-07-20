@@ -1,33 +1,25 @@
 [package]
 name = "furiosa-opt-std"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/furiosa-ai/furiosa-opt"
 description = "Standard library for Furiosa NPU TCP Virtual ISA programming."
 
-[package.metadata.cargo-machete]
-ignored = ["libloading"]
-
 [dependencies]
 abi_stable = { workspace = true }
-anstream = { workspace = true }
-anstyle = { workspace = true }
 arrayvec = { workspace = true }
 cfg-if = { workspace = true }
-f8 = { workspace = true }
-furiosa-mapping = { path = "../furiosa-mapping", version = "0.3" }
-furiosa-opt-lower = { path = "../furiosa-opt-lower", version = "0.3" }
-furiosa-opt-macro = { path = "../furiosa-opt-macro", version = "0.3" }
+furiosa-mapping = { path = "../furiosa-mapping", version = "0.4" }
+furiosa-opt-lower = { path = "../furiosa-opt-lower", version = "0.4" }
+furiosa-opt-macro = { path = "../furiosa-opt-macro", version = "0.4" }
 half = { workspace = true }
-libloading = { workspace = true }
 log = { workspace = true }
 ndarray = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
+rayon = { workspace = true }
 safetensors = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 smart-default = { workspace = true }
 tokio = { workspace = true }
 

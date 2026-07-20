@@ -53,10 +53,15 @@ When no inter-slice exchange is needed, skip `.switch()` and call [`.collect()`]
 axes![A = 256, B = 64, C = 32];
 
 fn forwarding<'l, const T: Tu>(
-    input: FetchTensor<'l, T, f32, m![1], m![1], m![A], m![B], m![C # 32]>,
-) -> CollectTensor<'l, T, f32, m![1], m![1], m![A], m![B], m![C # 32]> {
+    input: FetchTensor<'l, T, f32, m![1], m![1 # 2], m![A], m![B], m![C]>,
+) -> CollectTensor<'l, T, f32, m![1], m![1 # 2], m![A], m![B, C / 8], m![C % 8]> {
     input.collect()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![B], m![C]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = forwarding(f);
 ```
 
 ### Broadcast01
@@ -93,11 +98,11 @@ Every slice sends its packet around the sub-ring, and every slice receives all `
 # #![feature(adt_const_params)]
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
-axes![A = 256, B = 64, C = 63, D = 8, X = 2, Y = 2];
+axes![A = 256, B = 64, C = 63, D = 2, X = 2, Y = 2];
 
 fn broadcast01<'l, const T: Tu>(
-    input: FetchTensor<'l, T, f32, m![D / 2], m![D % 2], m![A], m![B], m![C # 64]>,
-) -> SwitchTensor<'l, T, f32, m![D / 2], m![D % 2], m![A / 4, X, Y], m![B / 4, A / 2 % 2, B % 4, A % 2], m![C # 64]> {
+    input: FetchTensor<'l, T, f32, m![1], m![D], m![A], m![B], m![C # 64]>,
+) -> SwitchTensor<'l, T, f32, m![1], m![D], m![A / 4, X, Y], m![B / 4, A / 2 % 2, B % 4, A % 2], m![C # 64]> {
     input.switch::<m![A / 4, X, Y], m![B / 4, A / 2 % 2, B % 4, A % 2]>(
         SwitchConfig::Broadcast01 {
             slice1: 2,
@@ -106,6 +111,11 @@ fn broadcast01<'l, const T: Tu>(
         }
     )
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, f32, m![1], m![D], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o= broadcast01(f);
 ```
 
 With `slice1 = 2` (size of broadcast `X`), `slice0 = 2` (size of broadcast `Y`), and `time0 = 4`, the compiler derives `slice2 = 64`, `time1 = 16`, and `ring_size = 4` (64 sub-rings span 256 slices).
@@ -150,8 +160,8 @@ The new `X` axis in the output `Slice` (sized `slice1`) replicates this collecte
 axes![A = 256, B = 64, C = 63, X = 4];
 
 fn broadcast1<'l, const T: Tu>(
-    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]>,
-) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 32, X, A % 8], m![B, A / 8 % 4], m![C # 64]> {
+    input: FetchTensor<'l, T, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]>,
+) -> SwitchTensor<'l, T, i8, m![1], m![1 # 2], m![A / 32, X, A % 8], m![B, A / 8 % 4], m![C # 64]> {
     input.switch::<m![A / 32, X, A % 8], m![B, A / 8 % 4]>(
         SwitchConfig::Broadcast1 {
             slice1: 4,
@@ -159,6 +169,11 @@ fn broadcast1<'l, const T: Tu>(
         }
     )
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = broadcast1(f);
 ```
 
 With `slice1 = 4` (size of broadcast `X`) and `slice0 = 8`, the compiler derives `slice2 = 8` and `ring_size = 32` (8 sub-rings span 256 slices).
@@ -194,13 +209,18 @@ Each sub-ring spans `slice0 × slice1` slices and circulates data so every slice
 axes![A = 256, B = 64, C = 63];
 
 fn transpose<'l, const T: Tu>(
-    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 64]>,
-) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 64, A % 2, A / 2 % 32], m![B], m![C # 64]> {
+    input: FetchTensor<'l, T, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]>,
+) -> SwitchTensor<'l, T, i8, m![1], m![1 # 2], m![A / 64, A % 2, A / 2 % 32], m![B], m![C # 64]> {
     input.switch::<m![A / 64, A % 2, A / 2 % 32], m![B]>(SwitchConfig::Transpose {
         slice1: 32,
         slice0: 2,
     })
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = transpose(f);
 ```
 
 With `slice1 = 32` and `slice0 = 2`, the compiler derives `slice2 = 4` and `ring_size = 64` (4 sub-rings span 256 slices).
@@ -250,8 +270,8 @@ Each sub-ring spans `slice1 × slice0` slices and circulates data over `time1` t
 axes![A = 256, B = 8, C = 32];
 
 fn inter_transpose<'l, const T: Tu>(
-    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 32]>,
-) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 32, B / 2 % 2, A % 16], m![B / 4, B % 2, A / 16 % 2], m![C # 32]> {
+    input: FetchTensor<'l, T, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]>,
+) -> SwitchTensor<'l, T, i8, m![1], m![1 # 2], m![A / 32, B / 2 % 2, A % 16], m![B / 4, B % 2, A / 16 % 2], m![C # 32]> {
     input.switch::<m![A / 32, B / 2 % 2, A % 16], m![B / 4, B % 2, A / 16 % 2]>(
         SwitchConfig::InterTranspose {
             slice1: 2,
@@ -259,6 +279,11 @@ fn inter_transpose<'l, const T: Tu>(
             time0: 2,
         })
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = inter_transpose(f);
 ```
 
 With `slice1 = 2`, `slice0 = 16`, and `time0 = 2`, the compiler derives `slice2 = 8`, `time2 = 2`, and `ring_size = 32` (8 sub-rings span 256 slices).
@@ -301,8 +326,8 @@ Each sub-ring spans `slice0 × slice1` slices and circulates data so every slice
 axes![A = 256, B = 16, C = 32, Y = 8];
 
 fn transposed_broadcast1<'l, const T: Tu>(
-    input: FetchTensor<'l, T, i8, m![1], m![1], m![A], m![B], m![C # 32]>,
-) -> SwitchTensor<'l, T, i8, m![1], m![1], m![A / 64, Y, A / 8 % 8], m![B, A % 8], m![C # 32]> {
+    input: FetchTensor<'l, T, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]>,
+) -> SwitchTensor<'l, T, i8, m![1], m![1 # 2], m![A / 64, Y, A / 8 % 8], m![B, A % 8], m![C # 32]> {
     input.switch::<m![A / 64, Y, A / 8 % 8], m![B, A % 8]>(
         SwitchConfig::TransposedBroadcast1 {
             slice1: 8,
@@ -310,6 +335,11 @@ fn transposed_broadcast1<'l, const T: Tu>(
         }
     )
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = transposed_broadcast1(f);
 ```
 
 With `slice1 = 8` and `slice0 = 8` (size of broadcast `Y`), the compiler derives `slice2 = 4` and `ring_size = 64` (4 sub-rings span 256 slices).
@@ -442,12 +472,17 @@ This example reverses the four innermost slice sub-dimensions (`A / 4, A % 4, B 
 axes![A = 16, B = 16, C = 8, D = 8, E = 8];
 
 fn arbitrary_permutation<'l, const T: Tu>(
-    input: FetchTensor<'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]>,
-) -> SwitchTensor<'l, T, f32, m![1], m![1], m![B % 4, B / 4, A % 4, A / 4], m![C], m![D, E]> {
+    input: FetchTensor<'l, T, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]>,
+) -> SwitchTensor<'l, T, f32, m![1], m![1 # 2], m![B % 4, B / 4, A % 4, A / 4], m![C], m![D, E]> {
     input.switch::<m![B % 4, B / 4, A % 4, A / 4], m![C]>(
         SwitchConfig::CustomBroadcast { ring_size: 256 }
     )
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = arbitrary_permutation(f);
 ```
 
 The output `Slice = m![B % 4, B / 4, A % 4, A / 4]` permutes the input slice shape `[0, 1, 2, 3]` into `[3, 2, 1, 0]`, which no regular configuration covers but a custom bitmap does.
@@ -482,12 +517,17 @@ Unlike Example 1's pure permutation, this example moves two non-contiguous dimen
 axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 2, Y = 2];
 
 fn multi_axis_broadcast<'l, const T: Tu>(
-    input: FetchTensor<'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]>,
-) -> SwitchTensor<'l, T, f32, m![1], m![1], m![A / 2, X, B / 2, Y], m![C, A % 2, B % 2], m![D, E]> {
+    input: FetchTensor<'l, T, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]>,
+) -> SwitchTensor<'l, T, f32, m![1], m![1 # 2], m![A / 2, X, B / 2, Y], m![C, A % 2, B % 2], m![D, E]> {
     input.switch::<m![A / 2, X, B / 2, Y], m![C, A % 2, B % 2]>(
         SwitchConfig::CustomBroadcast { ring_size: 32 }
     )
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = multi_axis_broadcast(f);
 ```
 
 The output moves `A % 2` and `B % 2` from `Slice` to `Time`, broadcasting at their original positions via the broadcast dimensions `X` and `Y`.
@@ -511,48 +551,56 @@ Plugging into the [cycle formula](#performance), `cycles ≈ ring_size × Time::
 
 ### Example 3: Partial Axis Extraction (Slicing)
 
-Unlike Examples 1 and 2, which include every value of the moved dimensions, here only 3 of 4 values in `B % 4` move from `Slice` to `Time`.
+Unlike Examples 1 and 2, which include every value of the moved dimensions, here only the 3 valid values of `C # 4` move from `Slice` to `Time`; its padding cell stays behind.
 
 ```rust
 # #![feature(adt_const_params)]
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
-axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 4];
+axes![A = 16, B = 4, C = 3, D = 8, E = 8, X = 4];
 
 fn partial_axis_extraction<'l, const T: Tu>(
-    input: FetchTensor<'l, T, f32, m![1], m![1], m![A, B], m![C], m![D, E]>,
-) -> SwitchTensor<'l, T, f32, m![1], m![1], m![A, B / 4, X], m![C, B % 4 = 3], m![D, E]> {
-    input.switch::<m![A, B / 4, X], m![C, B % 4 = 3]>(
+    input: FetchTensor<'l, T, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]>,
+) -> SwitchTensor<'l, T, f32, m![1], m![1 # 2], m![A, B, X], m![D, C], m![E]> {
+    input.switch::<m![A, B, X], m![D, C]>(
         SwitchConfig::CustomBroadcast { ring_size: 4 }
     )
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = partial_axis_extraction(f);
 ```
 
-The output moves `B % 4` from `Slice` to `Time` with broadcast at the original position, and the fourth value (`B % 4 = 3`) is discarded so only the first 3 are extracted.
+The output moves `C # 4` from `Slice` to `Time`, placing a broadcast axis `X` at its vacated `Slice` position, and the fourth value (`C # 4 = 3`), a pure padding cell, is dropped, so only the three valid values `C` are extracted.
 `Broadcast1` supports a similar form but always moves the entire dimension, so it cannot express a subset.
-A custom bitmap expresses it instead.
 
-| Bitmap Index | `(A, B / 4, B % 4 = 3)`                  | `(A, B)`                           | Ring Group          |
-| ------------ | ---------------------------------------- | ---------------------------------- | ------------------- |
-| 0            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
-| 1            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
-| 2            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `(0, 0)`, `(0, 1)`, `(0, 2)`       | `0`, `1`, `2`       |
-| 3            | (unused, discarded by partial extraction) | (none)                            | (none)              |
-| 4            | `(0, 1, 0)`, `(0, 1, 1)`, `(0, 1, 2)`    | `(0, 4)`, `(0, 5)`, `(0, 6)`       | `4`, `5`, `6`       |
-| …            | …                                        | …                                  | …                   |
-| 255          | `(15, 3, 0)`, `(15, 3, 1)`, `(15, 3, 2)` | `(15, 12)`, `(15, 13)`, `(15, 14)` | `252`, `253`, `254` |
+This partial extraction is allowed only because the discarded value is padding: `C # 4` holds `C = 3` valid elements in a slot padded to 4, so slicing it down to `C` (`C # 4 → C`) throws away nothing real.
+Slicing a valid range would instead discard live input, which the [Dropped values must be padding](#dropped-values-must-be-padding) constraint forbids.
+A custom bitmap expresses this padding-only extraction instead.
 
-Plugging into the [cycle formula](#performance), `cycles ≈ ring_size × Time::SIZE × flits_per_packet = 4 × 8 × 8 = 256`:
+| Bitmap Index | `(A, B, C # 4)` sources                  | Ring Group          |
+| ------------ | ---------------------------------------- | ------------------- |
+| 0            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `0`, `1`, `2`       |
+| 1            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `0`, `1`, `2`       |
+| 2            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `0`, `1`, `2`       |
+| 3            | `(0, 0, 0)`, `(0, 0, 1)`, `(0, 0, 2)`    | `0`, `1`, `2`       |
+| 4            | `(0, 1, 0)`, `(0, 1, 1)`, `(0, 1, 2)`    | `4`, `5`, `6`       |
+| …            | …                                        | …                   |
+| 255          | `(15, 3, 0)`, `(15, 3, 1)`, `(15, 3, 2)` | `252`, `253`, `254` |
 
-- `ring_size = 4` (the outer `A, B / 4` partition needs no inter-sub-ring exchange, so only the innermost 4 slices within each sub-ring communicate)
-- `Time::SIZE = 8`
-- `flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 64 / 32 = 8` (`Packet = m![D, E]`, `D::SIZE × E::SIZE = 64`)
+Plugging into the [cycle formula](#performance), `cycles ≈ ring_size × Time::SIZE × flits_per_packet = 4 × 24 × 1 = 96`:
 
-The bitmap shows partial extraction directly: `bitmap[0] = {0, 1, 2}` means output slice 0 receives from only 3 input slices, whereas `{0, 1, 2, 3}` would receive the entire `B` axis (all 4 values).
+- `ring_size = 4` (the outer `A, B` partition needs no inter-sub-ring exchange, so only the innermost 4 slices (one `C # 4` group) within each sub-ring communicate)
+- `Time::SIZE = D::SIZE × C::SIZE = 8 × 3 = 24`
+- `flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 8 / 32 = 1` (`Packet = m![E]`, `E::SIZE = 8`)
+
+The bitmap shows padding-only extraction directly: `bitmap[0] = {0, 1, 2}` means output slice 0 receives from the 3 valid input slices in its `C # 4` group while skipping index 3, the padding cell. Reading `{0, 1, 2, 3}` would pull that padding in as if it were real data.
 
 ### Constraints
 
-Custom configurations come with six constraints that bound this flexibility.
+Custom configurations come with seven constraints that bound this flexibility.
 
 #### Broadcast axes must be new
 
@@ -594,6 +642,14 @@ Here `A % 2` and `B % 2` preserve their relative order correctly, but `C` sits b
 
 > [!NOTE]
 > `Broadcast01` works around this constraint via the `time0` parameter, but custom configurations lack that mechanism and must follow the constraint strictly.
+
+#### Dropped values must be padding
+
+When fewer values of a dimension move from `Slice` to `Time` than the dimension spans (partial extraction, as in [Example 3](#example-3-partial-axis-extraction-slicing)), every value left behind must be padding.
+Dropping a valid value would silently discard live input, so the verifier rejects it at kernel compile time.
+
+For instance, with `axes![A = 16, B = 4, C = 3, D = 8, E = 8, X = 4]` and input `Slice = m![A, B, C # 4]`, extracting `C # 4 → C` is allowed because the dropped fourth value is a padding cell.
+Slicing a fully valid axis, for instance `B = 4 → B = 3`, violates this constraint, since the dropped value carries real data.
 
 #### Ring size
 

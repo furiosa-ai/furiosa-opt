@@ -11,16 +11,16 @@ async fn test_binary_add_2048() {
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i8, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i8, m![A]>::rand(&mut rng);
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out = launch(binary_add_2048, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     assert_eq!(
         lhs.into_inner()
-            .map(|x| x.map(|x| x as i32))
-            .zip_with(&rhs.into_inner().map(|x| x.map(|x| x as i32)), |a, b| a + b)
-            .to_buf(),
-        out.to_host::<m![A]>(&mut ctx.pdma).await.to_buf()
+            .map(|x| x as i32)
+            .zip_with(&rhs.into_inner().map(|x| x as i32), |x, y| x + y)
+            .into_vec(),
+        out.to_host::<m![A]>(&mut ctx.pdma).await.into_vec()
     );
 }

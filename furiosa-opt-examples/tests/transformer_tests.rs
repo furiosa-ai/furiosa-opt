@@ -19,31 +19,17 @@ async fn run_embedding(ctx: &mut Context) -> QkvAddrs {
     use furiosa_opt_examples::transformer::axes::{D, H, K, P, Q, R, S_decode as S, V, W_vocab as W};
 
     // TODO: Fill with actual weight values (mirror PyTorch weight loading)
-    let embedding_table = HostTensor::<bf16, m![W, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x94800)
+    let embedding_table = HostTensor::<bf16, m![W, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let input_ids = HostTensor::<i32, m![S]>::zero().to_hbm(&mut ctx.pdma).await;
+    let norm_weight = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let q_weight = HostTensor::<bf16, m![Q, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let q_bias = HostTensor::<bf16, m![Q]>::zero().to_hbm(&mut ctx.pdma).await;
+    let k_weight = HostTensor::<bf16, m![K, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let v_weight = HostTensor::<bf16, m![V, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let rope_table = HostTensor::<bf16, m![P, D / 2, R, R]>::zero()
+        .to_hbm(&mut ctx.pdma)
         .await;
-    let input_ids = HostTensor::<i32, m![S]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x1043c800)
-        .await;
-    let norm_weight = HostTensor::<bf16, m![H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x105c5800)
-        .await;
-    let q_weight = HostTensor::<bf16, m![Q, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x1043d000)
-        .await;
-    let q_bias = HostTensor::<bf16, m![Q]>::uninit().to_hbm(&mut ctx.pdma, 0x14000).await;
-    let k_weight = HostTensor::<bf16, m![K, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x14800)
-        .await;
-    let v_weight = HostTensor::<bf16, m![V, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x10dc6000)
-        .await;
-    let rope_table = HostTensor::<bf16, m![P, D / 2, R, R]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x105c6000)
-        .await;
-    let position_ids = HostTensor::<i32, m![S]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x105c5000)
-        .await;
+    let position_ids = HostTensor::<i32, m![S]>::zero().to_hbm(&mut ctx.pdma).await;
 
     let mut out_q = unsafe { HbmTensor::<bf16, m![1], m![S, Q]>::from_addr(0x10036000) };
     let mut out_k = unsafe { HbmTensor::<bf16, m![1], m![S, K]>::from_addr(0x10436000) };
@@ -86,15 +72,9 @@ async fn run_attention(ctx: &mut Context, qkv: &QkvAddrs) -> AttentionAddrs {
     let attn_k = unsafe { HbmTensor::<bf16, m![1], m![T, K]>::from_addr(qkv.k) };
     let attn_v = unsafe { HbmTensor::<bf16, m![1], m![T, K]>::from_addr(qkv.v) };
 
-    let k_scatter_index = HostTensor::<i32, m![1, T]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0xc7800)
-        .await;
-    let v_scatter_index = HostTensor::<i32, m![1, T]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x86800)
-        .await;
-    let attention_mask = HostTensor::<i32, m![1, S, T]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x48f000)
-        .await;
+    let k_scatter_index = HostTensor::<i32, m![1, T]>::zero().to_hbm(&mut ctx.pdma).await;
+    let v_scatter_index = HostTensor::<i32, m![1, T]>::zero().to_hbm(&mut ctx.pdma).await;
+    let attention_mask = HostTensor::<i32, m![1, S, T]>::zero().to_hbm(&mut ctx.pdma).await;
 
     let mut out_attn = unsafe { HbmTensor::<bf16, m![1], m![S, H]>::from_addr(0x288800) };
     let mut out_k_cache = unsafe { HbmTensor::<bf16, m![1], m![C, 1, N, D]>::from_addr(0x448800) };
@@ -130,38 +110,22 @@ async fn run_decoder(ctx: &mut Context, attn: &AttentionAddrs) -> QkvAddrs {
     // TODO: Fill with actual input data (currently uninitialized placeholder)
     let hidden_states = unsafe { HbmTensor::<bf16, m![1], m![S, H]>::from_addr(attn.hidden) };
 
-    let o_proj_weight = HostTensor::<bf16, m![H, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0xbc000)
+    let o_proj_weight = HostTensor::<bf16, m![H, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let norm_weight_0 = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let gate_weight = HostTensor::<bf16, m![M, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let up_weight = HostTensor::<bf16, m![M, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let down_weight = HostTensor::<bf16, m![H, M]>::zero().to_hbm(&mut ctx.pdma).await;
+    let norm_weight_1 = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let q_weight = HostTensor::<bf16, m![Q, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let q_bias = HostTensor::<bf16, m![Q]>::zero().to_hbm(&mut ctx.pdma).await;
+    let k_weight = HostTensor::<bf16, m![K, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let k_bias = HostTensor::<bf16, m![K]>::zero().to_hbm(&mut ctx.pdma).await;
+    let v_weight = HostTensor::<bf16, m![V, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let v_bias = HostTensor::<bf16, m![V]>::zero().to_hbm(&mut ctx.pdma).await;
+    let rope_table = HostTensor::<bf16, m![P, D / 2, R, R]>::zero()
+        .to_hbm(&mut ctx.pdma)
         .await;
-    let norm_weight_0 = HostTensor::<bf16, m![H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x14dc800)
-        .await;
-    let gate_weight = HostTensor::<bf16, m![M, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0xacc800)
-        .await;
-    let up_weight = HostTensor::<bf16, m![M, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x1ce5000)
-        .await;
-    let down_weight = HostTensor::<bf16, m![H, M]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x244800)
-        .await;
-    let norm_weight_1 = HostTensor::<bf16, m![H]>::uninit().to_hbm(&mut ctx.pdma, 0xbb800).await;
-    let q_weight = HostTensor::<bf16, m![Q, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x1354800)
-        .await;
-    let q_bias = HostTensor::<bf16, m![Q]>::uninit().to_hbm(&mut ctx.pdma, 0xa000).await;
-    let k_weight = HostTensor::<bf16, m![K, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x7b800)
-        .await;
-    let k_bias = HostTensor::<bf16, m![K]>::uninit().to_hbm(&mut ctx.pdma, 0xa800).await;
-    let v_weight = HostTensor::<bf16, m![V, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x131c800)
-        .await;
-    let v_bias = HostTensor::<bf16, m![V]>::uninit().to_hbm(&mut ctx.pdma, 0x43000).await;
-    let rope_table = HostTensor::<bf16, m![P, D / 2, R, R]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x14dd000)
-        .await;
-    let position_ids = HostTensor::<i32, m![S]>::uninit().to_hbm(&mut ctx.pdma, 0x244000).await;
+    let position_ids = HostTensor::<i32, m![S]>::zero().to_hbm(&mut ctx.pdma).await;
 
     let mut out_q = unsafe { HbmTensor::<bf16, m![1], m![S, Q]>::from_addr(0x20036000) };
     let mut out_k = unsafe { HbmTensor::<bf16, m![1], m![S, K]>::from_addr(0x20436000) };
@@ -210,27 +174,13 @@ async fn run_head(ctx: &mut Context, attn: &AttentionAddrs) {
     let matmul_score_v = unsafe { HbmTensor::<bf16, m![1], m![S, H]>::from_addr(attn.score_v) };
     let hidden_states = unsafe { HbmTensor::<bf16, m![1], m![S, H]>::from_addr(attn.hidden) };
 
-    let o_proj_weight = HostTensor::<bf16, m![H, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x12f8b000)
-        .await;
-    let norm_weight_0 = HostTensor::<bf16, m![H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x2552800)
-        .await;
-    let gate_weight = HostTensor::<bf16, m![M, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x141b3000)
-        .await;
-    let up_weight = HostTensor::<bf16, m![M, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x13963000)
-        .await;
-    let down_weight = HostTensor::<bf16, m![H, M]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x13113000)
-        .await;
-    let norm_weight_1 = HostTensor::<bf16, m![H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x251a000)
-        .await;
-    let embedding_table = HostTensor::<bf16, m![W, H]>::uninit()
-        .to_hbm(&mut ctx.pdma, 0x2553000)
-        .await;
+    let o_proj_weight = HostTensor::<bf16, m![H, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let norm_weight_0 = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let gate_weight = HostTensor::<bf16, m![M, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let up_weight = HostTensor::<bf16, m![M, H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let down_weight = HostTensor::<bf16, m![H, M]>::zero().to_hbm(&mut ctx.pdma).await;
+    let norm_weight_1 = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut ctx.pdma).await;
+    let embedding_table = HostTensor::<bf16, m![W, H]>::zero().to_hbm(&mut ctx.pdma).await;
 
     let mut out_logits = unsafe { HbmTensor::<bf16, m![1], m![S, W]>::from_addr(0x30000000) };
 

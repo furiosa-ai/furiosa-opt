@@ -40,5 +40,6 @@
   + [Transformer](./kernel-examples/transformer.md)
   + [Mixture of Experts](./kernel-examples/mixture-of-experts.md)
 - [Appendix](./appendix/index.md)
+  + [cargo-furiosa-opt](./appendix/cargo-furiosa-opt.md)
   + [Language Server](./appendix/language-server.md)
   + [Schedule Viewer](./appendix/schedule-viewer.md)

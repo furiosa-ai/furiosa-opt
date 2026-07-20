@@ -20,8 +20,7 @@ pub(super) fn attn_weight(
     attn_k: &HbmTensor<bf16, Chip, m![T, K]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T]> {
     // Load key tensor from HBM to DM.
-    let k_dm: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, T / 512], m![T % 16, K]> =
-        attn_k.to_dm(&mut ctx.tdma, 0x200);
+    let k_dm: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, T / 512], m![T % 16, K]> = attn_k.to_dm(&mut ctx.tdma);
 
     // Reorder key tiles to split K into head chunks for TRF loading.
     let k_it: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, K / 64], m![T / 512, T % 16, K % 64]> = ctx
@@ -33,9 +32,9 @@ pub(super) fn attn_weight(
             slice0: 1,
             time0: 1,
         })
-        .collect::<m![T / 512, T % 16], m![K % 64]>()
-        .commit_trim::<m![K % 64]>()
-        .commit(0x1200);
+        .collect::<m![T / 512, T % 16, K / 16 % 4], m![K % 16]>()
+        .commit_trim::<m![K % 16]>()
+        .commit();
 
     // Copy the first T half for matmul.
     let mut k_half_0: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, K / 64], m![T % 16, K % 64]> =
@@ -57,8 +56,8 @@ pub(super) fn attn_weight(
         .begin(k_half_0.view())
         .fetch::<m![T % 8], m![T / 8 % 2, K % 64]>()
         .switch::<m![S / 256, W, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 32, slice0: 2 })
-        .collect::<m![T % 8], m![K % 64]>()
-        .to_trf(TrfAddress::FirstHalf);
+        .collect::<m![T % 8, K / 16 % 4], m![K % 16]>()
+        .to_trf_at(TrfAddress::FirstHalf);
 
     // Load first key half into TRF second half for cascade accumulation.
     let k_trf_0s: TrfTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![T % 8], m![K % 64]> = ctx
@@ -66,43 +65,43 @@ pub(super) fn attn_weight(
         .begin(k_half_0.view())
         .fetch::<m![T % 8], m![T / 8 % 2, K % 64]>()
         .switch::<m![S / 256, W, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 32, slice0: 2 })
-        .collect::<m![T % 8], m![K % 64]>()
-        .to_trf(TrfAddress::SecondHalf);
+        .collect::<m![T % 8, K / 16 % 4], m![K % 16]>()
+        .to_trf_at(TrfAddress::SecondHalf);
 
     // Load query tensor from HBM to DM.
-    let q_dm: DmTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![S % 8, G, D]> = attn_q.to_dm(&mut ctx.tdma, 0x2200);
+    let q_dm: DmTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![S % 8, G, D]> = attn_q.to_dm(&mut ctx.tdma);
 
     // Compute Q x K^T using TRF first half and write partial scores.
     ctx.main
         .begin(q_dm.view())
         .fetch::<m![S % 8, G], m![D]>()
-        .collect::<m![S % 8, G], m![D]>()
-        .contract_outer::<m![S % 8, G], m![D], _, _>(&k_trf_0)
+        .collect::<m![S % 8, G, D / 16 % 4], m![D % 16]>()
+        .contract_outer::<m![S % 8, G, D / 16 % 4], m![D % 16], _, _, _>(&k_trf_0)
         .contract_packet::<m![1]>()
         .contract_time::<m![S % 8, G]>()
         .contract_lane::<m![S % 8, G], m![T % 8]>(LaneMode::Interleaved)
         .vector_init()
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![T % 512]>()
-        .commit_trim::<m![T % 512]>()
-        .commit::<m![S % 8, G, T % 512]>(0x8000);
+        .cast::<bf16, m![T % 8 # 16]>()
+        .commit_trim::<m![T % 8]>()
+        .commit::<m![S % 8, G, T % 512]>();
 
     // Accumulate Q x K^T with TRF second half into the same score buffer.
     ctx.main
         .begin(q_dm.view())
         .fetch::<m![S % 8, G], m![D]>()
-        .collect::<m![S % 8, G], m![D]>()
-        .contract_outer::<m![S % 8, G], m![D], _, _>(&k_trf_0s)
+        .collect::<m![S % 8, G, D / 16 % 4], m![D % 16]>()
+        .contract_outer::<m![S % 8, G, D / 16 % 4], m![D % 16], _, _, _>(&k_trf_0s)
         .contract_packet::<m![1]>()
         .contract_time::<m![S % 8, G]>()
         .contract_lane::<m![S % 8, G], m![T % 8]>(LaneMode::Interleaved)
         .vector_init()
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![T % 512]>()
-        .commit_trim::<m![T % 512]>()
-        .commit::<m![S % 8, G, T % 512]>(0x8000);
+        .cast::<bf16, m![T % 8 # 16]>()
+        .commit_trim::<m![T % 8]>()
+        .commit::<m![S % 8, G, T % 512]>();
 
     // Load second key half into TRF first half.
     let k_trf_1: TrfTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![T % 8], m![K % 64]> = ctx
@@ -110,8 +109,8 @@ pub(super) fn attn_weight(
         .begin(k_half_1.view())
         .fetch::<m![T % 8], m![T / 8 % 2, K % 64]>()
         .switch::<m![S / 256, W, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 32, slice0: 2 })
-        .collect::<m![T % 8], m![K % 64]>()
-        .to_trf(TrfAddress::FirstHalf);
+        .collect::<m![T % 8, K / 16 % 4], m![K % 16]>()
+        .to_trf_at(TrfAddress::FirstHalf);
 
     // Load second key half into TRF second half for cascade accumulation.
     let k_trf_1s: TrfTensor<bf16, Chip, Cluster, m![S / 256, W, N], m![T % 8], m![K % 64]> = ctx
@@ -119,40 +118,40 @@ pub(super) fn attn_weight(
         .begin(k_half_1.view())
         .fetch::<m![T % 8], m![T / 8 % 2, K % 64]>()
         .switch::<m![S / 256, W, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 32, slice0: 2 })
-        .collect::<m![T % 8], m![K % 64]>()
-        .to_trf(TrfAddress::SecondHalf);
+        .collect::<m![T % 8, K / 16 % 4], m![K % 16]>()
+        .to_trf_at(TrfAddress::SecondHalf);
 
     // Compute Q x K^T for the second T half using TRF first half.
     ctx.main
         .begin(q_dm.view())
         .fetch::<m![S % 8, G], m![D]>()
-        .collect::<m![S % 8, G], m![D]>()
-        .contract_outer::<m![S % 8, G], m![D], _, _>(&k_trf_1)
+        .collect::<m![S % 8, G, D / 16 % 4], m![D % 16]>()
+        .contract_outer::<m![S % 8, G, D / 16 % 4], m![D % 16], _, _, _>(&k_trf_1)
         .contract_packet::<m![1]>()
         .contract_time::<m![S % 8, G]>()
         .contract_lane::<m![S % 8, G], m![T % 8]>(LaneMode::Interleaved)
         .vector_init()
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![T % 512]>()
-        .commit_trim::<m![T % 512]>()
-        .commit::<m![S % 8, G, T % 512]>(0x16000);
+        .cast::<bf16, m![T % 8 # 16]>()
+        .commit_trim::<m![T % 8]>()
+        .commit::<m![S % 8, G, T % 512]>();
 
     // Accumulate the second T-half scores with TRF second half.
     ctx.main
         .begin(q_dm.view())
         .fetch::<m![S % 8, G], m![D]>()
-        .collect::<m![S % 8, G], m![D]>()
-        .contract_outer::<m![S % 8, G], m![D], _, _>(&k_trf_1s)
+        .collect::<m![S % 8, G, D / 16 % 4], m![D % 16]>()
+        .contract_outer::<m![S % 8, G, D / 16 % 4], m![D % 16], _, _, _>(&k_trf_1s)
         .contract_packet::<m![1]>()
         .contract_time::<m![S % 8, G]>()
         .contract_lane::<m![S % 8, G], m![T % 8]>(LaneMode::Interleaved)
         .vector_init()
         .vector_inter_slice_reduce::<m![S / 8, N], m![S % 8, G]>(InterSliceReduceOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![T % 512]>()
-        .commit_trim::<m![T % 512]>()
-        .commit::<m![S % 8, G, T % 512]>(0x16000);
+        .cast::<bf16, m![T % 8 # 16]>()
+        .commit_trim::<m![T % 8]>()
+        .commit::<m![S % 8, G, T % 512]>();
 
     // View both T-half score blocks as one concatenated tensor.
     let qk_concat: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![T / 512, S % 8, G, T % 512]> =
@@ -163,9 +162,9 @@ pub(super) fn attn_weight(
         .main
         .begin(qk_concat.view())
         .fetch::<m![T / 512, S % 8, G], m![T % 512]>()
-        .collect::<m![T / 512, S % 8, G], m![T % 512]>()
-        .commit_trim::<m![T % 512]>()
-        .commit(0x28000);
+        .collect::<m![T / 512, S % 8, G, T / 16 % 32], m![T % 16]>()
+        .commit_trim::<m![T % 16]>()
+        .commit();
 
     qk_scores
 }

@@ -14,18 +14,17 @@ resolver = "3"
 
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(backend, values("simulation", "emulation", "npu", "typecheck"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(backend, values("emulation", "npu", "typecheck"))', 'cfg(furiosa_opt)'] }
 
 [workspace.dependencies]
 abi_stable = "0.11"
 anstream = "0.6"
-anstyle = "1.0"
 arrayvec = { version = "0.7.6", features = ["serde"] }
 bindgen = "0.71"
 cfg-if = "1"
+criterion = "0.8.1"
 divisors_fixed = "0.4.0"
 env_logger = "0.11"
-f8 = "0.1.2"
 half = { version = "2.3.1", features = ["num-traits"] }
 itertools = "0.14.0"
 lalrpop = "0.22.2"
@@ -39,6 +38,7 @@ num-traits = "0.2.16"
 proc-macro2 = "1.0.66"
 quote = "1.0"
 rand = { version = "0.9.0", features = ["small_rng", "alloc"] }
+rayon = "1.7.0"
 safetensors = "0.4"
 serde = { version = "1.0.175", features = ["derive", "rc"] }
 serde-lite = { version = "0.5", features = ["derive", "preserve-order"] }

@@ -10,7 +10,7 @@
 pub use furiosa_mapping_macro::*;
 pub use furiosa_mapping_types::*;
 
-use abi_stable::std_types::{RResult, RSlice, RVec, Tuple2};
+use abi_stable::std_types::{RResult, RSlice, RVec, Tuple2, Tuple3};
 
 /// Raw `extern "C-unwind"` decls for the prebuilt impl's exports.
 mod sys {
@@ -24,12 +24,18 @@ mod sys {
             mode: SequencerMode,
         ) -> RResult<RVec<SequencerConfig>, SequencerError>;
         pub(super) fn mapping_normalize(slf: &Mapping) -> Mapping;
+        pub(super) fn mapping_dma_tails(src: &Mapping, dst: &Mapping) -> Tuple3<usize, usize, usize>;
         pub(super) fn mapping_split_at(slf: &Mapping, target: usize) -> Tuple2<Mapping, Mapping>;
         pub(super) fn mapping_index(slf: &Mapping, position: usize) -> Index;
         pub(super) fn mapping_indexes(slf: &Mapping) -> RVec<Index>;
-        pub(super) fn mapping_axes(slf: &Mapping) -> RVec<Term>;
+        pub(super) fn mapping_axes(slf: &Mapping) -> RVec<AxisTerm>;
+        pub(super) fn mapping_iter(
+            slf: &Mapping,
+            axes: RSlice<'_, AxisTerm>,
+            base: &Index,
+            padding: bool,
+        ) -> MappingIter;
         pub(super) fn index_finalize(slf: Index) -> RResult<RSortedMap<Ident, usize>, PaddingKind>;
-        pub(super) fn index_gen_indexes(slf: &Index, mapping: &Mapping) -> RVec<Index>;
     }
 }
 
@@ -38,6 +44,13 @@ mod sys {
 pub trait MappingExt: Sized {
     /// Normalizes to canonical form.
     fn normalize(&self) -> Self;
+    /// The DMA burst tails for copying source `self` into destination `dst`, as
+    /// `(src_packet, dst_packet, valid)`: each side's own contiguous packet (its innermost padded
+    /// segment for the shared axis, padding included) plus the shared live size. Each side peels its own
+    /// packet, so the two may differ (a padded source vs a dense sink); `valid` is the largest run both
+    /// cover with live cells, no trailing padding, which a DRAM sink pins its tail to. `(1, 1, 1)` for a
+    /// transpose.
+    fn dma_tails(&self, dst: &Self) -> (usize, usize, usize);
     /// Returns true if `self` is a resize (innermost prefix) of `original`.
     fn is_resize_of(&self, original: &Self) -> bool;
     /// Splits at buffer `target` into `(outer, inner)`: `outer` strides past the first `target`
@@ -50,12 +63,28 @@ pub trait MappingExt: Sized {
     /// The raw read at every buffer position `0..size`, composites kept WHOLE, in one FFI crossing. The
     /// batch form of `index`; call [`IndexExt::finalize`] on a cell to decode it.
     fn indexes(&self) -> Vec<Index>;
-    /// The live axis terms (its [`Term`]s), padding excluded.
-    fn axes(&self) -> Vec<Term>;
-    /// Carves `piece` out of `self` through the matcher, returning the leftover the
-    /// scatter/gather/reduce/broadcast sites need. Each matched cell becomes a `Top` pad (the carved
-    /// hole), each unmatched cell stays live (a broadcast at `memory_stride` 0). Panics unless `piece`
-    /// is contained in `self`.
+    /// The live axis terms (its [`AxisTerm`]s, resolved symbols), padding excluded.
+    fn axes(&self) -> Vec<AxisTerm>;
+    /// A lazy iterator over where this mapping's cells land in a buffer laid out by `axes`, each offset
+    /// shifted by `base`: one `Option<usize>` per physical cell in canonical order (`Some(off)` live,
+    /// `None` padding). `padding` picks the traversal: `true` visits every physical cell (the wire order
+    /// the buffer seam needs), `false` skips the padding cells (faster on padded mappings, for relayouts).
+    ///
+    /// `axes` is the *target* buffer's layout (resolved symbol terms, e.g. from [`MappingExt::axes`]),
+    /// not necessarily this mapping's own axes: the mapping is projected
+    /// onto it. A symbol in both contributes its coordinate; a symbol only in the mapping contributes
+    /// nothing (it broadcasts, e.g. a dst axis absent from the src); a symbol only in `axes` stays at
+    /// its origin. The offsets land inside the buffer only if `axes` covers the mapping's reach: each
+    /// shared axis's extent must hold the mapping's coordinate for it (an out-of-range coordinate
+    /// wraps, like an out-of-range `base`).
+    ///
+    /// The returned [`MappingIter`] is an [`Iterator`]; it is fully owned (borrows nothing), so a
+    /// consumer just walks it (`.zip`, `.map`, `.flatten`) without ever naming the type.
+    fn iter(&self, axes: &[AxisTerm], base: &Index, padding: bool) -> MappingIter;
+    /// The leftover `self − piece` (the scatter/gather/reduce/broadcast residue): `self` is sequenced as
+    /// the STREAM against `piece` as memory, so a `self` cell `piece` backs becomes a `Top` pad and a cell
+    /// it does not back stays live (the broadcast). Runs in [`SequencerMode::Carve`], so a `Bottom` pad in
+    /// `self` (a `view_mut().tile()` hole) is tolerated as padding. Panics unless `piece` is in `self`.
     fn carve(&self, piece: &Self) -> Self;
 }
 
@@ -83,6 +112,11 @@ impl MappingExt for Mapping {
         unsafe { sys::mapping_normalize(self) }
     }
 
+    fn dma_tails(&self, dst: &Self) -> (usize, usize, usize) {
+        let Tuple3(src_packet, dst_packet, valid) = unsafe { sys::mapping_dma_tails(self, dst) };
+        (src_packet, dst_packet, valid)
+    }
+
     fn is_resize_of(&self, original: &Self) -> bool {
         let n = self.size();
         n <= original.size() && self.normalize() == original.clone().resize(n).normalize()
@@ -101,20 +135,23 @@ impl MappingExt for Mapping {
         unsafe { sys::mapping_indexes(self) }.into_iter().collect()
     }
 
-    fn axes(&self) -> Vec<Term> {
+    fn axes(&self) -> Vec<AxisTerm> {
         unsafe { sys::mapping_axes(self) }.into_iter().collect()
     }
 
+    fn iter(&self, axes: &[AxisTerm], base: &Index, padding: bool) -> MappingIter {
+        unsafe { sys::mapping_iter(self, RSlice::from(axes), base, padding) }
+    }
+
     fn carve(&self, piece: &Self) -> Self {
-        let configs = sequence(&[piece], &[self], SequencerMode::Read).expect("carve: piece must be contained in self");
+        let configs =
+            sequence(&[piece], &[self], SequencerMode::Carve).expect("carve: piece must be contained in self");
         let mut acc = Mapping::identity();
         for (_key, entry) in configs[0].0.iter() {
             let seg = if entry.memory_stride == 0 {
-                // Unbacked stream cell, a live leftover axis (a broadcast vs the carved memory).
-                entry.mapping.clone()
+                entry.mapping.clone() // unbacked: a live broadcast, or a Top hole left as padding
             } else {
-                // Matched cell, a carved hole kept as Top padding so positions are preserved.
-                Mapping::identity().padding(entry.mapping.size(), PaddingKind::Top)
+                Mapping::identity().padding(entry.mapping.size(), PaddingKind::Top) // matched: Top pad, positions kept
             };
             acc = seg.pair(acc);
         }
@@ -166,8 +203,6 @@ pub trait IndexExt: Sized {
     /// The terminal read: decodes every composite and returns each symbol's absolute coordinate
     /// (`Ident` -> coordinate, coord-0 dropped), or the [`PaddingKind`] a pad cell lands on.
     fn finalize(self) -> RResult<RSortedMap<Ident, usize>, PaddingKind>;
-    /// Generates all possible indexes based on the given mapping.
-    fn gen_indexes(&self, mapping: Mapping) -> RVec<Self>;
 }
 
 impl IndexExt for Index {
@@ -179,8 +214,5 @@ impl IndexExt for Index {
     }
     fn finalize(self) -> RResult<RSortedMap<Ident, usize>, PaddingKind> {
         unsafe { sys::index_finalize(self) }
-    }
-    fn gen_indexes(&self, mapping: Mapping) -> RVec<Self> {
-        unsafe { sys::index_gen_indexes(self, &mapping) }
     }
 }

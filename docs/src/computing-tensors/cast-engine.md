@@ -28,10 +28,15 @@ After the cast, the 8 elements occupy 8 bytes, so `A # 32` pads the output back 
 axes![B = 4, A = 8];
 
 fn cast_i32_to_i8<'l, const T: Tu>(
-    input: CollectTensor<'l, T, i32, m![1], m![1], m![1], m![B], m![A]>,
-) -> CastTensor<'l, T, i8, m![1], m![1], m![1], m![B], m![A # 32]> {
+    input: CollectTensor<'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]>,
+) -> CastTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![B], m![A # 32]> {
     input.cast()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = cast_i32_to_i8(c);
 ```
 
 The input data may not fill 32 bytes.
@@ -44,10 +49,15 @@ The example below casts an `i32` input where 4 data elements are padded to 8 (`A
 axes![A = 4];
 
 fn cast_padded<'l, const T: Tu>(
-    input: CollectTensor<'l, T, i32, m![1], m![1], m![1], m![1], m![A # 8]>,
-) -> CastTensor<'l, T, i8, m![1], m![1], m![1], m![1], m![A # 32]> {
+    input: CollectTensor<'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]>,
+) -> CastTensor<'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 32]> {
     input.cast()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = cast_padded(c);
 ```
 
 ## Supported Casts

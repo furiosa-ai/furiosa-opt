@@ -14,7 +14,7 @@ impl std::fmt::Debug for F32 {
     }
 }
 
-/// NaN-aware equality check for f32 tensors via to_buf().
+/// NaN-aware equality check for f32 tensors via to_vec().
 pub fn assert_f32_vec_eq(expected: &[f32], actual: &[f32]) {
     let expected_vec: Vec<F32> = expected.iter().copied().map(F32).collect();
     let actual_vec: Vec<F32> = actual.iter().copied().map(F32).collect();

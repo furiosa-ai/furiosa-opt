@@ -15,13 +15,13 @@ pub fn matmul_with_split_reduce2(
     type Chip = m![1];
     type Cluster = m![1 # 2];
 
-    let mut acc: DmTensor<bf16, Chip, Cluster, m![1 # 4, M], m![N]> = acc_zero.to_dm(&mut ctx.tdma, 0x0000_0000);
+    let mut acc: DmTensor<bf16, Chip, Cluster, m![1 # 4, M], m![N]> = acc_zero.to_dm(&mut ctx.tdma);
 
     for i in 0..4 {
         let t87: DmTensor<bf16, Chip, Cluster, m![1 # 4, M], m![K % 128]> = a
             .view()
             .tile::<m![K / 128], 1, m![M, 1 # 8, K % 128]>(i * 2)
-            .to_dm(&mut ctx.tdma, 0x0000_0100);
+            .to_dm(&mut ctx.tdma);
 
         let t95: DmTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, M % 8], m![K % 128 / 16, K % 128 % 16]> =
             unsafe { t87.reshape() };
@@ -36,11 +36,11 @@ pub fn matmul_with_split_reduce2(
             })
             .collect::<m![M % 8], m![K % 128 % 16]>()
             .commit_trim::<m![K % 128 % 16]>()
-            .commit(0x0000_0200);
+            .commit();
         let t72: DmTensor<bf16, Chip, Cluster, m![1 # 4, K % 128 / 2], m![K % 128 % 2, N]> = b
             .view()
             .tile::<m![K / 128], 1, m![1 # 8, K % 128, N]>(i * 2)
-            .to_dm(&mut ctx.tdma, 0x0000_0300);
+            .to_dm(&mut ctx.tdma);
         let t89: DmTensor<
             bf16,
             Chip,
@@ -53,7 +53,7 @@ pub fn matmul_with_split_reduce2(
             .begin(t89.view())
             .fetch::<m![M % 8], m![K % 128 % 16]>()
             .collect::<m![M % 8], m![K % 128 % 16]>()
-            .to_trf(TrfAddress::FirstHalf);
+            .to_trf();
         let t88: DmTensor<
             bf16,
             Chip,
@@ -69,7 +69,7 @@ pub fn matmul_with_split_reduce2(
                 SwitchConfig::TransposedBroadcast1 { slice1: 8, slice0: 8 },
             )
             .collect::<m![N / 32, K % 128 % 2, K % 128 / 2 % 8, N % 32 / 16], m![N % 32 % 16]>()
-            .contract_outer::<m![N / 32, K % 128 % 2, K % 128 / 2 % 8], m![N % 32], _, _>(&t94)
+            .contract_outer::<m![N / 32, K % 128 % 2, K % 128 / 2 % 8], m![N % 32], _, _, _>(&t94)
             .contract_packet::<m![N % 32]>()
             .contract_time::<m![N / 32]>()
             .contract_lane::<m![N / 32, M % 8, N % 32 / 8], m![N % 32 % 8]>(LaneMode::Sequential)
@@ -78,18 +78,18 @@ pub fn matmul_with_split_reduce2(
             .vector_final()
             .cast::<bf16, m![N % 32 % 8 # 16]>()
             .commit_trim::<m![N % 32 % 8]>()
-            .commit(0x0000_0100);
+            .commit();
 
         let t108: DmTensor<bf16, Chip, Cluster, m![1 # 4, M], m![K % 128]> = a
             .view()
             .tile::<m![K / 128], 1, m![M, 1 # 8, K % 128]>(1 + i * 2)
-            .to_dm(&mut ctx.tdma, 0x0000_0200);
+            .to_dm(&mut ctx.tdma);
         let t116: DmTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, M % 8], m![K % 128 / 16, K % 128 % 16]> =
             unsafe { t108.reshape() };
         let t103: DmTensor<bf16, Chip, Cluster, m![1 # 4, K % 128 / 2], m![K % 128 % 2, N]> = b
             .view()
             .tile::<m![K / 128], 1, m![1 # 8, K % 128, N]>(1 + i * 2)
-            .to_dm(&mut ctx.tdma, 0x0000_0500);
+            .to_dm(&mut ctx.tdma);
         let t109: DmTensor<
             bf16,
             Chip,
@@ -111,7 +111,7 @@ pub fn matmul_with_split_reduce2(
             })
             .collect::<m![M % 8], m![K % 128 % 16]>()
             .commit_trim::<m![K % 128 % 16]>()
-            .commit(0x0000_0300);
+            .commit();
         let t110: DmTensor<
             bf16,
             Chip,
@@ -132,14 +132,14 @@ pub fn matmul_with_split_reduce2(
             .vector_final()
             .cast::<bf16, m![N % 8 # 16]>()
             .commit_trim::<m![N % 8]>()
-            .commit(0x0000_0200);
+            .commit();
 
         let t115: TrfTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, K % 128 / 16], m![M % 8], m![K % 128 % 16]> = ctx
             .sub
             .begin(t110.view())
             .fetch::<m![M % 8], m![K % 128 % 16]>()
             .collect::<m![M % 8], m![K % 128 % 16]>()
-            .to_trf(TrfAddress::SecondHalf);
+            .to_trf();
 
         let t111: DmTensor<bf16, Chip, Cluster, m![1 # 4, M / 8, M % 8], m![N / 32, N % 32]> = ctx
             .main
@@ -149,7 +149,7 @@ pub fn matmul_with_split_reduce2(
                 SwitchConfig::TransposedBroadcast1 { slice1: 8, slice0: 8 },
             )
             .collect::<m![N / 32, K % 128 % 2, K % 128 / 2 % 8, N % 32 / 16], m![N % 32 % 16]>()
-            .contract_outer::<m![N / 32, K % 128 % 2, K % 128 / 2 % 8], m![N % 32], _, _>(&t115)
+            .contract_outer::<m![N / 32, K % 128 % 2, K % 128 / 2 % 8], m![N % 32], _, _, _>(&t115)
             .contract_packet::<m![N % 32]>()
             .contract_time::<m![N / 32]>()
             .contract_lane::<m![N / 32, M % 8, N % 32 / 8], m![N % 32 % 8]>(LaneMode::Sequential)
@@ -158,7 +158,7 @@ pub fn matmul_with_split_reduce2(
             .vector_final()
             .cast::<bf16, m![N % 32 % 8 # 16]>()
             .commit_trim::<m![N % 32 % 8]>()
-            .commit(0x0000_0100);
+            .commit();
         let t105: DmTensor<bf16, Chip, Cluster, m![1 # 4, M], m![N]> = unsafe { t111.reshape() };
 
         acc = ctx
@@ -173,8 +173,8 @@ pub fn matmul_with_split_reduce2(
             .vector_final()
             .cast::<bf16, m![N % 8 # 16]>()
             .commit_trim::<m![N % 8]>()
-            .commit(0x0000_0000);
+            .commit();
     }
 
-    acc.to_hbm(&mut ctx.tdma, 0x3000)
+    acc.to_hbm(&mut ctx.tdma)
 }

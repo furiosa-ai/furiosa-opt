@@ -173,8 +173,10 @@ impl Iterator for Lexer {
                     '/' => Token::Slash,
                     '%' => Token::Percent,
                     '#' => {
-                        // Look ahead one tree to disambiguate `#` from `#{...}`. Inside the
-                        // braces we accept `*` (top), `!` (bottom), or a constant integer (fill).
+                        // Look ahead one tree to disambiguate the padding forms. A brace holding a
+                        // lone fill marker (`*` top, `!` bottom, `0` zero) is a `#{...}` fill-kind
+                        // annotation; any other brace (e.g. `# { Out::SIZE }`) is bare `#` padding
+                        // with an escaped constant size, so we push it back to re-lex as `Escaped`.
                         match self.next_tree() {
                             Some(TokenTree::Group(group))
                                 if matches!(group.delimiter(), proc_macro2::Delimiter::Brace) =>
@@ -183,22 +185,25 @@ impl Iterator for Lexer {
                                 let kind = if let [TokenTree::Punct(p)] = inner.as_slice()
                                     && p.as_char() == '*'
                                 {
-                                    HashFillKind::Star
+                                    Some(HashFillKind::Star)
                                 } else if let [TokenTree::Punct(p)] = inner.as_slice()
                                     && p.as_char() == '!'
                                 {
-                                    HashFillKind::Bang
+                                    Some(HashFillKind::Bang)
                                 } else if let [TokenTree::Literal(lit)] = inner.as_slice()
                                     && lit.to_string() == "0"
                                 {
-                                    HashFillKind::Zero
+                                    Some(HashFillKind::Zero)
                                 } else {
-                                    return Some(Err(LexicalError::InvalidToken(format!(
-                                        "expected `*`, `!`, or `0` in `#{{...}}`, got `{}`",
-                                        group.stream()
-                                    ))));
+                                    None
                                 };
-                                Token::HashFill(kind)
+                                match kind {
+                                    Some(kind) => Token::HashFill(kind),
+                                    None => {
+                                        self.pending.push_front(TokenTree::Group(group));
+                                        Token::Hash
+                                    }
+                                }
                             }
                             Some(next) => {
                                 self.pending.push_front(next);

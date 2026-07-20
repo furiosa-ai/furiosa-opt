@@ -14,21 +14,21 @@ pub fn matmul_4096(
     lhs: &HbmTensor<i8, m![1], m![A, B]>,
     rhs: &HbmTensor<i8, m![1], m![B]>,
 ) -> HbmTensor<i8, m![1], m![A]> {
-    let lhs = lhs.to_dm::<Cluster, m![A / 1024 % 2, B / 32], m![A % 1024, B % 32]>(&mut ctx.tdma, 0);
-    let rhs = rhs.to_dm::<Cluster, m![A / 1024 % 2, B / 32], m![B % 32]>(&mut ctx.tdma, 0);
+    let lhs = lhs.to_dm::<Cluster, m![A / 1024 % 2, B / 32], m![A % 1024, B % 32]>(&mut ctx.tdma);
+    let rhs = rhs.to_dm::<Cluster, m![A / 1024 % 2, B / 32], m![B % 32]>(&mut ctx.tdma);
     let rhs: TrfTensor<i8, Chip, Cluster, m![A / 1024 % 2, B / 32], m![1], m![B % 32]> = ctx
         .sub
         .begin(rhs.view())
         .fetch::<m![1], m![B % 32]>()
         .collect::<m![1], m![B % 32]>()
-        .to_trf(TrfAddress::Full);
+        .to_trf();
 
     let matmul_result: DmTensor<i8, Chip, Cluster, m![A / 1024 % 2, X], m![A / 2 % 512, A % 2 # 8]> = ctx
         .main
         .begin(lhs.view())
         .fetch::<m![A % 1024], m![B % 32]>()
         .collect::<m![A % 1024], m![B % 32]>()
-        .contract_outer::<m![A / 2 % 512], m![A % 2, B % 32], _, _>(&rhs)
+        .contract_outer::<m![A / 2 % 512], m![A % 2, B % 32], _, _, _>(&rhs)
         .contract_packet::<m![A % 2]>()
         .contract_time::<m![A / 2 % 512]>()
         .contract_lane::<m![A / 2 % 512], m![A % 2 # 8]>(LaneMode::Sequential)
@@ -37,7 +37,7 @@ pub fn matmul_4096(
         .vector_final()
         .cast::<i8, m![A % 2 # 32]>()
         .commit_trim::<m![A % 2 # 8]>()
-        .commit(0);
+        .commit();
 
     // write back to HBM.
     let mut out = unsafe { HbmTensor::<i8, m![1], m![A]>::from_addr(0x3000) };

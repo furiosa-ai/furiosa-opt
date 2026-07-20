@@ -7,7 +7,6 @@ Each kernel ships as a host binary plus a `#[device]` function compiled with `ca
 
 ```
 src/
-├── furiosa-opt.tag         # marker the rustc plugin scans for; must sit at src/
 ├── lib.rs                  # `pub mod kernel;`
 ├── kernel/                 # every #[device] function lives here
 │   ├── mod.rs              # `pub mod {constant_add,...}_kernel;`
@@ -34,7 +33,7 @@ cargo +nightly-2026-05-01 binstall cargo-furiosa-opt
 ### Run a worked example
 
 ```bash
-# Host-side simulation (default; no NPU hardware required).
+# Host-side emulation (default; no NPU hardware required).
 cargo furiosa-opt run --release --bin gemm
 
 # Mapping/shape verification only — kernel body runs against phantom (empty) tensors.

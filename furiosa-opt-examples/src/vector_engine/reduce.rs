@@ -5,8 +5,8 @@ pub fn ve_intra_slice_reduce_add_fxp_sat(
     ctx: &mut Context,
     input: &HbmTensor<i32, Chip, m![A, R]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_transposed: HbmTensor<i32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma, 0x4000);
-    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma, 0x1000);
+    let input_transposed: HbmTensor<i32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma);
+    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -21,9 +21,9 @@ pub fn ve_intra_slice_reduce_add_fxp_sat(
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Intra-slice reduce: max (i32)
@@ -32,8 +32,8 @@ pub fn ve_intra_slice_reduce_max_i32(
     ctx: &mut Context,
     input: &HbmTensor<i32, Chip, m![A, R]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_transposed: HbmTensor<i32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma, 0x4000);
-    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma, 0x1000);
+    let input_transposed: HbmTensor<i32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma);
+    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -48,9 +48,9 @@ pub fn ve_intra_slice_reduce_max_i32(
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Intra-slice reduce: min (i32)
@@ -59,8 +59,8 @@ pub fn ve_intra_slice_reduce_min_i32(
     ctx: &mut Context,
     input: &HbmTensor<i32, Chip, m![A, R]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_transposed: HbmTensor<i32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma, 0x4000);
-    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma, 0x1000);
+    let input_transposed: HbmTensor<i32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma);
+    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -75,9 +75,9 @@ pub fn ve_intra_slice_reduce_min_i32(
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Intra-slice reduce: add (f32)
@@ -86,8 +86,8 @@ pub fn ve_intra_slice_reduce_add_f32(
     ctx: &mut Context,
     input: &HbmTensor<f32, Chip, m![A, R]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_transposed: HbmTensor<f32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma, 0x4000);
-    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma, 0x1000);
+    let input_transposed: HbmTensor<f32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma);
+    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -102,9 +102,9 @@ pub fn ve_intra_slice_reduce_add_f32(
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Intra-slice reduce: max (f32)
@@ -113,8 +113,8 @@ pub fn ve_intra_slice_reduce_max_f32(
     ctx: &mut Context,
     input: &HbmTensor<f32, Chip, m![A, R]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_transposed: HbmTensor<f32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma, 0x4000);
-    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma, 0x1000);
+    let input_transposed: HbmTensor<f32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma);
+    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -129,9 +129,9 @@ pub fn ve_intra_slice_reduce_max_f32(
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Intra-slice reduce: min (f32)
@@ -140,8 +140,8 @@ pub fn ve_intra_slice_reduce_min_f32(
     ctx: &mut Context,
     input: &HbmTensor<f32, Chip, m![A, R]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_transposed: HbmTensor<f32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma, 0x4000);
-    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma, 0x1000);
+    let input_transposed: HbmTensor<f32, Chip, m![R, A]> = input.to_hbm(&mut ctx.tdma);
+    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![R, A % 2]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
         .main
@@ -156,9 +156,9 @@ pub fn ve_intra_slice_reduce_min_f32(
         .vector_widen_pad::<m![A % 2 # 8]>()
         .vector_final()
         .commit_trim::<m![A % 2]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 // =============================================================================
@@ -173,9 +173,8 @@ pub fn ve_intra_slice_reduce_split_slice_time(
     ctx: &mut Context,
     input: &HbmTensor<i32, Chip, m![S, A]>,
 ) -> HbmTensor<i32, Chip, m![S # 16 / 4, A]> {
-    let input_transposed: HbmTensor<i32, Chip, m![S, A]> = input.to_hbm(&mut ctx.tdma, 0x4000);
-    let input_dm =
-        input_transposed.to_dm::<Cluster, m![S # 16 / 4, A / 8], m![S # 16 % 4, A % 8]>(&mut ctx.tdma, 0x1000);
+    let input_transposed: HbmTensor<i32, Chip, m![S, A]> = input.to_hbm(&mut ctx.tdma);
+    let input_dm = input_transposed.to_dm::<Cluster, m![S # 16 / 4, A / 8], m![S # 16 % 4, A % 8]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![S # 16 / 4, A / 8], m![A % 8]> = ctx
         .main
@@ -190,9 +189,9 @@ pub fn ve_intra_slice_reduce_split_slice_time(
         .vector_widen_concat::<m![1], m![A % 8]>()
         .vector_final()
         .commit_trim::<m![A % 8]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Intra-slice reduce with R split across Time and Packet.
@@ -203,8 +202,8 @@ pub fn ve_intra_slice_reduce_split_time_packet(
     ctx: &mut Context,
     input: &HbmTensor<i32, Chip, m![R16, A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_transposed: HbmTensor<i32, Chip, m![A, R16]> = input.to_hbm(&mut ctx.tdma, 0x4000);
-    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![A % 2, R16]>(&mut ctx.tdma, 0x1000);
+    let input_transposed: HbmTensor<i32, Chip, m![A, R16]> = input.to_hbm(&mut ctx.tdma);
+    let input_dm = input_transposed.to_dm::<Cluster, m![A / 2], m![A % 2, R16]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2, 1 # 8]> = ctx
         .main
@@ -219,9 +218,9 @@ pub fn ve_intra_slice_reduce_split_time_packet(
         .vector_widen_pad::<m![1 # 8]>()
         .vector_final()
         .commit_trim::<m![1 # 8]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 // =============================================================================
@@ -237,7 +236,7 @@ pub fn ve_inter_slice_reduce_add_sat_i32(
     ctx: &mut Context,
     input: &HbmTensor<i32, Chip, m![R, A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma, 0x1000);
+    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
         .main
@@ -249,9 +248,9 @@ pub fn ve_inter_slice_reduce_add_sat_i32(
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpI32::AddSat)
         .vector_final()
         .commit_trim::<m![A % 8]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Inter-slice reduce: max (i32), inter-slice reducer-only path.
@@ -260,7 +259,7 @@ pub fn ve_inter_slice_reduce_max_i32(
     ctx: &mut Context,
     input: &HbmTensor<i32, Chip, m![R, A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma, 0x1000);
+    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
         .main
@@ -272,9 +271,9 @@ pub fn ve_inter_slice_reduce_max_i32(
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpI32::Max)
         .vector_final()
         .commit_trim::<m![A % 8]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 /// Inter-slice reduce: add (f32), inter-slice reducer-only path.
@@ -283,7 +282,7 @@ pub fn ve_inter_slice_reduce_add_f32(
     ctx: &mut Context,
     input: &HbmTensor<f32, Chip, m![R, A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma, 0x1000);
+    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
         .main
@@ -295,9 +294,9 @@ pub fn ve_inter_slice_reduce_add_f32(
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .commit_trim::<m![A % 8]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 // =============================================================================
@@ -308,7 +307,7 @@ pub fn ve_inter_slice_reduce_add_f32(
 /// Input [R, A] → inter-slice reducer reduces R → intra-slice chain adds 100 → Output [A]
 #[device(chip = 1)]
 pub fn ve_vru_then_vau_i32(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![R, A]>) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma, 0x1000);
+    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma);
 
     let result: DmTensor<i32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
         .main
@@ -322,9 +321,9 @@ pub fn ve_vru_then_vau_i32(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![R,
         .vector_fxp(FxpBinaryOp::AddFxp, 100)
         .vector_final()
         .commit_trim::<m![A % 8]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }
 
 // =============================================================================
@@ -342,7 +341,7 @@ pub fn ve_inter_slice_reduce_promote_f32(
     ctx: &mut Context,
     input: &HbmTensor<f32, Chip, m![W, R, T, P]>,
 ) -> HbmTensor<f32, Chip, m![W, T, P]> {
-    let input_dm = input.to_dm::<Cluster, m![W, R], m![T, P]>(&mut ctx.tdma, 0x1000);
+    let input_dm = input.to_dm::<Cluster, m![W, R], m![T, P]>(&mut ctx.tdma);
 
     let result: DmTensor<f32, Chip, Cluster, m![W, T], m![P]> = ctx
         .main
@@ -354,7 +353,7 @@ pub fn ve_inter_slice_reduce_promote_f32(
         .vector_inter_slice_reduce::<m![W, T], m![1]>(InterSliceReduceOpF32::Add)
         .vector_final()
         .commit_trim::<m![P]>()
-        .commit(0x2000);
+        .commit();
 
-    result.to_hbm(&mut ctx.tdma, 0x3000)
+    result.to_hbm(&mut ctx.tdma)
 }

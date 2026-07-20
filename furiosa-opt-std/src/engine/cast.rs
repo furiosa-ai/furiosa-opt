@@ -6,13 +6,17 @@
 
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
+use std::marker::PhantomData;
 
+use crate::backend::Backend;
 use crate::cast::Cast;
+use crate::constraints;
 use crate::context::*;
+use crate::engine::CanApplyCast;
 use crate::engine::vector::scalar::VeScalar;
-use crate::engine::{CanApplyCast, FLIT_BYTES};
-use crate::runtime::{Backend, CurrentBackend};
+use crate::runtime::CurrentBackend;
 use crate::scalar::*;
+use crate::tensor::Tensor;
 use crate::tensor::tu::{Position, TuTensor};
 
 /// After the cast engine.
@@ -24,6 +28,27 @@ impl Position for PositionCast {}
 /// Tensor streamed after the cast engine.
 pub type CastTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionCast, D, Chip, Cluster, Slice, Time, Packet, B>;
+
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    CastTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+        constraints::assert_packet_one_flit::<D, Packet>();
+    }
+
+    #[doc(hidden)]
+    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
 
 // ANCHOR: cast_impl
 //
@@ -40,43 +65,14 @@ impl<'l, const T: Tu, P: CanApplyCast, D: VeScalar, Chip: M, Cluster: M, Slice: 
         D: Cast<OutD>,
     {
         verify_cast::<D, OutD, Packet, OutPacket>();
-        CastTensor::new(self.ctx, self.inner.map(|v| v.map(|v| v.cast())).transpose(false))
+        CastTensor::new(self.ctx, self.inner.map(|v| v.cast()).transpose(false))
     }
 }
 // ANCHOR_END: cast_impl
 
-/// Validates cast engine constraints.
-///
-/// Checks:
-/// 1. Input packet must be exactly one flit (32 bytes).
-/// 2. Output packet must be exactly one flit (32 bytes).
-/// 3. The data terms must match (only padding differs).
+/// Validates the Cast engine via [`furiosa_opt_lower::config_cast`] (one-flit in / recast one-flit out
+/// rules documented there).
 fn verify_cast<D: Scalar, OutD: Scalar, InPacket: M, OutPacket: M>() {
-    // Input packet must be exactly one flit.
-    assert_eq!(
-        D::size_in_bytes_from_length(InPacket::SIZE),
-        FLIT_BYTES,
-        "Cast input packet must be exactly {FLIT_BYTES} bytes (one flit): \
-         {} elements = {} bytes",
-        InPacket::SIZE,
-        D::size_in_bytes_from_length(InPacket::SIZE),
-    );
-
-    let out_flit_elements = OutD::length_from_bytes(FLIT_BYTES);
-
-    // Cast elements and pad to 32 bytes.
-    let expected_packet = InPacket::to_value().replace_padding(out_flit_elements).normalize();
-
-    // Output packet must be exactly one flit.
-    let out_packet = OutPacket::to_value().normalize();
-    assert_eq!(
-        OutD::size_in_bytes_from_length(OutPacket::SIZE),
-        FLIT_BYTES,
-        "Cast output packet must be exactly {FLIT_BYTES} bytes (one flit). \
-         Expected: {expected_packet}, got: {out_packet}",
-    );
-    assert_eq!(
-        expected_packet, out_packet,
-        "Cast packet mismatch. Expected: {expected_packet}, got: {out_packet}",
-    );
+    furiosa_opt_lower::config_cast(&InPacket::to_value(), &OutPacket::to_value(), D::BITS, OutD::BITS)
+        .unwrap_or_else(|message| panic!("{message}"));
 }

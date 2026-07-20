@@ -13,8 +13,8 @@ pub fn transpose_simple(
     input: &HbmTensor<f32, Chip, m![A, B, C]>,
 ) -> HbmTensor<f32, Chip, m![C, A, B]> {
     // transpose: [A, B, C] -> [A, C, B]
-    let intermediate: HbmTensor<f32, Chip, m![A, C, B]> = input.to_hbm(&mut ctx.tdma, 0);
+    let intermediate: HbmTensor<f32, Chip, m![A, C, B]> = input.to_hbm(&mut ctx.tdma);
 
     // transpose: [A, C, B] -> [C, A, B]
-    intermediate.to_hbm(&mut ctx.tdma, 0x1000)
+    intermediate.to_hbm(&mut ctx.tdma)
 }

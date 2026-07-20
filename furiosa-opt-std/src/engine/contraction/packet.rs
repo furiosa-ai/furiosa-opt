@@ -6,18 +6,19 @@
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
+use crate::backend::Backend;
 use crate::cast::ContractionCast;
 use crate::context::*;
+use crate::engine::contraction::ContractPacketTensor;
 use crate::engine::contraction::outer::ContractOuterTensor;
-use crate::engine::contraction::{ContractPacketTensor, TEMPORAL_ACCUMULATOR_COLS};
-use crate::runtime::Backend;
 use crate::scalar::*;
 
 // ANCHOR: contract_packet_def
 impl<
     'l,
     const T: Tu,
-    D: Scalar + ContractionCast,
+    D: Scalar,
+    Storage: ContractionCast<Output = D>,
     Chip: M,
     Cluster: M,
     Slice: M,
@@ -25,61 +26,29 @@ impl<
     Time: M,
     Packet: M,
     B: Backend,
-> ContractOuterTensor<'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B>
+> ContractOuterTensor<'l, T, D, Storage, Chip, Cluster, Slice, Lane, Time, Packet, B>
 {
-    /// Spatial reduction within `Packet`: reduce-add along the contracted axes inside `Packet`
-    /// of the product already produced by the Outer stage.
-    /// The product type is the widened contraction output type: `i4`/`i8` -> `i32`, `f8`/`bf16` -> `f32`.
+    /// Spatial reduction within `Packet`: validates the reduce-add along the contracted axes inside
+    /// `Packet` that the fused fold at `contract_lane` will perform. `D` is the widened accumulator the
+    /// deferred carrier stays keyed on; the DPE input packet is still sized in `Storage` bytes.
     #[primitive(ContractOuterTensor::contract_packet)]
     pub fn contract_packet<OutPacket: M>(
         self,
-    ) -> ContractPacketTensor<'l, T, <D as ContractionCast>::Output, Chip, Cluster, Slice, Lane, Time, OutPacket, B>
-    {
-        verify_contract_packet::<D, Packet, OutPacket>();
-        ContractPacketTensor {
-            ctx: self.ctx,
-            inner: self.inner.reduce_add(),
-        }
+    ) -> ContractPacketTensor<'l, T, D, Chip, Cluster, Slice, Lane, Time, OutPacket, B> {
+        verify_contract_packet::<Storage, Packet, OutPacket>();
+        // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
+        // performs this Packet reduction too. This stage only re-types the carrier to `OutPacket`.
+        ContractPacketTensor::new(self.ctx, self.inner)
     }
 }
 // ANCHOR_END: contract_packet_def
 
-/// Validates the Packet Reducer.
-///
-/// Checks:
-/// 1. `Packet` should be 32 or 64 bytes (mirroring the Outer stage's `OutPacket`).
-/// 2. `OutPacket::SIZE` should be a power of two and at most
-///    `TEMPORAL_ACCUMULATOR_COLS` and be obtainable from `Packet` by splitting
-///    at a power-of-two sized boundary.
-pub(crate) fn verify_contract_packet<D: Scalar, Packet: M, OutPacket: M>() {
-    let packet_size = D::size_in_bytes_from_length(Packet::SIZE);
-    assert!(
-        [32, 64].contains(&packet_size),
-        "Packet must be 32 or 64 bytes, got {packet_size} bytes"
-    );
-
-    assert!(
-        OutPacket::SIZE <= TEMPORAL_ACCUMULATOR_COLS,
-        "OutPacket::SIZE must be at most {TEMPORAL_ACCUMULATOR_COLS}, got {}",
-        OutPacket::SIZE
-    );
-
-    assert!(
-        OutPacket::SIZE.is_power_of_two(),
-        "OutPacket::SIZE must be a power of two, got {}",
-        OutPacket::SIZE
-    );
-
-    let packet = Packet::to_value();
-    let out_packet = OutPacket::to_value().remove_padding().normalize();
-
-    assert!(
-        (0..=Packet::SIZE.trailing_zeros()).rev().any(|depth| {
-            let split = 1 << depth;
-            packet.clone().split_at(split).0.remove_padding().normalize() == out_packet
-        }),
-        "OutPacket {out_packet} is not a valid contraction of Packet {packet}",
-    );
+/// Validates the Packet Reducer via [`furiosa_opt_lower::config_contract_packet`] (size / power-of-two /
+/// contraction rules documented there). The packet size is taken in `Storage` (pre-widen) bytes: the
+/// DPE reads storage-width input flits, not accumulator-width.
+pub(crate) fn verify_contract_packet<Storage: Scalar, Packet: M, OutPacket: M>() {
+    furiosa_opt_lower::config_contract_packet(&Packet::to_value(), &OutPacket::to_value(), Storage::BITS)
+        .unwrap_or_else(|message| panic!("{message}"));
 }
 
 #[cfg(test)]

@@ -42,14 +42,14 @@ This pass applies ReLU elementwise, computing \\(output[b, k, m, n] = \max(input
 # #![feature(adt_const_params)]
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
-axes![B = 2, K = 256, M = 128, N = 256];
+axes![B = 2, K = 256, M = 16, N = 16];
 
 // ReLU activation after batched matrix multiplication.
 // Chain-only pass, so the reducer is skipped and the path trivially resolves to IntraFirst.
 // Both clusters (B = 2) and all 256 slices (K) carry real data, no padding.
 fn relu<'l, const T: Tu>(
-    input: ContractTensor<'l, T, f32, m![1], m![B], m![K], m![M], m![N]>,
-) -> VectorFinalTensor<'l, T, f32, m![1], m![B], m![K], m![M], m![N]> {
+    input: ContractTensor<'l, T, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]>,
+) -> VectorFinalTensor<'l, T, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]> {
     input
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
@@ -57,6 +57,11 @@ fn relu<'l, const T: Tu>(
         .vector_clip(ClipBinaryOpF32::Max, 0.0f32)
         .vector_final()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: ContractTensor<'_, _, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]> = ContractTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = relu(c);
 ```
 
 ### ReLU Then Reduce
@@ -84,6 +89,11 @@ fn relu_then_reduce<'l, const T: Tu>(
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpI32::AddSat)
         .vector_final()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = relu_then_reduce(c);
 ```
 
 ### Reduce Then Bias
@@ -111,6 +121,11 @@ fn reduce_then_add<'l, const T: Tu>(
         .vector_fxp(FxpBinaryOp::AddFxp, 100)
         .vector_final()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = reduce_then_add(c);
 ```
 
 ### Intra- and Inter-Slice Reduction
@@ -143,6 +158,11 @@ fn full_sum<'l, const T: Tu>(
         .vector_inter_slice_reduce::<m![1 # 256], m![1]>(InterSliceReduceOpI32::AddSat)
         .vector_final()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![R / 32], m![R % 32 / 4], m![R % 4 # 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = full_sum(c);
 ```
 
 ### Pair Add
@@ -169,4 +189,9 @@ fn pair_add<'l, const T: Tu>(
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = pair_add(c);
 ```

@@ -15,5 +15,4 @@ accepted = [
 private = { ignore = true }
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
-filter-noassertion = true
 workarounds = ["unicode-ident"]

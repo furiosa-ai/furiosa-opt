@@ -23,7 +23,7 @@ furiosa-opt/
 
 ### Prerequisites
 
-`simulation` and `typecheck` are pure Rust and build on any host arch (e.g. macOS
+`emulation` and `typecheck` are pure Rust and build on any host arch (e.g. macOS
 Apple silicon); the only build dependency is `bindgen`'s `libclang`. The `npu`
 backend is `x86_64-unknown-linux-gnu` only — the SDK and NPU hardware run there.
 

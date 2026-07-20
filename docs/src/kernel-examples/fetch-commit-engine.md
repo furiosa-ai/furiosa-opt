@@ -12,16 +12,16 @@ This example demonstrates tensor reshaping by permuting axes during a fetch-comm
 ```rust,ignore
 axes![A = 3, B = 5, C = 2];
 
-// Input: shape [A, B, C] at address 0
+// Input: shape [A, B, C]
 let input: DmTensor<f8, m![1], m![1], m![1], m![A, B, C]> = ...;
 
-// Output: shape [B, A, C] at address 1024 (permuted layout)
+// Output: shape [B, A, C] (permuted layout)
 let output: DmTensor<f8, m![1], m![1], m![1], m![B, A, C # 6]> = ctx
     .main
     .begin(input.view())
     .fetch::<m![A, B], m![C # 6]>()           // Time=[A,B], Packet=[C] padded to 8 bytes
     .collect::<m![A, B], m![C # 30]>()        // Pad to 32-byte flit (forwarding switch implied)
-    .commit(1024);                            // Write with permuted sequencer config
+    .commit();                                // Write with permuted sequencer config
 ```
 
 #### Input Tensor
@@ -147,7 +147,7 @@ let output: DmTensor<f8, m![1], m![1], m![1], m![A, [B, C] # 22]> = ctx
     .begin(input.view())
     .fetch::<m![A], m![[B, C] # 22]>()        // Time=[A], Packet=[B,C] padded to 32 bytes
     .collect::<m![A], m![[B, C] # 22]>()      // Already 32-byte flit, identity collect
-    .commit(1024);                            // Full-flit commit: 3 cycles vs 15 in Example 1
+    .commit();                                // Full-flit commit: 3 cycles vs 15 in Example 1
 ```
 
 #### Input Tensor
@@ -237,14 +237,14 @@ let out_7: DmTensor<f8, m![1], m![1], m![1], m![B, A # 72]> = ctx.main
     .begin(input.view())
     .fetch::<m![B * (A # 72) / 24], m![A % 24]>()
     .collect::<m![B * (A # 72) / 24], m![A % 24 # 8]>()
-    .commit(1024);
+    .commit();
 
 // Option 2: dummy=31, fetch_size=32 bytes, 6 cycles (best performance)
 let out_31: DmTensor<f8, m![1], m![1], m![1], m![B, A # 96]> = ctx.main
     .begin(input.view())
     .fetch::<m![B * (A # 96) / 32], m![A % 32]>()
     .collect::<m![B * (A # 96) / 32], m![A % 32]>()
-    .commit(1024);
+    .commit();
 ```
 
 In the mapping expression `m![A # 72]`, the `# 72` pads `A` up to 72 elements.
@@ -412,14 +412,14 @@ let seg_0: DmTensor<f8, m![1], m![1], m![1], m![A % 1024, B]> = ctx.main
     .begin(input.view().slice(A, 0..1024))
     .fetch::<m![A % 1024], m![B]>()
     .collect::<m![A % 1024], m![B]>()
-    .commit(256 * 1024);  // Write to 256K
+    .commit();
 
 // Execution #1: second half of A
 let seg_1: DmTensor<f8, m![1], m![1], m![1], m![A @ 1024, B]> = ctx.main
     .begin(input.view().slice(A, 1024..2048))
     .fetch::<m![A @ 1024], m![B]>()
     .collect::<m![A @ 1024], m![B]>()
-    .commit(256 * 1024 + 32 * 1024);  // Write to 256K + 32K
+    .commit();
 ```
 
 #### The Problem

@@ -11,25 +11,25 @@ async fn test_mnist() {
 
     let w1 = HostTensor::<bf16, m![H, X]>::from_safetensors(&model.tensor("hw.fc1.weight").unwrap())
         .unwrap()
-        .to_hbm(&mut ctx.pdma, 0x0000_0000)
+        .to_hbm(&mut ctx.pdma)
         .await;
     let b1 = HostTensor::<bf16, m![H]>::from_safetensors(&model.tensor("fc1.bias").unwrap())
         .unwrap()
-        .to_hbm(&mut ctx.pdma, 0x1000_0000)
+        .to_hbm(&mut ctx.pdma)
         .await;
     let w2 = HostTensor::<bf16, m![C, H]>::from_safetensors(&model.tensor("hw.fc2.weight").unwrap())
         .unwrap()
-        .to_hbm(&mut ctx.pdma, 0x2000_0000)
+        .to_hbm(&mut ctx.pdma)
         .await;
     let b2 = HostTensor::<bf16, m![C]>::from_safetensors(&model.tensor("hw.fc2.bias").unwrap())
         .unwrap()
-        .to_hbm(&mut ctx.pdma, 0x3000_0000)
+        .to_hbm(&mut ctx.pdma)
         .await;
 
     for i in 0..10 {
         let img = HostTensor::<bf16, m![X]>::from_safetensors(&model.tensor(&format!("hw.image_{i}")).unwrap())
             .unwrap()
-            .to_hbm(&mut ctx.pdma, 0x4000_0000)
+            .to_hbm(&mut ctx.pdma)
             .await;
 
         let logits = launch(forward, (&mut *ctx, &img, &w1, &b1, &w2, &b2))
@@ -37,7 +37,7 @@ async fn test_mnist() {
             .to_host::<m![C]>(&mut ctx.pdma)
             .await;
 
-        let buf = logits.to_buf();
+        let buf = logits.into_vec();
         let predicted = buf
             .iter()
             .take(10)

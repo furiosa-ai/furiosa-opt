@@ -4,14 +4,19 @@
 //! through unchanged — use [`super::collect`] afterwards to normalize the packet
 //! to flit-sized chunks.
 
+use std::marker::PhantomData;
+
 use furiosa_mapping::*;
 use furiosa_opt_lower::config_switch;
 use furiosa_opt_macro::primitive;
 
+use crate::backend::Backend;
+use crate::constraints;
 use crate::context::*;
 use crate::engine::CanApplySwitch;
-use crate::runtime::{Backend, CurrentBackend};
+use crate::runtime::CurrentBackend;
 use crate::scalar::*;
+use crate::tensor::Tensor;
 use crate::tensor::tu::{Position, TuTensor};
 
 /// After the switch engine.
@@ -28,6 +33,27 @@ pub type SwitchTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B 
 /// the lowering `config_switch`, so the FMapping divide-algebra the `CustomBroadcast` case needs
 /// stays off the public engine surface.
 pub use furiosa_opt_lower::SwitchConfig;
+
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    SwitchTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+        constraints::assert_packet_aligned_by_access_width::<D, Packet>();
+    }
+
+    #[doc(hidden)]
+    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
+        Self {
+            ctx,
+            inner,
+            _position: PhantomData,
+        }
+    }
+}
 
 // ANCHOR: switch_impl
 impl<'l, const T: Tu, P: CanApplySwitch, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>

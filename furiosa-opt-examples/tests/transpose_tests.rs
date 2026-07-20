@@ -17,13 +17,13 @@ async fn test_transpose_simple() {
     let total = 8 * 16 * 32;
     let input_data: Vec<f32> = (0..total).map(|x| x as f32).collect();
 
-    let hbm_input: HbmTensor<f32, m![1], m![A, B, C]> = HostTensor::<f32, m![A, B, C]>::from_buf(input_data.clone())
-        .to_hbm::<m![1], m![A, B, C]>(&mut ctx.pdma, 0x0)
+    let hbm_input: HbmTensor<f32, m![1], m![A, B, C]> = HostTensor::<f32, m![A, B, C]>::from_vec(input_data.clone())
+        .to_hbm::<m![1], m![A, B, C]>(&mut ctx.pdma)
         .await;
 
     let output = launch(transpose_simple, (&mut *ctx, &hbm_input)).await;
 
-    let actual = output.to_host::<m![C, A, B]>(&mut ctx.pdma).await.into_raw();
+    let actual = output.to_host::<m![C, A, B]>(&mut ctx.pdma).await.into_inner();
 
     let mut expected = vec![0f32; total];
     let mut idx = 0;
@@ -35,8 +35,5 @@ async fn test_transpose_simple() {
             }
         }
     }
-    assert_eq!(
-        actual,
-        <CurrentBackend as Backend>::RawTensor::from_buf::<m![C, A, B]>(expected)
-    );
+    assert_eq!(actual, Tensor::<_, m![C, A, B], CurrentBackend>::from_vec(expected));
 }

@@ -15,7 +15,7 @@ fn contraction_over_b_2048(
     out: DmTensorViewMut<'_, i8, Chip, Cluster, m![A / 2048, X], m![C % 64, A % 2048, C / 64 % 8]>,
 ) {
     // Load lhs into data memory.
-    let lhs = lhs.to_dm::<Cluster, m![A / 64], m![A % 64, B % 2048]>(&mut ctx.tdma, 0);
+    let lhs = lhs.to_dm::<Cluster, m![A / 64], m![A % 64, B % 2048]>(&mut ctx.tdma);
     let lhs: DmTensor<i8, Chip, Cluster, m![A / 2048, B / 64 % 32], m![A % 2048, B % 64]> = ctx
         .main
         .begin(lhs.view())
@@ -27,11 +27,11 @@ fn contraction_over_b_2048(
         })
         .collect::<m![A % 64, B / 32 % 2, A / 64 % 32], m![B % 32]>()
         .commit_trim::<m![B % 32]>()
-        .commit(128 * 1024);
+        .commit();
 
     // Load rhs into TRF.
     // first TensorUnit execution: apply custom broadcast to match Slice shape
-    let rhs = rhs.to_dm::<Cluster, m![B / 8 % 256], m![B % 8, C % 512]>(&mut ctx.tdma, 256 * 1024);
+    let rhs = rhs.to_dm::<Cluster, m![B / 8 % 256], m![B % 8, C % 512]>(&mut ctx.tdma);
     let rhs = ctx
         .main
         .begin(rhs.view())
@@ -43,7 +43,7 @@ fn contraction_over_b_2048(
         })
         .collect::<m![B % 8, C / 32 % 16, B / 8 % 8], m![C % 32]>()
         .commit_trim::<m![C % 32]>()
-        .commit::<m![B % 64, C % 512]>(260 * 1024);
+        .commit::<m![B % 64, C % 512]>();
     // second TensorUnit execution: apply TransposeEngine to match Element shape
     let rhs: DmTensor<i8, Chip, Cluster, m![A / 2048, B / 64 % 32], m![C % 512, B % 64]> = ctx
         .main
@@ -52,21 +52,21 @@ fn contraction_over_b_2048(
         .collect::<m![C / 8 % 64, B % 64], m![C % 8 # 32]>()
         .transpose::<m![C / 8 % 64, B / 8 % 8, C % 8], m![B % 8 # 32]>()
         .commit_trim::<m![B % 8 # 32]>()
-        .commit(292 * 1024);
+        .commit();
     // Loading into TRF. TRF is 64KB per slice, 32KB when using half mode.
     let rhs: TrfTensor<i8, Chip, Cluster, m![A / 2048, B / 64 % 32], m![C / 64 % 8], m![C % 64, B % 64]> = ctx
         .sub
         .begin(rhs.view())
         .fetch::<m![C % 512], m![B % 64]>()
         .collect::<m![C % 512, B % 64 / 32], m![B % 32]>()
-        .to_trf(TrfAddress::Full);
+        .to_trf();
 
     // Perform contraction.
     ctx.main
         .begin(lhs.view())
         .fetch::<m![C % 64, A % 2048, B / 32 % 2], m![B % 32]>()
         .collect::<m![C % 64, A % 2048, B / 32 % 2], m![B % 32]>()
-        .contract_outer::<m![C % 64, A % 2048], m![B % 64], _, _>(&rhs)
+        .contract_outer::<m![C % 64, A % 2048], m![B % 64], _, _, _>(&rhs)
         .contract_packet::<m![1]>()
         .contract_time::<m![C % 64, A % 2048]>()
         .contract_lane::<m![C % 64, A % 2048], m![C / 64 % 8]>(LaneMode::Interleaved)
@@ -209,7 +209,7 @@ pub fn matmul_16384(
         let reduced = reduce_over_cluster(ctx, &result1);
 
         // write back to HBM.
-        let out_tile = out.view_mut().tile::<m![C / 512], 1, m![A, 1 # 32, C % 512]>(i);
+        let out_tile = out.view_mut().tile::<m![C / 512], 1, m![A, 1 #{!} 32, C % 512]>(i);
         reduced
             .view()
             .slice_tile::<m![X], 1, m![A / 2048, 1 # 32]>(0)

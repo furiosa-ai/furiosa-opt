@@ -8,8 +8,8 @@ async fn test_fetch_commit_simple_host() {
     let mut ctx = Context::acquire();
 
     // Create input tensor with shape (A=4096)(B=8).
-    let input = HostTensor::<i8, m![A, B]>::from_buf((0..32768).map(|x| x as i8).collect::<Vec<_>>())
-        .to_hbm::<m![1], m![A, B]>(&mut ctx.pdma, 0)
+    let input = HostTensor::<i8, m![A, B]>::from_vec((0..32768).map(|x| x as i8).collect::<Vec<_>>())
+        .to_hbm::<m![1], m![A, B]>(&mut ctx.pdma)
         .await;
 
     // Call the device function.
@@ -25,7 +25,7 @@ async fn test_fetch_commit_simple_host() {
     }
 
     assert_eq!(
-        output.to_host::<m![B, A]>(&mut ctx.pdma).await.into_raw(),
-        <CurrentBackend as Backend>::RawTensor::from_buf::<m![B, A]>(expected)
+        output.to_host::<m![B, A]>(&mut ctx.pdma).await.into_inner(),
+        Tensor::<_, m![B, A], CurrentBackend>::from_vec(expected)
     );
 }

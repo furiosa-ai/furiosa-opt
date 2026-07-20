@@ -17,30 +17,36 @@ For example, the kernel below reduces a 2D tensor along `B` (surviving only `A`)
 # #![feature(adt_const_params)]
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
-axes![A = 2048, B = 8];
+axes![A = 2048, B = 32];
 
 /// Reduces along B; A survives.
 fn reduce_b<'l, const T: Tu>(
     // Streaming operand: Slice = m![A / 8] (256 outer A chunks across slices).
-    // Time = m![B / 4, A % 8]; Packet = m![B % 4].
-    // B splits across Packet (B % 4) and Time (B / 4): each cycle produces a partial sum.
-    input: CollectTensor<'l, T, bf16, m![1], m![1], m![A / 8], m![B / 4, A % 8], m![B % 4]>,
+    // Time = m![B / 16, A % 8]; Packet = m![B % 16].
+    // B splits across Packet (B % 16) and Time (B / 16): each cycle produces a partial sum.
+    input: CollectTensor<'l, T, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]>,
     // TRF operand: single-lane weight per slice.
-    trf: &TrfTensor<bf16, m![1], m![1], m![A / 8], m![1], m![B]>,
+    trf: &TrfTensor<bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]>,
     // Output: one f32 per (slice, A % 8) cell.
-) -> ContractTensor<'l, T, f32, m![1], m![1], m![A / 8], m![A % 8], m![1]> {
+) -> ContractTensor<'l, T, f32, m![1], m![1 # 2], m![A / 8], m![A % 8], m![1 # 8]> {
     input
-         // Outer: Lane = m![1], OutTime = m![B / 4, A % 8], OutPacket = m![B % 4].
-         .contract_outer::<m![B / 4, A % 8], m![B % 4], _, _>(trf)
-         // Packet Reducer: OutPacket = m![1]. Collapses B % 4 spatially.
+         // Outer: Lane = m![1], OutTime = m![B / 16, A % 8], OutPacket = m![B % 16].
+         .contract_outer::<m![B / 16, A % 8], m![B % 16], _, _, _>(trf)
+         // Packet Reducer: OutPacket = m![1]. Collapses B % 16 spatially.
          .contract_packet::<m![1]>()
          // Time Reducer: OutTime = m![A % 8]. Accumulator receives
-         // Time::SIZE = (B / 4) × (A % 8) = 2 × 8 = 16 flits; B / 4 outer
+         // Time::SIZE = (B / 16) × (A % 8) = 2 × 8 = 16 flits; B / 16 outer
          // chunks accumulate into 8 slots indexed by A % 8.
          .contract_time::<m![A % 8]>()
          // Lane Folder: Lane folds into OutPacket. Sequential mode (Lane = m![1]).
-         .contract_lane::<m![A % 8], m![1]>(LaneMode::Sequential)
+         .contract_lane::<m![A % 8], m![1 # 8]>(LaneMode::Sequential)
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]> = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+# let _o = reduce_b(a, &b);
 ```
 
 ## Architecture

@@ -10,34 +10,34 @@ fn fc1_matmul(
     input: &HbmTensor<bf16, Chip, m![X]>,
     weight: &HbmTensor<bf16, Chip, m![H, X]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![H], m![1 # 16]> {
-    let input_dm: DmTensor<bf16, Chip, Cluster, m![H], m![X]> = input.to_dm(&mut ctx.tdma, 0);
-    let weight_dm: DmTensor<bf16, Chip, Cluster, m![H], m![X]> = weight.to_dm(&mut ctx.tdma, 0x10000);
+    let input_dm: DmTensor<bf16, Chip, Cluster, m![H], m![X]> = input.to_dm(&mut ctx.tdma);
+    let weight_dm: DmTensor<bf16, Chip, Cluster, m![H], m![X]> = weight.to_dm(&mut ctx.tdma);
 
     let input_trf: TrfTensor<bf16, Chip, Cluster, m![H], m![1], m![X]> = ctx
         .sub
         .begin(input_dm.view())
         .fetch::<m![1], m![X]>()
         .collect::<m![X / 16], m![X % 16]>()
-        .to_trf(TrfAddress::Full);
+        .to_trf();
 
     ctx.main
         .begin(weight_dm.view())
         .fetch::<m![X / 16], m![X % 16]>()
         .collect::<m![X / 16], m![X % 16]>()
-        .contract_outer::<m![X / 32], m![X % 32], _, _>(&input_trf)
+        .contract_outer::<m![X / 32], m![X % 32], _, _, _>(&input_trf)
         .contract_packet::<m![1]>()
         .contract_time::<m![1]>()
         .contract_lane::<m![1], m![1 # 8]>(LaneMode::Interleaved)
         .cast::<bf16, m![1 # 16]>()
         .commit_trim::<m![1 # 16]>()
-        .commit(0x20000)
+        .commit()
 }
 
 fn fc1_bias_prepared(
     ctx: &mut Context,
     bias: &HbmTensor<bf16, Chip, m![H]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![H], m![1 # 16]> {
-    let bias_dm_0: DmTensor<bf16, Chip, Cluster, m![H / 8, 1 # 8], m![H % 8]> = bias.to_dm(&mut ctx.tdma, 0x30000);
+    let bias_dm_0: DmTensor<bf16, Chip, Cluster, m![H / 8, 1 # 8], m![H % 8]> = bias.to_dm(&mut ctx.tdma);
     let bias_dm_1: DmTensor<bf16, Chip, Cluster, m![H / 8, 1 # 8], m![H % 8, 1 # 8]> = ctx
         .main
         .begin(bias_dm_0.view())
@@ -45,7 +45,7 @@ fn fc1_bias_prepared(
         .collect::<m![1], m![H % 8 # 16]>()
         .transpose::<m![H % 8], m![1 # 16]>()
         .commit_trim::<m![1 # 8]>()
-        .commit(0x30000);
+        .commit();
     let bias_dm_2: DmTensor<bf16, Chip, Cluster, m![H / 8, Dummy8], m![H % 8, 1 # 8]> = unsafe { bias_dm_1.reshape() };
     let bias_dm_3: DmTensor<bf16, Chip, Cluster, m![H], m![Dummy8 # 16]> = ctx
         .main
@@ -59,7 +59,7 @@ fn fc1_bias_prepared(
         .collect::<m![Dummy8], m![1 # 16]>()
         .transpose::<m![Dummy8 / 4], m![Dummy8 % 4 # 16]>()
         .commit_trim::<m![Dummy8 % 4]>()
-        .commit(0x20000);
+        .commit();
 
     unsafe { bias_dm_3.reshape() }
 }
@@ -85,7 +85,7 @@ fn fc1_relu(
         .vector_final()
         .cast::<bf16, m![1 # 16]>()
         .commit_trim::<m![1 # 4]>()
-        .commit(0x20000)
+        .commit()
 }
 
 fn fc2_matmul(
@@ -94,26 +94,26 @@ fn fc2_matmul(
     weight: &HbmTensor<bf16, Chip, m![C, H]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1 # 16]> {
     let input_dm: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![H]> = fc2_input_prepared(ctx, input);
-    let weight_dm: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![H]> = weight.to_dm(&mut ctx.tdma, 0x50000);
+    let weight_dm: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![H]> = weight.to_dm(&mut ctx.tdma);
 
     let input_trf: TrfTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1], m![H]> = ctx
         .sub
         .begin(input_dm.view())
         .fetch::<m![1], m![H]>()
         .collect::<m![H / 16], m![H % 16]>()
-        .to_trf(TrfAddress::Full);
+        .to_trf();
 
     ctx.main
         .begin(weight_dm.view())
         .fetch::<m![H / 16], m![H % 16]>()
         .collect::<m![H / 16], m![H % 16]>()
-        .contract_outer::<m![H / 32], m![H % 32], _, _>(&input_trf)
+        .contract_outer::<m![H / 32], m![H % 32], _, _, _>(&input_trf)
         .contract_packet::<m![1]>()
         .contract_time::<m![1]>()
         .contract_lane::<m![1], m![1 # 8]>(LaneMode::Interleaved)
         .cast::<bf16, m![1 # 16]>()
         .commit_trim::<m![1 # 16]>()
-        .commit(0x60000)
+        .commit()
 }
 
 fn fc2_input_prepared(
@@ -127,14 +127,14 @@ fn fc2_input_prepared(
         .collect::<m![H], m![1 # 16]>()
         .transpose::<m![H / 4], m![H % 4 # 16]>()
         .commit_trim::<m![H % 4]>()
-        .commit(0x40000)
+        .commit()
 }
 
 fn fc2_bias_prepared(
     ctx: &mut Context,
     bias: &HbmTensor<bf16, Chip, m![C]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1 # 16]> {
-    let bias_dm_0: DmTensor<bf16, Chip, Cluster, m![1 # 16, 1 # 16], m![C]> = bias.to_dm(&mut ctx.tdma, 0x70000);
+    let bias_dm_0: DmTensor<bf16, Chip, Cluster, m![1 # 16, 1 # 16], m![C]> = bias.to_dm(&mut ctx.tdma);
     let bias_dm_1: DmTensor<bf16, Chip, Cluster, m![Dummy16, 1 # 16], m![C]> = unsafe { bias_dm_0.reshape() };
     let bias_dm_2: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![Dummy16]> = ctx
         .main
@@ -148,7 +148,7 @@ fn fc2_bias_prepared(
         .collect::<m![Dummy16], m![1 # 16]>()
         .transpose::<m![Dummy16 / 4], m![Dummy16 % 4 # 16]>()
         .commit_trim::<m![Dummy16 % 4]>()
-        .commit(0x71000);
+        .commit();
     unsafe { bias_dm_2.reshape() }
 }
 
@@ -173,9 +173,9 @@ fn fc2(
         .vector_final()
         .cast::<bf16, m![1 # 16]>()
         .commit_trim::<m![1 # 16]>()
-        .commit(0x60000);
+        .commit();
 
-    logits.to_hbm(&mut ctx.tdma, 0x1100_0000)
+    logits.to_hbm(&mut ctx.tdma)
 }
 
 #[device(chip = 1)]

@@ -19,7 +19,7 @@ mod transpose;
 
 pub use commit::{COMMIT_VALID_PACKET_SIZES, CommitError};
 pub use divide::{DivideTerm, FactorLeaf, RelaxedDivision};
-pub use fetch::{FETCH_ALIGN_BYTES, FetchError};
+pub use fetch::FetchError;
 pub use sequencer::{MAX_SEQUENCER_ENTRIES, StreamSequencerConfig};
 pub use switch::SwitchConfig;
 pub use transpose::TransposeConfig;

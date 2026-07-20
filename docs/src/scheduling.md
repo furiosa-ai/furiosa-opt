@@ -149,7 +149,7 @@ let mut trf = ctx.sub
     .begin(weights[0].view())
     .fetch::<...>()
     .collect::<...>()
-    .to_trf(TrfAddress::FirstHalf);
+    .to_trf_at(TrfAddress::FirstHalf);
 
 for i in 0..N {
     // While main reads the current half, sub preloads the next batch into the other half.
@@ -159,7 +159,7 @@ for i in 0..N {
             .begin(weights[i + 1].view())
             .fetch::<...>()
             .collect::<...>()
-            .to_trf(other_half)
+            .to_trf_at(other_half)
     });
 
     ctx.main.begin(input[i].view()).contract_outer::<...>(&trf)...;

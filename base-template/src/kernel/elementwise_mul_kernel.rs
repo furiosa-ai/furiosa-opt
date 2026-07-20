@@ -12,9 +12,9 @@ pub fn elementwise_mul_kernel(
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    // Move both operands from HBM to DM; use distinct base addresses to avoid overlap
-    let lhs_dm = lhs.to_dm::<Cluster, Slice, m![A % 8]>(&mut ctx.tdma, 0);
-    let rhs_dm = rhs.to_dm::<Cluster, Slice, m![A % 8]>(&mut ctx.tdma, 1 << 12);
+    // Move both operands from HBM to DM (DM placement is assigned automatically).
+    let lhs_dm = lhs.to_dm::<Cluster, Slice, m![A % 8]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, Slice, m![A % 8]>(&mut ctx.tdma);
 
     // Sub context: load rhs into VRF (runs concurrently with the main context below).
     // VRF holds a per-slice operand that the Vector Engine reads every cycle.
@@ -23,7 +23,7 @@ pub fn elementwise_mul_kernel(
         .begin(rhs_dm.view())
         .fetch::<m![1], m![A % 8]>()
         .collect::<m![A % 8 / 8], m![A % 8 % 8]>()
-        .to_vrf(0);
+        .to_vrf();
 
     // Main context: multiply every lhs element by its rhs counterpart from VRF
     let result = ctx
@@ -37,7 +37,7 @@ pub fn elementwise_mul_kernel(
         .vector_fxp(FxpBinaryOp::MulInt, &rhs_vrf)
         .vector_final()
         .commit_trim::<m![A % 8]>()
-        .commit::<m![A % 8]>(1 << 13);
+        .commit::<m![A % 8]>();
 
-    result.to_hbm(&mut ctx.tdma, 1 << 28)
+    result.to_hbm(&mut ctx.tdma)
 }

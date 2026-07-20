@@ -21,17 +21,23 @@ The kernel below uses all 8 lanes in parallel: tree depth 5 sums over the 32 `bf
 axes![A = 32, B = 32, C = 8];
 
 fn matmul<'l, const T: Tu>(
-    input: CollectTensor<'l, T, bf16, m![1], m![1], m![1], m![A, B / 16], m![B % 16]>,
-    trf: &TrfTensor<bf16, m![1], m![1], m![1], m![C], m![B]>,
-) -> ContractTensor<'l, T, f32, m![1], m![1], m![1], m![A], m![C]> {
+    input: CollectTensor<'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]>,
+    trf: &TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]>,
+) -> ContractTensor<'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![A], m![C]> {
     //
     // Spatial reduction: tree depth 5 reduces 32 bf16 elements along B → f32
     // Output (Interleaved): Time = [A], Packet = [C]
-    input.contract_outer::<m![A], m![B], _, _>(&trf)
+    input.contract_outer::<m![A], m![B], _, _, _>(&trf)
          .contract_packet::<m![1]>()
          .contract_time::<m![A]>()
          .contract_lane::<m![A], m![C]>(LaneMode::Interleaved)
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]> = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+# let _o = matmul(a, &b);
 ```
 
 ## Architecture

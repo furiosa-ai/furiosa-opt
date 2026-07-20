@@ -78,6 +78,11 @@ fn inter_slice_add<'l, const T: Tu>(
         .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpI32::AddSat)
         .vector_final()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = inter_slice_add(c);
 ```
 
 ```text
@@ -107,6 +112,11 @@ fn broadcast_into_x<'l, const T: Tu>(
         .vector_inter_slice_reduce::<m![W, X], m![1]>(InterSliceReduceOpF32::Add)
         .vector_final()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, f32, m![1], m![B], m![W, R], m![1], m![P]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = broadcast_into_x(c);
 ```
 
 ```text
@@ -136,6 +146,11 @@ fn axis_promotion<'l, const T: Tu>(
         .vector_inter_slice_reduce::<m![W, V], m![S, U]>(InterSliceReduceOpF32::Add)
         .vector_final()
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let c: CollectTensor<'_, _, f32, m![1], m![B], m![W, R], m![S, V, U], m![P]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = axis_promotion(c);
 ```
 
 ```text

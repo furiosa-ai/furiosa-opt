@@ -81,22 +81,28 @@ The example below exercises both operations: Packing absorbs the innermost size-
 axes![M = 32, N = 8, K = 16, L = 2, B = 5];
 
 fn stream_adapter_example<'l, const T: Tu>(
-    input: CollectTensor<'l, { T }, bf16, m![1], m![1], m![1], m![M, L], m![K]>,
-    trf: &TrfTensor<bf16, m![1], m![1], m![1], m![N], m![B, L, K]>,
-) -> ContractOuterTensor<'l, { T }, bf16, m![1], m![1], m![1], m![N], m![M, B], m![L, K]> {
+    input: CollectTensor<'l, { T }, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]>,
+    trf: &TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]>,
+) -> ContractOuterTensor<'l, { T }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M, B], m![L, K]> {
     // Packing (PackSize = 2):
     //   L = 2 (innermost Time) absorbed into Packet.
     //   PackTime = [M = 32], PackPacket = [L = 2, K = 16] = 32 bf16 = 64B.
     // Lane Broadcast: same packet to all N = 8 lanes.
     // Time Broadcast: B = 5 (TRF-only) added at innermost OutTime.
     //   OutTime = [M, B = 5], OutPacket = [L = 2, K = 16].
-    input.contract_outer::<m![M, B], m![L, K], _, _>(trf)
+    input.contract_outer::<m![M, B], m![L, K], _, _, _>(trf)
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]> = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+# let _o = stream_adapter_example(a, &b);
 ```
 
 ### Constraints
 
-- `OutPacket::SIZE * D::SIZE ∈ {32, 64}` bytes (on RNGD): 32 for `PackSize = 1`, 64 for `PackSize = 2`. The user picks this size and Packing's collect-flit count follows.
+- `OutPacket::SIZE * Storage::SIZE ∈ {32, 64}` bytes (on RNGD), where `Storage` is the pre-widen operand dtype (e.g. `bf16` = 2 B, *not* the widened `f32` accumulator the result tensor carries): 32 for `PackSize = 1`, 64 for `PackSize = 2`. The user picks this size and Packing's collect-flit count follows.
 - `PackSize ∈ {1, 2}` (see [Packing](#packing)).
 - `Lane::SIZE ∈ {1, 2, 4, 8}`.
 
@@ -146,16 +152,22 @@ In this example, `ReadSize` covers all of `Element` in one 64 B read, so `Elemen
 axes![M = 32, N = 8, K = 32];
 
 fn trf_sequencer_full_read<'l, const T: Tu>(
-    input: CollectTensor<'l, T, bf16, m![1], m![1], m![1], m![M, K / 16], m![K % 16]>,
-    trf: &TrfTensor<bf16, m![1], m![1], m![1], m![N], m![K]>,
-) -> ContractOuterTensor<'l, T, bf16, m![1], m![1], m![1], m![N], m![M], m![K]> {
+    input: CollectTensor<'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]>,
+    trf: &TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]>,
+) -> ContractOuterTensor<'l, T, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![K]> {
     // Element         = K
     // ReadSize        = 32
     // PacketBroadcast = 1
     // OutTime         = M      (sequencing over [K / 32] (= 1), broadcast M)
     // OutPacket       = K      (= [1, K % 32])
-    input.contract_outer::<m![M], m![K], _, _>(trf)
+    input.contract_outer::<m![M], m![K], _, _, _>(trf)
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]> = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+# let _o = trf_sequencer_full_read(a, &b);
 ```
 
 In this example, `ReadSize` covers only part of `Element`, so `Element / ReadSize` is non-trivial and the sequencer iterates the outer `Element` factor alongside a broadcast:
@@ -167,16 +179,22 @@ In this example, `ReadSize` covers only part of `Element`, so `Element / ReadSiz
 axes![M = 32, N = 8, K = 16, L = 2, O = 2];
 
 fn trf_sequencer_partial_read<'l, const T: Tu>(
-    input: CollectTensor<'l, T, bf16, m![1], m![1], m![1], m![O, M, L], m![K]>,
-    trf: &TrfTensor<bf16, m![1], m![1], m![1], m![N], m![O, K]>,
-) -> ContractOuterTensor<'l, T, bf16, m![1], m![1], m![1], m![N], m![O, M], m![L, K]> {
+    input: CollectTensor<'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]>,
+    trf: &TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]>,
+) -> ContractOuterTensor<'l, T, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, M], m![L, K]> {
     // Element         = [O, K]
     // ReadSize        = 16
     // PacketBroadcast = L
     // OutTime         = [O, M]    (sequencing over [O, K] / 16 (= O), broadcast M)
     // OutPacket       = [L, K]    (= [L, [O, K] % 16])
-    input.contract_outer::<m![O, M], m![L, K], _, _>(trf)
+    input.contract_outer::<m![O, M], m![L, K], _, _, _>(trf)
 }
+# 
+# let mut ctx = Context::acquire();
+# 
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]> = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+# let _o = trf_sequencer_partial_read(a, &b);
 ```
 
 ### Constraints

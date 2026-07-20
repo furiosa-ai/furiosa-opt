@@ -4,14 +4,15 @@ The Fetch Adapter applies element-wise transformations (type casting, masking, t
 The Fetch Engine itself does not run any of these transforms; they live here under Computing Tensors and are applied as separate stages between the Fetch Engine and the Switch Engine.
 The kernel writer composes the per-stage methods directly on a `FetchTensor`, and each call advances to the next stage.
 
-The adapter has three stages, each optional and invoked by calling its method on the stream in hardware pipeline order.
+The adapter has four stages, each optional and invoked by calling its method on the stream in hardware pipeline order.
 A `FetchTensor` may flow directly into the [Switch Engine](./switch-engine.md) or the [Collect Engine](./collect-engine.md) with no adapter call at all.
 
 - [Masking](#masking) zeros the padded slots of the sequencer's right pad.
 - [Table Lookup](#table-lookup) replaces values via a hardware lookup table.
-- [Type Casting](#type-casting) converts the element type, and for some quantized inputs also subtracts a zero-point in the same call.
+- [Type Casting](#type-casting) converts the element type.
+- [Zero-Point Subtraction](#zero-point-subtraction) subtracts a quantization zero point, widening an integer stream to the [Contraction Engine](./contraction-engine/index.md)'s staging type (`i4` to `i5`, `i8` to `i9`).
 
-The [main-context](./index.md#execution-context) adapter supports all three stages, while the [sub-context](./index.md#execution-context) adapter supports only `fetch_cast` (which covers both type casting and the folded-in zero-point subtraction).
+The [main-context](./index.md#execution-context) adapter supports all four stages, while the [sub-context](./index.md#execution-context) adapter supports only `fetch_cast`.
 
 
 The example below pads 63 elements to 64, masks the 64th slot to zero, then casts `i8` → `i32`.
@@ -37,7 +38,7 @@ fn fetch_mask_then_cast<'l, const T: Tu>(
 }
 #
 # let mut ctx = Context::acquire();
-# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_mask_then_cast(x);
 ```
 
@@ -83,7 +84,7 @@ fn fetch_mask_contiguous_right<'l, const T: Tu>(
 }
 #
 # let mut ctx = Context::acquire();
-# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_mask_contiguous_right(x);
 ```
 
@@ -133,7 +134,7 @@ fn fetch_mask_split_right<'l, const T: Tu>(
 }
 #
 # let mut ctx = Context::acquire();
-# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_mask_split_right(x);
 ```
 
@@ -184,7 +185,7 @@ fn fetch_mask_variable_per_chunk<'l, const T: Tu>(
 }
 #
 # let mut ctx = Context::acquire();
-# let x: BeginTensor<'_, _, f32, m![1], m![1], m![1], m![1], m![A, B # 128]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let x: BeginTensor<'_, _, f32, m![1], m![1], m![1], m![1], m![A, B # 128]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_mask_variable_per_chunk(x);
 ```
 
@@ -348,33 +349,24 @@ fn fetch_with_table<'l, const T: Tu>(
 
 `fetch_cast::<OutD>()` converts the element type from `D` to `OutD`, preserving the `Time` and `Packet` mapping.
 Type casting adds 1 to 2 cycles of latency.
-For asymmetrically quantized inputs, the same stage can subtract a zero-point offset alongside the type conversion, so a single `fetch_cast` call covers both transforms.
+`fetch_cast` performs only the type conversion; the integer widenings that hold a zero-point offset (`i4` to `i5`, `i8` to `i9`) are a separate stage, [Zero-Point Subtraction](#zero-point-subtraction), so `fetch_cast` never produces an `i5`/`i9`.
 
 ```rust,ignore
 {{#include ../../../furiosa-opt-std/src/engine/fetch_adapter.rs:fetch_cast_impl}}
 ```
 
-RNGD supports the following conversions:
+RNGD supports the following `fetch_cast` conversions (the `i4` to `i5` and `i8` to `i9` widenings are [Zero-Point Subtraction](#zero-point-subtraction), not type casts):
 
 | Input | Output |
 |-------|--------|
-| `i4` | `i5`, `i32` |
-| `i8` | `i9`, `i32` |
+| `i4` | `i32` |
+| `i8` | `i32` |
 | `i16` | `i32` |
 | `f8e4m3` | `f32` |
 | `f8e5m2` | `f32` |
 | `bf16` | `f32` |
 | `f16` | `f32` |
 | `f32` | `bf16` |
-
-RNGD-S supports the following additional type conversions:
-
-| Input | Output |
-|-------|--------|
-| `i4` | `i9` |
-| `i16` | `i9` |
-| `f8e4m3` | `bf16` |
-| `f8e5m2` | `bf16` |
 
 The example below fetches an 8-element `i8` stream and casts it to `i32`.
 The `Time` and `Packet` mapping is unchanged across the call.
@@ -395,7 +387,7 @@ fn fetch_with_type_cast<'l, const T: Tu>(
 }
 #
 # let mut ctx = Context::acquire();
-# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A]> = BeginTensor::new(&mut ctx.main, Tensor::uninit());
+# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = fetch_with_type_cast(x);
 ```
 
@@ -408,4 +400,42 @@ The cast output per fetch must fit in a single 32-byte flit (see [Collect Engine
 - Invalid:
   - `i4` -> `i32`, `read_size = 16 (8 bytes)`: produces 16 × 4 = 64 B
   - `i8` -> `i32`, `read_size = 16 (16 bytes)`: produces 16 × 4 = 64 B
+
+## Zero-Point Subtraction
+
+`fetch_zero_point_sub::<OutD>(zero_point)` subtracts the quantization `zero_point` from each element and widens the stream to the [Contraction Engine](./contraction-engine/index.md)'s staging type: `i4` to `i5`, `i8` to `i9`.
+It is the only stage that produces an `i5`/`i9`.
+
+```rust,ignore
+{{#include ../../../furiosa-opt-std/src/engine/fetch_adapter.rs:fetch_zero_point_sub_impl}}
+```
+
+### Why the extra bit
+
+Subtracting the zero point turns an unsigned-around-`zero_point` quantized value into a signed residual whose range no longer fits the input width.
+For a symmetric-signed input the residual is a difference of two same-width values:
+
+- `i4` residual: `[-8, 7] - [-8, 7] = [-15, 15]`, which needs `i5`'s `[-16, 15]`.
+- `i8` residual: `[-128, 127] - [-128, 127] = [-255, 255]`, which needs `i9`'s `[-256, 255]`.
+
+The subtraction therefore produces one more bit than it consumes. The conversion checks this at runtime: a residual outside the `i5`/`i9` range (an out-of-range `zero_point` or input) is rejected rather than silently wrapped.
+
+### Contraction Engine specification
+
+`i5` and `i9` exist only as Contraction Engine operands. The engine multiplies operand pairs drawn from the same integer precision family and accumulates in `i32`:
+
+| Stream (activation) | Weight (TRF) | Accumulator |
+|---------------------|--------------|-------------|
+| `i4` or `i5` | `i4` or `i5` | `i32` |
+| `i8` or `i9` | `i8` or `i9` | `i32` |
+
+Either operand may be the raw form (`i4`/`i8`) or its zero-point-subtracted staging (`i5`/`i9`); the two operands need not match within a family, but they may not cross families (no `i4` against `i8`) or kinds (no integer against float).
+Floating-point contraction pairs (`bf16`, `f8e4m3`, `f8e5m2`) must match exactly and are never zero-point-subtracted.
+
+### Staging is contraction-only
+
+An `i5`/`i9` stream may flow through the [Switch Engine](./switch-engine.md) and [Collect Engine](./collect-engine.md), but from there its **only** legal consumer is `contract_outer`.
+It cannot be committed to memory, stored to a register file (`to_trf`/`to_vrf`), transposed, or fed to any other engine.
+
+This restriction is enforced at compile time, not by a runtime check: passing an `i5`/`i9` stream to any consumer other than `contract_outer` is a compile error.
 

@@ -5,7 +5,6 @@
 use std::fmt::{self, Display, Formatter};
 
 use crate::engine::vector::scalar::VeScalar;
-use crate::scalar::Opt;
 use furiosa_opt_macro::primitive;
 
 // ============================================================================
@@ -54,25 +53,14 @@ impl Display for BinaryArgMode {
 }
 
 impl BinaryArgMode {
-    /// Applies arg mode to a binary operation (Opt version).
-    pub fn apply_opt<D: VeScalar>(&self, op: impl Fn(D, D) -> D + 'static) -> Box<dyn Fn(Opt<D>, Opt<D>) -> Opt<D>> {
-        match self {
-            BinaryArgMode::Mode00 => Box::new(move |a, _b| match a {
-                Opt::Init(a) => Opt::Init(op(a, a)),
-                Opt::Uninit => Opt::Uninit,
-            }),
-            BinaryArgMode::Mode01 => Box::new(move |a, b| match (a, b) {
-                (Opt::Init(a), Opt::Init(b)) => Opt::Init(op(a, b)),
-                _ => Opt::Uninit,
-            }),
-            BinaryArgMode::Mode10 => Box::new(move |a, b| match (a, b) {
-                (Opt::Init(a), Opt::Init(b)) => Opt::Init(op(b, a)),
-                _ => Opt::Uninit,
-            }),
-            BinaryArgMode::Mode11 => Box::new(move |_a, b| match b {
-                Opt::Init(b) => Opt::Init(op(b, b)),
-                Opt::Uninit => Opt::Uninit,
-            }),
+    /// Applies arg mode (operand selection) to a bare binary operation. `Uninit` propagation is the
+    /// caller's `zip_with`'s responsibility, this only picks which operands feed `op`.
+    pub(crate) fn apply<D: VeScalar>(self, op: impl Fn(D, D) -> D) -> impl Fn(D, D) -> D {
+        move |a, b| match self {
+            Self::Mode00 => op(a, a),
+            Self::Mode01 => op(a, b),
+            Self::Mode10 => op(b, a),
+            Self::Mode11 => op(b, b),
         }
     }
 }
@@ -112,40 +100,17 @@ impl Display for TernaryArgMode {
 }
 
 impl TernaryArgMode {
-    /// Applies arg mode to a ternary operation (Opt version).
-    pub fn apply_opt<D: VeScalar>(
-        &self,
-        op: impl Fn(D, D, D) -> D + 'static,
-    ) -> Box<dyn Fn(Opt<D>, Opt<D>, Opt<D>) -> Opt<D>> {
-        match self {
-            TernaryArgMode::Mode012 => Box::new(move |m, o0, o1| match (m, o0, o1) {
-                (Opt::Init(m), Opt::Init(o0), Opt::Init(o1)) => Opt::Init(op(m, o0, o1)),
-                _ => Opt::Uninit,
-            }),
-            TernaryArgMode::Mode002 => Box::new(move |m, _o0, o1| match (m, o1) {
-                (Opt::Init(m), Opt::Init(o1)) => Opt::Init(op(m, m, o1)),
-                _ => Opt::Uninit,
-            }),
-            TernaryArgMode::Mode102 => Box::new(move |m, o0, o1| match (m, o0, o1) {
-                (Opt::Init(m), Opt::Init(o0), Opt::Init(o1)) => Opt::Init(op(o0, m, o1)),
-                _ => Opt::Uninit,
-            }),
-            TernaryArgMode::Mode112 => Box::new(move |_m, o0, o1| match (o0, o1) {
-                (Opt::Init(o0), Opt::Init(o1)) => Opt::Init(op(o0, o0, o1)),
-                _ => Opt::Uninit,
-            }),
-            TernaryArgMode::Mode020 => Box::new(move |m, _o0, o1| match (m, o1) {
-                (Opt::Init(m), Opt::Init(o1)) => Opt::Init(op(m, o1, m)),
-                _ => Opt::Uninit,
-            }),
-            TernaryArgMode::Mode021 => Box::new(move |m, o0, o1| match (m, o0, o1) {
-                (Opt::Init(m), Opt::Init(o0), Opt::Init(o1)) => Opt::Init(op(m, o1, o0)),
-                _ => Opt::Uninit,
-            }),
-            TernaryArgMode::Mode120 => Box::new(move |m, o0, o1| match (m, o0, o1) {
-                (Opt::Init(m), Opt::Init(o0), Opt::Init(o1)) => Opt::Init(op(o0, o1, m)),
-                _ => Opt::Uninit,
-            }),
+    /// Applies arg mode (operand selection) to a bare ternary operation. `Uninit` propagation is the
+    /// caller's responsibility, this only picks which of `(m, o0, o1)` feed `op`.
+    pub(crate) fn apply<D: VeScalar>(self, op: impl Fn(D, D, D) -> D) -> impl Fn(D, D, D) -> D {
+        move |m, o0, o1| match self {
+            Self::Mode012 => op(m, o0, o1),
+            Self::Mode002 => op(m, m, o1),
+            Self::Mode102 => op(o0, m, o1),
+            Self::Mode112 => op(o0, o0, o1),
+            Self::Mode020 => op(m, o1, m),
+            Self::Mode021 => op(m, o1, o0),
+            Self::Mode120 => op(o0, o1, m),
         }
     }
 }

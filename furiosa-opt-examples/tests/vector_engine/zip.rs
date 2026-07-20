@@ -21,19 +21,17 @@ async fn test_ve_group_pair_add() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_add, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = lhs + rhs
-    let expected = lhs
-        .into_inner()
-        .zip_with(&rhs.into_inner(), |a, b| a.zip_map(b, |x, y| x.wrapping_add(y)));
+    let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |x, y| x.wrapping_add(y));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -44,8 +42,8 @@ async fn test_ve_group_pair_preprocess_both() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_preprocess_both, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
@@ -54,12 +52,10 @@ async fn test_ve_group_pair_preprocess_both() {
     // Verify: output = (lhs * 2) + (rhs * 3)
     let expected = lhs
         .into_inner()
-        .map(|x| x.map(|x| x.wrapping_mul(2)))
-        .zip_with(&rhs.into_inner().map(|x| x.map(|x| x.wrapping_mul(3))), |a, b| {
-            a.zip_map(b, |x, y| x.wrapping_add(y))
-        });
+        .map(|x| x.wrapping_mul(2))
+        .zip_with(&rhs.into_inner().map(|x| x.wrapping_mul(3)), |x, y| x.wrapping_add(y));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -70,8 +66,8 @@ async fn test_ve_group_pair_preprocess_g0() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_preprocess_g0, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
@@ -80,10 +76,10 @@ async fn test_ve_group_pair_preprocess_g0() {
     // Verify: output = (lhs * 10) + rhs
     let expected = lhs
         .into_inner()
-        .map(|x| x.map(|x| x.wrapping_mul(10)))
-        .zip_with(&rhs.into_inner(), |a, b| a.zip_map(b, |x, y| x.wrapping_add(y)));
+        .map(|x| x.wrapping_mul(10))
+        .zip_with(&rhs.into_inner(), |x, y| x.wrapping_add(y));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -94,8 +90,8 @@ async fn test_ve_group_pair_preprocess_g1() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_preprocess_g1, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
@@ -104,11 +100,9 @@ async fn test_ve_group_pair_preprocess_g1() {
     // Verify: output = lhs + (rhs * 10)
     let expected = lhs
         .into_inner()
-        .zip_with(&rhs.into_inner().map(|x| x.map(|x| x.wrapping_mul(10))), |a, b| {
-            a.zip_map(b, |x, y| x.wrapping_add(y))
-        });
+        .zip_with(&rhs.into_inner().map(|x| x.wrapping_mul(10)), |x, y| x.wrapping_add(y));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -119,19 +113,19 @@ async fn test_ve_group_pair_chain() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_chain, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = ((lhs + 10) * 2) + ((rhs + 20) * 3)
-    let lhs_processed = lhs.into_inner().map(|x| x.map(|x| x.wrapping_add(10).wrapping_mul(2)));
-    let rhs_processed = rhs.into_inner().map(|x| x.map(|x| x.wrapping_add(20).wrapping_mul(3)));
-    let expected = lhs_processed.zip_with(&rhs_processed, |a, b| a.zip_map(b, |x, y| x.wrapping_add(y)));
+    let lhs_processed = lhs.into_inner().map(|x| x.wrapping_add(10).wrapping_mul(2));
+    let rhs_processed = rhs.into_inner().map(|x| x.wrapping_add(20).wrapping_mul(3));
+    let expected = lhs_processed.zip_with(&rhs_processed, |x, y| x.wrapping_add(y));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -142,19 +136,17 @@ async fn test_ve_group_pair_fxp() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_fxp, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = lhs * rhs
-    let expected = lhs
-        .into_inner()
-        .zip_with(&rhs.into_inner(), |a, b| a.zip_map(b, |x, y| x.wrapping_mul(y)));
+    let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |x, y| x.wrapping_mul(y));
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -165,19 +157,17 @@ async fn test_ve_group_pair_logic() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_logic, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: output = lhs ^ rhs (BitXor)
-    let expected = lhs
-        .into_inner()
-        .zip_with(&rhs.into_inner(), |a, b| a.zip_map(b, |x, y| x ^ y));
+    let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |x, y| x ^ y);
 
-    assert_eq!(expected.to_buf(), result.to_buf());
+    assert_eq!(expected.into_vec(), result.into_vec());
 }
 
 #[tokio::test]
@@ -189,8 +179,8 @@ async fn test_ve_group_pair_fp() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_fp, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
@@ -199,9 +189,9 @@ async fn test_ve_group_pair_fp() {
     // Verify: fxp_to_fp(31) then multiply -> (lhs as f32) * (rhs as f32)
     let expected = lhs
         .into_inner()
-        .zip_with(&rhs.into_inner(), |a, b| a.zip_map(b, |x, y| (x as f32) * (y as f32)));
+        .zip_with(&rhs.into_inner(), |x, y| (x as f32) * (y as f32));
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }
 
 #[tokio::test]
@@ -213,8 +203,8 @@ async fn test_ve_group_pair_unary() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_unary, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
@@ -222,11 +212,11 @@ async fn test_ve_group_pair_unary() {
 
     // Verify: fxp_to_fp(31) -> sqrt(both) -> add
     // output = sqrt(lhs as f32) + sqrt(rhs as f32)
-    let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |a, b| {
-        a.zip_map(b, |x, y| (x as f32).sqrt() + (y as f32).sqrt())
-    });
+    let expected = lhs
+        .into_inner()
+        .zip_with(&rhs.into_inner(), |x, y| (x as f32).sqrt() + (y as f32).sqrt());
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }
 
 #[tokio::test]
@@ -238,8 +228,8 @@ async fn test_ve_group_pair_unary_selective() {
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_unary_selective, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
@@ -247,11 +237,11 @@ async fn test_ve_group_pair_unary_selective() {
 
     // Verify: fxp_to_fp(31) -> exp(g0 only) -> add
     // output = exp(lhs as f32) + (rhs as f32)
-    let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |a, b| {
-        a.zip_map(b, |x, y| (x as f32).exp() + (y as f32))
-    });
+    let expected = lhs
+        .into_inner()
+        .zip_with(&rhs.into_inner(), |x, y| (x as f32).exp() + (y as f32));
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }
 
 #[tokio::test]
@@ -262,19 +252,19 @@ async fn test_ve_group_pair_ternary() {
     let lhs = HostTensor::<f32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_ternary, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
     let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
 
     // Verify: (lhs * 2.0 + 1.0) + (rhs * 3.0 + 2.0)
-    let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |a, b| {
-        a.zip_map(b, |x, y| x.mul_add(2.0, 1.0) * y.mul_add(3.0, 2.0))
-    });
+    let expected = lhs
+        .into_inner()
+        .zip_with(&rhs.into_inner(), |x, y| x.mul_add(2.0, 1.0) * y.mul_add(3.0, 2.0));
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }
 
 #[tokio::test]
@@ -285,8 +275,8 @@ async fn test_ve_group_pair_ternary_selective() {
     let lhs = HostTensor::<f32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma, 0 << 28).await;
-    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma, 1 << 28).await;
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
 
     let out_hbm = launch(ve_group_pair_ternary_selective, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
 
@@ -295,7 +285,7 @@ async fn test_ve_group_pair_ternary_selective() {
     // Verify: (lhs * 2.0 + 1.0) / rhs (rhs unchanged, no ternary)
     let expected = lhs
         .into_inner()
-        .zip_with(&rhs.into_inner(), |a, b| a.zip_map(b, |x, y| x.mul_add(2.0, 1.0) / y));
+        .zip_with(&rhs.into_inner(), |x, y| x.mul_add(2.0, 1.0) / y);
 
-    assert_f32_vec_eq(&expected.to_buf(), &result.to_buf());
+    assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
 }

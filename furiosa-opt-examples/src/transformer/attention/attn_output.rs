@@ -23,8 +23,7 @@ pub(super) fn attn_output(
     out_attn: &mut HbmTensor<bf16, Chip, m![S, H]>,
 ) {
     // Load value tensor from HBM to DM for the score x V matmul.
-    let v_dm: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, T / 512], m![T % 8, K]> =
-        attn_v.to_dm(&mut ctx.tdma, 0x200);
+    let v_dm: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, T / 512], m![T % 8, K]> = attn_v.to_dm(&mut ctx.tdma);
 
     // Reorder value tiles to prepare V for TRF loading.
     let v_it: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![T / 512, T % 8, K % 64]> = ctx
@@ -36,18 +35,18 @@ pub(super) fn attn_output(
             slice0: 1,
             time0: 1,
         })
-        .collect::<m![T / 512, T % 8], m![K % 64]>()
-        .commit_trim::<m![K % 64]>()
-        .commit(0xa00);
+        .collect::<m![T / 512, T % 8, K / 16 % 4], m![K % 16]>()
+        .commit_trim::<m![K % 16]>()
+        .commit();
 
     // Transpose V packet layout for TRF consumption.
     let v_transpose: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![T / 512, K % 64, T % 8]> = ctx
         .main
         .begin(v_it.view())
         .fetch::<m![T / 512, K / 64], m![T % 8, K % 64]>()
-        .collect::<m![T / 512, K / 64], m![K % 64, T % 8]>()
-        .commit_trim::<m![K % 64, T % 8]>()
-        .commit(0x1200);
+        .collect::<m![T / 512, K / 64, K / 2 % 32], m![K % 2, T % 8]>()
+        .commit_trim::<m![K % 2, T % 8]>()
+        .commit();
 
     // Copy the first T half of V.
     let mut v_half_0: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![K % 64, T % 8]> =
@@ -71,8 +70,8 @@ pub(super) fn attn_output(
         .begin(v_half_0.view())
         .fetch::<m![T % 8], m![K % 64]>()
         .switch::<m![S / 8, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 128, slice0: 2 })
-        .collect::<m![T % 8], m![K % 64]>()
-        .to_trf(TrfAddress::FirstHalf);
+        .collect::<m![T % 8, K / 16 % 4], m![K % 16]>()
+        .to_trf_at(TrfAddress::FirstHalf);
 
     // Load second V half into TRF second half.
     let v_trf_second: TrfTensor<bf16, Chip, Cluster, m![S / 8, N], m![T % 8], m![K % 64]> = ctx
@@ -80,17 +79,17 @@ pub(super) fn attn_output(
         .begin(v_half_1.view())
         .fetch::<m![T % 8], m![K % 64]>()
         .switch::<m![S / 8, N], m![T % 8]>(SwitchConfig::Broadcast1 { slice1: 128, slice0: 2 })
-        .collect::<m![T % 8], m![K % 64]>()
-        .to_trf(TrfAddress::SecondHalf);
+        .collect::<m![T % 8, K / 16 % 4], m![K % 16]>()
+        .to_trf_at(TrfAddress::SecondHalf);
 
     // Split the score T axis into two T halves for cascaded matmul.
     let scores_reshaped: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![T / 512, S % 8, G, T % 512]> = ctx
         .main
         .begin(softmax_scores.view())
         .fetch::<m![S % 8, G], m![T]>()
-        .collect::<m![S % 8, G, T / 8], m![T % 8]>()
-        .commit_trim::<m![T % 8]>()
-        .commit(0x28000);
+        .collect::<m![S % 8, G, T / 16], m![T % 16]>()
+        .commit_trim::<m![T % 16]>()
+        .commit();
     let mut scores_half_0: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T % 512]> =
         unsafe { DmTensor::from_addr(0x28000) };
     scores_reshaped
@@ -109,8 +108,8 @@ pub(super) fn attn_output(
         .main
         .begin(scores_half_0.view())
         .fetch::<m![S % 8, G], m![T % 512]>()
-        .collect::<m![S % 8, G, T / 8 % 64], m![T % 8]>()
-        .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _>(&v_trf_first)
+        .collect::<m![S % 8, G, T / 16 % 32], m![T % 16]>()
+        .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _, _>(&v_trf_first)
         .contract_packet::<m![1]>()
         .contract_time::<m![S % 8, G]>()
         .contract_lane::<m![S % 8, G], m![T % 8]>(LaneMode::Interleaved)
@@ -119,15 +118,15 @@ pub(super) fn attn_output(
         .vector_final()
         .cast::<bf16, m![D % 8 # 16]>()
         .commit_trim::<m![D % 8]>()
-        .commit(0x2200);
+        .commit();
 
     // Accumulate first score half with second TRF-loaded V half.
     let matmul_98: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
         .main
         .begin(scores_half_0.view())
         .fetch::<m![S % 8, G], m![T % 512]>()
-        .collect::<m![S % 8, G, T / 8 % 64], m![T % 8]>()
-        .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _>(&v_trf_second)
+        .collect::<m![S % 8, G, T / 16 % 32], m![T % 16]>()
+        .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _, _>(&v_trf_second)
         .contract_packet::<m![1]>()
         .contract_time::<m![S % 8, G]>()
         .contract_lane::<m![S % 8, G], m![T % 8]>(LaneMode::Interleaved)
@@ -136,15 +135,15 @@ pub(super) fn attn_output(
         .vector_final()
         .cast::<bf16, m![D % 8 # 16]>()
         .commit_trim::<m![D % 8]>()
-        .commit(0x2200);
+        .commit();
 
     // Multiply second score half with first TRF-loaded V half.
     let _matmul_100: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
         .main
         .begin(scores_half_1.view())
         .fetch::<m![S % 8, G], m![T % 512]>()
-        .collect::<m![S % 8, G, T / 8 % 64], m![T % 8]>()
-        .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _>(&v_trf_first)
+        .collect::<m![S % 8, G, T / 16 % 32], m![T % 16]>()
+        .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _, _>(&v_trf_first)
         .contract_packet::<m![1]>()
         .contract_time::<m![S % 8, G]>()
         .contract_lane::<m![S % 8, G], m![T % 8]>(LaneMode::Interleaved)
@@ -153,15 +152,15 @@ pub(super) fn attn_output(
         .vector_final()
         .cast::<bf16, m![D % 8 # 16]>()
         .commit_trim::<m![D % 8]>()
-        .commit(0x3e00);
+        .commit();
 
     // Accumulate second score half with second TRF-loaded V half.
     let matmul_102: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
         .main
         .begin(scores_half_1.view())
         .fetch::<m![S % 8, G], m![T % 512]>()
-        .collect::<m![S % 8, G, T / 8 % 64], m![T % 8]>()
-        .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _>(&v_trf_second)
+        .collect::<m![S % 8, G, T / 16 % 32], m![T % 16]>()
+        .contract_outer::<m![S % 8, G, T / 16 % 32], m![T % 16], _, _, _>(&v_trf_second)
         .contract_packet::<m![1]>()
         .contract_time::<m![S % 8, G]>()
         .contract_lane::<m![S % 8, G], m![T % 8]>(LaneMode::Interleaved)
@@ -170,7 +169,7 @@ pub(super) fn attn_output(
         .vector_final()
         .cast::<bf16, m![D % 8 # 16]>()
         .commit_trim::<m![D % 8]>()
-        .commit(0x3e00);
+        .commit();
 
     // Add both T-half matmul outputs to form the final attention output block.
     let matmul_out: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, D]> = ctx
@@ -178,14 +177,14 @@ pub(super) fn attn_output(
         .begin_interleaved::<I, _, _, _, _, _>(matmul_98.view(), matmul_102.view())
         .fetch::<m![I, S % 8, G], m![D]>()
         .fetch_cast::<f32>()
-        .collect::<m![I, S % 8, G], m![D]>()
+        .collect::<m![I, S % 8, G, D / 8], m![D % 8]>()
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_clip_zip(ClipBinaryOpF32::Add)
         .vector_final()
-        .cast::<bf16, m![D]>()
-        .commit_trim::<m![D]>()
-        .commit(0x2200);
+        .cast::<bf16, m![D % 8 # 16]>()
+        .commit_trim::<m![D % 8]>()
+        .commit();
 
     // Reshape output from [N, G, D] back to hidden-size layout H.
     let output_reshaped: DmTensor<bf16, Chip, Cluster, m![S / 8, S / 4 % 2], m![S % 4, H]> = ctx
@@ -197,9 +196,9 @@ pub(super) fn attn_output(
             slice0: 1,
             time0: 1,
         })
-        .collect::<m![S % 4, H / 448], m![H % 448]>()
-        .commit_trim::<m![H % 448]>()
-        .commit(0x0);
+        .collect::<m![S % 4, H / 448, H / 16 % 28], m![H % 16]>()
+        .commit_trim::<m![H % 16]>()
+        .commit();
 
     // Write reshaped attention output back to HBM.
     output_reshaped.view().to_hbm_view(&mut ctx.tdma, out_attn.view_mut());

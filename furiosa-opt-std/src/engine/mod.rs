@@ -24,23 +24,33 @@
 //!     ├── fetch_mask               →  FetchMaskTensor
 //!     ├── fetch_table_lookup       →  FetchTableLookupTensor
 //!     ├── fetch_cast               →  FetchCastTensor
+//!     ├── fetch_zero_point_sub     →  FetchZeroPointSubTensor
 //!     ├── switch                   →  SwitchTensor       (fetch adapter skipped)
 //!     └── collect                  →  CollectTensor      (fetch adapter skipped)
 //!
 //! FetchMaskTensor          (PositionFetchMask)
 //!     ├── fetch_table_lookup       →  FetchTableLookupTensor
 //!     ├── fetch_cast               →  FetchCastTensor
+//!     ├── fetch_zero_point_sub     →  FetchZeroPointSubTensor
 //!     ├── switch                   →  SwitchTensor
 //!     └── collect                  →  CollectTensor
 //!
 //! FetchTableLookupTensor   (PositionFetchTableLookup)
 //!     ├── fetch_cast               →  FetchCastTensor
+//!     ├── fetch_zero_point_sub     →  FetchZeroPointSubTensor
 //!     ├── switch                   →  SwitchTensor
 //!     └── collect                  →  CollectTensor
 //!
 //! FetchCastTensor          (PositionFetchCast)
+//!     ├── fetch_zero_point_sub     →  FetchZeroPointSubTensor
 //!     ├── switch                   →  SwitchTensor
 //!     └── collect                  →  CollectTensor
+//!
+//! FetchZeroPointSubTensor  (PositionFetchZeroPointSub)  [i5/i9 staging]
+//!     ├── switch                   →  SwitchTensor
+//!     └── collect                  →  CollectTensor
+//!     (the i5/i9 stream can only reach `contract_outer` after collect; it is
+//!      not MaterializableScalar, so to_trf/to_vrf/transpose/commit reject it)
 //!
 //! SwitchTensor             (PositionSwitch)
 //!     └── collect                  →  CollectTensor
@@ -135,21 +145,6 @@ pub use transpose::*;
 use crate::engine::vector::tensor::PositionVectorFinal;
 use crate::tensor::tu::{Position, PositionBegin};
 
-/// Size of a single flit in bytes.
-///
-/// Data flows through the switching network in flit-sized units.
-/// Both the collect engine and cast engine normalize packets to exactly one flit.
-pub(crate) const FLIT_BYTES: usize = 32;
-
-pub(crate) fn align_up(a: usize, b: usize) -> usize {
-    assert_ne!(b, 0);
-    a.div_ceil(b) * b
-}
-
-pub(crate) fn exact_div(a: usize, b: usize) -> Option<usize> {
-    if a.is_multiple_of(b) { Some(a / b) } else { None }
-}
-
 // ============================================================================
 // `CanApplyXxx` marker traits — pipeline adjacency.
 //
@@ -167,9 +162,13 @@ pub trait CanApplyFetchMask: Position {}
 /// Source positions that can enter the Fetch Adapter's table-lookup stage.
 pub trait CanApplyFetchTableLookup: Position {}
 
-/// Source positions that can enter the Fetch Adapter's type-casting stage
-/// (which also folds in zero-point subtraction at the hardware level).
+/// Source positions that can enter the Fetch Adapter's type-casting stage.
 pub trait CanApplyFetchCast: Position {}
+
+/// Source positions that can enter the Fetch Adapter's zero-point-subtraction
+/// stage, which widens an integer stream to its contraction-engine staging type (i4->i5,
+/// i8->i9).
+pub trait CanApplyFetchZeroPointSub: Position {}
 
 /// Source positions that can enter the Switch Engine.
 pub trait CanApplySwitch: Position {}
@@ -223,15 +222,24 @@ impl CanApplyFetchCast for PositionFetch {}
 impl CanApplyFetchCast for PositionFetchMask {}
 impl CanApplyFetchCast for PositionFetchTableLookup {}
 
+// Zero-point subtraction may follow any fetch-adapter stage (its output i5/i9
+// staging then flows through switch/collect only into `contract_outer`).
+impl CanApplyFetchZeroPointSub for PositionFetch {}
+impl CanApplyFetchZeroPointSub for PositionFetchMask {}
+impl CanApplyFetchZeroPointSub for PositionFetchTableLookup {}
+impl CanApplyFetchZeroPointSub for PositionFetchCast {}
+
 impl CanApplySwitch for PositionFetch {}
 impl CanApplySwitch for PositionFetchMask {}
 impl CanApplySwitch for PositionFetchTableLookup {}
 impl CanApplySwitch for PositionFetchCast {}
+impl CanApplySwitch for PositionFetchZeroPointSub {}
 
 impl CanApplyCollect for PositionFetch {}
 impl CanApplyCollect for PositionFetchMask {}
 impl CanApplyCollect for PositionFetchTableLookup {}
 impl CanApplyCollect for PositionFetchCast {}
+impl CanApplyCollect for PositionFetchZeroPointSub {}
 impl CanApplyCollect for PositionSwitch {}
 
 impl CanApplyToTrf for PositionCollect {}

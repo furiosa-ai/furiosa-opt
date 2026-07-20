@@ -34,9 +34,7 @@ pub trait M: Debug + Clone {
 
 /// Broadcast expression: `SIZE` iterations of a stride-0 (don't-care) axis.
 /// `Broadcast<1>` is the identity (the unit written `m![1]`).
-///
-/// A `SIZE > 1` broadcast is currently valid only as `sequence()` matcher input. Shape
-/// conversion (`mapping_to_axes`) and `factorize` (FMapping) do not support it and error.
+/// `SIZE > 1` lowers in shape conversion to a non-target `Tile` fill.
 #[primitive(mapping::Broadcast)]
 #[derive(Debug, Clone)]
 pub struct Broadcast<const SIZE: usize>;

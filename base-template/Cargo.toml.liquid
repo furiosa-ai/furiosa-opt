@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[package.metadata.furiosa-opt]
+
 # `cargo furiosa-opt` sets `--cfg backend="..."`. Declare the known values so the
 # bare `cargo build` / `cargo check` paths don't emit unexpected-cfg warnings.
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(backend, values("simulation", "emulation", "npu", "typecheck"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(backend, values("emulation", "npu", "typecheck"))', 'cfg(furiosa_opt)'] }
 
 [lib]
 path = "src/lib.rs"
@@ -33,6 +35,6 @@ name = "gemm"
 path = "src/gemm.rs"
 
 [dependencies]
-furiosa-opt-std = "0.3"
+furiosa-opt-std = "0.4"
 rand = "0.9"
 tokio = { version = "1.29", features = ["rt", "rt-multi-thread", "sync", "macros"] }

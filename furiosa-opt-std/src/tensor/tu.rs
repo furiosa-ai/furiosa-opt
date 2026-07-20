@@ -16,8 +16,10 @@ use std::marker::PhantomData;
 
 use furiosa_mapping::*;
 
+use crate::backend::Backend;
+use crate::constraints;
 use crate::context::*;
-use crate::runtime::{Backend, CurrentBackend};
+use crate::runtime::CurrentBackend;
 use crate::scalar::*;
 use crate::tensor::Tensor;
 
@@ -48,7 +50,7 @@ pub struct TuTensor<
 > {
     pub(crate) ctx: &'l mut TuContext<{ T }>,
     pub(crate) inner: Tensor<D, Pair<Chip, Pair<Cluster, Pair<Slice, Pair<Time, Packet>>>>, B>,
-    _position: PhantomData<P>,
+    pub(crate) _position: PhantomData<P>,
 }
 
 impl<'l, const T: Tu, P: Position, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
@@ -56,9 +58,24 @@ impl<'l, const T: Tu, P: Position, D: Scalar, Chip: M, Cluster: M, Slice: M, Tim
 {
     /// Mapping type alias.
     pub type Mapping = m![{ Chip }, { Cluster }, { Slice }, { Time }, { Packet }];
+}
 
-    /// Creates a new Tensor Unit tensor.
+/// Tensor streamed after the beginning.
+pub type BeginTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
+    TuTensor<'l, { T }, PositionBegin, D, Chip, Cluster, Slice, Time, Packet, B>;
+
+impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
+    BeginTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
+{
+    fn check_constraints() {
+        constraints::assert_cluster_size::<Cluster>();
+        constraints::assert_slice_size::<Slice>();
+    }
+
+    #[doc(hidden)]
     pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        Self::check_constraints();
+
         Self {
             ctx,
             inner,
@@ -66,7 +83,3 @@ impl<'l, const T: Tu, P: Position, D: Scalar, Chip: M, Cluster: M, Slice: M, Tim
         }
     }
 }
-
-/// Tensor streamed after the beginning.
-pub type BeginTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
-    TuTensor<'l, { T }, PositionBegin, D, Chip, Cluster, Slice, Time, Packet, B>;
