@@ -11,7 +11,7 @@
 <a href=#11 id=11 data-nosnippet>11</a>    f32::from_bits(F8E4_TO_F32[bits <span class="kw">as </span>usize])
 <a href=#12 id=12 data-nosnippet>12</a>}
 <a href=#13 id=13 data-nosnippet>13</a>
-<a href=#14 id=14 data-nosnippet>14</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>f8_e4_from_f32(v: f32) -&gt; u8 {
+<a href=#14 id=14 data-nosnippet>14</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>f8_e4_from_f32(v: f32) -&gt; u8 {
 <a href=#15 id=15 data-nosnippet>15</a>    <span class="kw">if </span>v.is_nan() {
 <a href=#16 id=16 data-nosnippet>16</a>        <span class="kw">return </span><span class="number">0x7f</span>; <span class="comment">// qNaN
 <a href=#17 id=17 data-nosnippet>17</a>    </span>}
@@ -99,4 +99,33 @@
 <a href=#99 id=99 data-nosnippet>99</a>    <span class="number">0xc3000000</span>, <span class="number">0xc3100000</span>, <span class="number">0xc3200000</span>, <span class="number">0xc3300000</span>, <span class="number">0xc3400000</span>, <span class="number">0xc3500000</span>, <span class="number">0xc3600000</span>, <span class="number">0xc3700000</span>,
 <a href=#100 id=100 data-nosnippet>100</a>    <span class="number">0xc3800000</span>, <span class="number">0xc3900000</span>, <span class="number">0xc3a00000</span>, <span class="number">0xc3b00000</span>, <span class="number">0xc3c00000</span>, <span class="number">0xc3d00000</span>, <span class="number">0xc3e00000</span>, <span class="number">0x7fc00000</span>,
 <a href=#101 id=101 data-nosnippet>101</a>];
+<a href=#102 id=102 data-nosnippet>102</a>
+<a href=#103 id=103 data-nosnippet>103</a><span class="attr">#[cfg(test)]
+<a href=#104 id=104 data-nosnippet>104</a></span><span class="kw">mod </span>tests {
+<a href=#105 id=105 data-nosnippet>105</a>    <span class="kw">use </span>super::<span class="kw-2">*</span>;
+<a href=#106 id=106 data-nosnippet>106</a>
+<a href=#107 id=107 data-nosnippet>107</a>    <span class="attr">#[test]
+<a href=#108 id=108 data-nosnippet>108</a>    </span><span class="kw">fn </span>f8_e4_from_f32_round_trips_full_range() {
+<a href=#109 id=109 data-nosnippet>109</a>        <span class="kw">for </span>code <span class="kw">in </span><span class="number">0u8</span>..=<span class="number">255 </span>{
+<a href=#110 id=110 data-nosnippet>110</a>            <span class="kw">let </span>value = f8_e4_to_f32(code);
+<a href=#111 id=111 data-nosnippet>111</a>            <span class="kw">if </span>value.is_nan() {
+<a href=#112 id=112 data-nosnippet>112</a>                <span class="kw">continue</span>;
+<a href=#113 id=113 data-nosnippet>113</a>            }
+<a href=#114 id=114 data-nosnippet>114</a>            <span class="macro">assert_eq!</span>(
+<a href=#115 id=115 data-nosnippet>115</a>                f8_e4_from_f32(value),
+<a href=#116 id=116 data-nosnippet>116</a>                code,
+<a href=#117 id=117 data-nosnippet>117</a>                <span class="string">"round-trip failed for code 0x{code:02x} (value={value})"
+<a href=#118 id=118 data-nosnippet>118</a>            </span>);
+<a href=#119 id=119 data-nosnippet>119</a>        }
+<a href=#120 id=120 data-nosnippet>120</a>    }
+<a href=#121 id=121 data-nosnippet>121</a>
+<a href=#122 id=122 data-nosnippet>122</a>    <span class="attr">#[test]
+<a href=#123 id=123 data-nosnippet>123</a>    </span><span class="kw">fn </span>f8_e4_from_f32_evaluates_in_const_context() {
+<a href=#124 id=124 data-nosnippet>124</a>        <span class="kw">const </span>ONE: u8 = f8_e4_from_f32(<span class="number">1.0</span>);
+<a href=#125 id=125 data-nosnippet>125</a>        <span class="kw">const </span>NEG_ONE: u8 = f8_e4_from_f32(-<span class="number">1.0</span>);
+<a href=#126 id=126 data-nosnippet>126</a>        <span class="macro">assert_eq!</span>(ONE, f8_e4_from_f32(<span class="number">1.0</span>));
+<a href=#127 id=127 data-nosnippet>127</a>        <span class="macro">assert_eq!</span>(NEG_ONE, f8_e4_from_f32(-<span class="number">1.0</span>));
+<a href=#128 id=128 data-nosnippet>128</a>        <span class="macro">assert_eq!</span>(ONE, F8E4_ONE);
+<a href=#129 id=129 data-nosnippet>129</a>    }
+<a href=#130 id=130 data-nosnippet>130</a>}
 </code></pre></div></section></main></body></html>

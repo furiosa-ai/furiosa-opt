@@ -60,7 +60,7 @@
 <a href=#60 id=60 data-nosnippet>60</a>    rhs: <span class="kw-2">&amp;</span>HbmTensor&lt;i32, Chip, <span class="macro">m!</span>[B]&gt;,
 <a href=#61 id=61 data-nosnippet>61</a>) -&gt; HbmTensor&lt;i32, Chip, <span class="macro">m!</span>[A, B]&gt; {
 <a href=#62 id=62 data-nosnippet>62</a>    <span class="kw">type </span>ResultDmTensor = DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">2 </span># <span class="number">64</span>], <span class="macro">m!</span>[A % <span class="number">2</span>, B]&gt;;
-<a href=#63 id=63 data-nosnippet>63</a>    <span class="kw">let </span>result = <span class="kw">unsafe </span>{ ResultDmTensor::from_addr(<span class="number">0</span>) };
+<a href=#63 id=63 data-nosnippet>63</a>    <span class="kw">let </span>result = ResultDmTensor::new();
 <a href=#64 id=64 data-nosnippet>64</a>
 <a href=#65 id=65 data-nosnippet>65</a>    <span class="kw">let </span>result = vrf_add_kernel_segmented(ctx, lhs.view(), rhs.view(), result);
 <a href=#66 id=66 data-nosnippet>66</a>

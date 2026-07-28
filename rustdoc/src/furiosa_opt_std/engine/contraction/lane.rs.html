@@ -315,6 +315,36 @@
 <a href=#315 id=315 data-nosnippet>315</a>                LaneMode::Sequential,
 <a href=#316 id=316 data-nosnippet>316</a>            );
 <a href=#317 id=317 data-nosnippet>317</a>        }
-<a href=#318 id=318 data-nosnippet>318</a>    }
-<a href=#319 id=319 data-nosnippet>319</a>}
+<a href=#318 id=318 data-nosnippet>318</a>
+<a href=#319 id=319 data-nosnippet>319</a>        <span class="attr">#[test]
+<a href=#320 id=320 data-nosnippet>320</a>        </span><span class="kw">fn </span>valid_wide_packet_reduced() {
+<a href=#321 id=321 data-nosnippet>321</a>            <span class="comment">// pre=[A,N,B], post=[N,B] (A reduced). inner_time = N*B = 16. Lane = 1, Packet pads to 32,
+<a href=#322 id=322 data-nosnippet>322</a>            // so buffer = 1 * 16 * 32 = 512 &lt;= 1024.
+<a href=#323 id=323 data-nosnippet>323</a>            </span>verify_contract_lane(
+<a href=#324 id=324 data-nosnippet>324</a>                &lt;<span class="macro">m!</span>[<span class="number">1</span>]&gt;::to_value(),
+<a href=#325 id=325 data-nosnippet>325</a>                &lt;<span class="macro">m!</span>[N, B]&gt;::to_value(),
+<a href=#326 id=326 data-nosnippet>326</a>                &lt;<span class="macro">m!</span>[D]&gt;::to_value(),
+<a href=#327 id=327 data-nosnippet>327</a>                &lt;<span class="macro">m!</span>[N, B, D / <span class="number">8</span>]&gt;::to_value(),
+<a href=#328 id=328 data-nosnippet>328</a>                &lt;<span class="macro">m!</span>[D % <span class="number">8</span>]&gt;::to_value(),
+<a href=#329 id=329 data-nosnippet>329</a>                &lt;<span class="macro">m!</span>[A, N, B]&gt;::to_value(),
+<a href=#330 id=330 data-nosnippet>330</a>                LaneMode::Sequential,
+<a href=#331 id=331 data-nosnippet>331</a>            );
+<a href=#332 id=332 data-nosnippet>332</a>        }
+<a href=#333 id=333 data-nosnippet>333</a>
+<a href=#334 id=334 data-nosnippet>334</a>        <span class="attr">#[test]
+<a href=#335 id=335 data-nosnippet>335</a>        </span><span class="kw">fn </span>valid_wide_packet_at_capacity() {
+<a href=#336 id=336 data-nosnippet>336</a>            <span class="comment">// pre=[A,M], post=[M] (A reduced). inner_time = M = 4. Lane = 8, Packet pads to 32,
+<a href=#337 id=337 data-nosnippet>337</a>            // so buffer = 8 * 4 * 32 = 1024 = accumulator capacity.
+<a href=#338 id=338 data-nosnippet>338</a>            </span>verify_contract_lane(
+<a href=#339 id=339 data-nosnippet>339</a>                &lt;<span class="macro">m!</span>[N]&gt;::to_value(),
+<a href=#340 id=340 data-nosnippet>340</a>                &lt;<span class="macro">m!</span>[M]&gt;::to_value(),
+<a href=#341 id=341 data-nosnippet>341</a>                &lt;<span class="macro">m!</span>[D]&gt;::to_value(),
+<a href=#342 id=342 data-nosnippet>342</a>                &lt;<span class="macro">m!</span>[M, N, D / <span class="number">8</span>]&gt;::to_value(),
+<a href=#343 id=343 data-nosnippet>343</a>                &lt;<span class="macro">m!</span>[D % <span class="number">8</span>]&gt;::to_value(),
+<a href=#344 id=344 data-nosnippet>344</a>                &lt;<span class="macro">m!</span>[A, M]&gt;::to_value(),
+<a href=#345 id=345 data-nosnippet>345</a>                LaneMode::Sequential,
+<a href=#346 id=346 data-nosnippet>346</a>            );
+<a href=#347 id=347 data-nosnippet>347</a>        }
+<a href=#348 id=348 data-nosnippet>348</a>    }
+<a href=#349 id=349 data-nosnippet>349</a>}
 </code></pre></div></section></main></body></html>

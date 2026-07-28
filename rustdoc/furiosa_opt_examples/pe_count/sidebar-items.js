@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["eight_pe_add","four_chip_add","four_pe_add","one_pe_add","two_chip_add","two_pe_add"],"struct":["P1","P2","P2C","P4","P4C","P8","__furiosa_opt_eight_pe_add","__furiosa_opt_four_chip_add","__furiosa_opt_four_pe_add","__furiosa_opt_one_pe_add","__furiosa_opt_two_chip_add","__furiosa_opt_two_pe_add"]};

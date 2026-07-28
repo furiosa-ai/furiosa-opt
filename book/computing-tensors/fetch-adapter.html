@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
+            window.path_to_searchindex_js = "../searchindex-760cc3da.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-65a723fd.js"></script>
@@ -433,45 +433,68 @@ This is useful for operations that cannot be efficiently implemented with standa
 This enables:</p>
 <ul>
 <li><strong>Non-linear activations</strong>: Implements Sigmoid, GeLU, and other functions through pre-computed lookup tables.</li>
-<li><strong>Custom type casting</strong>: Translates specialized encodings like <code>MXFP4</code> to standard formats using conversion tables.</li>
+<li><strong>Custom type casting</strong>: Translates specialized encodings like <code>MXFP4</code> / <code>NVFP4</code> to standard formats using conversion tables.</li>
 </ul>
 <p>Sigmoid and GeLU can also be expressed directly in the <a href="./vector-engine/index.html">Vector Engine</a>, so table lookup is one option among several for these activations rather than the only path.</p>
-<pre><code class="language-rust ignore">impl&lt;
+<pre><code class="language-rust ignore">// Table lookup is a **main-context-only** hardware feature: only the main Fetch Unit's
+// `mode_indirect_table` can point at a resident lookup table, so this impl is fixed to
+// `{ Tu::Main }`. The sub-context Fetch Unit (used by the StoTrf weight-staging path) has no
+// table-lookup register, so decoding a packed weight must happen in a main-context fetch that
+// commits the decoded stream to DM, after which a plain convert-only StoTrf stages it into the TRF.
+impl&lt;
     'l,
-    const T: Tu,
     P: CanApplyFetchTableLookup,
-    D: Scalar,
+    D: MaterializableScalar,
     Chip: M,
     Cluster: M,
     Slice: M,
     Time: M,
     Packet: M,
     B: Backend,
-&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+&gt; TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
-    /// Runs the Fetch Adapter's table-lookup stage.
+    /// Runs the Fetch Adapter's table-lookup stage (main context only).
+    ///
+    /// Each input value indexes a decode table selected by the input type `D`
+    /// (via the `TableLookup` trait), not by a runtime argument. The only decode is
+    /// `f4e2m1 -&gt; f8e4m3`, the RNGD paired-key 4b-&gt;8b table for NVFP4 / MXFP4
+    /// weights. Chain a [`fetch_cast`](Self::fetch_cast) to widen `f8e4m3` to
+    /// `bf16`/`f32`; the per-block scale is not applied here, it is a separate
+    /// downstream VE multiply. See the book chapter
+    /// `computing-tensors/fetch-adapter.md` (the "Table Lookup" section).
+    ///
+    /// Only available on the main context: the lookup table lives in a main Fetch Unit register the
+    /// sub context lacks. To feed a decoded weight into a contraction, decode here and commit the
+    /// `f8e4m3` stream to DM, then stage that DM tensor into the TRF with a plain convert-only StoTrf.
     #[primitive(TuTensor::fetch_table_lookup)]
-    #[allow(unreachable_code)]
     pub fn fetch_table_lookup&lt;OutD: Scalar&gt;(
         self,
-    ) -&gt; FetchTableLookupTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt; {
-        verify_fetch_table_lookup::&lt;D, OutD, Time, Packet&gt;();
-        FetchTableLookupTensor::new(self.ctx, todo!())
+    ) -&gt; FetchTableLookupTensor&lt;'l, { Tu::Main }, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
+    where
+        D: TableLookup&lt;OutD&gt;,
+    {
+        FetchTableLookupTensor::new(self.ctx, self.inner.map(|v| v.lookup()))
     }
 }</code></pre>
+<p>The decode table is selected by the input scalar type (via the <code>TableLookup</code> trait), not by a runtime argument, exactly as <code>fetch_cast</code> selects its conversion by the input type.
+The hardware paired-key table for 4-bit keys supports only a 4-bit to 8-bit decode, so the sole implemented decode is <code>f4e2m1 -&gt; f8e4m3</code>.
+Widen to <code>bf16</code> / <code>f32</code> with a following <code>fetch_cast</code>, and apply any NVFP4 / MXFP4 per-block scale downstream in the Vector Engine (it is intentionally not folded into the table, which stays a static 16-entry, block-independent decode).</p>
+<p>The table for the <code>f4e2m1</code> decode is a compile-time constant baked into the fetch-sequencer configuration, so the <code>f4e2m1</code> weight stream is the only data input to the stage; there is no per-invocation table staging. The 16-entry e2m1 decode is block-independent, which is why the per-block scale stays out of it: folding the scale in would need a distinct table per block and defeat the shared static table.</p>
+<p>The hardware sequencer walks byte-aligned keys (1 or 2 bytes), never a raw 4-bit nibble, and a 4-bit key must use a <em>paired</em> table. The <code>f4e2m1</code> decode therefore runs as a 256-entry byte-indexed table: each byte carries two nibbles and one lookup yields the pair of decoded <code>f8e4m3</code> values, decoding at two elements per key. The <code>f4e2m1</code> scalar is modelled accordingly as a byte holding two nibbles, with <code>BITS = 4</code> so the fetch mapping accounts elements rather than bytes.</p>
 <pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8];
 
-/// Fetches with table lookup: each input value indexes into a pre-configured table.
-/// Input [0, 1, 2, 3, 4, 5, 6, 7] with table[x] = 2*x
-/// Output [0, 2, 4, 6, 8, 10, 12, 14]
-fn fetch_with_table&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt;,
-    table: &amp;LookupTable&lt;i8, i8&gt;,
-) -&gt; FetchTableLookupTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt; {
-    input.fetch::&lt;m![1], m![A]&gt;().fetch_table_lookup::&lt;i8&gt;()
+/// Decodes an e2m1 (NVFP4 / MXFP4) weight stream to f8e4m3 via the hardware table,
+/// then widens to f32 with a following fetch_cast.
+fn fetch_decode_e2m1&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, f4e2m1, m![1], m![1], m![1], m![1], m![A]&gt;,
+) -&gt; FetchCastTensor&lt;'l, T, f32, m![1], m![1], m![1], m![1], m![A]&gt; {
+    input
+        .fetch::&lt;m![1], m![A]&gt;()
+        .fetch_table_lookup::&lt;f8e4m3&gt;()
+        .fetch_cast::&lt;f32&gt;()
 }</code></pre>
 <h2 id="type-casting"><a class="header" href="#type-casting">Type Casting</a></h2>
 <p><code>fetch_cast::&lt;OutD&gt;()</code> converts the element type from <code>D</code> to <code>OutD</code>, preserving the <code>Time</code> and <code>Packet</code> mapping.

@@ -139,83 +139,82 @@
 <a href=#139 id=139 data-nosnippet>139</a>
 <a href=#140 id=140 data-nosnippet>140</a>    <span class="comment">// Step 2: Binary add T0 + T1 to reduce the cluster dimension
 <a href=#141 id=141 data-nosnippet>141</a>    // Use interleaved fetch with I=2 to read both tensors
-<a href=#142 id=142 data-nosnippet>142</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>reduced: DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">2048</span>, X], <span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, C / <span class="number">64 </span>% <span class="number">8</span>]&gt; =
-<a href=#143 id=143 data-nosnippet>143</a>        <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0</span>) };
-<a href=#144 id=144 data-nosnippet>144</a>
-<a href=#145 id=145 data-nosnippet>145</a>    ctx.main
-<a href=#146 id=146 data-nosnippet>146</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sliced0.view(), shuffled1.view())
-<a href=#147 id=147 data-nosnippet>147</a>        .fetch::&lt;<span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, I], <span class="macro">m!</span>[C / <span class="number">64 </span>% <span class="number">8</span>]&gt;()
-<a href=#148 id=148 data-nosnippet>148</a>        .fetch_cast::&lt;i32&gt;()
-<a href=#149 id=149 data-nosnippet>149</a>        .collect::&lt;<span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, I], <span class="macro">m!</span>[C / <span class="number">64 </span>% <span class="number">8</span>]&gt;()
-<a href=#150 id=150 data-nosnippet>150</a>        .vector_init()
-<a href=#151 id=151 data-nosnippet>151</a>        .vector_intra_slice_unzip::&lt;I, <span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, <span class="number">1 </span># <span class="number">2</span>], <span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>]&gt;()
-<a href=#152 id=152 data-nosnippet>152</a>        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
-<a href=#153 id=153 data-nosnippet>153</a>        <span class="comment">// After vector_clip_zip, result is implicitly filtered to Group 1 only
-<a href=#154 id=154 data-nosnippet>154</a>        </span>.vector_final()
-<a href=#155 id=155 data-nosnippet>155</a>        .cast::&lt;i8, <span class="macro">m!</span>[C / <span class="number">64 </span>% <span class="number">8 </span># <span class="number">32</span>]&gt;()
-<a href=#156 id=156 data-nosnippet>156</a>        .commit_trim::&lt;<span class="macro">m!</span>[C / <span class="number">64 </span>% <span class="number">8 </span># <span class="number">32</span>]&gt;()
-<a href=#157 id=157 data-nosnippet>157</a>        .commit_view(reduced.view_mut());
-<a href=#158 id=158 data-nosnippet>158</a>
-<a href=#159 id=159 data-nosnippet>159</a>    <span class="kw">let </span>reshaped: DmTensor&lt;i8, Chip, <span class="macro">m!</span>[C / <span class="number">32 </span>% <span class="number">2</span>], <span class="macro">m!</span>[A / <span class="number">2048</span>, X], <span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, C / <span class="number">64 </span>% <span class="number">8</span>]&gt; =
-<a href=#160 id=160 data-nosnippet>160</a>        <span class="kw">unsafe </span>{ reduced.reshape() };
-<a href=#161 id=161 data-nosnippet>161</a>
-<a href=#162 id=162 data-nosnippet>162</a>    reshaped
-<a href=#163 id=163 data-nosnippet>163</a>}
-<a href=#164 id=164 data-nosnippet>164</a>
-<a href=#165 id=165 data-nosnippet>165</a><span class="doccomment">/// Mulitply matrices of size 16384 * 16384.
-<a href=#166 id=166 data-nosnippet>166</a></span><span class="attr">#[device(chip = <span class="number">1</span>)]
-<a href=#167 id=167 data-nosnippet>167</a></span><span class="kw">pub fn </span>matmul_16384(
-<a href=#168 id=168 data-nosnippet>168</a>    ctx: <span class="kw-2">&amp;mut </span>Context,
-<a href=#169 id=169 data-nosnippet>169</a>    lhs: <span class="kw-2">&amp;</span>HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, B]&gt;,
-<a href=#170 id=170 data-nosnippet>170</a>    rhs: <span class="kw-2">&amp;</span>HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[B, C]&gt;,
-<a href=#171 id=171 data-nosnippet>171</a>) -&gt; HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, C]&gt; {
-<a href=#172 id=172 data-nosnippet>172</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = <span class="kw">unsafe </span>{ HbmTensor::&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, C]&gt;::from_addr(<span class="number">0x3000</span>) };
-<a href=#173 id=173 data-nosnippet>173</a>
-<a href=#174 id=174 data-nosnippet>174</a>    <span class="comment">// Since lhs and rhs are 256MB and don't fit in 1-chip data memory (256MB), we load them in smaller chunks.
-<a href=#175 id=175 data-nosnippet>175</a>    // First, we split AB * BC into AB * B(C%512) 32 times. We split C first because the contraction result can be stored directly to HBM.
-<a href=#176 id=176 data-nosnippet>176</a>    </span><span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">32 </span>{
-<a href=#177 id=177 data-nosnippet>177</a>        <span class="kw">let </span>rhs_tile = rhs.view().tile::&lt;<span class="macro">m!</span>[C / <span class="number">512</span>], <span class="number">1</span>, <span class="macro">m!</span>[B, <span class="number">1 </span># <span class="number">32</span>, C % <span class="number">512</span>]&gt;(i);
-<a href=#178 id=178 data-nosnippet>178</a>
-<a href=#179 id=179 data-nosnippet>179</a>        <span class="comment">// Intermediate result after contracting over B axis.
-<a href=#180 id=180 data-nosnippet>180</a>        // Reason for broadcast dimension (X=32): B/64%32 is assigned to the Slice dimension and reduced using GAT, which broadcasts the result.
-<a href=#181 id=181 data-nosnippet>181</a>        </span><span class="kw">type </span>AccDmTensor = DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">2048</span>, X], <span class="macro">m!</span>[C % <span class="number">64</span>, A % <span class="number">2048</span>, C / <span class="number">64 </span>% <span class="number">8</span>]&gt;;
-<a href=#182 id=182 data-nosnippet>182</a>        <span class="kw">let </span><span class="kw-2">mut </span>result0 = <span class="kw">unsafe </span>{ AccDmTensor::from_addr(<span class="number">0</span>) };
-<a href=#183 id=183 data-nosnippet>183</a>        <span class="kw">let </span><span class="kw-2">mut </span>result1 = <span class="kw">unsafe </span>{ AccDmTensor::from_addr(<span class="number">0</span>) };
-<a href=#184 id=184 data-nosnippet>184</a>        <span class="kw">let </span><span class="kw-2">mut </span>temp = <span class="kw">unsafe </span>{ AccDmTensor::from_addr(<span class="number">0</span>) };
-<a href=#185 id=185 data-nosnippet>185</a>
-<a href=#186 id=186 data-nosnippet>186</a>        <span class="comment">// Next, we split AB * B(C%512) into A(B%4096) * (B%4096)(C%512) 4 times and accumulate the results.
-<a href=#187 id=187 data-nosnippet>187</a>        // The reason for splitting rhs into smaller pieces is that it must fit in the smaller TRF. TRF capacity is 64KB/32KB per slice (full/half mode).
-<a href=#188 id=188 data-nosnippet>188</a>        // TODO: More advanced optimizations such as software pipelining are needed to achieve optimal performance.
-<a href=#189 id=189 data-nosnippet>189</a>        </span><span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..<span class="number">4 </span>{
-<a href=#190 id=190 data-nosnippet>190</a>            <span class="kw">let </span>lhs_tile = lhs.view().tile::&lt;<span class="macro">m!</span>[B / <span class="number">4096</span>], <span class="number">1</span>, <span class="macro">m!</span>[A, <span class="number">1 </span># <span class="number">4</span>, B % <span class="number">4096</span>]&gt;(j);
-<a href=#191 id=191 data-nosnippet>191</a>            <span class="kw">let </span>rhs_subtile = rhs_tile.tile::&lt;<span class="macro">m!</span>[B / <span class="number">4096</span>], <span class="number">1</span>, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, B % <span class="number">4096</span>, <span class="number">1 </span># <span class="number">32</span>, C % <span class="number">512</span>]&gt;(j);
-<a href=#192 id=192 data-nosnippet>192</a>
-<a href=#193 id=193 data-nosnippet>193</a>            <span class="comment">// Accumulate contraction results for each chunk (reduce over B=2048 axis).
-<a href=#194 id=194 data-nosnippet>194</a>            </span><span class="kw">if </span>j == <span class="number">0 </span>{
-<a href=#195 id=195 data-nosnippet>195</a>                <span class="comment">// For the first iteration, store the result directly to result0.
-<a href=#196 id=196 data-nosnippet>196</a>                </span>contraction_over_b_2048(ctx, lhs_tile, rhs_subtile, result0.view_mut());
-<a href=#197 id=197 data-nosnippet>197</a>            } <span class="kw">else </span>{
-<a href=#198 id=198 data-nosnippet>198</a>                contraction_over_b_2048(ctx, lhs_tile, rhs_subtile, temp.view_mut());
-<a href=#199 id=199 data-nosnippet>199</a>
-<a href=#200 id=200 data-nosnippet>200</a>                <span class="comment">// From the second iteration onwards, accumulate results alternating between result0 and result1.
-<a href=#201 id=201 data-nosnippet>201</a>                </span><span class="kw">if </span>j % <span class="number">2 </span>== <span class="number">1 </span>{
-<a href=#202 id=202 data-nosnippet>202</a>                    add_split_contractions(ctx, <span class="kw-2">&amp;</span>result0, <span class="kw-2">&amp;</span>temp, result1.view_mut());
-<a href=#203 id=203 data-nosnippet>203</a>                } <span class="kw">else </span>{
-<a href=#204 id=204 data-nosnippet>204</a>                    add_split_contractions(ctx, <span class="kw-2">&amp;</span>result1, <span class="kw-2">&amp;</span>temp, result0.view_mut());
-<a href=#205 id=205 data-nosnippet>205</a>                }
-<a href=#206 id=206 data-nosnippet>206</a>            }
-<a href=#207 id=207 data-nosnippet>207</a>        }
-<a href=#208 id=208 data-nosnippet>208</a>
-<a href=#209 id=209 data-nosnippet>209</a>        <span class="kw">let </span>reduced = reduce_over_cluster(ctx, <span class="kw-2">&amp;</span>result1);
-<a href=#210 id=210 data-nosnippet>210</a>
-<a href=#211 id=211 data-nosnippet>211</a>        <span class="comment">// write back to HBM.
-<a href=#212 id=212 data-nosnippet>212</a>        </span><span class="kw">let </span>out_tile = out.view_mut().tile::&lt;<span class="macro">m!</span>[C / <span class="number">512</span>], <span class="number">1</span>, <span class="macro">m!</span>[A, <span class="number">1 </span>#{!} <span class="number">32</span>, C % <span class="number">512</span>]&gt;(i);
-<a href=#213 id=213 data-nosnippet>213</a>        reduced
-<a href=#214 id=214 data-nosnippet>214</a>            .view()
-<a href=#215 id=215 data-nosnippet>215</a>            .slice_tile::&lt;<span class="macro">m!</span>[X], <span class="number">1</span>, <span class="macro">m!</span>[A / <span class="number">2048</span>, <span class="number">1 </span># <span class="number">32</span>]&gt;(<span class="number">0</span>)
-<a href=#216 id=216 data-nosnippet>216</a>            .to_hbm_view(<span class="kw-2">&amp;mut </span>ctx.tdma, out_tile);
-<a href=#217 id=217 data-nosnippet>217</a>    }
-<a href=#218 id=218 data-nosnippet>218</a>
-<a href=#219 id=219 data-nosnippet>219</a>    out
-<a href=#220 id=220 data-nosnippet>220</a>}
+<a href=#142 id=142 data-nosnippet>142</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>reduced: DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">2048</span>, X], <span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, C / <span class="number">64 </span>% <span class="number">8</span>]&gt; = DmTensor::new();
+<a href=#143 id=143 data-nosnippet>143</a>
+<a href=#144 id=144 data-nosnippet>144</a>    ctx.main
+<a href=#145 id=145 data-nosnippet>145</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sliced0.view(), shuffled1.view())
+<a href=#146 id=146 data-nosnippet>146</a>        .fetch::&lt;<span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, I], <span class="macro">m!</span>[C / <span class="number">64 </span>% <span class="number">8</span>]&gt;()
+<a href=#147 id=147 data-nosnippet>147</a>        .fetch_cast::&lt;i32&gt;()
+<a href=#148 id=148 data-nosnippet>148</a>        .collect::&lt;<span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, I], <span class="macro">m!</span>[C / <span class="number">64 </span>% <span class="number">8</span>]&gt;()
+<a href=#149 id=149 data-nosnippet>149</a>        .vector_init()
+<a href=#150 id=150 data-nosnippet>150</a>        .vector_intra_slice_unzip::&lt;I, <span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, <span class="number">1 </span># <span class="number">2</span>], <span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>]&gt;()
+<a href=#151 id=151 data-nosnippet>151</a>        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+<a href=#152 id=152 data-nosnippet>152</a>        <span class="comment">// After vector_clip_zip, result is implicitly filtered to Group 1 only
+<a href=#153 id=153 data-nosnippet>153</a>        </span>.vector_final()
+<a href=#154 id=154 data-nosnippet>154</a>        .cast::&lt;i8, <span class="macro">m!</span>[C / <span class="number">64 </span>% <span class="number">8 </span># <span class="number">32</span>]&gt;()
+<a href=#155 id=155 data-nosnippet>155</a>        .commit_trim::&lt;<span class="macro">m!</span>[C / <span class="number">64 </span>% <span class="number">8 </span># <span class="number">32</span>]&gt;()
+<a href=#156 id=156 data-nosnippet>156</a>        .commit_view(reduced.view_mut());
+<a href=#157 id=157 data-nosnippet>157</a>
+<a href=#158 id=158 data-nosnippet>158</a>    <span class="kw">let </span>reshaped: DmTensor&lt;i8, Chip, <span class="macro">m!</span>[C / <span class="number">32 </span>% <span class="number">2</span>], <span class="macro">m!</span>[A / <span class="number">2048</span>, X], <span class="macro">m!</span>[C % <span class="number">32</span>, A % <span class="number">2048</span>, C / <span class="number">64 </span>% <span class="number">8</span>]&gt; =
+<a href=#159 id=159 data-nosnippet>159</a>        <span class="kw">unsafe </span>{ reduced.reshape() };
+<a href=#160 id=160 data-nosnippet>160</a>
+<a href=#161 id=161 data-nosnippet>161</a>    reshaped
+<a href=#162 id=162 data-nosnippet>162</a>}
+<a href=#163 id=163 data-nosnippet>163</a>
+<a href=#164 id=164 data-nosnippet>164</a><span class="doccomment">/// Mulitply matrices of size 16384 * 16384.
+<a href=#165 id=165 data-nosnippet>165</a></span><span class="attr">#[device(chip = <span class="number">1</span>)]
+<a href=#166 id=166 data-nosnippet>166</a></span><span class="kw">pub fn </span>matmul_16384(
+<a href=#167 id=167 data-nosnippet>167</a>    ctx: <span class="kw-2">&amp;mut </span>Context,
+<a href=#168 id=168 data-nosnippet>168</a>    lhs: <span class="kw-2">&amp;</span>HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, B]&gt;,
+<a href=#169 id=169 data-nosnippet>169</a>    rhs: <span class="kw-2">&amp;</span>HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[B, C]&gt;,
+<a href=#170 id=170 data-nosnippet>170</a>) -&gt; HbmTensor&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, C]&gt; {
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = <span class="kw">unsafe </span>{ HbmTensor::&lt;i8, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, C]&gt;::from_addr(<span class="number">0x3000</span>) };
+<a href=#172 id=172 data-nosnippet>172</a>
+<a href=#173 id=173 data-nosnippet>173</a>    <span class="comment">// Since lhs and rhs are 256MB and don't fit in 1-chip data memory (256MB), we load them in smaller chunks.
+<a href=#174 id=174 data-nosnippet>174</a>    // First, we split AB * BC into AB * B(C%512) 32 times. We split C first because the contraction result can be stored directly to HBM.
+<a href=#175 id=175 data-nosnippet>175</a>    </span><span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">32 </span>{
+<a href=#176 id=176 data-nosnippet>176</a>        <span class="kw">let </span>rhs_tile = rhs.view().tile::&lt;<span class="macro">m!</span>[C / <span class="number">512</span>], <span class="number">1</span>, <span class="macro">m!</span>[B, <span class="number">1 </span># <span class="number">32</span>, C % <span class="number">512</span>]&gt;(i);
+<a href=#177 id=177 data-nosnippet>177</a>
+<a href=#178 id=178 data-nosnippet>178</a>        <span class="comment">// Intermediate result after contracting over B axis.
+<a href=#179 id=179 data-nosnippet>179</a>        // Reason for broadcast dimension (X=32): B/64%32 is assigned to the Slice dimension and reduced using GAT, which broadcasts the result.
+<a href=#180 id=180 data-nosnippet>180</a>        </span><span class="kw">type </span>AccDmTensor = DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">2048</span>, X], <span class="macro">m!</span>[C % <span class="number">64</span>, A % <span class="number">2048</span>, C / <span class="number">64 </span>% <span class="number">8</span>]&gt;;
+<a href=#181 id=181 data-nosnippet>181</a>        <span class="kw">let </span><span class="kw-2">mut </span>result0 = AccDmTensor::new();
+<a href=#182 id=182 data-nosnippet>182</a>        <span class="kw">let </span><span class="kw-2">mut </span>result1 = AccDmTensor::new();
+<a href=#183 id=183 data-nosnippet>183</a>        <span class="kw">let </span><span class="kw-2">mut </span>temp = AccDmTensor::new();
+<a href=#184 id=184 data-nosnippet>184</a>
+<a href=#185 id=185 data-nosnippet>185</a>        <span class="comment">// Next, we split AB * B(C%512) into A(B%4096) * (B%4096)(C%512) 4 times and accumulate the results.
+<a href=#186 id=186 data-nosnippet>186</a>        // The reason for splitting rhs into smaller pieces is that it must fit in the smaller TRF. TRF capacity is 64KB/32KB per slice (full/half mode).
+<a href=#187 id=187 data-nosnippet>187</a>        // TODO: More advanced optimizations such as software pipelining are needed to achieve optimal performance.
+<a href=#188 id=188 data-nosnippet>188</a>        </span><span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..<span class="number">4 </span>{
+<a href=#189 id=189 data-nosnippet>189</a>            <span class="kw">let </span>lhs_tile = lhs.view().tile::&lt;<span class="macro">m!</span>[B / <span class="number">4096</span>], <span class="number">1</span>, <span class="macro">m!</span>[A, <span class="number">1 </span># <span class="number">4</span>, B % <span class="number">4096</span>]&gt;(j);
+<a href=#190 id=190 data-nosnippet>190</a>            <span class="kw">let </span>rhs_subtile = rhs_tile.tile::&lt;<span class="macro">m!</span>[B / <span class="number">4096</span>], <span class="number">1</span>, <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">4</span>, B % <span class="number">4096</span>, <span class="number">1 </span># <span class="number">32</span>, C % <span class="number">512</span>]&gt;(j);
+<a href=#191 id=191 data-nosnippet>191</a>
+<a href=#192 id=192 data-nosnippet>192</a>            <span class="comment">// Accumulate contraction results for each chunk (reduce over B=2048 axis).
+<a href=#193 id=193 data-nosnippet>193</a>            </span><span class="kw">if </span>j == <span class="number">0 </span>{
+<a href=#194 id=194 data-nosnippet>194</a>                <span class="comment">// For the first iteration, store the result directly to result0.
+<a href=#195 id=195 data-nosnippet>195</a>                </span>contraction_over_b_2048(ctx, lhs_tile, rhs_subtile, result0.view_mut());
+<a href=#196 id=196 data-nosnippet>196</a>            } <span class="kw">else </span>{
+<a href=#197 id=197 data-nosnippet>197</a>                contraction_over_b_2048(ctx, lhs_tile, rhs_subtile, temp.view_mut());
+<a href=#198 id=198 data-nosnippet>198</a>
+<a href=#199 id=199 data-nosnippet>199</a>                <span class="comment">// From the second iteration onwards, accumulate results alternating between result0 and result1.
+<a href=#200 id=200 data-nosnippet>200</a>                </span><span class="kw">if </span>j % <span class="number">2 </span>== <span class="number">1 </span>{
+<a href=#201 id=201 data-nosnippet>201</a>                    add_split_contractions(ctx, <span class="kw-2">&amp;</span>result0, <span class="kw-2">&amp;</span>temp, result1.view_mut());
+<a href=#202 id=202 data-nosnippet>202</a>                } <span class="kw">else </span>{
+<a href=#203 id=203 data-nosnippet>203</a>                    add_split_contractions(ctx, <span class="kw-2">&amp;</span>result1, <span class="kw-2">&amp;</span>temp, result0.view_mut());
+<a href=#204 id=204 data-nosnippet>204</a>                }
+<a href=#205 id=205 data-nosnippet>205</a>            }
+<a href=#206 id=206 data-nosnippet>206</a>        }
+<a href=#207 id=207 data-nosnippet>207</a>
+<a href=#208 id=208 data-nosnippet>208</a>        <span class="kw">let </span>reduced = reduce_over_cluster(ctx, <span class="kw-2">&amp;</span>result1);
+<a href=#209 id=209 data-nosnippet>209</a>
+<a href=#210 id=210 data-nosnippet>210</a>        <span class="comment">// write back to HBM.
+<a href=#211 id=211 data-nosnippet>211</a>        </span><span class="kw">let </span>out_tile = out.view_mut().tile::&lt;<span class="macro">m!</span>[C / <span class="number">512</span>], <span class="number">1</span>, <span class="macro">m!</span>[A, <span class="number">1 </span>#{!} <span class="number">32</span>, C % <span class="number">512</span>]&gt;(i);
+<a href=#212 id=212 data-nosnippet>212</a>        reduced
+<a href=#213 id=213 data-nosnippet>213</a>            .view()
+<a href=#214 id=214 data-nosnippet>214</a>            .slice_tile::&lt;<span class="macro">m!</span>[X], <span class="number">1</span>, <span class="macro">m!</span>[A / <span class="number">2048</span>, <span class="number">1 </span># <span class="number">32</span>]&gt;(<span class="number">0</span>)
+<a href=#215 id=215 data-nosnippet>215</a>            .to_hbm_view(<span class="kw-2">&amp;mut </span>ctx.tdma, out_tile);
+<a href=#216 id=216 data-nosnippet>216</a>    }
+<a href=#217 id=217 data-nosnippet>217</a>
+<a href=#218 id=218 data-nosnippet>218</a>    out
+<a href=#219 id=219 data-nosnippet>219</a>}
 </code></pre></div></section></main></body></html>

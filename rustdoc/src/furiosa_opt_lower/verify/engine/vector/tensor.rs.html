@@ -229,7 +229,7 @@
 <a href=#229 id=229 data-nosnippet>229</a>    <span class="kw">if </span>packet2.size() != ONE_FLIT_ELEMENTS {
 <a href=#230 id=230 data-nosnippet>230</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(VectorError::PadOutputSize(packet2.size()));
 <a href=#231 id=231 data-nosnippet>231</a>    }
-<a href=#232 id=232 data-nosnippet>232</a>    <span class="kw">let </span>expected = packet.clone().replace_padding(ONE_FLIT_ELEMENTS).normalize();
+<a href=#232 id=232 data-nosnippet>232</a>    <span class="kw">let </span>expected = packet.clone().padding(ONE_FLIT_ELEMENTS, PaddingKind::Top).normalize();
 <a href=#233 id=233 data-nosnippet>233</a>    <span class="kw">if </span>expected != packet2.normalize() {
 <a href=#234 id=234 data-nosnippet>234</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(VectorError::PadPacketMismatch {
 <a href=#235 id=235 data-nosnippet>235</a>            expected,

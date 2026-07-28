@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
+            window.path_to_searchindex_js = "../searchindex-760cc3da.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-65a723fd.js"></script>
@@ -316,8 +316,8 @@ fn fetch_interleaved&lt;'l&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let lhs = unsafe { DmTensor::from_addr(0) };
-</span><span class="boring">let rhs = unsafe { DmTensor::from_addr(0) };
+</span><span class="boring">let lhs = DmTensor::new();
+</span><span class="boring">let rhs = DmTensor::new();
 </span><span class="boring">let _o = fetch_interleaved(&amp;mut ctx, &amp;lhs, &amp;rhs);
 </span><span class="boring">}</span></code></pre>
 <h2 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h2>

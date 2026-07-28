@@ -56,7 +56,7 @@
 <a href=#56 id=56 data-nosnippet>56</a>    <span class="comment">// Allocate DM tensor for output with layout:
 <a href=#57 id=57 data-nosnippet>57</a>    // Chip: m![1], Cluster: m![1#2], Slice: [A/8], Element: [A%8]
 <a href=#58 id=58 data-nosnippet>58</a>    </span><span class="kw">type </span>ResultDmTensor = DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">8</span>], <span class="macro">m!</span>[A % <span class="number">8</span>]&gt;;
-<a href=#59 id=59 data-nosnippet>59</a>    <span class="kw">let </span><span class="kw-2">mut </span>result = <span class="kw">unsafe </span>{ ResultDmTensor::from_addr(<span class="number">0</span>) };
+<a href=#59 id=59 data-nosnippet>59</a>    <span class="kw">let </span><span class="kw-2">mut </span>result = ResultDmTensor::new();
 <a href=#60 id=60 data-nosnippet>60</a>
 <a href=#61 id=61 data-nosnippet>61</a>    <span class="comment">// Perform binary addition in DM
 <a href=#62 id=62 data-nosnippet>62</a>    </span>binary_add_kernel(ctx, lhs.view(), rhs.view(), result.view_mut());

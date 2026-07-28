@@ -24,14 +24,14 @@
 <a href=#24 id=24 data-nosnippet>24</a>    </span><span class="attr">#[primitive(TuTensor::commit)]
 <a href=#25 id=25 data-nosnippet>25</a>    </span><span class="kw">pub fn </span>commit&lt;Element: M&gt;(<span class="self">self</span>) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
 <a href=#26 id=26 data-nosnippet>26</a>        verify_commit::&lt;D, Time, Packet, Element&gt;();
-<a href=#27 id=27 data-nosnippet>27</a>        DmTensor::new(<span class="self">self</span>.inner.transpose(<span class="bool-val">false</span>), <span class="prelude-val">None</span>)
+<a href=#27 id=27 data-nosnippet>27</a>        DmTensor::from_parts(<span class="self">self</span>.inner.transpose(<span class="bool-val">false</span>), <span class="prelude-val">None</span>)
 <a href=#28 id=28 data-nosnippet>28</a>    }
 <a href=#29 id=29 data-nosnippet>29</a>
 <a href=#30 id=30 data-nosnippet>30</a>    <span class="doccomment">/// Commits to data memory at `address`.
 <a href=#31 id=31 data-nosnippet>31</a>    </span><span class="attr">#[primitive(TuTensor::commit_at)]
 <a href=#32 id=32 data-nosnippet>32</a>    </span><span class="kw">pub fn </span>commit_at&lt;Element: M&gt;(<span class="self">self</span>, address: Address) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
 <a href=#33 id=33 data-nosnippet>33</a>        verify_commit::&lt;D, Time, Packet, Element&gt;();
-<a href=#34 id=34 data-nosnippet>34</a>        DmTensor::new(<span class="self">self</span>.inner.transpose(<span class="bool-val">false</span>), <span class="prelude-val">Some</span>(address))
+<a href=#34 id=34 data-nosnippet>34</a>        DmTensor::from_parts(<span class="self">self</span>.inner.transpose(<span class="bool-val">false</span>), <span class="prelude-val">Some</span>(address))
 <a href=#35 id=35 data-nosnippet>35</a>    }
 <a href=#36 id=36 data-nosnippet>36</a>
 <a href=#37 id=37 data-nosnippet>37</a>    <span class="doccomment">/// Commits to a mutable tensor view in data memory.

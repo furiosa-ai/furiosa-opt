@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
+            window.path_to_searchindex_js = "../searchindex-760cc3da.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-65a723fd.js"></script>
@@ -207,7 +207,7 @@ The kernel writer calls <code>.to_dm()</code>, <code>.to_hbm()</code>, or relate
             m![{ Chip }, { Cluster }, { Slice }, { Element2 }],
             Element2,
         &gt;(DMA_SRAM_WRITE_WIDTH);
-        DmTensor::new(self.inner.transpose(true), None)
+        DmTensor::from_parts(self.inner.transpose(true), None)
     }
 
     /// Converts to data memory tensor at `address`.
@@ -224,7 +224,7 @@ The kernel writer calls <code>.to_dm()</code>, <code>.to_hbm()</code>, or relate
             m![{ Chip }, { Cluster }, { Slice }, { Element2 }],
             Element2,
         &gt;(DMA_SRAM_WRITE_WIDTH);
-        DmTensor::new(self.inner.transpose(true), Some(address))
+        DmTensor::from_parts(self.inner.transpose(true), Some(address))
     }
 
     /// Reshapes the tensor to a different mapping at the same HBM address, consuming `self`.
@@ -704,7 +704,7 @@ fn cluster_shuffle(
     input.view().dm_cluster_shuffle::&lt;2&gt;(&amp;mut ctx.tdma, &amp;[1, 0])
 }
 <span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let input_dm = unsafe { DmTensor::&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt;::from_addr(0) };
+</span><span class="boring">let input_dm = DmTensor::&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt;::new();
 </span><span class="boring">let _output_dm = cluster_shuffle(&amp;mut ctx, &amp;input_dm);
 </span><span class="boring">}</span></code></pre>
 <p>Inter-chip shuffles use the system-wide global chip IDs.

@@ -63,9 +63,9 @@
 <a href=#63 id=63 data-nosnippet>63</a>        <span class="self">Self</span>::from_vec(mapping, (<span class="number">0</span>..mapping.size()).map(|i| D::load(<span class="kw-2">&amp;</span>buf, i)))
 <a href=#64 id=64 data-nosnippet>64</a>    }
 <a href=#65 id=65 data-nosnippet>65</a>
-<a href=#66 id=66 data-nosnippet>66</a>    <span class="doccomment">/// An uninitialized storage of this layout, delegating to the concrete storage's inherent
+<a href=#66 id=66 data-nosnippet>66</a>    <span class="doccomment">/// A zeroed storage of this layout, delegating to the concrete storage's inherent
 <a href=#67 id=67 data-nosnippet>67</a>    /// constructor.
-<a href=#68 id=68 data-nosnippet>68</a>    </span><span class="kw">fn </span>uninit&lt;D: Scalar&gt;(mapping: <span class="kw-2">&amp;</span>MappingValue) -&gt; <span class="self">Self</span>::Storage&lt;D&gt;;
+<a href=#68 id=68 data-nosnippet>68</a>    </span><span class="kw">fn </span>zeroed&lt;D: Scalar&gt;(mapping: <span class="kw-2">&amp;</span>MappingValue) -&gt; <span class="self">Self</span>::Storage&lt;D&gt;;
 <a href=#69 id=69 data-nosnippet>69</a>
 <a href=#70 id=70 data-nosnippet>70</a>    <span class="doccomment">/// Serialize the storage to a flat `D` buffer in `mapping`-order (the physical / wire layout),
 <a href=#71 id=71 data-nosnippet>71</a>    /// consuming the storage, delegating to the concrete storage's inherent serializer.

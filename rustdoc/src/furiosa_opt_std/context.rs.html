@@ -141,7 +141,7 @@
 <a href=#141 id=141 data-nosnippet>141</a>        lhs: DmTensorView&lt;<span class="lifetime">'l</span>, D, Chip, Cluster, Slice, Element&gt;,
 <a href=#142 id=142 data-nosnippet>142</a>        rhs: DmTensorView&lt;<span class="lifetime">'l</span>, D, Chip, Cluster, Slice, Element&gt;,
 <a href=#143 id=143 data-nosnippet>143</a>    ) -&gt; BeginTensor&lt;<span class="lifetime">'l</span>, { T }, D, Chip, Cluster, Slice, Symbol&lt;I&gt;, Element&gt; {
-<a href=#144 id=144 data-nosnippet>144</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;D, <span class="macro">m!</span>[{ Chip }, { Cluster }, { Slice }, { Symbol&lt;I&gt; }, { Element }]&gt;::uninit();
+<a href=#144 id=144 data-nosnippet>144</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = Tensor::&lt;D, <span class="macro">m!</span>[{ Chip }, { Cluster }, { Slice }, { Symbol&lt;I&gt; }, { Element }]&gt;::zeroed();
 <a href=#145 id=145 data-nosnippet>145</a>
 <a href=#146 id=146 data-nosnippet>146</a>        <span class="kw">for </span>(i, input) <span class="kw">in </span>[lhs, rhs].into_iter().enumerate() {
 <a href=#147 id=147 data-nosnippet>147</a>            output
@@ -177,7 +177,7 @@
 <a href=#177 id=177 data-nosnippet>177</a>        tensor: DmTensorView&lt;<span class="lifetime">'l</span>, D, Chip, Cluster, Slice, Element&gt;,
 <a href=#178 id=178 data-nosnippet>178</a>        slice_indices: <span class="kw-2">&amp;</span>[usize; CLUSTER_DIM],
 <a href=#179 id=179 data-nosnippet>179</a>    ) -&gt; <span class="kw">super</span>::tensor::memory::DmTensor&lt;D, Chip, Cluster, Slice, Element2&gt; {
-<a href=#180 id=180 data-nosnippet>180</a>        <span class="kw">let </span><span class="kw-2">mut </span>sliced = <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0</span>) };
+<a href=#180 id=180 data-nosnippet>180</a>        <span class="kw">let </span><span class="kw-2">mut </span>sliced = DmTensor::new();
 <a href=#181 id=181 data-nosnippet>181</a>
 <a href=#182 id=182 data-nosnippet>182</a>        <span class="kw">for </span>(cluster_idx, slice_idx) <span class="kw">in </span>slice_indices.iter().enumerate() {
 <a href=#183 id=183 data-nosnippet>183</a>            <span class="kw">let </span>cluster_slice = tensor.cluster_tile::&lt;Cluster, <span class="number">1</span>, Padding&lt;Identity, CLUSTER_DIM&gt;&gt;(cluster_idx);
@@ -216,7 +216,7 @@
 <a href=#216 id=216 data-nosnippet>216</a>        tensor: DmTensorView&lt;<span class="lifetime">'l</span>, D, Chip, Cluster, Slice, Element&gt;,
 <a href=#217 id=217 data-nosnippet>217</a>        slice_indices: <span class="kw-2">&amp;</span>[usize; CHIP_DIM],
 <a href=#218 id=218 data-nosnippet>218</a>    ) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element2&gt; {
-<a href=#219 id=219 data-nosnippet>219</a>        <span class="kw">let </span><span class="kw-2">mut </span>sliced = <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0</span>) };
+<a href=#219 id=219 data-nosnippet>219</a>        <span class="kw">let </span><span class="kw-2">mut </span>sliced = DmTensor::new();
 <a href=#220 id=220 data-nosnippet>220</a>
 <a href=#221 id=221 data-nosnippet>221</a>        <span class="kw">for </span>(chip_idx, slice_idx) <span class="kw">in </span>slice_indices.iter().enumerate() {
 <a href=#222 id=222 data-nosnippet>222</a>            <span class="kw">let </span>chip_slice = tensor.chip_tile::&lt;Chip, <span class="number">1</span>, Padding&lt;Identity, CHIP_DIM&gt;&gt;(chip_idx);

@@ -120,63 +120,60 @@
 <a href=#120 id=120 data-nosnippet>120</a>        sliced3.view().dm_chip_shuffle::&lt;<span class="number">4</span>&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma, <span class="kw-2">&amp;</span>[<span class="number">3</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">2</span>]);
 <a href=#121 id=121 data-nosnippet>121</a>
 <a href=#122 id=122 data-nosnippet>122</a>    <span class="comment">// Step 5: Add T0 + T1 + T2 + T3 using two-stage binary addition
-<a href=#123 id=123 data-nosnippet>123</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>sum01: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, A % <span class="number">4 </span># <span class="number">8</span>]&gt; =
-<a href=#124 id=124 data-nosnippet>124</a>        <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0</span>) };
-<a href=#125 id=125 data-nosnippet>125</a>    <span class="kw">let </span><span class="kw-2">mut </span>sum012: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, A % <span class="number">4 </span># <span class="number">8</span>]&gt; =
-<a href=#126 id=126 data-nosnippet>126</a>        <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0</span>) };
-<a href=#127 id=127 data-nosnippet>127</a>
-<a href=#128 id=128 data-nosnippet>128</a>    <span class="comment">// Add T0 + T1
-<a href=#129 id=129 data-nosnippet>129</a>    </span>ctx.main
-<a href=#130 id=130 data-nosnippet>130</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sliced0.view(), shuffled1.view())
-<a href=#131 id=131 data-nosnippet>131</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4</span>]&gt;()
-<a href=#132 id=132 data-nosnippet>132</a>        .fetch_cast::&lt;i32&gt;()
-<a href=#133 id=133 data-nosnippet>133</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#134 id=134 data-nosnippet>134</a>        .vector_init()
-<a href=#135 id=135 data-nosnippet>135</a>        .vector_intra_slice_unzip::&lt;I, <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, <span class="number">1 </span># <span class="number">2</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>]&gt;()
-<a href=#136 id=136 data-nosnippet>136</a>        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
-<a href=#137 id=137 data-nosnippet>137</a>        <span class="comment">// After vector_clip_zip, result is implicitly filtered to Group 1 only
-<a href=#138 id=138 data-nosnippet>138</a>        </span>.vector_final()
-<a href=#139 id=139 data-nosnippet>139</a>        .commit_trim::&lt;<span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#140 id=140 data-nosnippet>140</a>        .commit_view(sum01.view_mut());
-<a href=#141 id=141 data-nosnippet>141</a>
-<a href=#142 id=142 data-nosnippet>142</a>    <span class="comment">// Add (TO + T1) + T2
-<a href=#143 id=143 data-nosnippet>143</a>    </span>ctx.main
-<a href=#144 id=144 data-nosnippet>144</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sum01.view(), shuffled2.view())
-<a href=#145 id=145 data-nosnippet>145</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4</span>]&gt;()
-<a href=#146 id=146 data-nosnippet>146</a>        .fetch_cast::&lt;i32&gt;()
-<a href=#147 id=147 data-nosnippet>147</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#148 id=148 data-nosnippet>148</a>        .vector_init()
-<a href=#149 id=149 data-nosnippet>149</a>        .vector_intra_slice_unzip::&lt;I, <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, <span class="number">1 </span># <span class="number">2</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>]&gt;()
-<a href=#150 id=150 data-nosnippet>150</a>        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
-<a href=#151 id=151 data-nosnippet>151</a>        <span class="comment">// After vector_clip_zip, result is implicitly filtered to Group 1 only
-<a href=#152 id=152 data-nosnippet>152</a>        </span>.vector_final()
-<a href=#153 id=153 data-nosnippet>153</a>        .commit_trim::&lt;<span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#154 id=154 data-nosnippet>154</a>        .commit_view(sum012.view_mut());
-<a href=#155 id=155 data-nosnippet>155</a>
-<a href=#156 id=156 data-nosnippet>156</a>    <span class="comment">// Stage 2: Add ((T0 + T1) + T2) + T3 to get final result
-<a href=#157 id=157 data-nosnippet>157</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>reduced: DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, A % <span class="number">4 </span># <span class="number">8</span>]&gt; =
-<a href=#158 id=158 data-nosnippet>158</a>        <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0</span>) };
-<a href=#159 id=159 data-nosnippet>159</a>
-<a href=#160 id=160 data-nosnippet>160</a>    ctx.main
-<a href=#161 id=161 data-nosnippet>161</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sum012.view(), shuffled3.view())
-<a href=#162 id=162 data-nosnippet>162</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4</span>]&gt;()
-<a href=#163 id=163 data-nosnippet>163</a>        .fetch_cast::&lt;i32&gt;()
-<a href=#164 id=164 data-nosnippet>164</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#165 id=165 data-nosnippet>165</a>        .vector_init()
-<a href=#166 id=166 data-nosnippet>166</a>        .vector_intra_slice_unzip::&lt;I, <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, <span class="number">1 </span># <span class="number">2</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>]&gt;()
-<a href=#167 id=167 data-nosnippet>167</a>        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
-<a href=#168 id=168 data-nosnippet>168</a>        <span class="comment">// After vector_clip_zip, result is implicitly filtered to Group 1 only
-<a href=#169 id=169 data-nosnippet>169</a>        </span>.vector_final()
-<a href=#170 id=170 data-nosnippet>170</a>        .cast::&lt;i8, <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">32</span>]&gt;()
-<a href=#171 id=171 data-nosnippet>171</a>        .commit_trim::&lt;<span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#172 id=172 data-nosnippet>172</a>        .commit_view(reduced.view_mut());
-<a href=#173 id=173 data-nosnippet>173</a>
-<a href=#174 id=174 data-nosnippet>174</a>    <span class="comment">// Reshape to output format
-<a href=#175 id=175 data-nosnippet>175</a>    // Input:  Chip=[B=4], Cluster, Slice=[A/4], Element=[C/8, C%2, A%4#8]
-<a href=#176 id=176 data-nosnippet>176</a>    // Output: Chip=[C/2%4], Cluster, Slice=[A/4], Element=[C/8, C%2, A%4#8]
-<a href=#177 id=177 data-nosnippet>177</a>    </span><span class="kw">let </span>reshaped: DmTensor&lt;i8, <span class="macro">m!</span>[C / <span class="number">2 </span>% <span class="number">4</span>], Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, A % <span class="number">4 </span># <span class="number">8</span>]&gt; =
-<a href=#178 id=178 data-nosnippet>178</a>        <span class="kw">unsafe </span>{ reduced.reshape() };
-<a href=#179 id=179 data-nosnippet>179</a>
-<a href=#180 id=180 data-nosnippet>180</a>    reshaped
-<a href=#181 id=181 data-nosnippet>181</a>}
+<a href=#123 id=123 data-nosnippet>123</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>sum01: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, A % <span class="number">4 </span># <span class="number">8</span>]&gt; = DmTensor::new();
+<a href=#124 id=124 data-nosnippet>124</a>    <span class="kw">let </span><span class="kw-2">mut </span>sum012: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, A % <span class="number">4 </span># <span class="number">8</span>]&gt; = DmTensor::new();
+<a href=#125 id=125 data-nosnippet>125</a>
+<a href=#126 id=126 data-nosnippet>126</a>    <span class="comment">// Add T0 + T1
+<a href=#127 id=127 data-nosnippet>127</a>    </span>ctx.main
+<a href=#128 id=128 data-nosnippet>128</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sliced0.view(), shuffled1.view())
+<a href=#129 id=129 data-nosnippet>129</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4</span>]&gt;()
+<a href=#130 id=130 data-nosnippet>130</a>        .fetch_cast::&lt;i32&gt;()
+<a href=#131 id=131 data-nosnippet>131</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#132 id=132 data-nosnippet>132</a>        .vector_init()
+<a href=#133 id=133 data-nosnippet>133</a>        .vector_intra_slice_unzip::&lt;I, <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, <span class="number">1 </span># <span class="number">2</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>]&gt;()
+<a href=#134 id=134 data-nosnippet>134</a>        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+<a href=#135 id=135 data-nosnippet>135</a>        <span class="comment">// After vector_clip_zip, result is implicitly filtered to Group 1 only
+<a href=#136 id=136 data-nosnippet>136</a>        </span>.vector_final()
+<a href=#137 id=137 data-nosnippet>137</a>        .commit_trim::&lt;<span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#138 id=138 data-nosnippet>138</a>        .commit_view(sum01.view_mut());
+<a href=#139 id=139 data-nosnippet>139</a>
+<a href=#140 id=140 data-nosnippet>140</a>    <span class="comment">// Add (TO + T1) + T2
+<a href=#141 id=141 data-nosnippet>141</a>    </span>ctx.main
+<a href=#142 id=142 data-nosnippet>142</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sum01.view(), shuffled2.view())
+<a href=#143 id=143 data-nosnippet>143</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4</span>]&gt;()
+<a href=#144 id=144 data-nosnippet>144</a>        .fetch_cast::&lt;i32&gt;()
+<a href=#145 id=145 data-nosnippet>145</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#146 id=146 data-nosnippet>146</a>        .vector_init()
+<a href=#147 id=147 data-nosnippet>147</a>        .vector_intra_slice_unzip::&lt;I, <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, <span class="number">1 </span># <span class="number">2</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>]&gt;()
+<a href=#148 id=148 data-nosnippet>148</a>        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+<a href=#149 id=149 data-nosnippet>149</a>        <span class="comment">// After vector_clip_zip, result is implicitly filtered to Group 1 only
+<a href=#150 id=150 data-nosnippet>150</a>        </span>.vector_final()
+<a href=#151 id=151 data-nosnippet>151</a>        .commit_trim::&lt;<span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#152 id=152 data-nosnippet>152</a>        .commit_view(sum012.view_mut());
+<a href=#153 id=153 data-nosnippet>153</a>
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="comment">// Stage 2: Add ((T0 + T1) + T2) + T3 to get final result
+<a href=#155 id=155 data-nosnippet>155</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>reduced: DmTensor&lt;i8, Chip, Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, A % <span class="number">4 </span># <span class="number">8</span>]&gt; = DmTensor::new();
+<a href=#156 id=156 data-nosnippet>156</a>
+<a href=#157 id=157 data-nosnippet>157</a>    ctx.main
+<a href=#158 id=158 data-nosnippet>158</a>        .begin_interleaved::&lt;I, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>, <span class="kw">_</span>&gt;(sum012.view(), shuffled3.view())
+<a href=#159 id=159 data-nosnippet>159</a>        .fetch::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4</span>]&gt;()
+<a href=#160 id=160 data-nosnippet>160</a>        .fetch_cast::&lt;i32&gt;()
+<a href=#161 id=161 data-nosnippet>161</a>        .collect::&lt;<span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, I], <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#162 id=162 data-nosnippet>162</a>        .vector_init()
+<a href=#163 id=163 data-nosnippet>163</a>        .vector_intra_slice_unzip::&lt;I, <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, <span class="number">1 </span># <span class="number">2</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>]&gt;()
+<a href=#164 id=164 data-nosnippet>164</a>        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+<a href=#165 id=165 data-nosnippet>165</a>        <span class="comment">// After vector_clip_zip, result is implicitly filtered to Group 1 only
+<a href=#166 id=166 data-nosnippet>166</a>        </span>.vector_final()
+<a href=#167 id=167 data-nosnippet>167</a>        .cast::&lt;i8, <span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">32</span>]&gt;()
+<a href=#168 id=168 data-nosnippet>168</a>        .commit_trim::&lt;<span class="macro">m!</span>[A % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#169 id=169 data-nosnippet>169</a>        .commit_view(reduced.view_mut());
+<a href=#170 id=170 data-nosnippet>170</a>
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="comment">// Reshape to output format
+<a href=#172 id=172 data-nosnippet>172</a>    // Input:  Chip=[B=4], Cluster, Slice=[A/4], Element=[C/8, C%2, A%4#8]
+<a href=#173 id=173 data-nosnippet>173</a>    // Output: Chip=[C/2%4], Cluster, Slice=[A/4], Element=[C/8, C%2, A%4#8]
+<a href=#174 id=174 data-nosnippet>174</a>    </span><span class="kw">let </span>reshaped: DmTensor&lt;i8, <span class="macro">m!</span>[C / <span class="number">2 </span>% <span class="number">4</span>], Cluster, <span class="macro">m!</span>[A / <span class="number">4</span>], <span class="macro">m!</span>[C / <span class="number">8</span>, C % <span class="number">2</span>, A % <span class="number">4 </span># <span class="number">8</span>]&gt; =
+<a href=#175 id=175 data-nosnippet>175</a>        <span class="kw">unsafe </span>{ reduced.reshape() };
+<a href=#176 id=176 data-nosnippet>176</a>
+<a href=#177 id=177 data-nosnippet>177</a>    reshaped
+<a href=#178 id=178 data-nosnippet>178</a>}
 </code></pre></div></section></main></body></html>

@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-36f1ff77.js";
+            window.path_to_searchindex_js = "../searchindex-760cc3da.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-65a723fd.js"></script>
@@ -190,14 +190,14 @@ Its <code>Time</code> reflects the temporal unrolling of the computation, and <c
     #[primitive(TuTensor::commit)]
     pub fn commit&lt;Element: M&gt;(self) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
         verify_commit::&lt;D, Time, Packet, Element&gt;();
-        DmTensor::new(self.inner.transpose(false), None)
+        DmTensor::from_parts(self.inner.transpose(false), None)
     }
 
     /// Commits to data memory at `address`.
     #[primitive(TuTensor::commit_at)]
     pub fn commit_at&lt;Element: M&gt;(self, address: Address) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
         verify_commit::&lt;D, Time, Packet, Element&gt;();
-        DmTensor::new(self.inner.transpose(false), Some(address))
+        DmTensor::from_parts(self.inner.transpose(false), Some(address))
     }
 
     /// Commits to a mutable tensor view in data memory.

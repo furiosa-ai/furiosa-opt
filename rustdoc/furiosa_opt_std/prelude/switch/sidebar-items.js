@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["SwitchConfig"],"struct":["PositionSwitch"],"type":["SwitchTensor"]};
+window.SIDEBAR_ITEMS = {"enum":["SwitchConfig","SwitchError"],"struct":["PositionSwitch"],"type":["SwitchTensor"]};

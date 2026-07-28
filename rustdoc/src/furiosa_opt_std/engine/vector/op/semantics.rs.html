@@ -187,7 +187,7 @@
 <a href=#187 id=187 data-nosnippet>187</a>
 <a href=#188 id=188 data-nosnippet>188</a></span><span class="kw">impl </span>IntraSliceReduceOpI32 {
 <a href=#189 id=189 data-nosnippet>189</a>    <span class="doccomment">/// Returns the raw binary reduction function.
-<a href=#190 id=190 data-nosnippet>190</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>reduce_fn(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw">fn</span>(i32, i32) -&gt; i32 {
+<a href=#190 id=190 data-nosnippet>190</a>    </span><span class="kw">pub fn </span>reduce_fn(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw">fn</span>(i32, i32) -&gt; i32 {
 <a href=#191 id=191 data-nosnippet>191</a>        <span class="kw">match </span><span class="self">self </span>{
 <a href=#192 id=192 data-nosnippet>192</a>            <span class="self">Self</span>::AddSat =&gt; |a, b| a.saturating_add(b),
 <a href=#193 id=193 data-nosnippet>193</a>            <span class="self">Self</span>::Max =&gt; |a, b| a.max(b),
@@ -207,7 +207,7 @@
 <a href=#207 id=207 data-nosnippet>207</a>
 <a href=#208 id=208 data-nosnippet>208</a><span class="kw">impl </span>IntraSliceReduceOpF32 {
 <a href=#209 id=209 data-nosnippet>209</a>    <span class="doccomment">/// Returns the raw binary reduction function.
-<a href=#210 id=210 data-nosnippet>210</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>reduce_fn(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw">fn</span>(f32, f32) -&gt; f32 {
+<a href=#210 id=210 data-nosnippet>210</a>    </span><span class="kw">pub fn </span>reduce_fn(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw">fn</span>(f32, f32) -&gt; f32 {
 <a href=#211 id=211 data-nosnippet>211</a>        <span class="kw">match </span><span class="self">self </span>{
 <a href=#212 id=212 data-nosnippet>212</a>            <span class="self">Self</span>::Add =&gt; |a, b| a + b,
 <a href=#213 id=213 data-nosnippet>213</a>            <span class="self">Self</span>::Max =&gt; |a, b| a.max(b),

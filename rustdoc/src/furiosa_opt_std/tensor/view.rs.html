@@ -211,7 +211,7 @@
 <a href=#211 id=211 data-nosnippet>211</a>    <span class="doccomment">/// Reads the tensor view into a new tensor. Delegates to [`Backend::transpose`],
 <a href=#212 id=212 data-nosnippet>212</a>    /// whose body runs `transpose_broadcast` on every storage (so Typecheck still validates).
 <a href=#213 id=213 data-nosnippet>213</a>    </span><span class="kw">pub fn </span>read(<span class="self">self</span>) -&gt; Tensor&lt;D, E, B&gt; {
-<a href=#214 id=214 data-nosnippet>214</a>        <span class="kw">let </span><span class="kw-2">mut </span>result = Tensor::uninit();
+<a href=#214 id=214 data-nosnippet>214</a>        <span class="kw">let </span><span class="kw-2">mut </span>result = Tensor::zeroed();
 <a href=#215 id=215 data-nosnippet>215</a>        result.view_mut().transpose(<span class="self">self</span>, <span class="bool-val">false</span>);
 <a href=#216 id=216 data-nosnippet>216</a>        result
 <a href=#217 id=217 data-nosnippet>217</a>    }

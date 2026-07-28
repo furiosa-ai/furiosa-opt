@@ -79,76 +79,74 @@
 <a href=#79 id=79 data-nosnippet>79</a>
 <a href=#80 id=80 data-nosnippet>80</a>    <span class="comment">// Load V rows into SRAM, then reinterpret as [N, D] blocks for cache scatter.
 <a href=#81 id=81 data-nosnippet>81</a>    </span>attn_v.to_dm::&lt;Cluster, <span class="macro">m!</span>[T / <span class="number">16</span>], <span class="macro">m!</span>[T % <span class="number">16</span>, K]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
-<a href=#82 id=82 data-nosnippet>82</a>    <span class="kw">let </span>v_scatter_reshaped: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">16</span>], <span class="macro">m!</span>[T % <span class="number">16</span>, N, D]&gt; =
-<a href=#83 id=83 data-nosnippet>83</a>        <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0x200</span>) };
-<a href=#84 id=84 data-nosnippet>84</a>
-<a href=#85 id=85 data-nosnippet>85</a>    <span class="comment">// Scatter V rows into cache positions selected by the prepared indices.
-<a href=#86 id=86 data-nosnippet>86</a>    </span>v_scatter_reshaped.dma_scatter::&lt;<span class="macro">m!</span>[T], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>v_idx_hbm, out_v_cache);
-<a href=#87 id=87 data-nosnippet>87</a>
-<a href=#88 id=88 data-nosnippet>88</a>    <span class="comment">// K scatter index path.
-<a href=#89 id=89 data-nosnippet>89</a>
-<a href=#90 id=90 data-nosnippet>90</a>    // Load K scatter indices from HBM to DM.
-<a href=#91 id=91 data-nosnippet>91</a>    </span><span class="kw">let </span>k_idx_dm: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">32</span>, <span class="number">1 </span># <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">32</span>]&gt; = k_scatter_index.to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
-<a href=#92 id=92 data-nosnippet>92</a>
-<a href=#93 id=93 data-nosnippet>93</a>    <span class="comment">// Reorder K index tiles to the scatter-friendly layout.
-<a href=#94 id=94 data-nosnippet>94</a>    </span><span class="kw">let </span>k_idx_it: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">32</span>, T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">32</span>]&gt; = ctx
-<a href=#95 id=95 data-nosnippet>95</a>        .main
-<a href=#96 id=96 data-nosnippet>96</a>        .begin(k_idx_dm.view())
-<a href=#97 id=97 data-nosnippet>97</a>        .fetch::&lt;<span class="macro">m!</span>[T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
-<a href=#98 id=98 data-nosnippet>98</a>        .switch::&lt;<span class="macro">m!</span>[T / <span class="number">32</span>, T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>]&gt;(SwitchConfig::InterTranspose {
-<a href=#99 id=99 data-nosnippet>99</a>            slice1: <span class="number">8</span>,
-<a href=#100 id=100 data-nosnippet>100</a>            slice0: <span class="number">1</span>,
-<a href=#101 id=101 data-nosnippet>101</a>            time0: <span class="number">1</span>,
-<a href=#102 id=102 data-nosnippet>102</a>        })
-<a href=#103 id=103 data-nosnippet>103</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#104 id=104 data-nosnippet>104</a>        .commit_trim::&lt;<span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
-<a href=#105 id=105 data-nosnippet>105</a>        .commit();
-<a href=#106 id=106 data-nosnippet>106</a>
-<a href=#107 id=107 data-nosnippet>107</a>    <span class="comment">// Restore compact T%4 index lanes before scaling.
-<a href=#108 id=108 data-nosnippet>108</a>    </span><span class="kw">let </span>k_idx_stripped: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">32</span>, T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt; = ctx
-<a href=#109 id=109 data-nosnippet>109</a>        .main
-<a href=#110 id=110 data-nosnippet>110</a>        .begin(k_idx_it.view())
-<a href=#111 id=111 data-nosnippet>111</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
-<a href=#112 id=112 data-nosnippet>112</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#113 id=113 data-nosnippet>113</a>        .commit_trim::&lt;<span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
-<a href=#114 id=114 data-nosnippet>114</a>        .commit();
-<a href=#115 id=115 data-nosnippet>115</a>
-<a href=#116 id=116 data-nosnippet>116</a>    <span class="comment">// Convert K row indices to byte offsets.
-<a href=#117 id=117 data-nosnippet>117</a>    </span><span class="kw">let </span>k_idx_scaled: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">32</span>, T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt; = ctx
-<a href=#118 id=118 data-nosnippet>118</a>        .main
-<a href=#119 id=119 data-nosnippet>119</a>        .begin(k_idx_stripped.view())
-<a href=#120 id=120 data-nosnippet>120</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
-<a href=#121 id=121 data-nosnippet>121</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#122 id=122 data-nosnippet>122</a>        .vector_init()
-<a href=#123 id=123 data-nosnippet>123</a>        .vector_intra_slice_tag(TagMode::Zero)
-<a href=#124 id=124 data-nosnippet>124</a>        .vector_fxp(FxpBinaryOp::MulInt, <span class="number">256</span>)
-<a href=#125 id=125 data-nosnippet>125</a>        .vector_final()
-<a href=#126 id=126 data-nosnippet>126</a>        .commit_trim::&lt;<span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#127 id=127 data-nosnippet>127</a>        .commit();
-<a href=#128 id=128 data-nosnippet>128</a>
-<a href=#129 id=129 data-nosnippet>129</a>    <span class="comment">// Pack K offsets into a contiguous T-major layout for DMA spill.
-<a href=#130 id=130 data-nosnippet>130</a>    </span><span class="kw">let </span>k_idx_d0b: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">64</span>, <span class="number">1 </span># <span class="number">16</span>], <span class="macro">m!</span>[T % <span class="number">64</span>]&gt; = ctx
-<a href=#131 id=131 data-nosnippet>131</a>        .main
-<a href=#132 id=132 data-nosnippet>132</a>        .begin(k_idx_scaled.view())
-<a href=#133 id=133 data-nosnippet>133</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
-<a href=#134 id=134 data-nosnippet>134</a>        .switch::&lt;<span class="macro">m!</span>[T / <span class="number">64</span>, <span class="number">1 </span># <span class="number">16</span>], <span class="macro">m!</span>[<span class="number">1</span>]&gt;(SwitchConfig::Broadcast01 {
-<a href=#135 id=135 data-nosnippet>135</a>            slice1: <span class="number">16</span>,
-<a href=#136 id=136 data-nosnippet>136</a>            slice0: <span class="number">1</span>,
-<a href=#137 id=137 data-nosnippet>137</a>            time0: <span class="number">1</span>,
-<a href=#138 id=138 data-nosnippet>138</a>        })
-<a href=#139 id=139 data-nosnippet>139</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
-<a href=#140 id=140 data-nosnippet>140</a>        .commit_trim::&lt;<span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
-<a href=#141 id=141 data-nosnippet>141</a>        .commit();
-<a href=#142 id=142 data-nosnippet>142</a>
-<a href=#143 id=143 data-nosnippet>143</a>    <span class="comment">// Spill prepared K offsets back to HBM for dma_scatter.
-<a href=#144 id=144 data-nosnippet>144</a>    </span><span class="kw">let </span>k_idx_hbm: HbmTensor&lt;i32, Chip, <span class="macro">m!</span>[T]&gt; = k_idx_d0b.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma);
-<a href=#145 id=145 data-nosnippet>145</a>
-<a href=#146 id=146 data-nosnippet>146</a>    <span class="comment">// Load K rows into SRAM, then reinterpret as [N, D] blocks for cache scatter.
-<a href=#147 id=147 data-nosnippet>147</a>    </span>attn_k.to_dm::&lt;Cluster, <span class="macro">m!</span>[T / <span class="number">4</span>], <span class="macro">m!</span>[T % <span class="number">4</span>, K]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
-<a href=#148 id=148 data-nosnippet>148</a>    <span class="kw">let </span>k_scatter_reshaped: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">4</span>], <span class="macro">m!</span>[T % <span class="number">4</span>, N, D]&gt; =
-<a href=#149 id=149 data-nosnippet>149</a>        <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0x5e00</span>) };
-<a href=#150 id=150 data-nosnippet>150</a>
-<a href=#151 id=151 data-nosnippet>151</a>    <span class="comment">// Scatter K rows into cache positions selected by the prepared indices.
-<a href=#152 id=152 data-nosnippet>152</a>    </span>k_scatter_reshaped.dma_scatter::&lt;<span class="macro">m!</span>[T], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>k_idx_hbm, out_k_cache);
-<a href=#153 id=153 data-nosnippet>153</a>}
+<a href=#82 id=82 data-nosnippet>82</a>    <span class="kw">let </span>v_scatter_reshaped: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">16</span>], <span class="macro">m!</span>[T % <span class="number">16</span>, N, D]&gt; = DmTensor::new();
+<a href=#83 id=83 data-nosnippet>83</a>
+<a href=#84 id=84 data-nosnippet>84</a>    <span class="comment">// Scatter V rows into cache positions selected by the prepared indices.
+<a href=#85 id=85 data-nosnippet>85</a>    </span>v_scatter_reshaped.dma_scatter::&lt;<span class="macro">m!</span>[T], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>v_idx_hbm, out_v_cache);
+<a href=#86 id=86 data-nosnippet>86</a>
+<a href=#87 id=87 data-nosnippet>87</a>    <span class="comment">// K scatter index path.
+<a href=#88 id=88 data-nosnippet>88</a>
+<a href=#89 id=89 data-nosnippet>89</a>    // Load K scatter indices from HBM to DM.
+<a href=#90 id=90 data-nosnippet>90</a>    </span><span class="kw">let </span>k_idx_dm: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">32</span>, <span class="number">1 </span># <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">32</span>]&gt; = k_scatter_index.to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
+<a href=#91 id=91 data-nosnippet>91</a>
+<a href=#92 id=92 data-nosnippet>92</a>    <span class="comment">// Reorder K index tiles to the scatter-friendly layout.
+<a href=#93 id=93 data-nosnippet>93</a>    </span><span class="kw">let </span>k_idx_it: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">32</span>, T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">32</span>]&gt; = ctx
+<a href=#94 id=94 data-nosnippet>94</a>        .main
+<a href=#95 id=95 data-nosnippet>95</a>        .begin(k_idx_dm.view())
+<a href=#96 id=96 data-nosnippet>96</a>        .fetch::&lt;<span class="macro">m!</span>[T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
+<a href=#97 id=97 data-nosnippet>97</a>        .switch::&lt;<span class="macro">m!</span>[T / <span class="number">32</span>, T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>]&gt;(SwitchConfig::InterTranspose {
+<a href=#98 id=98 data-nosnippet>98</a>            slice1: <span class="number">8</span>,
+<a href=#99 id=99 data-nosnippet>99</a>            slice0: <span class="number">1</span>,
+<a href=#100 id=100 data-nosnippet>100</a>            time0: <span class="number">1</span>,
+<a href=#101 id=101 data-nosnippet>101</a>        })
+<a href=#102 id=102 data-nosnippet>102</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1 </span># <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#103 id=103 data-nosnippet>103</a>        .commit_trim::&lt;<span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
+<a href=#104 id=104 data-nosnippet>104</a>        .commit();
+<a href=#105 id=105 data-nosnippet>105</a>
+<a href=#106 id=106 data-nosnippet>106</a>    <span class="comment">// Restore compact T%4 index lanes before scaling.
+<a href=#107 id=107 data-nosnippet>107</a>    </span><span class="kw">let </span>k_idx_stripped: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">32</span>, T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt; = ctx
+<a href=#108 id=108 data-nosnippet>108</a>        .main
+<a href=#109 id=109 data-nosnippet>109</a>        .begin(k_idx_it.view())
+<a href=#110 id=110 data-nosnippet>110</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
+<a href=#111 id=111 data-nosnippet>111</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#112 id=112 data-nosnippet>112</a>        .commit_trim::&lt;<span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
+<a href=#113 id=113 data-nosnippet>113</a>        .commit();
+<a href=#114 id=114 data-nosnippet>114</a>
+<a href=#115 id=115 data-nosnippet>115</a>    <span class="comment">// Convert K row indices to byte offsets.
+<a href=#116 id=116 data-nosnippet>116</a>    </span><span class="kw">let </span>k_idx_scaled: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">32</span>, T / <span class="number">4 </span>% <span class="number">8</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt; = ctx
+<a href=#117 id=117 data-nosnippet>117</a>        .main
+<a href=#118 id=118 data-nosnippet>118</a>        .begin(k_idx_stripped.view())
+<a href=#119 id=119 data-nosnippet>119</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
+<a href=#120 id=120 data-nosnippet>120</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#121 id=121 data-nosnippet>121</a>        .vector_init()
+<a href=#122 id=122 data-nosnippet>122</a>        .vector_intra_slice_tag(TagMode::Zero)
+<a href=#123 id=123 data-nosnippet>123</a>        .vector_fxp(FxpBinaryOp::MulInt, <span class="number">256</span>)
+<a href=#124 id=124 data-nosnippet>124</a>        .vector_final()
+<a href=#125 id=125 data-nosnippet>125</a>        .commit_trim::&lt;<span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#126 id=126 data-nosnippet>126</a>        .commit();
+<a href=#127 id=127 data-nosnippet>127</a>
+<a href=#128 id=128 data-nosnippet>128</a>    <span class="comment">// Pack K offsets into a contiguous T-major layout for DMA spill.
+<a href=#129 id=129 data-nosnippet>129</a>    </span><span class="kw">let </span>k_idx_d0b: DmTensor&lt;i32, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">64</span>, <span class="number">1 </span># <span class="number">16</span>], <span class="macro">m!</span>[T % <span class="number">64</span>]&gt; = ctx
+<a href=#130 id=130 data-nosnippet>130</a>        .main
+<a href=#131 id=131 data-nosnippet>131</a>        .begin(k_idx_scaled.view())
+<a href=#132 id=132 data-nosnippet>132</a>        .fetch::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
+<a href=#133 id=133 data-nosnippet>133</a>        .switch::&lt;<span class="macro">m!</span>[T / <span class="number">64</span>, <span class="number">1 </span># <span class="number">16</span>], <span class="macro">m!</span>[<span class="number">1</span>]&gt;(SwitchConfig::Broadcast01 {
+<a href=#134 id=134 data-nosnippet>134</a>            slice1: <span class="number">16</span>,
+<a href=#135 id=135 data-nosnippet>135</a>            slice0: <span class="number">1</span>,
+<a href=#136 id=136 data-nosnippet>136</a>            time0: <span class="number">1</span>,
+<a href=#137 id=137 data-nosnippet>137</a>        })
+<a href=#138 id=138 data-nosnippet>138</a>        .collect::&lt;<span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[T % <span class="number">4 </span># <span class="number">8</span>]&gt;()
+<a href=#139 id=139 data-nosnippet>139</a>        .commit_trim::&lt;<span class="macro">m!</span>[T % <span class="number">4</span>]&gt;()
+<a href=#140 id=140 data-nosnippet>140</a>        .commit();
+<a href=#141 id=141 data-nosnippet>141</a>
+<a href=#142 id=142 data-nosnippet>142</a>    <span class="comment">// Spill prepared K offsets back to HBM for dma_scatter.
+<a href=#143 id=143 data-nosnippet>143</a>    </span><span class="kw">let </span>k_idx_hbm: HbmTensor&lt;i32, Chip, <span class="macro">m!</span>[T]&gt; = k_idx_d0b.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma);
+<a href=#144 id=144 data-nosnippet>144</a>
+<a href=#145 id=145 data-nosnippet>145</a>    <span class="comment">// Load K rows into SRAM, then reinterpret as [N, D] blocks for cache scatter.
+<a href=#146 id=146 data-nosnippet>146</a>    </span>attn_k.to_dm::&lt;Cluster, <span class="macro">m!</span>[T / <span class="number">4</span>], <span class="macro">m!</span>[T % <span class="number">4</span>, K]&gt;(<span class="kw-2">&amp;mut </span>ctx.tdma);
+<a href=#147 id=147 data-nosnippet>147</a>    <span class="kw">let </span>k_scatter_reshaped: DmTensor&lt;bf16, Chip, Cluster, <span class="macro">m!</span>[T / <span class="number">4</span>], <span class="macro">m!</span>[T % <span class="number">4</span>, N, D]&gt; = DmTensor::new();
+<a href=#148 id=148 data-nosnippet>148</a>
+<a href=#149 id=149 data-nosnippet>149</a>    <span class="comment">// Scatter K rows into cache positions selected by the prepared indices.
+<a href=#150 id=150 data-nosnippet>150</a>    </span>k_scatter_reshaped.dma_scatter::&lt;<span class="macro">m!</span>[T], <span class="kw">_</span>, <span class="kw">_</span>&gt;(<span class="kw-2">&amp;</span>k_idx_hbm, out_k_cache);
+<a href=#151 id=151 data-nosnippet>151</a>}
 </code></pre></div></section></main></body></html>

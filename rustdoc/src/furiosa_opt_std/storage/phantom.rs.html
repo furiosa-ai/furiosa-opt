@@ -149,8 +149,8 @@
 <a href=#149 id=149 data-nosnippet>149</a>        Vec::new()
 <a href=#150 id=150 data-nosnippet>150</a>    }
 <a href=#151 id=151 data-nosnippet>151</a>
-<a href=#152 id=152 data-nosnippet>152</a>    <span class="doccomment">/// An uninitialized (empty) phantom tensor of this layout.
-<a href=#153 id=153 data-nosnippet>153</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>uninit(mapping: <span class="kw-2">&amp;</span>MappingValue) -&gt; <span class="self">Self </span>{
+<a href=#152 id=152 data-nosnippet>152</a>    <span class="doccomment">/// An empty phantom tensor of this layout.
+<a href=#153 id=153 data-nosnippet>153</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>zeroed(mapping: <span class="kw-2">&amp;</span>MappingValue) -&gt; <span class="self">Self </span>{
 <a href=#154 id=154 data-nosnippet>154</a>        <span class="self">Self</span>::new_from_axes(mapping.axes())
 <a href=#155 id=155 data-nosnippet>155</a>    }
 <a href=#156 id=156 data-nosnippet>156</a>}

@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-36f1ff77.js";
+            window.path_to_searchindex_js = "../../searchindex-760cc3da.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-65a723fd.js"></script>
@@ -238,8 +238,8 @@ fn matmul&lt;'l, const T: Tu&gt;(
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
 <pre><code class="language-text">ReducePacket = Packet / 2^d        for 0 ≤ d ≤ log2(Packet::SIZE)
-OutPacket    = ReducePacket        if ReducePacket::SIZE ≤ 32
-               ReducePacket = 32   otherwise
+OutPacket    = ReducePacket, outermost padding removed
+               (size ≤ 32; when ReducePacket::SIZE &gt; 32 only the innermost 32 survive)
 </code></pre>
 <p>The Packet Reducer first runs an independent <a href="https://en.wikipedia.org/wiki/Reduction_operator">reduction tree</a> per lane on its input Packet.
 At depth 0, the tree leaves hold the input Packet’s elements, and each subsequent depth sums pairs, halving the element count.
@@ -248,6 +248,9 @@ Given the user’s <code>OutPacket</code>, the compiler derives the tree depth <
 <p>The Packet Reducer then trims <code>ReducePacket</code> to <code>OutPacket</code>, whose size is capped at 32 elements because the downstream Time Reducer’s per-lane accumulator only has 32 columns.
 When <code>ReducePacket::SIZE &gt; 32</code>, the outer dummy is trimmed and only the innermost 32 elements survive.
 For example, <code>i4</code> arrives as a 128-element Packet, so <code>d ∈ {0, 1}</code> produce a 128- or 64-element <code>ReducePacket</code>, both trimmed to <code>OutPacket::SIZE = 32</code>.</p>
+<p><code>ReducePacket</code> may also carry outermost padding (a padded packet axis), and the Packet Reducer keeps only the live columns, dropping that padding.
+For example, a <code>ReducePacket</code> of <code>[A # 16]</code> (<code>A</code> live, padded up to 16 columns) reduces to <code>OutPacket = [A]</code>.
+So <code>OutPacket</code> may be declared with the padding present (<code>[A # 16]</code>) or already removed (<code>[A]</code>); both name the same result.</p>
 <h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
 <p>Latency depends on tree depth: 7 cycles for <code>i4</code>, 6 for <code>i8</code>/<code>f8</code>, 5 for <code>bf16</code>.
 Wider element types reduce depth because fewer elements fit in each Packet.

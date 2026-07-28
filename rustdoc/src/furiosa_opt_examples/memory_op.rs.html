@@ -37,7 +37,7 @@
 <a href=#37 id=37 data-nosnippet>37</a></span><span class="attr">#[device(chip = <span class="number">1</span>)]
 <a href=#38 id=38 data-nosnippet>38</a></span><span class="kw">pub fn </span>dm_view_pcopy(ctx: <span class="kw-2">&amp;mut </span>Context, hbm: <span class="kw-2">&amp;</span>HbmTensor&lt;i32, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, B]&gt;) -&gt; HbmTensor&lt;i32, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A, B]&gt; {
 <a href=#39 id=39 data-nosnippet>39</a>    <span class="kw">let </span>src: DmTensor&lt;i32, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A], <span class="macro">m!</span>[B]&gt; = hbm.to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
-<a href=#40 id=40 data-nosnippet>40</a>    <span class="kw">let </span><span class="kw-2">mut </span>dst: DmTensor&lt;i32, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A], <span class="macro">m!</span>[B]&gt; = <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0x10_0000</span>) };
+<a href=#40 id=40 data-nosnippet>40</a>    <span class="kw">let </span><span class="kw-2">mut </span>dst: DmTensor&lt;i32, <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[<span class="number">1</span>], <span class="macro">m!</span>[A], <span class="macro">m!</span>[B]&gt; = DmTensor::new();
 <a href=#41 id=41 data-nosnippet>41</a>    src.view().to_dm_view_pcopy(<span class="kw-2">&amp;mut </span>ctx.sub, dst.view_mut());
 <a href=#42 id=42 data-nosnippet>42</a>    dst.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma)
 <a href=#43 id=43 data-nosnippet>43</a>}
@@ -70,20 +70,19 @@
 <a href=#70 id=70 data-nosnippet>70</a>) -&gt; HbmTensor&lt;f32, QChip, <span class="macro">m!</span>[T, Q % <span class="number">56</span>]&gt; {
 <a href=#71 id=71 data-nosnippet>71</a>    <span class="kw">let </span>input: DmTensor&lt;f32, QChip, QCluster, QSlice, <span class="macro">m!</span>[T % <span class="number">32</span>, Q % <span class="number">56 </span>= <span class="number">8</span>]&gt; = input_hbm.to_dm(<span class="kw-2">&amp;mut </span>ctx.tdma);
 <a href=#72 id=72 data-nosnippet>72</a>
-<a href=#73 id=73 data-nosnippet>73</a>    <span class="kw">let </span><span class="kw-2">mut </span>result: DmTensor&lt;f32, QChip, QCluster, QSlice, <span class="macro">m!</span>[T % <span class="number">32</span>, Q % <span class="number">56</span>]&gt; =
-<a href=#74 id=74 data-nosnippet>74</a>        <span class="kw">unsafe </span>{ DmTensor::from_addr(<span class="number">0x200000</span>) };
-<a href=#75 id=75 data-nosnippet>75</a>
-<a href=#76 id=76 data-nosnippet>76</a>    ctx.main
-<a href=#77 id=77 data-nosnippet>77</a>        .begin(input.view())
-<a href=#78 id=78 data-nosnippet>78</a>        .fetch::&lt;<span class="macro">m!</span>[T % <span class="number">32</span>], <span class="macro">m!</span>[Q % <span class="number">56 </span>= <span class="number">8</span>]&gt;()
-<a href=#79 id=79 data-nosnippet>79</a>        .collect::&lt;<span class="macro">m!</span>[T % <span class="number">32</span>], <span class="macro">m!</span>[Q % <span class="number">56 </span>= <span class="number">8</span>]&gt;()
-<a href=#80 id=80 data-nosnippet>80</a>        .commit_trim::&lt;<span class="macro">m!</span>[Q % <span class="number">56 </span>= <span class="number">8</span>]&gt;()
-<a href=#81 id=81 data-nosnippet>81</a>        .commit_view(
-<a href=#82 id=82 data-nosnippet>82</a>            result
-<a href=#83 id=83 data-nosnippet>83</a>                .view_mut()
-<a href=#84 id=84 data-nosnippet>84</a>                .tile::&lt;<span class="macro">m!</span>[Q % <span class="number">56</span>], <span class="number">8</span>, <span class="macro">m!</span>[T % <span class="number">32</span>, Q % <span class="number">56 </span>= <span class="number">8 </span>#{!} <span class="number">56</span>]&gt;(<span class="number">0</span>),
-<a href=#85 id=85 data-nosnippet>85</a>        );
-<a href=#86 id=86 data-nosnippet>86</a>
-<a href=#87 id=87 data-nosnippet>87</a>    result.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma)
-<a href=#88 id=88 data-nosnippet>88</a>}
+<a href=#73 id=73 data-nosnippet>73</a>    <span class="kw">let </span><span class="kw-2">mut </span>result: DmTensor&lt;f32, QChip, QCluster, QSlice, <span class="macro">m!</span>[T % <span class="number">32</span>, Q % <span class="number">56</span>]&gt; = DmTensor::new();
+<a href=#74 id=74 data-nosnippet>74</a>
+<a href=#75 id=75 data-nosnippet>75</a>    ctx.main
+<a href=#76 id=76 data-nosnippet>76</a>        .begin(input.view())
+<a href=#77 id=77 data-nosnippet>77</a>        .fetch::&lt;<span class="macro">m!</span>[T % <span class="number">32</span>], <span class="macro">m!</span>[Q % <span class="number">56 </span>= <span class="number">8</span>]&gt;()
+<a href=#78 id=78 data-nosnippet>78</a>        .collect::&lt;<span class="macro">m!</span>[T % <span class="number">32</span>], <span class="macro">m!</span>[Q % <span class="number">56 </span>= <span class="number">8</span>]&gt;()
+<a href=#79 id=79 data-nosnippet>79</a>        .commit_trim::&lt;<span class="macro">m!</span>[Q % <span class="number">56 </span>= <span class="number">8</span>]&gt;()
+<a href=#80 id=80 data-nosnippet>80</a>        .commit_view(
+<a href=#81 id=81 data-nosnippet>81</a>            result
+<a href=#82 id=82 data-nosnippet>82</a>                .view_mut()
+<a href=#83 id=83 data-nosnippet>83</a>                .tile::&lt;<span class="macro">m!</span>[Q % <span class="number">56</span>], <span class="number">8</span>, <span class="macro">m!</span>[T % <span class="number">32</span>, Q % <span class="number">56 </span>= <span class="number">8 </span>#{!} <span class="number">56</span>]&gt;(<span class="number">0</span>),
+<a href=#84 id=84 data-nosnippet>84</a>        );
+<a href=#85 id=85 data-nosnippet>85</a>
+<a href=#86 id=86 data-nosnippet>86</a>    result.to_hbm(<span class="kw-2">&amp;mut </span>ctx.tdma)
+<a href=#87 id=87 data-nosnippet>87</a>}
 </code></pre></div></section></main></body></html>
