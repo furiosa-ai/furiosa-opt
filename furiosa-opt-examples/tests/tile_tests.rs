@@ -27,7 +27,7 @@ async fn test_tile_simple_host() {
 
 /// Commits a fetched 32-wide window into the upper half of a 64-wide down-padded DM tile: the kernel
 /// writes only `result[32..64]` (= `input[0..32]`) and leaves `result[0..32]` unwritten. A freshly
-/// allocated destination starts as an all-zero blank canvas (`Backend::uninit`) that only the
+/// allocated destination starts as an all-zero blank canvas (`Backend::zeroed`) that only the
 /// commit overwrites, so "unwritten" is the concrete, checkable claim "still zero".
 #[tokio::test]
 async fn test_tile_window_commit_host() {

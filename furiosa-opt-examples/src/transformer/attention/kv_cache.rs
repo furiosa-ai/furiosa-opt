@@ -79,8 +79,7 @@ pub(super) fn cache_kv(
 
     // Load V rows into SRAM, then reinterpret as [N, D] blocks for cache scatter.
     attn_v.to_dm::<Cluster, m![T / 16], m![T % 16, K]>(&mut ctx.tdma);
-    let v_scatter_reshaped: DmTensor<bf16, Chip, Cluster, m![T / 16], m![T % 16, N, D]> =
-        unsafe { DmTensor::from_addr(0x200) };
+    let v_scatter_reshaped: DmTensor<bf16, Chip, Cluster, m![T / 16], m![T % 16, N, D]> = DmTensor::new();
 
     // Scatter V rows into cache positions selected by the prepared indices.
     v_scatter_reshaped.dma_scatter::<m![T], _, _>(&v_idx_hbm, out_v_cache);
@@ -145,8 +144,7 @@ pub(super) fn cache_kv(
 
     // Load K rows into SRAM, then reinterpret as [N, D] blocks for cache scatter.
     attn_k.to_dm::<Cluster, m![T / 4], m![T % 4, K]>(&mut ctx.tdma);
-    let k_scatter_reshaped: DmTensor<bf16, Chip, Cluster, m![T / 4], m![T % 4, N, D]> =
-        unsafe { DmTensor::from_addr(0x5e00) };
+    let k_scatter_reshaped: DmTensor<bf16, Chip, Cluster, m![T / 4], m![T % 4, N, D]> = DmTensor::new();
 
     // Scatter K rows into cache positions selected by the prepared indices.
     k_scatter_reshaped.dma_scatter::<m![T], _, _>(&k_idx_hbm, out_k_cache);

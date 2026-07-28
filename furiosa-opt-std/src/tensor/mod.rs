@@ -244,8 +244,9 @@ impl<D: Scalar, Mapping: M, B: Backend> Tensor<D, Mapping, B> {
     /// reshape), which fill only the live cells; cells no op writes (padding and any gaps) are
     /// don't-care. `pub(crate)`: no public constructor hands out an undefined-value tensor (an
     /// external caller that wants zeros uses `splat`/`zero`).
-    pub(crate) fn uninit() -> Self {
-        Self::from_inner(B::uninit(&Mapping::to_value()))
+    pub(crate) fn zeroed() -> Self {
+        // Replace zeroed with uninit (zero-cost) once MaybeUninit rework of Buf lands.
+        Self::from_inner(B::zeroed(&Mapping::to_value()))
     }
 
     /// Creates a mutable view of the tensor.
@@ -307,7 +308,7 @@ impl<D: Scalar, Mapping: M, B: Backend> Tensor<D, Mapping, B> {
     /// [`Backend::transpose`] (via `transpose_broadcast`), so this generic body works
     /// for every backend.
     pub fn transpose<Dst: M>(&self, allow_broadcast: bool) -> Tensor<D, Dst, B> {
-        let mut dst = Tensor::uninit();
+        let mut dst = Tensor::zeroed();
         dst.view_mut().transpose(self.view(), allow_broadcast);
         dst
     }
@@ -336,7 +337,7 @@ impl<D: Scalar, Mapping: M, B: Backend> Tensor<D, Mapping, B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::{Emulation, Npu, Typecheck};
+    use crate::backend::{Emulation, Typecheck};
 
     /// Owned `Tensor::reshape` REBUILDS the storage under the new axes (`MathStorage::reshape` /
     /// `BufStorage::reshape`), so it supports an arbitrary wire-order-preserving RELABEL — even to
@@ -407,7 +408,7 @@ mod tests {
 
         let table = Tensor::<i32, m![W, V], Emulation>::from_vec(vec![10, 11, 20, 21, 30, 31]);
         let index = Tensor::<i32, m![K], Emulation>::from_vec(vec![0, 2, 1, 0]);
-        let mut output = Tensor::<i32, m![K, V], Emulation>::uninit();
+        let mut output = Tensor::<i32, m![K, V], Emulation>::zeroed();
         table.gather::<_, _>(&mut output, &index, false);
 
         assert_eq!(output.into_vec(), vec![10, 11, 30, 31, 20, 21, 10, 11]);
@@ -427,10 +428,10 @@ mod tests {
     }
 
     #[test]
-    fn npu_to_buf_returns_plain_values() {
+    fn emulation_into_vec_round_trips() {
         axes![A = 2];
 
-        let tensor = Tensor::<i32, m![A], Npu>::from_vec(vec![1, 2]);
+        let tensor = Tensor::<i32, m![A], Emulation>::from_vec(vec![1, 2]);
 
         assert_eq!(tensor.into_vec(), vec![1, 2]);
     }
@@ -586,7 +587,7 @@ mod tests {
 
         let table = Tensor::<i32, m![W, V], Emulation>::from_vec(vec![10, 11, 20, 21, 30, 31]);
         let index = Tensor::<i32, m![K], Emulation>::from_vec(vec![0, 16, 8, 0]);
-        let mut output = Tensor::<i32, m![K, V], Emulation>::uninit();
+        let mut output = Tensor::<i32, m![K, V], Emulation>::zeroed();
         table.gather::<_, _>(&mut output, &index, true);
 
         assert_eq!(output.into_vec(), vec![10, 11, 30, 31, 20, 21, 10, 11]);
@@ -600,7 +601,7 @@ mod tests {
 
         let source = Tensor::<i32, m![K, V], Emulation>::from_vec(vec![10, 11, 20, 21, 30, 31]);
         let index = Tensor::<i32, m![K], Emulation>::from_vec(vec![2, 0, 1]);
-        let mut output = Tensor::<i32, m![W, V], Emulation>::uninit();
+        let mut output = Tensor::<i32, m![W, V], Emulation>::zeroed();
         source.scatter::<m![K], _, _>(&mut output, &index, false);
 
         // row k of source lands at row index[k]: 0→W2, 1→W0, 2→W1.

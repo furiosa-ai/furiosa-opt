@@ -29,10 +29,10 @@ impl Position for PositionSwitch {}
 pub type SwitchTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionSwitch, D, Chip, Cluster, Slice, Time, Packet, B>;
 
-/// Configuration for the `switch` operation. Defined in `furiosa-opt-lower-types` and validated by
-/// the lowering `config_switch`, so the FMapping divide-algebra the `CustomBroadcast` case needs
-/// stays off the public engine surface.
-pub use furiosa_opt_lower::SwitchConfig;
+/// Configuration and typed failure reasons for the `switch` operation. Defined in
+/// `furiosa-opt-lower-types` and validated by the lowering `config_switch`, so the FMapping
+/// divide-algebra the `CustomBroadcast` case needs stays off the public engine surface.
+pub use furiosa_opt_lower::{SwitchConfig, SwitchError};
 
 impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
     SwitchTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
@@ -75,7 +75,7 @@ impl<'l, const T: Tu, P: CanApplySwitch, D: Scalar, Chip: M, Cluster: M, Slice: 
 
 /// Validates switch engine constraints (including the slice-size match) via the lowering
 /// `config_switch`, which runs the topology-specific checks and the `CustomBroadcast` FMapping
-/// divide-algebra inside the impl. The resolved config is discarded — only success/failure matters.
+/// divide-algebra inside the impl. The resolved config is discarded; only success/failure matters.
 fn verify_switch<InSlice: M, InTime: M, OutSlice: M, OutTime: M>(config: &SwitchConfig) {
     config_switch(
         config,
@@ -84,12 +84,25 @@ fn verify_switch<InSlice: M, InTime: M, OutSlice: M, OutTime: M>(config: &Switch
         &OutSlice::to_value(),
         &OutTime::to_value(),
     )
-    .unwrap_or_else(|message| panic!("{message}"));
+    .unwrap_or_else(|err| panic!("{err}"));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `SwitchError` a rejected switch produces. Rejection tests pin the exact variant
+    /// (not the rendered message), so a reworded error can't silently change why it rejects.
+    fn switch_error<InSlice: M, InTime: M, OutSlice: M, OutTime: M>(config: &SwitchConfig) -> SwitchError {
+        config_switch(
+            config,
+            &InSlice::to_value(),
+            &InTime::to_value(),
+            &OutSlice::to_value(),
+            &OutTime::to_value(),
+        )
+        .unwrap_err()
+    }
 
     mod custom_broadcast {
         use super::*;
@@ -155,14 +168,14 @@ mod tests {
             #[test]
             fn padded_full_swap() {
                 verify_switch::<m![R # 16, Q # 16], m![C], m![Q # 16, R # 16], m![C]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 256,
+                    ring_size: 128,
                 });
             }
 
             #[test]
             fn padded_full_swap_different_padding() {
                 verify_switch::<m![R # 16, Q # 16], m![C], m![Q # 32, R # 8], m![C]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 256,
+                    ring_size: 128,
                 });
             }
 
@@ -263,14 +276,17 @@ mod tests {
             #[test]
             fn partial_broadcast_replacement() {
                 // A % 2 replaced by broadcast
-                verify_switch::<m![A, B], m![C], m![A / 2, Y, B / 2, Z], m![C, B % 2]>(
+                let err = switch_error::<m![A, B], m![C], m![A / 2, Y, B / 2, Z], m![C, B % 2]>(
                     &SwitchConfig::CustomBroadcast { ring_size: 32 },
                 );
+                assert!(matches!(err, SwitchError::Unsequenceable(..)), "{err}");
             }
 
             #[test]
             fn broadcast_replace_in_place() {
-                verify_switch::<m![R, P], m![C], m![R, X], m![C]>(&SwitchConfig::CustomBroadcast { ring_size: 4 });
+                let err =
+                    switch_error::<m![R, P], m![C], m![R, X], m![C]>(&SwitchConfig::CustomBroadcast { ring_size: 4 });
+                assert!(matches!(err, SwitchError::Unsequenceable(..)), "{err}");
             }
 
             #[test]
@@ -282,35 +298,44 @@ mod tests {
             }
         }
 
-        mod slicing {
+        /// Slicing (an OutTime sub-axis that reads only part of its source, e.g. `B % 4 = 3` of 4)
+        /// is intentionally NOT supported by the sequencer-based verify: a partial read leaves the
+        /// dropped live input lanes unconsumed, so the Read does not sequence. These pin that
+        /// rejection; each surfaces as `Unsequenceable`.
+        mod slicing_unsupported {
             use super::*;
 
             #[test]
-            fn slicing() {
-                verify_switch::<m![A, B], m![C], m![A, B / 4, X], m![C, B % 4 = 3]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 4,
-                });
-            }
-
-            #[test]
-            fn slicing_with_broadcast() {
-                verify_switch::<m![A, B], m![C], m![A / 2, Y, B / 4, X], m![C, A % 2, B % 4 = 3]>(
-                    &SwitchConfig::CustomBroadcast { ring_size: 32 },
-                );
-            }
-
-            #[test]
-            fn single_axis_slicing() {
-                verify_switch::<m![S], m![C], m![S / 4, X], m![C, S % 4 = 3]>(&SwitchConfig::CustomBroadcast {
-                    ring_size: 4,
-                });
-            }
-
-            #[test]
-            fn padded_broadcast_slicing() {
-                verify_switch::<m![P # 8, Q # 32], m![C], m![P # 8, Q # 32 / 4, X], m![C, Q # 32 % 4 = 3]>(
+            fn slice_moved_axis() {
+                let err = switch_error::<m![A, B], m![C], m![A, B / 4, X], m![C, B % 4 = 3]>(
                     &SwitchConfig::CustomBroadcast { ring_size: 4 },
                 );
+                assert!(matches!(err, SwitchError::Unsequenceable(..)), "{err}");
+            }
+
+            #[test]
+            fn slice_with_broadcast() {
+                let err = switch_error::<m![A, B], m![C], m![A / 2, Y, B / 4, X], m![C, A % 2, B % 4 = 3]>(
+                    &SwitchConfig::CustomBroadcast { ring_size: 32 },
+                );
+                assert!(matches!(err, SwitchError::Unsequenceable(..)), "{err}");
+            }
+
+            #[test]
+            fn slice_single_axis() {
+                let err =
+                    switch_error::<m![S], m![C], m![S / 4, X], m![C, S % 4 = 3]>(&SwitchConfig::CustomBroadcast {
+                        ring_size: 4,
+                    });
+                assert!(matches!(err, SwitchError::Unsequenceable(..)), "{err}");
+            }
+
+            #[test]
+            fn slice_padded_broadcast() {
+                let err = switch_error::<m![P # 8, Q # 32], m![C], m![P # 8, Q # 32 / 4, X], m![C, Q # 32 % 4 = 3]>(
+                    &SwitchConfig::CustomBroadcast { ring_size: 4 },
+                );
+                assert!(matches!(err, SwitchError::Unsequenceable(..)), "{err}");
             }
         }
     }

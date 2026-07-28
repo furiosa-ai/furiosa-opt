@@ -141,8 +141,8 @@ fn fetch_interleaved<'l>(
 #
 # let mut ctx = Context::acquire();
 #
-# let lhs = unsafe { DmTensor::from_addr(0) };
-# let rhs = unsafe { DmTensor::from_addr(0) };
+# let lhs = DmTensor::new();
+# let rhs = DmTensor::new();
 # let _o = fetch_interleaved(&mut ctx, &lhs, &rhs);
 ```
 

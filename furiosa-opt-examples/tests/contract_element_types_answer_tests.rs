@@ -1,7 +1,7 @@
 //! Answer-key tests for the per-element-type contraction kernels: run the
 //! `#[device]` body under the default (simulation) backend and compare against
 //! an independent hand-computed true-math oracle. Unlike the `npu-visa-test`
-//! `compare_lir` tests (VISA-sim vs LIR), this pins whether the VISA/device
+//! `compare_edf` tests (VISA-sim vs LIR/EDF), this pins whether the VISA/device
 //! simulation itself is correct, localizing a divergence to either the
 //! eDSL/example or the LIR lowering.
 

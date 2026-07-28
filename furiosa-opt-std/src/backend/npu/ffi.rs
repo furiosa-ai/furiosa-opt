@@ -6,11 +6,74 @@ mod bindings {
 pub use bindings::NpuDesc;
 pub(crate) use bindings::*;
 
+use std::ffi::c_void;
 use std::sync::OnceLock;
 
 use crate::context::Device;
 
-pub(crate) fn rt() -> *const Runtime {
+/// `tracing` target and category for on-device profile spans, mirroring
+/// npu-executor's `TRACING_TARGET_NPU`/`TRACING_CATEGORY_NPU` so the shared
+/// furiosa-telemetry chrome exporter consumes VISA kernel spans identically.
+const TRACING_TARGET_NPU: &str = "span::npu";
+const TRACING_CATEGORY_NPU: &str = "NPU";
+
+/// Run a loaded kernel over its I/O buffers, arming on-device profiling only when
+/// a subscriber listens on the `span::npu` target. Returns the runtime status
+/// (0 on success). The enable check is the sole hot-path cost when profiling is
+/// off; read-back and decode are deferred by the runtime, so the launch itself
+/// never blocks.
+pub(super) fn run(kernel: *mut Kernel, inputs: &[*const NpuBuffer], outputs: &[*const NpuBuffer]) -> i32 {
+    if !tracing::enabled!(target: TRACING_TARGET_NPU, tracing::Level::INFO) {
+        // SAFETY: the kernel handle and pointer arrays stay live across this synchronous call.
+        return unsafe {
+            furiosa_kernel_run(
+                kernel,
+                rt(),
+                inputs.as_ptr(),
+                inputs.len(),
+                outputs.as_ptr(),
+                outputs.len(),
+            )
+        };
+    }
+
+    // `sink` emits each decoded span as an `info_span!` on `span::npu` (name +
+    // cycle window), matching npu-executor's schema; `done` is a noop since the
+    // ctx is `null`. The runtime calls them off the launch hot path during
+    // deferred read-back. They are `extern "C" fn` (not closures) because the C
+    // ABI callback slots require the C ABI, which Rust closures cannot carry.
+    unsafe extern "C" fn sink(_ctx: *mut c_void, name: Str, begin: u64, end: u64) {
+        // SAFETY: the runtime passes a valid name pointer and length for this call.
+        let bytes = unsafe { std::slice::from_raw_parts(name.ptr.cast::<u8>(), name.len) };
+        tracing::info_span!(
+            target: TRACING_TARGET_NPU,
+            "NPU",
+            cat = TRACING_CATEGORY_NPU,
+            name = String::from_utf8_lossy(bytes).as_ref(),
+            begin_cycle = begin,
+            end_cycle = end,
+        );
+    }
+    unsafe extern "C" fn done(_ctx: *mut c_void) {}
+
+    // SAFETY: the handle and pointer arrays stay live across the launch; the sink/done callbacks
+    // are `'static` and the ctx is `null`, so nothing must outlive this call.
+    unsafe {
+        furiosa_profiled_run(
+            rt(),
+            kernel,
+            inputs.as_ptr(),
+            inputs.len(),
+            outputs.as_ptr(),
+            outputs.len(),
+            Some(sink),
+            Some(done),
+            std::ptr::null_mut(),
+        )
+    }
+}
+
+pub(crate) fn rt() -> *mut Runtime {
     struct Handle(*mut Runtime);
     unsafe impl Send for Handle {}
     unsafe impl Sync for Handle {}

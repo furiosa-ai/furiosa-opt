@@ -139,8 +139,7 @@ fn reduce_over_cluster(
 
     // Step 2: Binary add T0 + T1 to reduce the cluster dimension
     // Use interleaved fetch with I=2 to read both tensors
-    let mut reduced: DmTensor<i8, Chip, Cluster, m![A / 2048, X], m![C % 32, A % 2048, C / 64 % 8]> =
-        unsafe { DmTensor::from_addr(0) };
+    let mut reduced: DmTensor<i8, Chip, Cluster, m![A / 2048, X], m![C % 32, A % 2048, C / 64 % 8]> = DmTensor::new();
 
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sliced0.view(), shuffled1.view())
@@ -179,9 +178,9 @@ pub fn matmul_16384(
         // Intermediate result after contracting over B axis.
         // Reason for broadcast dimension (X=32): B/64%32 is assigned to the Slice dimension and reduced using GAT, which broadcasts the result.
         type AccDmTensor = DmTensor<i8, Chip, Cluster, m![A / 2048, X], m![C % 64, A % 2048, C / 64 % 8]>;
-        let mut result0 = unsafe { AccDmTensor::from_addr(0) };
-        let mut result1 = unsafe { AccDmTensor::from_addr(0) };
-        let mut temp = unsafe { AccDmTensor::from_addr(0) };
+        let mut result0 = AccDmTensor::new();
+        let mut result1 = AccDmTensor::new();
+        let mut temp = AccDmTensor::new();
 
         // Next, we split AB * B(C%512) into A(B%4096) * (B%4096)(C%512) 4 times and accumulate the results.
         // The reason for splitting rhs into smaller pieces is that it must fit in the smaller TRF. TRF capacity is 64KB/32KB per slice (full/half mode).

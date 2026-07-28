@@ -52,7 +52,7 @@ pub fn vrf_add(
     rhs: &HbmTensor<i32, Chip, m![B]>,
 ) -> HbmTensor<i32, Chip, m![A, B]> {
     type ResultDmTensor = DmTensor<i32, Chip, Cluster, m![A / 8 # 256], m![B, A % 8]>;
-    let mut result = unsafe { ResultDmTensor::from_addr(0) };
+    let mut result = ResultDmTensor::new();
 
     vrf_add_kernel(ctx, lhs.view(), rhs.view(), result.view_mut());
 

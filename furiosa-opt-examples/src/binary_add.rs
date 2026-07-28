@@ -56,7 +56,7 @@ pub fn binary_add_2048(
     // Allocate DM tensor for output with layout:
     // Chip: m![1], Cluster: m![1#2], Slice: [A/8], Element: [A%8]
     type ResultDmTensor = DmTensor<i32, Chip, Cluster, m![A / 8], m![A % 8]>;
-    let mut result = unsafe { ResultDmTensor::from_addr(0) };
+    let mut result = ResultDmTensor::new();
 
     // Perform binary addition in DM
     binary_add_kernel(ctx, lhs.view(), rhs.view(), result.view_mut());

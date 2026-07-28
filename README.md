@@ -23,9 +23,9 @@ furiosa-opt/
 
 ### Prerequisites
 
-`emulation` and `typecheck` are pure Rust and build on any host arch (e.g. macOS
-Apple silicon); the only build dependency is `bindgen`'s `libclang`. The `npu`
-backend is `x86_64-unknown-linux-gnu` only — the SDK and NPU hardware run there.
+`x86_64-unknown-linux-gnu` is the only supported host, for every backend. The
+`cargo-furiosa-opt` binary and the static libraries that `furiosa-mapping` and
+`furiosa-opt-lower` fetch during build are published for that target alone.
 
 #### Ubuntu (jammy / noble / resolute)
 
@@ -38,10 +38,17 @@ sudo apt install libclang-dev gcc-aarch64-linux-gnu
 
 #### macOS (Apple silicon)
 
+macOS is not yet supported. Work inside a Linux **x86-64** container; arm64
+containers are not supported either, as artifacts are published for x86-64 only.
+
 ```bash
-xcode-select --install                       # provides libclang for bindgen
-rustup target add aarch64-apple-darwin       # usually the default host target
+docker run --platform linux/amd64 -it ubuntu:22.04
 ```
+
+On Apple silicon, enable the container runtime's Rosetta backend for near-native
+x86-64 speed. Then follow the Ubuntu steps inside the container.
+
+### Install
 
 `cargo-furiosa-opt` is a [rustc driver](https://rustc-dev-guide.rust-lang.org/rustc-driver/intro.html) and is ABI-locked to a specific rustc nightly. Install the matching toolchain (also pinned in [`rust-toolchain.toml`](rust-toolchain.toml)) and the binary via [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall):
 

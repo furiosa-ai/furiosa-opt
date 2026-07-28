@@ -1,6 +1,6 @@
 //! Cast engine: a one-flit input recast to `out_bits` and repadded to a one-flit output.
 
-use furiosa_mapping::{Mapping, MappingExt};
+use furiosa_mapping::{Mapping, MappingExt, PaddingKind};
 
 use crate::verify::{FLIT_BYTES, length_from_bytes, size_in_bytes};
 
@@ -45,7 +45,10 @@ pub fn config_cast(
     }
 
     let out_flit_elements = length_from_bytes(out_bits, FLIT_BYTES);
-    let expected_packet = in_packet.clone().replace_padding(out_flit_elements).normalize();
+    let expected_packet = in_packet
+        .clone()
+        .padding(out_flit_elements, PaddingKind::Top)
+        .normalize();
 
     let out_packet_bytes = size_in_bytes(out_bits, out_packet.size());
     if out_packet_bytes != FLIT_BYTES {

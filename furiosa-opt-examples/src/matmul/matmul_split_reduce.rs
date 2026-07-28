@@ -61,10 +61,10 @@ pub fn matmul_with_split_reduce(
     rhs: &HbmTensor<i8, m![1], m![B]>,
 ) -> HbmTensor<i8, m![1], m![A]> {
     type AccDmTensor = DmTensor<i32, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>;
-    let mut result0 = unsafe { AccDmTensor::from_addr(0) };
-    let mut result1 = unsafe { AccDmTensor::from_addr(0) };
-    let mut temp = unsafe { AccDmTensor::from_addr(0) };
-    let mut output = unsafe { DmTensor::<i8, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>::from_addr(0) };
+    let mut result0 = AccDmTensor::new();
+    let mut result1 = AccDmTensor::new();
+    let mut temp = AccDmTensor::new();
+    let mut output = DmTensor::<i8, Chip, Cluster, m![A / 64 % 8, X], m![A % 64]>::new();
 
     // Split B axis into 4 tiles (B=512 each) and accumulate using vector engine
     for j in 0..4 {

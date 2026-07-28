@@ -315,5 +315,35 @@ mod tests {
                 LaneMode::Sequential,
             );
         }
+
+        #[test]
+        fn valid_wide_packet_reduced() {
+            // pre=[A,N,B], post=[N,B] (A reduced). inner_time = N*B = 16. Lane = 1, Packet pads to 32,
+            // so buffer = 1 * 16 * 32 = 512 <= 1024.
+            verify_contract_lane(
+                <m![1]>::to_value(),
+                <m![N, B]>::to_value(),
+                <m![D]>::to_value(),
+                <m![N, B, D / 8]>::to_value(),
+                <m![D % 8]>::to_value(),
+                <m![A, N, B]>::to_value(),
+                LaneMode::Sequential,
+            );
+        }
+
+        #[test]
+        fn valid_wide_packet_at_capacity() {
+            // pre=[A,M], post=[M] (A reduced). inner_time = M = 4. Lane = 8, Packet pads to 32,
+            // so buffer = 8 * 4 * 32 = 1024 = accumulator capacity.
+            verify_contract_lane(
+                <m![N]>::to_value(),
+                <m![M]>::to_value(),
+                <m![D]>::to_value(),
+                <m![M, N, D / 8]>::to_value(),
+                <m![D % 8]>::to_value(),
+                <m![A, M]>::to_value(),
+                LaneMode::Sequential,
+            );
+        }
     }
 }

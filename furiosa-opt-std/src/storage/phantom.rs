@@ -149,8 +149,8 @@ impl<D: Scalar> PhantomStorage<D> {
         Vec::new()
     }
 
-    /// An uninitialized (empty) phantom tensor of this layout.
-    pub(crate) fn uninit(mapping: &MappingValue) -> Self {
+    /// An empty phantom tensor of this layout.
+    pub(crate) fn zeroed(mapping: &MappingValue) -> Self {
         Self::new_from_axes(mapping.axes())
     }
 }

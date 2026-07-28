@@ -46,7 +46,9 @@ pub fn config_contract_packet(
         return Err(ContractPacketError::OutPacketNotPow2(out_packet_elems));
     }
 
-    // `remove_padding` only peels the outer spine, so normalize first to surface trailing padding.
+    // The Packet Reducer removes `ReducePacket`'s outermost padding, keeping only the live columns, so
+    // `OutPacket` matches whether or not that padding is declared. `remove_padding` peels the outer spine,
+    // so normalize first to surface it.
     let out_packet_norm = out_packet.normalize().remove_padding();
     let is_valid_contraction = (0..=packet.size().trailing_zeros()).any(|depth| {
         let split = 1usize << depth;

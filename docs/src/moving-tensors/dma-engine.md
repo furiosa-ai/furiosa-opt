@@ -538,7 +538,7 @@ fn cluster_shuffle(
     input.view().dm_cluster_shuffle::<2>(&mut ctx.tdma, &[1, 0])
 }
 # let mut ctx = Context::acquire();
-# let input_dm = unsafe { DmTensor::<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]>::from_addr(0) };
+# let input_dm = DmTensor::<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]>::new();
 # let _output_dm = cluster_shuffle(&mut ctx, &input_dm);
 ```
 

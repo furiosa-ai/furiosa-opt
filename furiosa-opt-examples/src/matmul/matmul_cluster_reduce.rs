@@ -103,8 +103,7 @@ fn reduce_over_cluster(
 
     // Step 2: Binary add T0 + T1 to reduce the cluster dimension
     // Use interleaved fetch with I=2 to read both tensors
-    let mut reduced: DmTensor<i8, Chip, Cluster, m![A / 4], m![C / 4 % 128, C % 4, A % 4 # 8]> =
-        unsafe { DmTensor::from_addr(0) };
+    let mut reduced: DmTensor<i8, Chip, Cluster, m![A / 4], m![C / 4 % 128, C % 4, A % 4 # 8]> = DmTensor::new();
 
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sliced0.view(), shuffled1.view())

@@ -24,14 +24,14 @@ impl<'l, const T: Tu, P: CanApplyCommit, D: Scalar, Chip: M, Cluster: M, Slice: 
     #[primitive(TuTensor::commit)]
     pub fn commit<Element: M>(self) -> DmTensor<D, Chip, Cluster, Slice, Element, B> {
         verify_commit::<D, Time, Packet, Element>();
-        DmTensor::new(self.inner.transpose(false), None)
+        DmTensor::from_parts(self.inner.transpose(false), None)
     }
 
     /// Commits to data memory at `address`.
     #[primitive(TuTensor::commit_at)]
     pub fn commit_at<Element: M>(self, address: Address) -> DmTensor<D, Chip, Cluster, Slice, Element, B> {
         verify_commit::<D, Time, Packet, Element>();
-        DmTensor::new(self.inner.transpose(false), Some(address))
+        DmTensor::from_parts(self.inner.transpose(false), Some(address))
     }
 
     /// Commits to a mutable tensor view in data memory.

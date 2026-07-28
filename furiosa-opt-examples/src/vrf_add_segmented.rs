@@ -60,7 +60,7 @@ pub fn vrf_add_segmented(
     rhs: &HbmTensor<i32, Chip, m![B]>,
 ) -> HbmTensor<i32, Chip, m![A, B]> {
     type ResultDmTensor = DmTensor<i32, Chip, Cluster, m![A / 2 # 64], m![A % 2, B]>;
-    let result = unsafe { ResultDmTensor::from_addr(0) };
+    let result = ResultDmTensor::new();
 
     let result = vrf_add_kernel_segmented(ctx, lhs.view(), rhs.view(), result);
 

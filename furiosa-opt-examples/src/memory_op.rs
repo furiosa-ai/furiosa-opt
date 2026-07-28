@@ -37,7 +37,7 @@ pub fn dm_pcopy(ctx: &mut Context, hbm: &HbmTensor<i32, m![1], m![A, B]>) -> Hbm
 #[device(chip = 1)]
 pub fn dm_view_pcopy(ctx: &mut Context, hbm: &HbmTensor<i32, m![1], m![A, B]>) -> HbmTensor<i32, m![1], m![A, B]> {
     let src: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut ctx.tdma);
-    let mut dst: DmTensor<i32, m![1], m![1], m![A], m![B]> = unsafe { DmTensor::from_addr(0x10_0000) };
+    let mut dst: DmTensor<i32, m![1], m![1], m![A], m![B]> = DmTensor::new();
     src.view().to_dm_view_pcopy(&mut ctx.sub, dst.view_mut());
     dst.to_hbm(&mut ctx.tdma)
 }
@@ -70,8 +70,7 @@ pub fn commit_view_bottom_pad(
 ) -> HbmTensor<f32, QChip, m![T, Q % 56]> {
     let input: DmTensor<f32, QChip, QCluster, QSlice, m![T % 32, Q % 56 = 8]> = input_hbm.to_dm(&mut ctx.tdma);
 
-    let mut result: DmTensor<f32, QChip, QCluster, QSlice, m![T % 32, Q % 56]> =
-        unsafe { DmTensor::from_addr(0x200000) };
+    let mut result: DmTensor<f32, QChip, QCluster, QSlice, m![T % 32, Q % 56]> = DmTensor::new();
 
     ctx.main
         .begin(input.view())

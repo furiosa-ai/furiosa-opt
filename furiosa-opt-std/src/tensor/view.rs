@@ -211,7 +211,7 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorView<'l, D, E, B> {
     /// Reads the tensor view into a new tensor. Delegates to [`Backend::transpose`],
     /// whose body runs `transpose_broadcast` on every storage (so Typecheck still validates).
     pub fn read(self) -> Tensor<D, E, B> {
-        let mut result = Tensor::uninit();
+        let mut result = Tensor::zeroed();
         result.view_mut().transpose(self, false);
         result
     }

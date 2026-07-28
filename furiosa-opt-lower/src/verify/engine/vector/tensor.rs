@@ -229,7 +229,7 @@ pub fn config_vector_widen_pad(packet: &Mapping, packet2: &Mapping) -> Result<()
     if packet2.size() != ONE_FLIT_ELEMENTS {
         return Err(VectorError::PadOutputSize(packet2.size()));
     }
-    let expected = packet.clone().replace_padding(ONE_FLIT_ELEMENTS).normalize();
+    let expected = packet.clone().padding(ONE_FLIT_ELEMENTS, PaddingKind::Top).normalize();
     if expected != packet2.normalize() {
         return Err(VectorError::PadPacketMismatch {
             expected,

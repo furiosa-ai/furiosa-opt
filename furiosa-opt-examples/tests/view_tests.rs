@@ -28,7 +28,7 @@ async fn test_view_simpl() {
 
 /// `m![[A, B] # 1024]` extends `(A=9)(B=7)=63` real logical values up to the padded size `1024`
 /// (a valid 64-slice layout); indices `63..1024` are padding. Padding reads back as `0` regardless
-/// of what a host buffer writes there (`Backend::uninit`'s zero-filled default). A padding
+/// of what a host buffer writes there (`Backend::zeroed`'s zero-filled default). A padding
 /// *destination* slot also reads back `0` even when its rotation source is a real (`< 63`) value:
 /// the commit only ever writes the real `0..63` destination range, so a real value rotated into a
 /// padding destination is dropped, not carried through. [`view_padding`] rotates every group of 4

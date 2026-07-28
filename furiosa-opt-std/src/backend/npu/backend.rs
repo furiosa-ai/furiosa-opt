@@ -6,21 +6,17 @@ use crate::scalar::{MaterializableScalar, Scalar};
 use crate::storage::BufStorage;
 use crate::tensor::memory::{HbmTensor, HostTensor};
 
-use super::Kernel;
+use super::{CpuBuffer, Kernel};
 use crate::backend::Backend;
 
 /// NPU backend.
 ///
-/// Host-side code only prepares native `Vec<D>` staging buffers and moves them between host
-/// memory and NPU HBM through `to_hbm` / `from_hbm`. Tensor math is not interpreted on the host
-/// CPU for this backend, value-producing operations live on `BufStorage`'s inherent methods,
-/// shared with the Emulation backend. Under Npu the device kernel produces values and the host
-/// never reaches those bodies at runtime.
+/// Host storage uses DMA-heap-backed [`BufStorage`], so transfers to and from NPU HBM are zero-copy.
 #[derive(Debug, Clone, Copy)]
 pub struct Npu;
 
 impl Backend for Npu {
-    type Storage<D: Scalar> = BufStorage<D>;
+    type Storage<D: Scalar> = BufStorage<D, CpuBuffer>;
 
     fn from_vec<D: Scalar>(_mapping: &MappingValue, data: impl IntoIterator<Item = D>) -> Self::Storage<D> {
         BufStorage::from_vec(data)
@@ -30,10 +26,8 @@ impl Backend for Npu {
         BufStorage::from_buf(buf)
     }
 
-    fn uninit<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D> {
-        // BUF has no Opt::Uninit; the blank canvas is just zeros (overwritten by the relayout that
-        // allocates it; padding cells are don't-care).
-        BufStorage::from_vec(std::iter::repeat_n(D::zero(), mapping.size()))
+    fn zeroed<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D> {
+        BufStorage::zeroed(mapping.size())
     }
 
     fn into_vec<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &MappingValue) -> Vec<D> {
@@ -105,8 +99,6 @@ impl Backend for Npu {
         pre_reduce: &MappingValue,
         out: &MappingValue,
     ) -> Self::Storage<D> {
-        // Same host-side fold as `Emulation` (shared `BufStorage`); real hardware never reaches this
-        // body (see the struct doc), but the trait requires an implementation.
         BufStorage::contraction(lhs, rhs, lhs_map, rhs_map, pre_reduce, out)
     }
 

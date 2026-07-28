@@ -1,7 +1,13 @@
+use std::fmt;
+use std::ptr;
+use std::slice;
+
 use furiosa_mapping::M;
 
 use crate::prelude::HostTensor;
 use crate::scalar::MaterializableScalar;
+use crate::storage::BufStorage;
+use crate::tensor::Tensor;
 use crate::tensor::memory::HbmTensor;
 
 use super::Npu;
@@ -13,12 +19,15 @@ use super::ffi;
 #[derive(Debug)]
 pub struct Buffer(*mut ffi::NpuBuffer);
 
+// SAFETY: The runtime owns synchronization for this opaque device handle, which may move across threads.
 unsafe impl Send for Buffer {}
+// SAFETY: Shared access exposes only runtime operations that accept an immutable buffer handle.
 unsafe impl Sync for Buffer {}
 
 impl Drop for Buffer {
     fn drop(&mut self) {
         if !self.0.is_null() {
+            // SAFETY: This handle came from the runtime and this Drop is its unique owner.
             unsafe { ffi::furiosa_npu_buffer_free(self.0) }
         }
     }
@@ -26,6 +35,7 @@ impl Drop for Buffer {
 
 impl Clone for Buffer {
     fn clone(&self) -> Self {
+        // SAFETY: The runtime clone accepts a live handle and returns an independently owned handle.
         Buffer(unsafe { ffi::furiosa_npu_buffer_clone(self.0) })
     }
 }
@@ -40,43 +50,119 @@ impl Buffer {
     }
 
     pub(crate) fn npu(addr: u64, len: usize) -> Self {
+        // SAFETY: The caller supplies a device address and length for the synchronous runtime operation.
         Buffer::from_raw(unsafe { ffi::furiosa_npu_buffer_from(ffi::rt(), addr, len) })
     }
 
     pub(crate) fn alloc(size: usize) -> Self {
+        // SAFETY: The runtime allocator accepts any byte length and returns an owned opaque handle.
         let ptr = unsafe { ffi::furiosa_npu_buffer(ffi::rt(), size) };
         assert!(!ptr.is_null(), "failed to allocate buffer");
         Buffer::from_raw(ptr)
     }
 
     pub(crate) fn offset(&self) -> u64 {
+        // SAFETY: `self.0` is a live runtime buffer handle for the lifetime of `self`.
         unsafe { ffi::furiosa_npu_buffer_offset(self.0) }
     }
 }
 
-struct CpuBuffer(*mut ffi::CpuBuffer);
+/// An owned DMA-heap allocation managed by the device runtime.
+pub struct CpuBuffer {
+    ptr: *mut ffi::CpuBuffer,
+    len: usize,
+}
+
+// SAFETY: The handle uniquely owns a non-thread-affine DMA allocation and may move across threads.
+unsafe impl Send for CpuBuffer {}
+// SAFETY: Shared access exposes only immutable bytes; mutation requires unique `&mut` access.
+unsafe impl Sync for CpuBuffer {}
+
+impl fmt::Debug for CpuBuffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CpuBuffer").field("len", &self.len()).finish()
+    }
+}
 
 impl Drop for CpuBuffer {
     fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe { ffi::furiosa_cpu_buffer_free(self.0) }
+        if !self.ptr.is_null() {
+            // SAFETY: This handle came from `furiosa_cpu_buffer` and this Drop is its unique owner.
+            unsafe { ffi::furiosa_cpu_buffer_free(self.ptr) }
         }
     }
 }
 
+impl From<Vec<u8>> for CpuBuffer {
+    fn from(v: Vec<u8>) -> Self {
+        Self::from_slice(&v)
+    }
+}
+
+impl From<CpuBuffer> for Vec<u8> {
+    fn from(c: CpuBuffer) -> Self {
+        c.as_slice().to_vec()
+    }
+}
+
+impl AsRef<[u8]> for CpuBuffer {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl AsMut<[u8]> for CpuBuffer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_mut_slice()
+    }
+}
+
+impl Clone for CpuBuffer {
+    fn clone(&self) -> Self {
+        Self::from_slice(self.as_slice())
+    }
+}
+
 impl CpuBuffer {
-    fn cpu(size: usize) -> Self {
-        let ptr = unsafe { ffi::furiosa_cpu_buffer(size) };
-        assert!(!ptr.is_null(), "failed to allocate CPU buffer");
-        CpuBuffer(ptr)
+    fn alloc(len: usize) -> Self {
+        // SAFETY: The runtime allocator accepts a byte length and returns an owned DMA-heap handle.
+        let ptr = unsafe { ffi::furiosa_cpu_buffer(len) };
+        assert!(!ptr.is_null(), "failed to allocate DMA buffer");
+        CpuBuffer { ptr, len }
+    }
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        let cpu = Self::alloc(bytes.len());
+        if !bytes.is_empty() {
+            // SAFETY: Both regions are valid for `bytes.len()` bytes and belong to distinct allocations.
+            unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), cpu.data_ptr(), bytes.len()) };
+        }
+        cpu
     }
 
     fn as_ptr(&self) -> *const ffi::CpuBuffer {
-        self.0
+        self.ptr
     }
 
     fn data_ptr(&self) -> *mut u8 {
-        unsafe { ffi::furiosa_cpu_buffer_addr(self.as_ptr()) as *mut u8 }
+        // SAFETY: `self.ptr` is a live CPU buffer handle whose address remains valid until Drop.
+        unsafe { ffi::furiosa_cpu_buffer_addr(self.ptr) as *mut u8 }
+    }
+
+    /// The allocated byte length, tracked here (like `Vec`) rather than queried via
+    /// `furiosa_cpu_buffer_len`, whose result does not match the requested size and breaks slice bounds.
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        // SAFETY: The runtime allocation covers `len` initialized bytes and lives as long as `self`.
+        unsafe { slice::from_raw_parts(self.data_ptr(), self.len()) }
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: Unique access covers the runtime allocation's full initialized byte range.
+        unsafe { slice::from_raw_parts_mut(self.data_ptr(), self.len()) }
     }
 }
 
@@ -85,7 +171,9 @@ pub struct Kernel {
     ptr: *mut ffi::Kernel,
 }
 
+// SAFETY: The runtime kernel handle is not thread-affine and all operations synchronize in the runtime.
 unsafe impl Send for Kernel {}
+// SAFETY: Shared access invokes only runtime functions that accept an immutable kernel handle.
 unsafe impl Sync for Kernel {}
 
 impl std::fmt::Debug for Kernel {
@@ -96,6 +184,7 @@ impl std::fmt::Debug for Kernel {
 
 impl Drop for Kernel {
     fn drop(&mut self) {
+        // SAFETY: `self.ptr` is the live handle uniquely owned by this Kernel.
         unsafe { ffi::furiosa_kernel_free(self.ptr) }
     }
 }
@@ -105,29 +194,20 @@ impl Kernel {
     pub async fn load(data: &[u8]) -> Self {
         assert!(!data.is_empty(), "attempted to load an uncompiled NPU kernel");
         log::debug!("load: {} bytes", data.len());
+        // SAFETY: `data` remains valid for the synchronous load and the runtime copies the kernel image.
         let ptr = unsafe { ffi::furiosa_kernel_load(ffi::rt(), data.as_ptr(), data.len()) };
         assert!(!ptr.is_null(), "failed to load kernel");
         Kernel { ptr }
     }
 
-    /// Execute kernel.
+    /// Execute the kernel. When a `tracing` subscriber listens on the `span::npu`
+    /// target, profiling is armed and each decoded TUC span is emitted off the
+    /// launch hot path as an `info_span!` (see [`ffi::run`]).
     pub async fn run(&self, inputs: &[Buffer], outputs: &[Buffer]) {
         log::debug!("run: inputs={}, outputs={}", inputs.len(), outputs.len());
         let in_ptrs = inputs.iter().map(|b| b.as_ptr()).collect::<Vec<_>>();
         let out_ptrs = outputs.iter().map(|b| b.as_ptr()).collect::<Vec<_>>();
-        assert!(
-            unsafe {
-                ffi::furiosa_kernel_run(
-                    self.ptr,
-                    ffi::rt(),
-                    in_ptrs.as_ptr(),
-                    in_ptrs.len(),
-                    out_ptrs.as_ptr(),
-                    out_ptrs.len(),
-                )
-            } == 0,
-            "kernel execution failed"
-        );
+        assert!(ffi::run(self.ptr, &in_ptrs, &out_ptrs) == 0, "kernel execution failed");
     }
 
     /// Allocate a buffer on the device.
@@ -142,52 +222,39 @@ impl Kernel {
     pub async fn write<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
         host: &HostTensor<D, Element, Npu>,
     ) -> HbmTensor<D, Chip, Element2, Npu> {
-        let stride = std::mem::size_of::<D>();
-        let buf = host.clone().into_vec();
-        let len = buf.len() * stride;
-
-        let src = CpuBuffer::cpu(len);
-        let ptr = src.data_ptr();
-        for (i, value) in buf.iter().enumerate() {
-            // SAFETY: `ptr` points to `len` writable bytes; each copy writes one `D`.
-            unsafe {
-                std::ptr::copy_nonoverlapping(value as *const D as *const u8, ptr.add(i * stride), stride);
-            }
-        }
-
+        let src = host.storage().inner();
+        let len = src.len();
         let dst = Buffer::alloc(len);
         let addr = dst.offset();
         log::debug!("write: addr=0x{addr:x}, len={len}");
         assert!(
+            // SAFETY: Both owned runtime buffers remain live for the synchronous DMA operation.
             unsafe { ffi::furiosa_write(ffi::rt(), src.as_ptr(), dst.as_ptr()) } == 0,
             "DMA write failed"
         );
+        // SAFETY: `addr` names `dst`, whose ownership is attached to the returned tensor.
         unsafe { HbmTensor::from_addr(addr) }.owns(dst)
     }
 
     /// Copies an NPU HBM tensor back into a host staging tensor via DMA.
     ///
-    /// The returned `HostTensor` owns the bytes read from device memory as native `Vec<D>` data so
-    /// `to_vec` can expose them without an `Opt<D>` conversion layer.
+    /// The returned `HostTensor` owns the DMA allocation populated by the device read.
     pub async fn read<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
         hbm: &HbmTensor<D, Chip, Element, Npu>,
     ) -> HostTensor<D, Element2, Npu> {
-        let stride = std::mem::size_of::<D>();
         let count = furiosa_mapping::Pair::<Chip, Element>::SIZE;
-        let len = count * stride;
+        let len = D::size_in_bytes_from_length(count);
         let hbm_addr = hbm.address();
         log::debug!("read: addr=0x{:x}, len={len}", hbm_addr);
 
         let src = Buffer::npu(hbm_addr, len);
-        let dst = CpuBuffer::cpu(len);
+        let cpu = CpuBuffer::alloc(len);
         assert!(
-            unsafe { ffi::furiosa_read(ffi::rt(), src.as_ptr(), dst.as_ptr()) } == 0,
+            // SAFETY: Both owned runtime buffers remain live for the synchronous DMA operation.
+            unsafe { ffi::furiosa_read(ffi::rt(), src.as_ptr(), cpu.as_ptr()) } == 0,
             "DMA read failed"
         );
-        let ptr = dst.data_ptr() as *const u8;
-        HostTensor::from_vec((0..count).map(|i| {
-            // SAFETY: `ptr` points to `count * stride` readable bytes from the DMA copy.
-            unsafe { std::ptr::read(ptr.add(i * stride) as *const D) }
-        }))
+        let storage = BufStorage::<D, CpuBuffer>::from(cpu);
+        Tensor::from_inner(storage).into()
     }
 }

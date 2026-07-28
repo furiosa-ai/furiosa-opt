@@ -18,6 +18,15 @@ pub trait Scalar: ndarray::LinalgScalar + Debug + Clone + Copy + PartialEq + Num
         crate::constraints::size_in_bytes(Self::BITS, length)
     }
 
+    /// The buffer byte length for `n` elements: the size of [`to_buf`](Self::to_buf)'s output, the
+    /// run [`load`](Self::load) / [`store`](Self::store) address per element. Byte-centric by default
+    /// (`n * size_of`); the sub-byte packers ([`i4`]/[`f4e2m1`]) override it to their `BITS`-packed
+    /// size. Wider than [`size_in_bytes_from_length`](Self::size_in_bytes_from_length) for a staging
+    /// type ([`i5`]/[`i9`]), whose `i8`/`i16` host form exceeds its narrower `BITS` wire width.
+    fn buf_bytes(n: usize) -> usize {
+        n * std::mem::size_of::<Self>()
+    }
+
     /// Reads element `i` from a packed byte image. This and [`store`](Self::store) are the sole place the
     /// byte-multiple-vs-sub-byte distinction lives: the default is byte-centric (element `i` owns its own
     /// `Self::BITS / 8`-byte run of the little-endian image), and only [`f4e2m1`] overrides it to unpack a
@@ -321,9 +330,10 @@ impl bf16 {
         bf16(half::bf16::from_bits(u16::from_le_bytes(bytes)))
     }
 
-    /// Creates `bf16` from `f32`.
-    pub fn from_f32(val: f32) -> Self {
-        bf16(half::bf16::from_f32(val))
+    /// Creates `bf16` from `f32` in a `const` context (for compile-time fill values). Byte-identical
+    /// to the runtime conversion: `half`'s own `from_f32` forwards to the `from_f32_const` used here.
+    pub const fn from_f32(val: f32) -> Self {
+        bf16(half::bf16::from_f32_const(val))
     }
 
     /// Converts to `f32`.
@@ -422,8 +432,9 @@ impl f8e4m3 {
         f8e4m3(bytes[0])
     }
 
-    /// Creates `f8e4m3` from `f32`.
-    pub fn from_f32(val: f32) -> Self {
+    /// Creates `f8e4m3` from `f32` in a `const` context. Byte-identical to the runtime conversion
+    /// (the E4M3 rounding is pure integer arithmetic, so the same code is `const`-evaluable).
+    pub const fn from_f32(val: f32) -> Self {
         f8e4m3(crate::float::f8_e4_from_f32(val))
     }
 
@@ -633,15 +644,19 @@ impl Scalar for i4 {
     fn to_buf(vals: &[Self]) -> Vec<u8> {
         pack_nibbles(vals)
     }
+
+    fn buf_bytes(n: usize) -> usize {
+        Self::size_in_bytes_from_length(n)
+    }
 }
 
 impl i4 {
-    fn from_lsb(n: i8) -> Self {
+    const fn from_lsb(n: i8) -> Self {
         i4((n << 4) >> 4)
     }
 
-    /// Creates `i4` from `i32`.
-    pub fn from_i32(val: i32) -> Self {
+    /// Creates `i4` from `i32`, at compile time (sign-truncation to the low 4 bits).
+    pub const fn from_i32(val: i32) -> Self {
         Self::from_lsb(val as i8)
     }
 
@@ -1039,6 +1054,10 @@ impl Scalar for f4e2m1 {
     fn to_buf(vals: &[Self]) -> Vec<u8> {
         pack_nibbles(vals)
     }
+
+    fn buf_bytes(n: usize) -> usize {
+        Self::size_in_bytes_from_length(n)
+    }
 }
 
 // `f4e2m1` is hand-written (not driven by `impl_scalar!`), so it needs the marker here too, same as
@@ -1116,5 +1135,32 @@ mod tests {
         // `i4` packs the same way (low nibble of each element).
         let i4s: Vec<i4> = [1, 2, -1].iter().map(|&n| i4::from_i32(n)).collect();
         assert_eq!(i4::to_buf(&i4s[..2]), vec![0x21]);
+    }
+    /// The scalar `from_f32` / `from_i32` constructors are `const fn`: a `const` block evaluates them
+    /// at compile time, and the compile-time result equals the runtime reference conversion byte for
+    /// byte. This is the compile-time-fill foundation a typed `memset(value)` builds on (the fill
+    /// value const-folds through these constructors).
+    #[test]
+    fn scalar_constructors_are_const() {
+        const BF16_ONE: bf16 = bf16::from_f32(1.0);
+        assert_eq!(BF16_ONE, bf16(half::bf16::from_f32(1.0)));
+        assert_eq!(BF16_ONE.to_f32(), 1.0);
+
+        const F8_ONE: f8e4m3 = f8e4m3::from_f32(1.0);
+        assert_eq!(F8_ONE, f8e4m3(crate::float::f8_e4_from_f32(1.0)));
+
+        const I4_NEG_ONE: i4 = i4::from_i32(-1);
+        assert_eq!(I4_NEG_ONE.to_i32(), -1);
+        const I4_SEVEN: i4 = i4::from_i32(7);
+        assert_eq!(I4_SEVEN.to_i32(), 7);
+    }
+
+    /// `bf16::from_f32` delegates to `half::bf16::from_f32_const`, which `half`'s own runtime
+    /// `from_f32` already forwards to, so the two are byte-identical across representative values.
+    #[test]
+    fn bf16_from_f32_matches_half_runtime() {
+        for &v in &[0.0f32, 1.0, -1.0, 0.5, 12.34, -56.78, 65504.0, f32::MIN, f32::MAX] {
+            assert_eq!(bf16::from_f32(v), bf16(half::bf16::from_f32(v)), "mismatch at {v}");
+        }
     }
 }

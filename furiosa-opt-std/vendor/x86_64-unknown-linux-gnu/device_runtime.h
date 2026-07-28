@@ -13,7 +13,7 @@
 namespace device_runtime {
 #endif  // __cplusplus
 
-#define VERSION 1
+#define VERSION 2
 
 /**
  * DMA-aligned host buffer backed by [`BufferPool`].
@@ -57,6 +57,28 @@ typedef struct NpuDesc {
   uint8_t pe_end;
 } NpuDesc;
 
+/**
+ * A borrowed UTF-8 string across the C ABI: `ptr`/`len` are valid only for the
+ * call. Its own type because the pointer and length always travel together.
+ */
+typedef struct Str {
+  const char *ptr;
+  size_t len;
+} Str;
+
+/**
+ * Per-span sink: one call per decoded span. `name` borrows kernel memory for
+ * the call; copy it to retain. `begin`/`end` are TUC cycles.
+ */
+typedef void (*SpanFn)(void *ctx, struct Str name, uint64_t begin, uint64_t end);
+
+/**
+ * Cleanup sink: called exactly once when profiling finishes (after the last
+ * span, or on an uninstrumented kernel / launch error), so the caller can free
+ * `ctx`.
+ */
+typedef void (*DropFn)(void *ctx);
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -90,11 +112,32 @@ struct Kernel *furiosa_kernel_load(const struct Runtime *rt, const uint8_t *edf,
  * `outputs` must point to `n_out` valid `Buffer` pointers.
  */
 int32_t furiosa_kernel_run(const struct Kernel *k,
-                           const struct Runtime *rt,
+                           struct Runtime *rt,
                            const struct NpuBuffer *const *inputs,
                            size_t n_in,
                            const struct NpuBuffer *const *outputs,
                            size_t n_out);
+
+/**
+ * `profiled(furiosa_kernel_run)`: runs the kernel, then streams each decoded
+ * on-device span to `on_span` off the hot path (none if the kernel is not
+ * instrumented), and calls `on_done(ctx)` exactly once when finished. Returns
+ * 0 on success, -1 on failure to launch.
+ *
+ * # Safety
+ * As `furiosa_kernel_run`; `rt` from `furiosa_runtime_init`. Because spans are
+ * delivered asynchronously, `ctx` must stay valid, and be safe to use from
+ * another thread, until `on_done` is called.
+ */
+int32_t furiosa_profiled_run(struct Runtime *rt,
+                             const struct Kernel *k,
+                             const struct NpuBuffer *const *inputs,
+                             size_t n_in,
+                             const struct NpuBuffer *const *outputs,
+                             size_t n_out,
+                             SpanFn on_span,
+                             DropFn on_done,
+                             void *ctx);
 
 /**
  * # Safety

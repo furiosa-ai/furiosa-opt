@@ -10,6 +10,10 @@ use crate::scalar::*;
 use crate::storage::par_iters::MappingPositions;
 use crate::storage::{PAR_MIN_JOB, min_cells_per_job};
 
+pub trait Buf: From<Vec<u8>> + Into<Vec<u8>> + AsRef<[u8]> + AsMut<[u8]> + Clone + std::fmt::Debug {}
+
+impl<T> Buf for T where T: From<Vec<u8>> + Into<Vec<u8>> + AsRef<[u8]> + AsMut<[u8]> + Clone + std::fmt::Debug {}
+
 /// Emulation / Npu tensor: the dense device image as one packed `Vec<u8>`. Element `i` sits at position
 /// `i` (padding included, zero-initialized); a byte-multiple `D` takes its own byte run, a sub-byte `D`
 /// (`f4e2m1` / `i4`) packs two per byte. Only [`Scalar::load`] / [`Scalar::store`] know the width, so the
@@ -19,8 +23,8 @@ use crate::storage::{PAR_MIN_JOB, min_cells_per_job};
 /// Layout-free: ops take their mapping(s) from type parameters. Reads parallelize via [`Self::par_iter`];
 /// a parallel write partitions the byte image into disjoint chunks ([`Self::par_chunks_mut`]).
 #[derive(Clone, Debug)]
-pub struct BufStorage<D: Scalar> {
-    bytes: Vec<u8>,
+pub struct BufStorage<D: Scalar, B: crate::storage::Buf> {
+    bytes: B,
     _marker: PhantomData<D>,
 }
 
@@ -31,14 +35,23 @@ pub struct BufStorage<D: Scalar> {
 /// not canonicalize), so the two `f4e2m1` zero codes (`0x0` = +0, `0x8` = -0) are value-equal yet
 /// compare unequal here. (Float `PartialEq`'s `NaN != NaN` is a value-level rule and does not apply
 /// to a byte image.)
-impl<D: Scalar> PartialEq for BufStorage<D> {
+impl<D: Scalar, B: Buf> PartialEq for BufStorage<D, B> {
     fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes
+        self.as_bytes() == other.as_bytes()
     }
 }
-impl<D: Scalar + Eq> Eq for BufStorage<D> {}
+impl<D: Scalar + Eq, B: Buf> Eq for BufStorage<D, B> {}
 
-impl<D: Scalar> BufStorage<D> {
+impl<D: Scalar, B: Buf> From<B> for BufStorage<D, B> {
+    fn from(bytes: B) -> Self {
+        Self {
+            bytes,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// The packed byte length for `n` elements (`n * BITS / 8`, exact: `n` is byte-aligned by the
     /// [`Self::from_vec`] invariant). A byte-multiple width divides evenly for any `n`; a 4-bit width
     /// needs an even `n`.
@@ -69,7 +82,28 @@ impl<D: Scalar> BufStorage<D> {
     /// pre-packed data (fp4 / f4e2m1 weights) comes through here to avoid a decode + re-pack round-trip.
     pub(crate) fn from_buf(bytes: Vec<u8>) -> Self {
         Self {
-            bytes,
+            bytes: bytes.into(),
+            _marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn inner(&self) -> &B {
+        &self.bytes
+    }
+
+    /// A zeroed packed buffer for `n` elements — a blank canvas a relayout overwrites. `vec![0u8; _]`
+    /// lowers to `alloc_zeroed` (calloc), skipping the eager `Vec<D>` memset + pack that `from_vec` does.
+    pub(crate) fn zeroed(n: usize) -> Self {
+        assert!(
+            (n * D::BITS).is_multiple_of(8),
+            "BufStorage<D>: a sub-byte element count must be byte-aligned (got {} elements at {} bits)",
+            n,
+            D::BITS,
+        );
+        Self {
+            // We only need an uninit alloc here (zero cost): relayouts write only the live cells.
+            // This zero-fill instead pays a real O(n) memset, pending a MaybeUninit rework of Buf.
+            bytes: vec![0u8; D::buf_bytes(n)].into(),
             _marker: PhantomData,
         }
     }
@@ -120,13 +154,13 @@ impl<D: Scalar> BufStorage<D> {
                 );
             });
         }
-        self.bytes.len() * 8 / D::BITS
+        self.bytes.as_ref().len() * 8 / D::BITS
     }
 
     /// Reads element `i` via [`Scalar::load`].
     #[inline]
     pub(crate) fn get(&self, i: usize) -> D {
-        D::load(&self.bytes, i)
+        D::load(self.bytes.as_ref(), i)
     }
 
     /// Reads element `i` if in range, else `None` (the guarded `get` the fold paths use for a
@@ -142,7 +176,7 @@ impl<D: Scalar> BufStorage<D> {
     /// Writes `value` into element `i` via [`Scalar::store`], leaving neighbouring elements untouched.
     #[inline]
     pub(crate) fn set(&mut self, i: usize, value: D) {
-        D::store(&mut self.bytes, i, value);
+        D::store(self.bytes.as_mut(), i, value);
     }
 
     /// The logical element values as a `Vec<D>`, decoded without consuming the buffer (one `D` per
@@ -162,6 +196,7 @@ impl<D: Scalar> BufStorage<D> {
     pub(crate) fn par_iter(&self) -> impl IndexedParallelIterator<Item = D> + '_
     where
         D: MaterializableScalar,
+        B: Sync,
     {
         (0..self.len()).into_par_iter().map(move |i| self.get(i))
     }
@@ -194,6 +229,7 @@ impl<D: Scalar> BufStorage<D> {
         // is divisible by every `D::BITS` (4 / 8 / 16 / 32), so the division is lossless.
         let elems_per_chunk = bytes_per_chunk * 8 / D::BITS;
         self.bytes
+            .as_mut()
             .par_chunks_mut(bytes_per_chunk)
             .enumerate()
             .map(move |(c, bytes)| {
@@ -213,9 +249,10 @@ impl<D: Scalar> BufStorage<D> {
     /// Element-wise map to a new scalar. Elements are independent, so [`Self::par_iter`] loads / maps each
     /// across the rayon pool and `from_vec` repacks the result on `D2::BITS`. Backs
     /// [`crate::backend::Backend::map`].
-    pub(crate) fn map<D2: Scalar>(&self, f: impl Fn(D) -> D2 + Sync) -> BufStorage<D2>
+    pub(crate) fn map<D2: Scalar>(&self, f: impl Fn(D) -> D2 + Sync) -> BufStorage<D2, B>
     where
         D: MaterializableScalar,
+        B: Sync,
     {
         // Pass `&f` (a moved `f` would demand `f: Send`); this keeps `f` `Sync`-only with no closure.
         BufStorage::from_vec(self.par_iter().map(&f).collect::<Vec<_>>())
@@ -225,7 +262,10 @@ impl<D: Scalar> BufStorage<D> {
     /// calls [`Self::len`]). Backs [`crate::backend::Backend::map_bounded`]; see
     /// [`crate::tensor::Tensor::map_bounded`] for why plain `map` is unsound for a non-`MaterializableScalar`
     /// staging type (`i5`/`i9`), whose own `self.len()` over-reports.
-    pub(crate) fn map_bounded<D2: Scalar>(&self, len: usize, f: impl Fn(D) -> D2 + Sync) -> BufStorage<D2> {
+    pub(crate) fn map_bounded<D2: Scalar>(&self, len: usize, f: impl Fn(D) -> D2 + Sync) -> BufStorage<D2, B>
+    where
+        B: Sync,
+    {
         BufStorage::from_vec((0..len).into_par_iter().map(|i| f(self.get(i))).collect::<Vec<_>>())
     }
 
@@ -233,11 +273,12 @@ impl<D: Scalar> BufStorage<D> {
     /// [`crate::backend::Backend::zip_with`].
     pub(crate) fn zip_with<D2: MaterializableScalar, D3: Scalar>(
         &self,
-        other: &BufStorage<D2>,
+        other: &BufStorage<D2, B>,
         f: impl Fn(D, D2) -> D3 + Sync,
-    ) -> BufStorage<D3>
+    ) -> BufStorage<D3, B>
     where
         D: MaterializableScalar,
+        B: Sync,
     {
         // Reads never race, so zip the two buffers' parallel element iterators (the physical packing is
         // transparent through `par_iter`). The output repacks on `D3::BITS` via `from_vec`.
@@ -252,12 +293,13 @@ impl<D: Scalar> BufStorage<D> {
     /// Element-wise ternary zip over the physical buffer. Ternary peer of [`Self::zip_with`].
     pub(crate) fn zip3_with<D2: MaterializableScalar, D3: MaterializableScalar, D4: Scalar>(
         &self,
-        b: &BufStorage<D2>,
-        c: &BufStorage<D3>,
+        b: &BufStorage<D2, B>,
+        c: &BufStorage<D3, B>,
         f: impl Fn(D, D2, D3) -> D4 + Sync,
-    ) -> BufStorage<D4>
+    ) -> BufStorage<D4, B>
     where
         D: MaterializableScalar,
+        B: Sync,
     {
         let data = self
             .par_iter()
@@ -275,13 +317,15 @@ impl<D: Scalar> BufStorage<D> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn transpose<Src: M, Mapping: M>(
         &mut self,
-        src: &BufStorage<D>,
+        src: &BufStorage<D, B>,
         src_offset: &Index,
         dst_offset: &Index,
         src_map: &MappingValue,
         dst_map: &MappingValue,
         allow_broadcast: bool,
-    ) {
+    ) where
+        B: Sync,
+    {
         // Structural check (also asserts `Src` is contained in `Mapping`); `!allow_broadcast`
         // rejects a non-padding leftover.
         let _ = transpose_broadcast::<Src, Mapping>(allow_broadcast);
@@ -353,6 +397,7 @@ impl<D: Scalar> BufStorage<D> {
     ) -> Self
     where
         D: MaterializableScalar,
+        B: Sync,
     {
         let src = Src::to_value();
         let dst = Dst::to_value();
@@ -417,15 +462,16 @@ impl<D: Scalar> BufStorage<D> {
     /// combine; for `f32` add/mul the Emulation result can differ from serial. Accepted; the order is
     /// still deterministic across runs regardless of rayon's split.
     pub(crate) fn contraction(
-        lhs: &BufStorage<D>,
-        rhs: &BufStorage<D>,
+        lhs: &BufStorage<D, B>,
+        rhs: &BufStorage<D, B>,
         lhs_map: &MappingValue,
         rhs_map: &MappingValue,
         pre_reduce: &MappingValue,
         out_map: &MappingValue,
-    ) -> BufStorage<D>
+    ) -> BufStorage<D, B>
     where
         D: ContractionCast + MaterializableScalar,
+        B: Sync,
     {
         // A bare `BufStorage` carries no axes of its own, so the operand layouts arrive as
         // `lhs_map`/`rhs_map` rather than being read off the storage (contrast `MathStorage`).
@@ -473,8 +519,8 @@ impl<D: Scalar> BufStorage<D> {
     /// [`crate::backend::Backend::scatter`].
     pub(crate) fn scatter<Src: M, Key: M, Dst: M, Idx: M>(
         &self,
-        dst: &mut BufStorage<D>,
-        index: &BufStorage<i32>,
+        dst: &mut BufStorage<D, B>,
+        index: &BufStorage<i32, B>,
         scaled: bool,
     ) {
         let key = Key::to_value();
@@ -510,9 +556,14 @@ impl<D: Scalar> BufStorage<D> {
 
     /// Gathers from `self` (table) into `dst` at positions read from the index tensor. Backs
     /// [`crate::backend::Backend::gather`].
-    pub(crate) fn gather<Src: M, Dst: M, Idx: M>(&self, dst: &mut BufStorage<D>, index: &BufStorage<i32>, scaled: bool)
-    where
+    pub(crate) fn gather<Src: M, Dst: M, Idx: M>(
+        &self,
+        dst: &mut BufStorage<D, B>,
+        index: &BufStorage<i32, B>,
+        scaled: bool,
+    ) where
         D: MaterializableScalar,
+        B: Sync,
     {
         let params = gather_params(&Src::to_value(), &Dst::to_value(), &Idx::to_value());
         let payload = params.payload.remove_padding();
@@ -609,7 +660,13 @@ impl<D: Scalar> BufStorage<D> {
     /// buffer already IS this image (one `Vec<u8>` packed on `D::BITS`), so this is a direct move, no
     /// re-pack.
     pub(crate) fn into_buf(self, _mapping: &MappingValue) -> Vec<u8> {
-        self.bytes
+        self.bytes.into()
+    }
+
+    /// Borrow the packed device byte image (the borrowing peer of [`Self::into_buf`]), the bridge the
+    /// NPU storage uses to move bytes in and out of this host-eval buffer.
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_ref()
     }
 }
 
@@ -776,7 +833,7 @@ fn place_live_elems<D: Scalar>(dst_map: &MappingValue, mut live: impl Iterator<I
 /// stride from [`decode_stride`] (a byte stride when scaled, else 1). `BufStorage` offsets are
 /// physical and `data` already holds exactly the index mapping's cells, so the whole buffer is read.
 /// Shared by scatter and gather.
-fn decode_indices(index: &BufStorage<i32>, index_stride: usize) -> Vec<usize> {
+fn decode_indices<B: Buf>(index: &BufStorage<i32, B>, index_stride: usize) -> Vec<usize> {
     // The index buffer holds exactly the index mapping's elements; read them in order (an `i32` decode is
     // a whole-value read, so this is the cheap byte-multiple path).
     (0..index.len())
@@ -815,15 +872,50 @@ fn gcd(mut a: usize, mut b: usize) -> usize {
 mod tests {
     use super::*;
 
+    /// `zeroed(n)` must allocate the same byte length as the `from_vec` path it replaced, for every
+    /// dtype -- i.e. the host image size `load`/`store` address, not the `BITS`-based wire size. A
+    /// staging type (`i5` an `i8`, `i9` an `i16`) has a host image wider than `n * BITS / 8`, so a
+    /// `BITS`-based `zeroed` under-allocates it (the `collect` i9-transpose out-of-range this pins).
+    #[test]
+    fn zeroed_byte_len_matches_from_vec_for_every_dtype() {
+        fn check<D: Scalar>(n: usize) {
+            let zeroed = BufStorage::<D, Vec<u8>>::zeroed(n).as_bytes().len();
+            let packed = BufStorage::<D, Vec<u8>>::from_vec(std::iter::repeat_n(<D as num_traits::Zero>::zero(), n))
+                .as_bytes()
+                .len();
+            assert_eq!(
+                zeroed,
+                packed,
+                "{}: zeroed({n}) allocated {zeroed} B but from_vec packs {packed} B",
+                std::any::type_name::<D>(),
+            );
+        }
+        for n in [2usize, 8, 128] {
+            for check in [
+                check::<i8>,
+                check::<i16>,
+                check::<i32>,
+                check::<bf16>,
+                check::<f32>,
+                check::<i4>,
+                check::<f4e2m1>,
+                check::<i5>,
+                check::<i9>,
+            ] {
+                check(n);
+            }
+        }
+    }
+
     /// `BufStorage::contraction` reproduces a plain matmul. `[M,K] · [K,N] -> [M,N]` with no padding,
     /// so the wire buffers are row-major and the result is hand-checkable.
     #[test]
     fn contraction_matches_matmul() {
         axes![M = 2, K = 3, N = 2];
         // lhs row-major: [[1,2,3],[4,5,6]]; rhs row-major: [[1,2],[3,4],[5,6]].
-        let lhs = BufStorage::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        let rhs = BufStorage::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        let out = BufStorage::contraction(
+        let lhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let rhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let out = BufStorage::<_, Vec<u8>>::contraction(
             &lhs,
             &rhs,
             &<m![M, K]>::to_value(),
@@ -868,7 +960,7 @@ mod tests {
     fn reduce_large_split_matches_serial() {
         axes![R = 256, C = 512]; // 131072 stream positions > PAR_MIN_JOB (65536)
         let data: Vec<i32> = (0..256 * 512).map(|i| i % 5).collect();
-        let out = BufStorage::from_vec(data.clone()).reduce::<m![R, C], m![C], _>(|a, b| a + b, 0, false);
+        let out = BufStorage::<_, Vec<u8>>::from_vec(data.clone()).reduce::<m![R, C], m![C], _>(|a, b| a + b, 0, false);
         let mut expected = vec![0i32; 512];
         for r in 0..256 {
             for c in 0..512 {
@@ -887,7 +979,11 @@ mod tests {
     fn reduce_wide_out_thin_contracted_matches_serial() {
         axes![Big = 1048576, Small = 4]; // out = 2^20 cells, contracted = 4
         let data: Vec<i32> = (0..(1 << 20) * 4).map(|i| i % 7).collect();
-        let out = BufStorage::from_vec(data.clone()).reduce::<m![Big, Small], m![Big], _>(|a, b| a + b, 0, false);
+        let out = BufStorage::<_, Vec<u8>>::from_vec(data.clone()).reduce::<m![Big, Small], m![Big], _>(
+            |a, b| a + b,
+            0,
+            false,
+        );
         let mut expected = vec![0i32; 1 << 20];
         for big in 0..(1 << 20) {
             for small in 0..4 {
@@ -906,9 +1002,9 @@ mod tests {
         axes![M = 128, K = 4, N = 512]; // 65536 output cells >> 16384 floor
         let lhs: Vec<i32> = (0..128 * 4).map(|i| i % 5).collect();
         let rhs: Vec<i32> = (0..4 * 512).map(|i| i % 3).collect();
-        let out = BufStorage::contraction(
-            &BufStorage::from_vec(lhs.clone()),
-            &BufStorage::from_vec(rhs.clone()),
+        let out = BufStorage::<_, Vec<u8>>::contraction(
+            &BufStorage::<_, Vec<u8>>::from_vec(lhs.clone()),
+            &BufStorage::<_, Vec<u8>>::from_vec(rhs.clone()),
             &<m![M, K]>::to_value(),
             &<m![K, N]>::to_value(),
             &<m![M, K, N]>::to_value(),
@@ -934,8 +1030,8 @@ mod tests {
     fn transpose_large_split_matches_serial() {
         axes![R = 512, C = 256]; // 131072 cells > PAR_MIN_JOB (65536)
         let src_data: Vec<i32> = (0..512 * 256).collect();
-        let src = BufStorage::from_vec(src_data.clone());
-        let mut dst = BufStorage::from_vec(vec![0i32; 512 * 256]);
+        let src = BufStorage::<_, Vec<u8>>::from_vec(src_data.clone());
+        let mut dst = BufStorage::<_, Vec<u8>>::from_vec(vec![0i32; 512 * 256]);
         dst.transpose::<m![R, C], m![C, R]>(
             &src,
             &Index::new(),
@@ -960,9 +1056,9 @@ mod tests {
     #[test]
     fn contraction_reordered_out_matches_serial() {
         axes![M = 2, K = 3, N = 2];
-        let lhs = BufStorage::from_vec(vec![1i32, 2, 3, 4, 5, 6]); // [M,K] row-major
-        let rhs = BufStorage::from_vec(vec![1i32, 2, 3, 4, 5, 6]); // [K,N] row-major
-        let out = BufStorage::contraction(
+        let lhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1i32, 2, 3, 4, 5, 6]); // [M,K] row-major
+        let rhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1i32, 2, 3, 4, 5, 6]); // [K,N] row-major
+        let out = BufStorage::<_, Vec<u8>>::contraction(
             &lhs,
             &rhs,
             &<m![M, K]>::to_value(),
@@ -982,10 +1078,10 @@ mod tests {
     fn contraction_padded_contracted_axis_matches_serial() {
         axes![M = 2, K = 2, N = 2];
         // lhs m![M, K = 2 # 4]: each M row is [k0, k1, pad, pad] in wire order (size 2*4 = 8).
-        let lhs = BufStorage::from_vec(vec![1i32, 2, 0, 0, 3, 4, 0, 0]);
+        let lhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1i32, 2, 0, 0, 3, 4, 0, 0]);
         // rhs m![K = 2 # 4, N]: each of the 4 K wire rows holds [n0, n1]; rows 2,3 are pad (size 4*2 = 8).
-        let rhs = BufStorage::from_vec(vec![1i32, 2, 3, 4, 0, 0, 0, 0]);
-        let out = BufStorage::contraction(
+        let rhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1i32, 2, 3, 4, 0, 0, 0, 0]);
+        let out = BufStorage::<_, Vec<u8>>::contraction(
             &lhs,
             &rhs,
             &<m![M, K = 2 # 4]>::to_value(),
@@ -1006,9 +1102,9 @@ mod tests {
         axes![M = 2, K = 3, N = 2];
         let lhs_data = vec![1i32, 2, 3, 4, 5, 6]; // [M,K] row-major
         let rhs_data = vec![1i32, 2, 3, 4, 5, 6]; // [K,N] row-major, broadcasts over M
-        let out = BufStorage::contraction(
-            &BufStorage::from_vec(lhs_data.clone()),
-            &BufStorage::from_vec(rhs_data.clone()),
+        let out = BufStorage::<_, Vec<u8>>::contraction(
+            &BufStorage::<_, Vec<u8>>::from_vec(lhs_data.clone()),
+            &BufStorage::<_, Vec<u8>>::from_vec(rhs_data.clone()),
             &<m![M, K]>::to_value(),
             &<m![K, N]>::to_value(),
             &<m![M, K, N]>::to_value(),
@@ -1038,9 +1134,9 @@ mod tests {
             .map(bf16::from_f32)
             .collect();
         let rhs = vec![bf16::from_f32(1.0); 256];
-        let out = BufStorage::contraction(
-            &BufStorage::from_vec(lhs),
-            &BufStorage::from_vec(rhs),
+        let out = BufStorage::<_, Vec<u8>>::contraction(
+            &BufStorage::<_, Vec<u8>>::from_vec(lhs),
+            &BufStorage::<_, Vec<u8>>::from_vec(rhs),
             &<m![M, K]>::to_value(),
             &<m![K, N]>::to_value(),
             &<m![M, K, N]>::to_value(),
@@ -1063,9 +1159,9 @@ mod tests {
     #[test]
     fn contraction_i16_accumulates_wide_then_wraps_once() {
         axes![M = 1, K = 256, N = 1];
-        let out = BufStorage::contraction(
-            &BufStorage::from_vec(vec![1000i16; 256]),
-            &BufStorage::from_vec(vec![1000i16; 256]),
+        let out = BufStorage::<_, Vec<u8>>::contraction(
+            &BufStorage::<_, Vec<u8>>::from_vec(vec![1000i16; 256]),
+            &BufStorage::<_, Vec<u8>>::from_vec(vec![1000i16; 256]),
             &<m![M, K]>::to_value(),
             &<m![K, N]>::to_value(),
             &<m![M, K, N]>::to_value(),
@@ -1089,9 +1185,10 @@ mod tests {
     fn cross_slice_reduce_narrows_per_lane_fold_not_globally() {
         axes![Slice = 3, M = 1, K = 2, N = 1, GlobalK = 6];
         // Per-slice path: each slice is a within-slice contraction that narrows to bf16 at its lane fold.
-        let lhs_slice = || BufStorage::from_vec(vec![bf16::from_f32(1.0), bf16::from_f32(2.0f32.powi(-8))]);
-        let rhs_slice = || BufStorage::from_vec(vec![bf16::from_f32(1.0); 2]);
-        let partial = BufStorage::contraction(
+        let lhs_slice =
+            || BufStorage::<_, Vec<u8>>::from_vec(vec![bf16::from_f32(1.0), bf16::from_f32(2.0f32.powi(-8))]);
+        let rhs_slice = || BufStorage::<_, Vec<u8>>::from_vec(vec![bf16::from_f32(1.0); 2]);
+        let partial = BufStorage::<_, Vec<u8>>::contraction(
             &lhs_slice(),
             &rhs_slice(),
             &<m![M, K]>::to_value(),
@@ -1106,16 +1203,16 @@ mod tests {
             "per-slice narrow rounds 1 + 2^-8 to 1.0 in bf16"
         );
         // The Vector Engine sums the three narrowed per-slice partials downstream (a `reduce`).
-        let three_narrowed = BufStorage::from_vec(vec![partial0; 3]);
+        let three_narrowed = BufStorage::<_, Vec<u8>>::from_vec(vec![partial0; 3]);
         let cross_slice = three_narrowed
             .reduce::<m![Slice, M, N], m![M, N], _>(|a, b| a + b, bf16::from_f32(0.0), false)
             .get(0)
             .to_f32();
         assert_eq!(cross_slice, 3.0);
         // One global wide fold: the same six MACs as a single K=6 contraction, narrowing once at the end.
-        let global = BufStorage::contraction(
-            &BufStorage::from_vec([1.0, 2.0f32.powi(-8)].into_iter().cycle().take(6).map(bf16::from_f32)),
-            &BufStorage::from_vec(vec![bf16::from_f32(1.0); 6]),
+        let global = BufStorage::<_, Vec<u8>>::contraction(
+            &BufStorage::<_, Vec<u8>>::from_vec([1.0, 2.0f32.powi(-8)].into_iter().cycle().take(6).map(bf16::from_f32)),
+            &BufStorage::<_, Vec<u8>>::from_vec(vec![bf16::from_f32(1.0); 6]),
             &<m![M, GlobalK]>::to_value(),
             &<m![GlobalK, N]>::to_value(),
             &<m![M, GlobalK, N]>::to_value(),
@@ -1138,7 +1235,8 @@ mod tests {
     fn reduce_large_split_f32_close_to_serial() {
         axes![R = 256, C = 512];
         let data: Vec<f32> = (0..256 * 512).map(|i| (i % 13) as f32 * 0.5 + 0.25).collect();
-        let out = BufStorage::from_vec(data.clone()).reduce::<m![R, C], m![C], _>(|a, b| a + b, 0.0, false);
+        let out =
+            BufStorage::<_, Vec<u8>>::from_vec(data.clone()).reduce::<m![R, C], m![C], _>(|a, b| a + b, 0.0, false);
         // f64-accumulated reference, so the tight f32 bound measures only the parallel fold's drift.
         let mut serial = vec![0.0f64; 512];
         for r in 0..256 {

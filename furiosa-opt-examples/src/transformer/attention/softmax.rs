@@ -41,8 +41,7 @@ pub(super) fn softmax(
     // TagMode::Vrf reads this branch state implicitly.
 
     // Pre-allocate full output tensor. Each group commits into its tile address.
-    let softmax_out: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T]> =
-        unsafe { DmTensor::from_addr(0x8000) };
+    let softmax_out: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T]> = DmTensor::new();
 
     // Copy score tensor into a working buffer for per-group processing.
     let qk_scores_buf: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T]> =
@@ -54,8 +53,7 @@ pub(super) fn softmax(
     const GROUP_SRAM_ADDRS: [u64; 7] = [0x8000, 0xc000, 0x10000, 0x14000, 0x18000, 0x1c000, 0x20000];
     for (g, addr) in GROUP_SRAM_ADDRS.iter().enumerate() {
         // Extract one group tile into its workspace.
-        let mut group: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, 1, T]> =
-            unsafe { DmTensor::from_addr(*addr) };
+        let mut group: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, 1, T]> = DmTensor::new();
         qk_scores_buf
             .view()
             .tile::<m![G], 1, m![S % 8, 1, T]>(g)

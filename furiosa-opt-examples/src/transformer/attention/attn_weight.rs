@@ -37,15 +37,13 @@ pub(super) fn attn_weight(
         .commit();
 
     // Copy the first T half for matmul.
-    let mut k_half_0: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, K / 64], m![T % 16, K % 64]> =
-        unsafe { DmTensor::from_addr(0x1200) };
+    let mut k_half_0: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, K / 64], m![T % 16, K % 64]> = DmTensor::new();
     k_it.view()
         .tile::<m![T / 512], 2, m![T % 16, K % 64]>(0)
         .to_dm_view_pcopy(&mut ctx.sub, k_half_0.view_mut());
 
     // Copy the second T half for matmul.
-    let mut k_half_1: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, K / 64], m![T % 16, K % 64]> =
-        unsafe { DmTensor::from_addr(0x1a00) };
+    let mut k_half_1: DmTensor<bf16, Chip, Cluster, m![Y, T / 16 % 32, K / 64], m![T % 16, K % 64]> = DmTensor::new();
     k_it.view()
         .tile::<m![T / 512], 2, m![T % 16, K % 64]>(1)
         .to_dm_view_pcopy(&mut ctx.sub, k_half_1.view_mut());
@@ -154,8 +152,7 @@ pub(super) fn attn_weight(
         .commit::<m![S % 8, G, T % 512]>();
 
     // View both T-half score blocks as one concatenated tensor.
-    let qk_concat: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![T / 512, S % 8, G, T % 512]> =
-        unsafe { DmTensor::from_addr(0x8000) };
+    let qk_concat: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![T / 512, S % 8, G, T % 512]> = DmTensor::new();
 
     // Merge the two T chunks into a contiguous T axis.
     let qk_scores: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T]> = ctx

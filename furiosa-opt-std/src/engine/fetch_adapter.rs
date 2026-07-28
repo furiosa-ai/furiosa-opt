@@ -12,8 +12,8 @@
 //! earlier stage's tensor as input (mask can chain into table-lookup,
 //! table-lookup into cast, and so on).
 //!
-//! `fetch_cast` is fully implemented. `fetch_mask` and `fetch_table_lookup` are stubs whose
-//! `verify_*()` helpers `todo!()` at runtime.
+//! `fetch_cast` and `fetch_table_lookup` are implemented. `fetch_mask` is a stub whose
+//! `verify_fetch_mask()` helper `todo!()`s at runtime.
 
 use std::marker::PhantomData;
 
@@ -21,7 +21,7 @@ use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
 use crate::backend::Backend;
-use crate::cast::{FetchCast, FetchZeroPointSub};
+use crate::cast::{FetchCast, FetchZeroPointSub, TableLookup};
 use crate::constraints;
 use crate::context::*;
 use crate::engine::{CanApplyFetchCast, CanApplyFetchMask, CanApplyFetchTableLookup, CanApplyFetchZeroPointSub};
@@ -175,27 +175,44 @@ impl<'l, const T: Tu, P: CanApplyFetchMask, D: Scalar, Chip: M, Cluster: M, Slic
 // ANCHOR_END: fetch_mask_impl
 
 // ANCHOR: fetch_table_lookup_impl
+// Table lookup is a **main-context-only** hardware feature: only the main Fetch Unit's
+// `mode_indirect_table` can point at a resident lookup table, so this impl is fixed to
+// `{ Tu::Main }`. The sub-context Fetch Unit (used by the StoTrf weight-staging path) has no
+// table-lookup register, so decoding a packed weight must happen in a main-context fetch that
+// commits the decoded stream to DM, after which a plain convert-only StoTrf stages it into the TRF.
 impl<
     'l,
-    const T: Tu,
     P: CanApplyFetchTableLookup,
-    D: Scalar,
+    D: MaterializableScalar,
     Chip: M,
     Cluster: M,
     Slice: M,
     Time: M,
     Packet: M,
     B: Backend,
-> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
+> TuTensor<'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
-    /// Runs the Fetch Adapter's table-lookup stage.
+    /// Runs the Fetch Adapter's table-lookup stage (main context only).
+    ///
+    /// Each input value indexes a decode table selected by the input type `D`
+    /// (via the `TableLookup` trait), not by a runtime argument. The only decode is
+    /// `f4e2m1 -> f8e4m3`, the RNGD paired-key 4b->8b table for NVFP4 / MXFP4
+    /// weights. Chain a [`fetch_cast`](Self::fetch_cast) to widen `f8e4m3` to
+    /// `bf16`/`f32`; the per-block scale is not applied here, it is a separate
+    /// downstream VE multiply. See the book chapter
+    /// `computing-tensors/fetch-adapter.md` (the "Table Lookup" section).
+    ///
+    /// Only available on the main context: the lookup table lives in a main Fetch Unit register the
+    /// sub context lacks. To feed a decoded weight into a contraction, decode here and commit the
+    /// `f8e4m3` stream to DM, then stage that DM tensor into the TRF with a plain convert-only StoTrf.
     #[primitive(TuTensor::fetch_table_lookup)]
-    #[allow(unreachable_code)]
     pub fn fetch_table_lookup<OutD: Scalar>(
         self,
-    ) -> FetchTableLookupTensor<'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B> {
-        verify_fetch_table_lookup::<D, OutD, Time, Packet>();
-        FetchTableLookupTensor::new(self.ctx, todo!())
+    ) -> FetchTableLookupTensor<'l, { Tu::Main }, OutD, Chip, Cluster, Slice, Time, Packet, B>
+    where
+        D: TableLookup<OutD>,
+    {
+        FetchTableLookupTensor::new(self.ctx, self.inner.map(|v| v.lookup()))
     }
 }
 // ANCHOR_END: fetch_table_lookup_impl
@@ -309,7 +326,61 @@ fn verify_fetch_mask<Time: M, Packet: M, OutTime: M, OutPacket: M>() {
     todo!("fetch_mask is not yet implemented")
 }
 
-#[allow(clippy::extra_unused_type_parameters)]
-fn verify_fetch_table_lookup<D: Scalar, OutD: Scalar, Time: M, Packet: M>() {
-    todo!("fetch_table_lookup is not yet implemented")
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::Emulation;
+    use crate::cast::TableLookup;
+    use crate::scalar::{f4e2m1, f8e4m3};
+    use crate::tensor::Tensor;
+
+    axes![C = 16];
+
+    /// Spec ground truth: the 16 e2m1 codes in nibble order, as f32. Independent of
+    /// the fp8 table under test. Matches the hardware F4E2 -> F32 conversion table.
+    const E2M1_F32_ORACLE: [f32; 16] = [
+        0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0,
+    ];
+
+    /// Pins the per-element decode: all 16 e2m1 codes through the `f4e2m1 -> f8e4m3`
+    /// model match the spec. Bit-compares, not `f32 ==`, so the two zero codes are
+    /// pinned distinct: `0x0 -> +0.0`, `0x8 -> -0.0`.
+    #[test]
+    fn table_lookup_decodes_e2m1_to_f8e4m3_matching_spec() {
+        for code in 0..16u8 {
+            let decoded: f8e4m3 = TableLookup::lookup(f4e2m1::from_bits(code));
+            let expected = E2M1_F32_ORACLE[code as usize];
+            assert_eq!(
+                decoded.to_f32().to_bits(),
+                expected.to_bits(),
+                "e2m1 code {code:#x} decoded to {} (0x{:08x}), expected {expected} (0x{:08x})",
+                decoded.to_f32(),
+                decoded.to_f32().to_bits(),
+                expected.to_bits(),
+            );
+        }
+    }
+
+    /// Same decode at tensor granularity (the primitive body `input.map(|v| v.lookup())`),
+    /// bit-compared so the `-0.0` code is pinned here too.
+    #[test]
+    fn table_lookup_tensor_map_matches_spec() {
+        let keys: Vec<f4e2m1> = (0..16u8).map(f4e2m1::from_bits).collect();
+        let input = Tensor::<f4e2m1, m![C], Emulation>::from_vec(keys);
+        let decoded: Tensor<f8e4m3, m![C], Emulation> = input.map(|v| v.lookup());
+        let got: Vec<u32> = decoded.into_vec().into_iter().map(|v| v.to_f32().to_bits()).collect();
+        let want: Vec<u32> = E2M1_F32_ORACLE.iter().map(|v| v.to_bits()).collect();
+        assert_eq!(got, want);
+    }
+
+    /// Pins the value-based `PartialEq`: the `Zero` law `a.is_zero() == (a == zero())`
+    /// holds for `0x8` (-0.0), not just `0x0`. A raw-nibble derive would break it.
+    #[test]
+    fn e2m1_zero_law_holds_for_negative_zero() {
+        use num_traits::Zero;
+        let neg_zero = f4e2m1::from_bits(0x8);
+        assert!(neg_zero.is_zero());
+        assert_eq!(neg_zero, f4e2m1::zero());
+        assert_eq!(neg_zero.is_zero(), neg_zero == f4e2m1::zero());
+    }
 }

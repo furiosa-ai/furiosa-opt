@@ -120,10 +120,8 @@ fn reduce_over_chip(
         sliced3.view().dm_chip_shuffle::<4>(&mut ctx.tdma, &[3, 0, 1, 2]);
 
     // Step 5: Add T0 + T1 + T2 + T3 using two-stage binary addition
-    let mut sum01: DmTensor<i32, Chip, Cluster, m![A / 4], m![C / 8, C % 2, A % 4 # 8]> =
-        unsafe { DmTensor::from_addr(0) };
-    let mut sum012: DmTensor<i32, Chip, Cluster, m![A / 4], m![C / 8, C % 2, A % 4 # 8]> =
-        unsafe { DmTensor::from_addr(0) };
+    let mut sum01: DmTensor<i32, Chip, Cluster, m![A / 4], m![C / 8, C % 2, A % 4 # 8]> = DmTensor::new();
+    let mut sum012: DmTensor<i32, Chip, Cluster, m![A / 4], m![C / 8, C % 2, A % 4 # 8]> = DmTensor::new();
 
     // Add T0 + T1
     ctx.main
@@ -154,8 +152,7 @@ fn reduce_over_chip(
         .commit_view(sum012.view_mut());
 
     // Stage 2: Add ((T0 + T1) + T2) + T3 to get final result
-    let mut reduced: DmTensor<i8, Chip, Cluster, m![A / 4], m![C / 8, C % 2, A % 4 # 8]> =
-        unsafe { DmTensor::from_addr(0) };
+    let mut reduced: DmTensor<i8, Chip, Cluster, m![A / 4], m![C / 8, C % 2, A % 4 # 8]> = DmTensor::new();
 
     ctx.main
         .begin_interleaved::<I, _, _, _, _, _>(sum012.view(), shuffled3.view())

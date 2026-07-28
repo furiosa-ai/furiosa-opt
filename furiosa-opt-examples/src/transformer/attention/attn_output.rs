@@ -49,16 +49,14 @@ pub(super) fn attn_output(
         .commit();
 
     // Copy the first T half of V.
-    let mut v_half_0: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![K % 64, T % 8]> =
-        unsafe { DmTensor::from_addr(0x1a00) };
+    let mut v_half_0: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![K % 64, T % 8]> = DmTensor::new();
     v_transpose
         .view()
         .tile::<m![T / 512], 2, m![K % 64, T % 8]>(0)
         .to_dm_view_pcopy(&mut ctx.sub, v_half_0.view_mut());
 
     // Copy the second T half of V.
-    let mut v_half_1: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![K % 64, T % 8]> =
-        unsafe { DmTensor::from_addr(0x1200) };
+    let mut v_half_1: DmTensor<bf16, Chip, Cluster, m![Z, T / 8 % 64, K / 64], m![K % 64, T % 8]> = DmTensor::new();
     v_transpose
         .view()
         .tile::<m![T / 512], 2, m![K % 64, T % 8]>(1)
@@ -90,14 +88,12 @@ pub(super) fn attn_output(
         .collect::<m![S % 8, G, T / 16], m![T % 16]>()
         .commit_trim::<m![T % 16]>()
         .commit();
-    let mut scores_half_0: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T % 512]> =
-        unsafe { DmTensor::from_addr(0x28000) };
+    let mut scores_half_0: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T % 512]> = DmTensor::new();
     scores_reshaped
         .view()
         .tile::<m![T / 512], 2, m![S % 8, G, T % 512]>(0)
         .to_dm_view_pcopy(&mut ctx.sub, scores_half_0.view_mut());
-    let mut scores_half_1: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T % 512]> =
-        unsafe { DmTensor::from_addr(0x36000) };
+    let mut scores_half_1: DmTensor<bf16, Chip, Cluster, m![S / 8, N], m![S % 8, G, T % 512]> = DmTensor::new();
     scores_reshaped
         .view()
         .tile::<m![T / 512], 2, m![S % 8, G, T % 512]>(1)

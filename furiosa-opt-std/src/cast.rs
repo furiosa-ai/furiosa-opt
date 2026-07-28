@@ -1,11 +1,40 @@
 use std::ops::RangeInclusive;
 
-use crate::scalar::{bf16, f8e4m3, f8e5m2, i4, i5, i9};
+use crate::scalar::{bf16, f4e2m1, f8e4m3, f8e5m2, i4, i5, i9};
 
 use super::scalar::Scalar;
 
 /// Trait for types that can be cast during fetch operations.
 pub trait FetchCast<D: Scalar>: Into<D> + Cast<D> {}
+
+/// Input scalar types the Fetch Adapter's table-lookup stage can decode to `OutD`.
+///
+/// The RNGD table-lookup only supports a 4-bit key decoding to an 8-bit value
+/// (paired-key table, 4b->8b only), so the only implementor is
+/// `f4e2m1: TableLookup<f8e4m3>`. Wider floats and the per-block scale come from a
+/// downstream `fetch_cast`. Stating the table at the type level lets
+/// `fetch_table_lookup` take no
+/// runtime table argument. See the book chapter
+/// `computing-tensors/fetch-adapter.md` (the "Table Lookup" section).
+pub trait TableLookup<D: Scalar> {
+    /// Functional model of the hardware decode table.
+    fn lookup(self) -> D;
+}
+
+impl TableLookup<f8e4m3> for f4e2m1 {
+    fn lookup(self) -> f8e4m3 {
+        self.to_f8e4m3()
+    }
+}
+
+impl TableLookup<bf16> for f8e4m3 {
+    /// The non-paired `f8e4m3 -> bf16` baked decode table. `f8e4m3 -> f32` is exact and `f8e4m3` has
+    /// only 3 mantissa bits, so the low 16 bits of the `f32` are zero and the `bf16` truncation the
+    /// hardware table performs (`build_fp8_to_bf16_lookup_table`) equals `from_f32` exactly.
+    fn lookup(self) -> bf16 {
+        bf16::from_f32(self.to_f32())
+    }
+}
 
 // TODO: extend `FetchCast` with the remaining int/float widening and narrowing conversions
 // (including the Renegade-S-only variants).

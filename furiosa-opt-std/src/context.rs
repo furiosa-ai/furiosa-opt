@@ -141,7 +141,7 @@ impl<const T: Tu> TuContext<{ T }> {
         lhs: DmTensorView<'l, D, Chip, Cluster, Slice, Element>,
         rhs: DmTensorView<'l, D, Chip, Cluster, Slice, Element>,
     ) -> BeginTensor<'l, { T }, D, Chip, Cluster, Slice, Symbol<I>, Element> {
-        let mut output = Tensor::<D, m![{ Chip }, { Cluster }, { Slice }, { Symbol<I> }, { Element }]>::uninit();
+        let mut output = Tensor::<D, m![{ Chip }, { Cluster }, { Slice }, { Symbol<I> }, { Element }]>::zeroed();
 
         for (i, input) in [lhs, rhs].into_iter().enumerate() {
             output
@@ -177,7 +177,7 @@ impl TuContext<{ Tu::Sub }> {
         tensor: DmTensorView<'l, D, Chip, Cluster, Slice, Element>,
         slice_indices: &[usize; CLUSTER_DIM],
     ) -> super::tensor::memory::DmTensor<D, Chip, Cluster, Slice, Element2> {
-        let mut sliced = unsafe { DmTensor::from_addr(0) };
+        let mut sliced = DmTensor::new();
 
         for (cluster_idx, slice_idx) in slice_indices.iter().enumerate() {
             let cluster_slice = tensor.cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM>>(cluster_idx);
@@ -216,7 +216,7 @@ impl TuContext<{ Tu::Sub }> {
         tensor: DmTensorView<'l, D, Chip, Cluster, Slice, Element>,
         slice_indices: &[usize; CHIP_DIM],
     ) -> DmTensor<D, Chip, Cluster, Slice, Element2> {
-        let mut sliced = unsafe { DmTensor::from_addr(0) };
+        let mut sliced = DmTensor::new();
 
         for (chip_idx, slice_idx) in slice_indices.iter().enumerate() {
             let chip_slice = tensor.chip_tile::<Chip, 1, Padding<Identity, CHIP_DIM>>(chip_idx);

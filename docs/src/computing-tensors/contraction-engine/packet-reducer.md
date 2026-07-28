@@ -44,8 +44,8 @@ fn matmul<'l, const T: Tu>(
 
 ```text
 ReducePacket = Packet / 2^d        for 0 ≤ d ≤ log2(Packet::SIZE)
-OutPacket    = ReducePacket        if ReducePacket::SIZE ≤ 32
-               ReducePacket = 32   otherwise
+OutPacket    = ReducePacket, outermost padding removed
+               (size ≤ 32; when ReducePacket::SIZE > 32 only the innermost 32 survive)
 ```
 
 The Packet Reducer first runs an independent [reduction tree](https://en.wikipedia.org/wiki/Reduction_operator) per lane on its input Packet.
@@ -56,6 +56,10 @@ Given the user's `OutPacket`, the compiler derives the tree depth `d`, and the t
 The Packet Reducer then trims `ReducePacket` to `OutPacket`, whose size is capped at 32 elements because the downstream Time Reducer's per-lane accumulator only has 32 columns.
 When `ReducePacket::SIZE > 32`, the outer dummy is trimmed and only the innermost 32 elements survive.
 For example, `i4` arrives as a 128-element Packet, so `d ∈ {0, 1}` produce a 128- or 64-element `ReducePacket`, both trimmed to `OutPacket::SIZE = 32`.
+
+`ReducePacket` may also carry outermost padding (a padded packet axis), and the Packet Reducer keeps only the live columns, dropping that padding.
+For example, a `ReducePacket` of `[A # 16]` (`A` live, padded up to 16 columns) reduces to `OutPacket = [A]`.
+So `OutPacket` may be declared with the padding present (`[A # 16]`) or already removed (`[A]`); both name the same result.
 
 
 

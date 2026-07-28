@@ -626,7 +626,7 @@ pub(crate) fn create_inter_slice_reduce_tensor<
         ctx,
         data: VeTensorData {
             inner,
-            tag: Tensor::uninit(),
+            tag: Tensor::zeroed(),
             ve_state: VeState::new(),
             _stage: PhantomData,
             _filter_state: PhantomData,

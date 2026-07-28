@@ -63,9 +63,9 @@ pub trait Backend: Sized + 'static {
         Self::from_vec(mapping, (0..mapping.size()).map(|i| D::load(&buf, i)))
     }
 
-    /// An uninitialized storage of this layout, delegating to the concrete storage's inherent
+    /// A zeroed storage of this layout, delegating to the concrete storage's inherent
     /// constructor.
-    fn uninit<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D>;
+    fn zeroed<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D>;
 
     /// Serialize the storage to a flat `D` buffer in `mapping`-order (the physical / wire layout),
     /// consuming the storage, delegating to the concrete storage's inherent serializer.

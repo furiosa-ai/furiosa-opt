@@ -6,7 +6,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use furiosa_mapping::{Mapping, MappingExt};
+use furiosa_mapping::{Mapping, MappingExt, PaddingKind};
 
 use crate::DivideTerm;
 use crate::verify::{
@@ -53,27 +53,13 @@ pub enum ContractLaneError {
         /// The declared output packet.
         got: Mapping,
     },
-    /// `OutTime` could not be decomposed into `[Time, Packet (truncated)]` (Interleaved).
-    #[error(
-        "contract_lane ({mode}): OutTime mismatch. Could not decompose OutTime {out_time} into \
-         [Time, Packet (truncated)] where Time is {time} and Packet is a truncation of {packet}"
-    )]
-    OutTimeUndecomposable {
-        /// The fold mode.
-        mode: LaneMode,
-        /// The declared output time.
-        out_time: Mapping,
-        /// The (post-reduce) time.
-        time: Mapping,
-        /// The padding-stripped input packet.
-        packet: Mapping,
-    },
-    /// The inner portion of `OutTime` does not equal `[Lane, packet_outer]` (Sequential).
+    /// The inner portion of `OutTime` does not equal the folded axes (`[Packet]` Interleaved,
+    /// `[Lane, packet_outer]` Sequential).
     #[error("contract_lane ({mode}): OutTime mismatch. Expected {expected}, got {got}")]
     OutTimeMismatch {
         /// The fold mode.
         mode: LaneMode,
-        /// The expected inner portion `[Lane, packet_outer]`.
+        /// The expected inner portion.
         expected: Mapping,
         /// The actual inner portion of `OutTime`.
         got: Mapping,
@@ -100,15 +86,26 @@ pub enum ContractLaneError {
         /// The post-reduce time.
         time: Mapping,
     },
-    /// The axes inner to the reduce exceed the accumulator buffer.
-    #[error("contract_lane ({mode}): axes inner to reduce must be <= {limit} in size, got {buffer}")]
+    /// The `[Lane, Packet]` chunks for the inner-reduce positions overflow the accumulator.
+    #[error(
+        "contract_lane ({mode}): the [Lane, Packet] accumulator buffer overflows: \
+         padded Lane {padded_lane} * InnerTime {inner_time} * padded Packet {padded_packet} = {} \
+         exceeds the {limit}-cell accumulator",
+        padded_lane * inner_time * padded_packet
+    )]
     BufferExceeded {
         /// The fold mode.
         mode: LaneMode,
-        /// The buffer limit.
+        /// `Lane` cells per chunk: padded to the 8-wide output bus (Interleaved) or `Lane::SIZE` as-is
+        /// (Sequential).
+        padded_lane: usize,
+        /// Number of buffer slots: the axes inner to the outermost reduce (`InnerTime::SIZE`).
+        inner_time: usize,
+        /// `Packet` cells per chunk: `Packet::SIZE` as-is (Interleaved) or padded to the 32-column
+        /// accumulator (Sequential).
+        padded_packet: usize,
+        /// The accumulator cell capacity.
         limit: usize,
-        /// The actual buffer size.
-        buffer: usize,
     },
 }
 
@@ -133,51 +130,29 @@ pub fn config_contract_lane(
     }
 
     let lane_size = lane.size();
-    let packet = packet.clone().remove_padding();
 
-    let (outer_time, packet_outer_size) = if interleaved {
-        // `OutPacket = [Lane # 8]`.
+    let outer_time = if interleaved {
+        // `OutTime = [Time, Packet]`, `OutPacket = [Lane # 8]`.
         let expected_out_packet = lane
             .clone()
-            .replace_padding(CONTRACT_LANE_OUT_PACKET_ELEMENTS)
+            .padding(CONTRACT_LANE_OUT_PACKET_ELEMENTS, PaddingKind::Top)
             .normalize();
-        let out_packet_n = out_packet.normalize();
-        if out_packet_n != expected_out_packet {
+        if out_packet.normalize() != expected_out_packet {
             return Err(ContractLaneError::OutPacketMismatch {
                 mode,
                 expected: expected_out_packet,
-                got: out_packet_n,
+                got: out_packet.normalize(),
             });
         }
 
-        // `OutTime = [Time, Packet (may be sliced)]`; search for the `Packet / Time` boundary.
-        let packet_norm = packet.normalize();
-        let outer_time = (1..=out_time.size().min(packet.size()).min(TEMPORAL_ACCUMULATOR_COLS))
-            .filter(|&split| {
-                out_time.size().is_multiple_of(split)
-                    && (split > 1 || packet.size() == 1)
-                    && out_time.size() / split <= time.size()
-            })
-            .find_map(|split| {
-                let (outer_time, sliced_packet) = out_time.split_at(split);
-                (sliced_packet.normalize() == packet_norm).then_some(outer_time)
-            });
-        let Some(outer_time) = outer_time else {
-            return Err(ContractLaneError::OutTimeUndecomposable {
-                mode,
-                out_time: out_time.clone(),
-                time: time.clone(),
-                packet: packet.clone(),
-            });
-        };
-        (outer_time, 1)
+        split_inner_time(out_time, packet, mode)?
     } else {
         // `OutTime = [Time, Lane, packet_outer]`, `OutPacket = [packet_inner # 8]`.
-        let padded = packet
-            .clone()
-            .replace_padding(align_up(packet.size(), CONTRACT_LANE_OUT_PACKET_ELEMENTS));
+        let padded = packet.clone().padding(
+            align_up(packet.size(), CONTRACT_LANE_OUT_PACKET_ELEMENTS),
+            PaddingKind::Top,
+        );
         let (packet_outer, packet_inner) = padded.split_at(CONTRACT_LANE_OUT_PACKET_ELEMENTS);
-        let packet_outer_size = packet_outer.size();
 
         if packet_inner.normalize() != out_packet.normalize() {
             return Err(ContractLaneError::OutPacketMismatch {
@@ -187,16 +162,7 @@ pub fn config_contract_lane(
             });
         }
 
-        let lane_packet = lane.clone().pair(packet_outer);
-        let (outer_time, inner_time) = out_time.split_at(lane_packet.size());
-        if inner_time.normalize() != lane_packet.normalize() {
-            return Err(ContractLaneError::OutTimeMismatch {
-                mode,
-                expected: lane_packet,
-                got: inner_time,
-            });
-        }
-        (outer_time, packet_outer_size)
+        split_inner_time(out_time, &lane.clone().pair(packet_outer), mode)?
     };
 
     // The post-split outer portion of `OutTime` must equal `Time` exactly.
@@ -232,19 +198,43 @@ pub fn config_contract_lane(
             .map_or(1, |w| w[0].divisor_stride)
     };
 
-    let (buffer, limit) = if interleaved {
-        (
-            inner_time * packet.size(),
-            ACCUMULATOR_CAPACITY_ELEMENTS / CONTRACT_LANE_OUT_PACKET_ELEMENTS,
-        )
+    // Each `InnerTime` slot holds one `[Lane, Packet]` chunk; the `LaneMode` pads exactly one of the two
+    // axes to a fixed width (Interleaved pads `Lane` to the 8-wide output bus, Sequential pads `Packet`
+    // to the 32-column accumulator). The chunks for every inner-reduce position must fit the accumulator.
+    let (padded_lane, padded_packet) = if interleaved {
+        // Chunk = `[Lane # 8, Packet]`.
+        (align_up(lane_size, CONTRACT_LANE_OUT_PACKET_ELEMENTS), packet.size())
     } else {
-        (
-            inner_time * lane_size * packet_outer_size,
-            ACCUMULATOR_CAPACITY_ELEMENTS / TEMPORAL_ACCUMULATOR_COLS,
-        )
+        // Chunk = `[Lane, Packet # 32]`.
+        (lane_size, align_up(packet.size(), TEMPORAL_ACCUMULATOR_COLS))
     };
-    if buffer > limit {
-        return Err(ContractLaneError::BufferExceeded { mode, limit, buffer });
+    if padded_lane * inner_time * padded_packet > ACCUMULATOR_CAPACITY_ELEMENTS {
+        return Err(ContractLaneError::BufferExceeded {
+            mode,
+            padded_lane,
+            inner_time,
+            padded_packet,
+            limit: ACCUMULATOR_CAPACITY_ELEMENTS,
+        });
     }
     Ok(())
+}
+
+/// Splits `[outer, inner]` off `OutTime` and checks the inner portion equals the folded axes (`Packet`
+/// Interleaved, `[Lane, packet_outer]` Sequential). The inner size must divide `OutTime`; a size that
+/// does not divide it is a mismatch.
+fn split_inner_time(out_time: &Mapping, inner: &Mapping, mode: LaneMode) -> Result<Mapping, ContractLaneError> {
+    let mismatch = |got: Mapping| ContractLaneError::OutTimeMismatch {
+        mode,
+        expected: inner.clone(),
+        got,
+    };
+    if !out_time.size().is_multiple_of(inner.size()) {
+        return Err(mismatch(out_time.clone()));
+    }
+    let (outer_time, inner_time) = out_time.split_at(inner.size());
+    if inner_time.normalize() != inner.normalize() {
+        return Err(mismatch(inner_time));
+    }
+    Ok(outer_time)
 }

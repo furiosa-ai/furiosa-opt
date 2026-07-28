@@ -19,11 +19,11 @@ pub struct Typecheck;
 impl<D: Scalar, Mapping: M> Tensor<D, Mapping, Typecheck> {
     /// Phantom tensor for Typecheck: metadata only, no values.
     ///
-    /// `Tensor::uninit()` is the generic constructor but reads as element-level
-    /// "uninitialized"; for Typecheck the whole tensor *is* the empty value, so this name
+    /// `Tensor::zeroed()` is the generic constructor but reads as element-level
+    /// "zero-filled"; for Typecheck the whole tensor *is* the empty value, so this name
     /// matches the actual semantics.
     pub fn empty() -> Self {
-        Self::uninit()
+        Self::zeroed()
     }
 }
 
@@ -34,8 +34,8 @@ impl Backend for Typecheck {
         PhantomStorage::from_vec(mapping, data)
     }
 
-    fn uninit<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D> {
-        PhantomStorage::uninit(mapping)
+    fn zeroed<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D> {
+        PhantomStorage::zeroed(mapping)
     }
 
     fn into_vec<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &MappingValue) -> Vec<D> {

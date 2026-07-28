@@ -47,6 +47,13 @@ smart-default = "0.7.1"
 syn = { version = "2.0", features = ["full"] }
 thiserror = "2.0.17"
 tokio = { version = "1.29.1", features = ["full"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = [
+    "fmt",
+    "std",
+    "env-filter",
+    "json",
+] }
 
 [patch.crates-io]
 serde-lite = { git = "https://github.com/furiosa-ai/serde-lite", rev = "88136e4" }

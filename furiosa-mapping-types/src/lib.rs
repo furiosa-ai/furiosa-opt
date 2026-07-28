@@ -336,18 +336,6 @@ impl Mapping {
         }
     }
 
-    /// Removes existing padding and pads to `target` size.
-    pub fn replace_padding(self, target: usize) -> Self {
-        let unpadded = self.remove_padding();
-        let size = unpadded.size();
-        assert!(size <= target, "unpadded size {size} exceeds target {target}");
-        if size < target {
-            unpadded.padding(target, PaddingKind::Top)
-        } else {
-            unpadded
-        }
-    }
-
     /// Whether the mapping carries no live cell (only padding or identity).
     pub fn is_padding(&self) -> bool {
         !self.has_live()

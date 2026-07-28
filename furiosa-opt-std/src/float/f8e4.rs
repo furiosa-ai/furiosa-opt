@@ -11,7 +11,7 @@ pub(crate) fn f8_e4_to_f32(bits: u8) -> f32 {
     f32::from_bits(F8E4_TO_F32[bits as usize])
 }
 
-pub(crate) fn f8_e4_from_f32(v: f32) -> u8 {
+pub(crate) const fn f8_e4_from_f32(v: f32) -> u8 {
     if v.is_nan() {
         return 0x7f; // qNaN
     }
@@ -99,3 +99,32 @@ const F8E4_TO_F32: &[u32; 256] = &[
     0xc3000000, 0xc3100000, 0xc3200000, 0xc3300000, 0xc3400000, 0xc3500000, 0xc3600000, 0xc3700000,
     0xc3800000, 0xc3900000, 0xc3a00000, 0xc3b00000, 0xc3c00000, 0xc3d00000, 0xc3e00000, 0x7fc00000,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn f8_e4_from_f32_round_trips_full_range() {
+        for code in 0u8..=255 {
+            let value = f8_e4_to_f32(code);
+            if value.is_nan() {
+                continue;
+            }
+            assert_eq!(
+                f8_e4_from_f32(value),
+                code,
+                "round-trip failed for code 0x{code:02x} (value={value})"
+            );
+        }
+    }
+
+    #[test]
+    fn f8_e4_from_f32_evaluates_in_const_context() {
+        const ONE: u8 = f8_e4_from_f32(1.0);
+        const NEG_ONE: u8 = f8_e4_from_f32(-1.0);
+        assert_eq!(ONE, f8_e4_from_f32(1.0));
+        assert_eq!(NEG_ONE, f8_e4_from_f32(-1.0));
+        assert_eq!(ONE, F8E4_ONE);
+    }
+}

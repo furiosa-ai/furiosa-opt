@@ -12,6 +12,7 @@ mod buf;
 mod par_iters;
 mod phantom;
 
+pub(crate) use buf::Buf;
 pub use buf::BufStorage;
 pub use phantom::PhantomStorage;
 

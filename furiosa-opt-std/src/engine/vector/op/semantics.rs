@@ -187,7 +187,7 @@ impl HasConversionOp<f32, i32> for FpToFxp {
 
 impl IntraSliceReduceOpI32 {
     /// Returns the raw binary reduction function.
-    pub(crate) fn reduce_fn(&self) -> fn(i32, i32) -> i32 {
+    pub fn reduce_fn(&self) -> fn(i32, i32) -> i32 {
         match self {
             Self::AddSat => |a, b| a.saturating_add(b),
             Self::Max => |a, b| a.max(b),
@@ -207,7 +207,7 @@ impl IntraSliceReduceOpI32 {
 
 impl IntraSliceReduceOpF32 {
     /// Returns the raw binary reduction function.
-    pub(crate) fn reduce_fn(&self) -> fn(f32, f32) -> f32 {
+    pub fn reduce_fn(&self) -> fn(f32, f32) -> f32 {
         match self {
             Self::Add => |a, b| a + b,
             Self::Max => |a, b| a.max(b),

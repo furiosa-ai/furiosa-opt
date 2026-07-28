@@ -310,14 +310,13 @@ The masked return type is the same `(#{0} 2 + B) #{0} 96` as the previous case, 
 
 ## Table Lookup
 
-
 Table lookup provides hardware-accelerated lookup tables during the fetch stage.
 Each value is treated as an index into a pre-configured table, and the corresponding table entry is output instead.
 This is useful for operations that cannot be efficiently implemented with standard arithmetic, such as non-linear activation functions like Sigmoid and GeLU, or quantization schemes that use custom encoding tables.
 This enables:
 
 - **Non-linear activations**: Implements Sigmoid, GeLU, and other functions through pre-computed lookup tables.
-- **Custom type casting**: Translates specialized encodings like `MXFP4` to standard formats using conversion tables.
+- **Custom type casting**: Translates specialized encodings like `MXFP4` / `NVFP4` to standard formats using conversion tables.
 
 Sigmoid and GeLU can also be expressed directly in the [Vector Engine](./vector-engine/index.md), so table lookup is one option among several for these activations rather than the only path.
 
@@ -325,6 +324,13 @@ Sigmoid and GeLU can also be expressed directly in the [Vector Engine](./vector-
 {{#include ../../../furiosa-opt-std/src/engine/fetch_adapter.rs:fetch_table_lookup_impl}}
 ```
 
+The decode table is selected by the input scalar type (via the `TableLookup` trait), not by a runtime argument, exactly as `fetch_cast` selects its conversion by the input type.
+The hardware paired-key table for 4-bit keys supports only a 4-bit to 8-bit decode, so the sole implemented decode is `f4e2m1 -> f8e4m3`.
+Widen to `bf16` / `f32` with a following `fetch_cast`, and apply any NVFP4 / MXFP4 per-block scale downstream in the Vector Engine (it is intentionally not folded into the table, which stays a static 16-entry, block-independent decode).
+
+The table for the `f4e2m1` decode is a compile-time constant baked into the fetch-sequencer configuration, so the `f4e2m1` weight stream is the only data input to the stage; there is no per-invocation table staging. The 16-entry e2m1 decode is block-independent, which is why the per-block scale stays out of it: folding the scale in would need a distinct table per block and defeat the shared static table.
+
+The hardware sequencer walks byte-aligned keys (1 or 2 bytes), never a raw 4-bit nibble, and a 4-bit key must use a *paired* table. The `f4e2m1` decode therefore runs as a 256-entry byte-indexed table: each byte carries two nibbles and one lookup yields the pair of decoded `f8e4m3` values, decoding at two elements per key. The `f4e2m1` scalar is modelled accordingly as a byte holding two nibbles, with `BITS = 4` so the fetch mapping accounts elements rather than bytes.
 
 ```rust,ignore
 # #![feature(adt_const_params)]
@@ -332,14 +338,15 @@ Sigmoid and GeLU can also be expressed directly in the [Vector Engine](./vector-
 # use furiosa_opt_std::prelude::*;
 axes![A = 8];
 
-/// Fetches with table lookup: each input value indexes into a pre-configured table.
-/// Input [0, 1, 2, 3, 4, 5, 6, 7] with table[x] = 2*x
-/// Output [0, 2, 4, 6, 8, 10, 12, 14]
-fn fetch_with_table<'l, const T: Tu>(
-    input: BeginTensor<'l, T, i8, m![1], m![1], m![1], m![1], m![A]>,
-    table: &LookupTable<i8, i8>,
-) -> FetchTableLookupTensor<'l, T, i8, m![1], m![1], m![1], m![1], m![A]> {
-    input.fetch::<m![1], m![A]>().fetch_table_lookup::<i8>()
+/// Decodes an e2m1 (NVFP4 / MXFP4) weight stream to f8e4m3 via the hardware table,
+/// then widens to f32 with a following fetch_cast.
+fn fetch_decode_e2m1<'l, const T: Tu>(
+    input: BeginTensor<'l, T, f4e2m1, m![1], m![1], m![1], m![1], m![A]>,
+) -> FetchCastTensor<'l, T, f32, m![1], m![1], m![1], m![1], m![A]> {
+    input
+        .fetch::<m![1], m![A]>()
+        .fetch_table_lookup::<f8e4m3>()
+        .fetch_cast::<f32>()
 }
 ```
 

@@ -8,7 +8,7 @@ axes![Feat = 128, Quad = 4];
 type Chip = m![1];
 // `Feat`(128) * `Broadcast`(2) = 256, the slice count; the bare-`2` is the partition fill.
 type Slice = m![Feat, 2];
-type Cl = m![1];
+type Cl = m![2];
 
 /// Stages `[Feat, Quad]` onto a 128-wide `Slice` and writes the 256-slice DM back.
 #[device(chip = 1)]

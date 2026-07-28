@@ -227,11 +227,13 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
         );
     };
 
+    // Allocate one buffer per output, run, then rebuild the return value from the filled buffers.
     let run_body = match output {
         syn::ReturnType::Type(_, ty) => quote! {
-            let __furiosa_opt_out = __furiosa_opt_kernel.alloc(<#ty>::size());
-            __furiosa_opt_kernel.run(&__furiosa_opt_bufs, &[__furiosa_opt_out.clone()]).await;
-            __furiosa_opt_out.into()
+            let __furiosa_opt_outs =
+                <#ty as furiosa_opt_std::backend::npu::KernelOutput>::alloc_outputs(__furiosa_opt_kernel);
+            __furiosa_opt_kernel.run(&__furiosa_opt_bufs, &__furiosa_opt_outs).await;
+            <#ty as furiosa_opt_std::backend::npu::KernelOutput>::from_buffers(__furiosa_opt_outs)
         },
         syn::ReturnType::Default => quote! {
             __furiosa_opt_kernel.run(&__furiosa_opt_bufs, &[]).await;

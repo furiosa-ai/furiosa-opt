@@ -162,10 +162,12 @@ pub mod relayout {
 pub mod gather {
     use super::*;
 
-    type Cluster = m![1 # 2];
+    type Cluster = m![1];
     axes![K = 512, D = 128, C = 612];
 
-    #[device(chip = 1)]
+    // Runs at a 2-PE device (1 cluster x 128 slices), which matches the gather output's
+    // `Cluster = m![1]` x slice `m![D]` (D = 128).
+    #[device(chip = 1, pe = 2)]
     pub fn gather_at(
         ctx: &mut Context,
         table: &HbmTensor<bf16, Chip, m![K, D]>,

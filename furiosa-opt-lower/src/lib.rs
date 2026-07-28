@@ -14,7 +14,7 @@ use furiosa_mapping::{Mapping, PaddingKind};
 use abi_stable::std_types::RVec;
 pub use furiosa_opt_lower_types::{
     COMMIT_VALID_PACKET_SIZES, CommitError, DivideTerm, FactorLeaf, FetchError, MAX_SEQUENCER_ENTRIES, RelaxedDivision,
-    StreamSequencerConfig, SwitchConfig, TransposeConfig,
+    StreamSequencerConfig, SwitchAxis, SwitchConfig, SwitchError, SwitchFrame, TransposeConfig,
 };
 
 mod verify;
@@ -66,7 +66,15 @@ mod sys {
             in_time: &Mapping,
             out_slice: &Mapping,
             out_time: &Mapping,
-        ) -> RResult<SwitchConfig, RString>;
+        ) -> RResult<SwitchConfig, SwitchError>;
+
+        pub(super) fn switch_custom_snoop_bitmap(
+            slice: &Mapping,
+            time: &Mapping,
+            out_slice: &Mapping,
+            out_time: &Mapping,
+            ring_size: usize,
+        ) -> RResult<RVec<RVec<usize>>, SwitchError>;
 
         pub(super) fn config_tile(
             index: &Mapping,
@@ -137,17 +145,30 @@ impl FactorLeavesExt for Mapping {
     }
 }
 
-/// Validate a switch topology against the slice/time shapes, or the rendered error.
+/// Validate a switch topology against the slice/time shapes, or the [`SwitchError`].
 pub fn config_switch(
     config: &SwitchConfig,
     in_slice: &Mapping,
     in_time: &Mapping,
     out_slice: &Mapping,
     out_time: &Mapping,
-) -> Result<SwitchConfig, String> {
-    unsafe { sys::config_switch(config, in_slice, in_time, out_slice, out_time) }
+) -> Result<SwitchConfig, SwitchError> {
+    unsafe { sys::config_switch(config, in_slice, in_time, out_slice, out_time) }.into_result()
+}
+
+/// Verify a `CustomBroadcast` and return its snoop bitmap (`bitmap[out_slice]` = the input
+/// slice lanes that output slice reads), or the [`SwitchError`]. The verify and the bitmap
+/// share one Read sequencer, so the bitmap is only ever produced for a sound config.
+pub fn switch_custom_snoop_bitmap(
+    slice: &Mapping,
+    time: &Mapping,
+    out_slice: &Mapping,
+    out_time: &Mapping,
+    ring_size: usize,
+) -> Result<Vec<Vec<usize>>, SwitchError> {
+    unsafe { sys::switch_custom_snoop_bitmap(slice, time, out_slice, out_time, ring_size) }
         .into_result()
-        .map_err(String::from)
+        .map(|bitmap| bitmap.into_iter().map(Vec::from).collect())
 }
 
 /// Validate a `tile` view (`index` divides `element` into `expected`), or the rendered error.

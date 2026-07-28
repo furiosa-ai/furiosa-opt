@@ -1,7 +1,7 @@
 use furiosa_mapping::{M, Pair};
 
-use super::Buffer;
 use super::ffi::{furiosa_npu_buffer_from, furiosa_npu_buffer_offset, rt};
+use super::{Buffer, Kernel};
 use crate::scalar::Scalar;
 use crate::tensor::memory::{HbmTensor, HbmTensorView, HbmTensorViewMut};
 
@@ -34,6 +34,73 @@ impl<D: Scalar, Chip: M, Element: M> From<Buffer> for HbmTensor<D, Chip, Element
         unsafe { Self::from_addr(addr) }.owns(buf)
     }
 }
+
+/// Reconstructs a kernel's return value from its device output buffers, the output-side mirror of
+/// [`ExtendBuffers`]: `alloc_outputs` allocates one buffer per output, then (after the kernel fills
+/// them) `from_buffers` rebuilds the value in the same order. Implemented for a single [`HbmTensor`]
+/// and for tuples (output order = tuple order).
+pub trait KernelOutput: Sized {
+    /// Number of leaf output buffers this value owns.
+    fn output_count() -> usize;
+    /// Allocates this value's output buffers on `kernel`, appending them to `out` in output order.
+    fn alloc_outputs_into(kernel: &Kernel, out: &mut Vec<Buffer>);
+    /// Rebuilds the value by taking its buffers off the front of `buffers`, in output order.
+    fn take_from(buffers: &mut impl Iterator<Item = Buffer>) -> Self;
+
+    /// Allocates all output buffers into one `Vec` (the slice `Kernel::run` writes into).
+    fn alloc_outputs(kernel: &Kernel) -> Vec<Buffer> {
+        let mut out = Vec::with_capacity(Self::output_count());
+        Self::alloc_outputs_into(kernel, &mut out);
+        out
+    }
+    /// Rebuilds the value from exactly its filled output buffers, erroring on a miscount.
+    fn from_buffers(buffers: Vec<Buffer>) -> Self {
+        assert_eq!(
+            buffers.len(),
+            Self::output_count(),
+            "expected {} output buffers, got {}",
+            Self::output_count(),
+            buffers.len(),
+        );
+        Self::take_from(&mut buffers.into_iter())
+    }
+}
+
+impl<D: Scalar, Chip: M, Element: M> KernelOutput for HbmTensor<D, Chip, Element> {
+    fn output_count() -> usize {
+        1
+    }
+    fn alloc_outputs_into(kernel: &Kernel, out: &mut Vec<Buffer>) {
+        out.push(kernel.alloc(Self::size()));
+    }
+    fn take_from(buffers: &mut impl Iterator<Item = Buffer>) -> Self {
+        buffers.next().expect("HbmTensor output is missing its buffer").into()
+    }
+}
+
+macro_rules! impl_kernel_output_tuple {
+    () => {};
+    ($T0:ident $(, $T:ident)*) => {
+        impl<$T0: KernelOutput $(, $T: KernelOutput)*> KernelOutput for ($T0, $($T,)*) {
+            fn output_count() -> usize {
+                $T0::output_count() $(+ $T::output_count())*
+            }
+            fn alloc_outputs_into(kernel: &Kernel, out: &mut Vec<Buffer>) {
+                $T0::alloc_outputs_into(kernel, out);
+                $( $T::alloc_outputs_into(kernel, out); )*
+            }
+            fn take_from(buffers: &mut impl Iterator<Item = Buffer>) -> Self {
+                // Tuple fields evaluate left to right, so each output takes its buffers in order.
+                ($T0::take_from(buffers), $($T::take_from(buffers),)*)
+            }
+        }
+        impl_kernel_output_tuple!($($T),*);
+    };
+}
+
+impl_kernel_output_tuple!(
+    T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22, T23
+);
 
 /// `Extend`-shaped trait for `Vec<Buffer>`, narrowed to this crate's needs.
 ///

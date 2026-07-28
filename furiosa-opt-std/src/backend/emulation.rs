@@ -17,7 +17,7 @@ use crate::backend::Backend;
 pub struct Emulation;
 
 impl Backend for Emulation {
-    type Storage<D: Scalar> = BufStorage<D>;
+    type Storage<D: Scalar> = BufStorage<D, Vec<u8>>;
 
     fn from_vec<D: Scalar>(_mapping: &MappingValue, data: impl IntoIterator<Item = D>) -> Self::Storage<D> {
         BufStorage::from_vec(data)
@@ -27,10 +27,8 @@ impl Backend for Emulation {
         BufStorage::from_buf(buf)
     }
 
-    fn uninit<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D> {
-        // BUF has no Opt::Uninit; the blank canvas is just zeros (overwritten by the relayout that
-        // allocates it; padding cells are don't-care).
-        BufStorage::from_vec(std::iter::repeat_n(D::zero(), mapping.size()))
+    fn zeroed<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D> {
+        BufStorage::zeroed(mapping.size())
     }
 
     fn into_vec<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &MappingValue) -> Vec<D> {
