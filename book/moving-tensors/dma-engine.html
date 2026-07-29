@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-760cc3da.js";
+            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-65a723fd.js"></script>
@@ -243,7 +243,11 @@ The kernel writer calls <code>.to_dm()</code>, <code>.to_hbm()</code>, or relate
     pub unsafe fn reshape&lt;Chip2: M, Element2: M&gt;(self) -&gt; HbmTensor&lt;D, Chip2, Element2, B&gt; {
         constraints::assert_hbm_reshape_dimension_preserved::&lt;Chip, Chip2, Element, Element2&gt;();
         let reshaped = unsafe { self.inner.reshape::&lt;m![{ Chip2 }, { Element2 }]&gt;() };
-        HbmTensor::new(reshaped, self.address)
+        HbmTensor {
+            inner: reshaped,
+            address: self.address,
+            owner: self.owner,
+        }
     }
 }</code></pre>
 <p>The compiler derives the read and write sequencer configurations from the source and destination tensor types.

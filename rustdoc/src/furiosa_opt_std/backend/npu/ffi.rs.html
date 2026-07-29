@@ -122,30 +122,55 @@
 <a href=#122 id=122 data-nosnippet>122</a>    .<span class="number">0
 <a href=#123 id=123 data-nosnippet>123</a></span>}
 <a href=#124 id=124 data-nosnippet>124</a>
-<a href=#125 id=125 data-nosnippet>125</a><span class="doccomment">/// Chip ids the host exposes, read from the `/dev/rngd/npu&lt;N&gt;mgmt` device nodes.
-<a href=#126 id=126 data-nosnippet>126</a></span><span class="kw">fn </span>available_chips() -&gt; Vec&lt;u8&gt; {
-<a href=#127 id=127 data-nosnippet>127</a>    <span class="kw">let </span><span class="kw-2">mut </span>chips: Vec&lt;u8&gt; = std::fs::read_dir(<span class="string">"/dev/rngd"</span>)
-<a href=#128 id=128 data-nosnippet>128</a>        .into_iter()
-<a href=#129 id=129 data-nosnippet>129</a>        .flatten()
+<a href=#125 id=125 data-nosnippet>125</a><span class="doccomment">/// Chip ids the host exposes, read from the `/dev/rngd/npu&lt;N&gt;mgmt` device nodes, narrowed to
+<a href=#126 id=126 data-nosnippet>126</a>/// [`visible_chips`] when it is set.
+<a href=#127 id=127 data-nosnippet>127</a></span><span class="kw">fn </span>available_chips() -&gt; Vec&lt;u8&gt; {
+<a href=#128 id=128 data-nosnippet>128</a>    <span class="kw">let </span><span class="kw-2">mut </span>chips: Vec&lt;u8&gt; = std::fs::read_dir(<span class="string">"/dev/rngd"</span>)
+<a href=#129 id=129 data-nosnippet>129</a>        .into_iter()
 <a href=#130 id=130 data-nosnippet>130</a>        .flatten()
-<a href=#131 id=131 data-nosnippet>131</a>        .filter_map(|entry| {
-<a href=#132 id=132 data-nosnippet>132</a>            <span class="kw">let </span>name = entry.file_name();
-<a href=#133 id=133 data-nosnippet>133</a>            name.to_str()<span class="question-mark">?</span>.strip_prefix(<span class="string">"npu"</span>)<span class="question-mark">?</span>.strip_suffix(<span class="string">"mgmt"</span>)<span class="question-mark">?</span>.parse().ok()
-<a href=#134 id=134 data-nosnippet>134</a>        })
-<a href=#135 id=135 data-nosnippet>135</a>        .collect();
-<a href=#136 id=136 data-nosnippet>136</a>    chips.sort_unstable();
-<a href=#137 id=137 data-nosnippet>137</a>    chips
-<a href=#138 id=138 data-nosnippet>138</a>}
-<a href=#139 id=139 data-nosnippet>139</a>
-<a href=#140 id=140 data-nosnippet>140</a><span class="kw">static </span>DEVICE: OnceLock&lt;Device&gt; = OnceLock::new();
-<a href=#141 id=141 data-nosnippet>141</a>
-<a href=#142 id=142 data-nosnippet>142</a><span class="doccomment">/// Binds the `#[device(chip, pe)]` the process runs on, via `Context::acquire().bind(..)`.
-<a href=#143 id=143 data-nosnippet>143</a>/// First bind wins; a conflicting one panics.
-<a href=#144 id=144 data-nosnippet>144</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>bind_device(device: Device) {
-<a href=#145 id=145 data-nosnippet>145</a>    <span class="kw">let </span>cur = <span class="kw-2">*</span>DEVICE.get_or_init(|| device);
-<a href=#146 id=146 data-nosnippet>146</a>    <span class="macro">assert_eq!</span>(
-<a href=#147 id=147 data-nosnippet>147</a>        cur, device,
-<a href=#148 id=148 data-nosnippet>148</a>        <span class="string">"conflicting NPU device in one process: {cur:?} vs {device:?}"
-<a href=#149 id=149 data-nosnippet>149</a>    </span>);
-<a href=#150 id=150 data-nosnippet>150</a>}
+<a href=#131 id=131 data-nosnippet>131</a>        .flatten()
+<a href=#132 id=132 data-nosnippet>132</a>        .filter_map(|entry| {
+<a href=#133 id=133 data-nosnippet>133</a>            <span class="kw">let </span>name = entry.file_name();
+<a href=#134 id=134 data-nosnippet>134</a>            name.to_str()<span class="question-mark">?</span>.strip_prefix(<span class="string">"npu"</span>)<span class="question-mark">?</span>.strip_suffix(<span class="string">"mgmt"</span>)<span class="question-mark">?</span>.parse().ok()
+<a href=#135 id=135 data-nosnippet>135</a>        })
+<a href=#136 id=136 data-nosnippet>136</a>        .collect();
+<a href=#137 id=137 data-nosnippet>137</a>    chips.sort_unstable();
+<a href=#138 id=138 data-nosnippet>138</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(visible) = visible_chips() {
+<a href=#139 id=139 data-nosnippet>139</a>        chips.retain(|chip| visible.contains(chip));
+<a href=#140 id=140 data-nosnippet>140</a>    }
+<a href=#141 id=141 data-nosnippet>141</a>    chips
+<a href=#142 id=142 data-nosnippet>142</a>}
+<a href=#143 id=143 data-nosnippet>143</a>
+<a href=#144 id=144 data-nosnippet>144</a><span class="doccomment">/// Chip ids `FURIOSA_VISIBLE_DEVICES` (comma-separated) restricts acquisition to; `None` when unset.
+<a href=#145 id=145 data-nosnippet>145</a>///
+<a href=#146 id=146 data-nosnippet>146</a>/// Acquisition skips busy chips but cannot reserve one, so processes starting together race for the
+<a href=#147 id=147 data-nosnippet>147</a>/// same free chip. Listing disjoint chips pins them apart.
+<a href=#148 id=148 data-nosnippet>148</a></span><span class="kw">fn </span>visible_chips() -&gt; <span class="prelude-ty">Option</span>&lt;Vec&lt;u8&gt;&gt; {
+<a href=#149 id=149 data-nosnippet>149</a>    <span class="kw">let </span>spec = std::env::var(<span class="string">"FURIOSA_VISIBLE_DEVICES"</span>).ok()<span class="question-mark">?</span>;
+<a href=#150 id=150 data-nosnippet>150</a>    <span class="kw">let </span>spec = spec.trim();
+<a href=#151 id=151 data-nosnippet>151</a>    <span class="kw">if </span>spec.is_empty() {
+<a href=#152 id=152 data-nosnippet>152</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#153 id=153 data-nosnippet>153</a>    }
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="prelude-val">Some</span>(
+<a href=#155 id=155 data-nosnippet>155</a>        spec.split(<span class="string">','</span>)
+<a href=#156 id=156 data-nosnippet>156</a>            .map(|id| {
+<a href=#157 id=157 data-nosnippet>157</a>                id.trim()
+<a href=#158 id=158 data-nosnippet>158</a>                    .parse()
+<a href=#159 id=159 data-nosnippet>159</a>                    .unwrap_or_else(|<span class="kw">_</span>| <span class="macro">panic!</span>(<span class="string">"FURIOSA_VISIBLE_DEVICES: `{id}` is not a chip index (0-255)"</span>))
+<a href=#160 id=160 data-nosnippet>160</a>            })
+<a href=#161 id=161 data-nosnippet>161</a>            .collect(),
+<a href=#162 id=162 data-nosnippet>162</a>    )
+<a href=#163 id=163 data-nosnippet>163</a>}
+<a href=#164 id=164 data-nosnippet>164</a>
+<a href=#165 id=165 data-nosnippet>165</a><span class="kw">static </span>DEVICE: OnceLock&lt;Device&gt; = OnceLock::new();
+<a href=#166 id=166 data-nosnippet>166</a>
+<a href=#167 id=167 data-nosnippet>167</a><span class="doccomment">/// Binds the `#[device(chip, pe)]` the process runs on, via `Context::acquire().bind(..)`.
+<a href=#168 id=168 data-nosnippet>168</a>/// First bind wins; a conflicting one panics.
+<a href=#169 id=169 data-nosnippet>169</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>bind_device(device: Device) {
+<a href=#170 id=170 data-nosnippet>170</a>    <span class="kw">let </span>cur = <span class="kw-2">*</span>DEVICE.get_or_init(|| device);
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="macro">assert_eq!</span>(
+<a href=#172 id=172 data-nosnippet>172</a>        cur, device,
+<a href=#173 id=173 data-nosnippet>173</a>        <span class="string">"conflicting NPU device in one process: {cur:?} vs {device:?}"
+<a href=#174 id=174 data-nosnippet>174</a>    </span>);
+<a href=#175 id=175 data-nosnippet>175</a>}
 </code></pre></div></section></main></body></html>
