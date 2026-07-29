@@ -122,7 +122,8 @@ pub(crate) fn rt() -> *mut Runtime {
     .0
 }
 
-/// Chip ids the host exposes, read from the `/dev/rngd/npu<N>mgmt` device nodes.
+/// Chip ids the host exposes, read from the `/dev/rngd/npu<N>mgmt` device nodes, narrowed to
+/// [`visible_chips`] when it is set.
 fn available_chips() -> Vec<u8> {
     let mut chips: Vec<u8> = std::fs::read_dir("/dev/rngd")
         .into_iter()
@@ -134,7 +135,31 @@ fn available_chips() -> Vec<u8> {
         })
         .collect();
     chips.sort_unstable();
+    if let Some(visible) = visible_chips() {
+        chips.retain(|chip| visible.contains(chip));
+    }
     chips
+}
+
+/// Chip ids `FURIOSA_VISIBLE_DEVICES` (comma-separated) restricts acquisition to; `None` when unset.
+///
+/// Acquisition skips busy chips but cannot reserve one, so processes starting together race for the
+/// same free chip. Listing disjoint chips pins them apart.
+fn visible_chips() -> Option<Vec<u8>> {
+    let spec = std::env::var("FURIOSA_VISIBLE_DEVICES").ok()?;
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return None;
+    }
+    Some(
+        spec.split(',')
+            .map(|id| {
+                id.trim()
+                    .parse()
+                    .unwrap_or_else(|_| panic!("FURIOSA_VISIBLE_DEVICES: `{id}` is not a chip index (0-255)"))
+            })
+            .collect(),
+    )
 }
 
 static DEVICE: OnceLock<Device> = OnceLock::new();

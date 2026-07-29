@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [v0.5.1]
+
+### Changed
+
+- `compile` names the filter that excluded the kernels it skipped, and says nothing when none was given.
+
+### Fixed
+
+- `cargo-furiosa-opt --version` reported the compiler crate's own version instead of the release it shipped in.
+
 ## [v0.5.0]
 
 ### Changed
@@ -19,10 +29,14 @@ Breaking changes come first, each with what to write instead.
 - A dense contraction no longer materializes the broadcast of its operands, which dominated wide-output GEMM on the host. Output is byte for byte what it was.
 - Host to HBM and HBM to host transfers on the NPU backend go through the DMA heap without a staging copy.
 - A binary built for `backend="npu"` carries its compiled kernels, so it runs on a machine that has no compiler installed.
+- The vendored device runtime moves to a revision whose `furiosa_kernel_run` and `furiosa_profiled_run` take the runtime by mutable pointer.
+- A vISA scalar constant carries its domain, integer or float, instead of one shared representation.
+- `tracing-subscriber` is taken with the `fmt`, `std`, `env-filter` and `json` features.
+- `x86_64-unknown-linux-gnu` is the only host the published artifacts cover; the README says so and points macOS at a container.
 
 ### Added
 - A kernel can return several HBM tensors as a tuple, in the order it returns them.
-- Profiling a run on the device. Install a `tracing` subscriber on the `span::npu` target and each launch reports its spans with their cycle windows. `furiosa-opt-examples` has a minimal example.
+- Profiling a run on the device. Install a `tracing` subscriber on the `span::npu` target and each launch reports its spans with their cycle windows. Recording is off until `TUC_PROFILE_LEVEL` names `info` or higher, so a subscriber alone sees nothing. `furiosa-opt-examples` has a minimal example.
 - Gathering and scattering DRAM rows through an index tensor: `dma_gather_scaled`, `dma_gather_unscaled`, and `dma_scatter`, with the `dma_tails` mapping primitive to describe the burst packet's tail axis.
 - Filling a DM tensor view with a typed constant: `memset(value)`.
 - Baked table lookup as a fetch adapter, `fetch_table_lookup`, covering paired nibbles and a non-paired `f8e4m3` to `bf16` table, plus `fetch_zero_point_sub` for zero-point subtraction on fetch.
@@ -31,6 +45,8 @@ Breaking changes come first, each with what to write instead.
 - Engine configurations report what is wrong before a run rather than producing a bad result. `furiosa-opt-lower` publishes the verifications, and the switch engine checks a named `SwitchConfig` and its custom-broadcast snoop bitmap through a structured `SwitchError`.
 - The `emulation` backend runs clip, float, floating-point divide, and local reduce vector nodes, which it used to reject.
 - The book has an appendix on the `cargo furiosa-opt` CLI.
+- A runtime `if` over a non-unrolled loop index, branching on any comparison of runtime scalars. The statement form, where each arm writes its own output, compiles through to EDF; a value `if` that merges a tensor lowers through vISA and runs under `emulation`, but the scheduler cannot lower the merge yet, so it stops at the vISA stage. `furiosa-opt-examples` covers both shapes.
+- A kernel per supported chip and PE topology, so a device config wired wrong shows up as a layout mismatch rather than a bad result.
 
 ### Removed
 - The `simulation` backend and its `MathStorage` interpreter. `emulation` replaces it and is what a plain `cargo build` or `cargo test` now uses.
@@ -42,6 +58,10 @@ Breaking changes come first, each with what to write instead.
 - A valid Time Reducer fold with a `Sequential` accumulator was rejected for exceeding the accumulator buffer; the bound now counts only the axis each mode pads, and the error spells out the product it checked.
 - A device call the compiler could not translate, a generic `#[device]` entrypoint, and a scalar cast it could not evaluate each surfaced as an internal compiler error; they now report what is wrong.
 - A process could not start while chip 0 was busy, even with every other chip idle; it now takes the first free NPU among the chips the host exposes.
+- An indirect DMA rejected a multidimensional `validlen`.
+- A DSL tactic context was not materialized on a single-chip device.
+- The scheduler allocated provenance tensors statically, spending memory nothing read.
+- A scalar DRAM to SRAM bias transfer is staged as an aligned single-cell tail, which the DMA engine accepts.
 
 ## [v0.4.0]
 

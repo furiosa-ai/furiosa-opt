@@ -45,11 +45,18 @@ pub trait MappingExt: Sized {
     /// Normalizes to canonical form.
     fn normalize(&self) -> Self;
     /// The DMA burst tails for copying source `self` into destination `dst`, as
-    /// `(src_packet, dst_packet, valid)`: each side's own contiguous packet (its innermost padded
-    /// segment for the shared axis, padding included) plus the shared live size. Each side peels its own
-    /// packet, so the two may differ (a padded source vs a dense sink); `valid` is the largest run both
-    /// cover with live cells, no trailing padding, which a DRAM sink pins its tail to. `(1, 1, 1)` for a
-    /// transpose.
+    /// `(src_packet, dst_packet, common)`.
+    ///
+    /// `common` is the innermost volume both sides read the same way, which is the volume either side
+    /// can SEQUENCE. Nothing is subtracted from it: padding the two sides share is part of the addressing
+    /// they share, so it is transferred like any other cell. Only a `Bottom` write hole or a `Zero` that
+    /// must read as zero caps it, since no burst may cross one. A DRAM sink pins its tail to it.
+    ///
+    /// Each packet grows `common` through THAT side's own trailing `Top` padding, so the two may differ (a
+    /// padded source against a dense sink) and are reconciled by the tail alignment rather than by a
+    /// shared peel size. A packet need not divide its buffer; the caller that peels one checks.
+    ///
+    /// `(1, 1, 1)` when the two share nothing but the origin cell, a transpose being the plain case.
     fn dma_tails(&self, dst: &Self) -> (usize, usize, usize);
     /// Returns true if `self` is a resize (innermost prefix) of `original`.
     fn is_resize_of(&self, original: &Self) -> bool;
@@ -113,8 +120,8 @@ impl MappingExt for Mapping {
     }
 
     fn dma_tails(&self, dst: &Self) -> (usize, usize, usize) {
-        let Tuple3(src_packet, dst_packet, valid) = unsafe { sys::mapping_dma_tails(self, dst) };
-        (src_packet, dst_packet, valid)
+        let Tuple3(src_packet, dst_packet, common) = unsafe { sys::mapping_dma_tails(self, dst) };
+        (src_packet, dst_packet, common)
     }
 
     fn is_resize_of(&self, original: &Self) -> bool {
