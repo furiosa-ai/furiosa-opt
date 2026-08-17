@@ -63,8 +63,6 @@ flowchart TB
 
 The Outer stage caps `Lane ≤ 8` and `Packet ≤ 64 B` (on RNGD); see [Packet Reducer](./packet-reducer.md) and [Time Reducer](./time-reducer.md) for more details.
 
-For an end-to-end latency budget that stacks all four stages plus the Inter-Slice Reducer (e.g., 65,536 → 1 scalar in ~296 cycles), see [Case Study: Chip/Cluster Reduction](../../kernel-examples/chip-cluster-reduce.md).
-
 ## Example: Batched MatMul
 
 [Quick Start](../../quick-start.md) walks through dot product, GEMV, and GEMM.

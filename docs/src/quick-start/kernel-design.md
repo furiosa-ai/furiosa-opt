@@ -75,7 +75,7 @@ Mapping operators describe where an axis goes.
 `%` introduces a new inner term: in `m![B / 2048, B % 2048]` the first term counts the 2048-element blocks of `B` and the second counts the positions inside one block.
 `=` leaves the terms alone and shrinks the extent the view reads, so `m![B / 2048 = 1 # 2]` selects one of the two blocks, where `# 2` keeps the stride of the full axis rather than of the selection.
 A tiled kernel uses them together, as in `m![B / 2048 = 1 # 2, B % 2048]`, which picks one block and covers every position within it.
-See [Tiling](../mapping-tensors/mapping-expressions.md#tiling) for the general rule and [Case Study: Tensor Unit I/O](../moving-tensors/tensor-unit-io.md#capacity-bounded-segmentation) for that mapping in a runnable kernel.
+See [Tiling](../mapping-tensors/mapping-expressions.md#tiling) for the general rule.
 
 Tensor Unit tensors also use `Time` for pipeline iterations and `Packet` for elements within an iteration.
 The Tensor Unit pipeline is Fetch → Switch → Collect → Contraction → Vector → Cast → Transpose → Commit.
