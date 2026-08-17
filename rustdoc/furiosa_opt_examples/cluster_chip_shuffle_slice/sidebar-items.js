@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["chip_shuffle","chip_slice","cluster_shuffle","cluster_slice"],"struct":["A","B","__furiosa_opt_chip_shuffle","__furiosa_opt_chip_slice","__furiosa_opt_cluster_shuffle","__furiosa_opt_cluster_slice"]};

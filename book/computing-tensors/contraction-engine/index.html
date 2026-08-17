@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,10 +181,10 @@
 Recall from <a href="../../quick-start.html">Quick Start</a>:</p>
 <ul>
 <li>A tensor contraction takes two input tensors and reduces along their shared (contracted) axes.
-Dot product, GEMV, and GEMM are the canonical examples.</li>
+Dot product, GEMV, and GEMM are the standard examples.</li>
 <li>A contraction decomposes into three steps: Broadcast, Multiply, Reduce.</li>
 <li>One operand streams from the <a href="../collect-engine.html">Collect Engine</a>, and the other sits in the TRF (Tensor Register File).</li>
-<li>Contraction runs in the <a href="../../scheduling.html">main context</a>.
+<li>Contraction runs in the <a href="../../scheduling/schedule.html#execution-contexts">main context</a>.
 TRF preparation runs in the sub context via <code>.to_trf()</code>.</li>
 </ul>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
@@ -227,7 +227,9 @@ flowchart TB
 
 <ul>
 <li><strong><a href="./outer.html">Outer</a></strong> <em>(Broadcast and Multiply)</em>: broadcasts the two operands to a matching shape <code>[Chip, Cluster, Slice, Lane, Time, Packet]</code> and multiplies them elementwise into a single product tensor.
-<code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through. <code>Lane</code> indexes the spatial parallelism shared by the TRF and downstream reducers. <code>Time</code> and <code>Packet</code> together represent <a href="../../mapping-tensors/spatial-temporal-dimensions.html">packet streams</a>.
+<code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through.
+<code>Lane</code> indexes the spatial parallelism shared by the TRF and downstream reducers.
+<code>Time</code> and <code>Packet</code> together represent <a href="../../mapping-tensors/spatial-temporal-dimensions.html">packet streams</a>.
 Three sub-stages run in series: the Stream Adapter broadcasts the streaming operand, the TRF Sequencer broadcasts the TRF operand, and the Multiplier widens to the contraction output type (<code>i4</code>/<code>i8</code> -&gt; <code>i32</code>, <code>f8</code>/<code>bf16</code> -&gt; <code>f32</code>) and multiplies them elementwise.</li>
 <li><strong><a href="./packet-reducer.html">Packet Reducer</a></strong> <em>(Reduce within <code>Packet</code>)</em>: reduces along contracted axes mapped to <code>Packet</code> via a parallel tree, one tree per lane.</li>
 <li><strong><a href="./time-reducer.html">Time Reducer</a></strong> <em>(Reduce across <code>Time</code>)</em>: accumulates per-cycle results in the shared accumulator.</li>
@@ -235,9 +237,9 @@ Three sub-stages run in series: the Stream Adapter broadcasts the streaming oper
 For reductions across slices or chips, the <a href="../vector-engine/index.html">Vector Engine</a> handles the reduction downstream.</li>
 </ul>
 <p>The Outer stage caps <code>Lane ≤ 8</code> and <code>Packet ≤ 64 B</code> (on RNGD); see <a href="./packet-reducer.html">Packet Reducer</a> and <a href="./time-reducer.html">Time Reducer</a> for more details.</p>
-<p>For an end-to-end latency budget that stacks all four stages plus the Inter-Slice Reducer (e.g., 65,536 → 1 scalar in ~296 cycles), see <a href="../../kernel-examples/chip-cluster-reduce.html">Kernel Examples: Chip/Cluster Reduce</a>.</p>
 <h2 id="example-batched-matmul"><a class="header" href="#example-batched-matmul">Example: Batched MatMul</a></h2>
 <p><a href="../../quick-start.html">Quick Start</a> walks through dot product, GEMV, and GEMM.
+This section is the architecture reference for batched-matmul variants and keeps all runnable variant snippets together; Quick Start remains the end-to-end introductory path.
 Batched matmul extends GEMM with a leading batch axis V: \(VMK, KN \rightarrow VMN\).
 For each of V independent (M × K) inputs and a shared (K × N) weight, the kernel produces the (M × N) product.</p>
 <p>The three variants below classify kernels by which axis sits in <code>Time</code>.
@@ -250,9 +252,11 @@ They share these axes:</p>
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![V = 32, M = 32, N = 8, K = 32];   // V batch, M×N output, K contraction
 <span class="boring">}</span></code></pre>
-<p>(See <a href="./2d-convolution.html">2D Convolution</a> for another example, which uses a separate set of Stream Adapter machinery.)</p>
 <h3 id="k-in-time"><a class="header" href="#k-in-time">K in Time</a></h3>
-<p>K (the contraction axis) sits in <code>Time</code>. M splits across <code>Cluster</code> and <code>Slice</code>, and V splits as well: <code>V % 16</code> joins <code>Slice</code> while <code>V / 16 = 2</code> joins <code>Time</code> alongside K (V × M = 1024 doesn’t fit the 512 spatial cells per chip on RNGD, so V’s outer chunk must iterate). <code>Packet</code> pads to <code>1 # 32</code> and the reduction proceeds sequentially across cycles instead of via the Packet Reducer’s spatial tree, so only 1 of 32 multipliers does useful work per cycle (1/32 MAC utilization for bf16). The result is a degenerate kernel, shown only as an educational baseline.</p>
+<p>K (the contraction axis) sits in <code>Time</code>.
+M splits across <code>Cluster</code> and <code>Slice</code>, and V splits as well: <code>V % 16</code> joins <code>Slice</code> while <code>V / 16 = 2</code> joins <code>Time</code> alongside K (V × M = 1024 doesn’t fit the 512 spatial cells per chip on RNGD, so V’s outer chunk must iterate).
+<code>Packet</code> pads to <code>1 # 32</code> and the reduction proceeds sequentially across cycles instead of via the Packet Reducer’s spatial tree, so only 1 of 32 multipliers does useful work per cycle (1/32 MAC utilization for bf16).
+The result is a degenerate kernel, shown only as an educational baseline.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
@@ -289,13 +293,17 @@ fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = bmatmul_k_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <p>To avoid this pathological case, keep K in <code>Packet</code> (parallel reduction via the Packet Reducer’s tree) and spread the surviving axes (V, M, N) across <code>Cluster</code>, <code>Slice</code>, and <code>Lane</code> to maximize spatial parallelism.
 The two strategies below apply this principle, each with one axis per class for simplicity; real kernels may split a single axis across multiple classes when sizes demand.</p>
 <h3 id="m-in-time"><a class="header" href="#m-in-time">M in Time</a></h3>
-<p>V (batch) distributes across <code>Cluster</code> and <code>Slice</code> (one batch element per slice). M in <code>Time</code>, K in <code>Packet</code>. This strategy is applicable when (1) the slice count covers the batch, (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>. When K is larger than <code>Packet</code>, split K across <code>Packet</code> (spatial) and <code>Time</code> (temporal). It maximizes MAC utilization across lanes.</p>
+<p>V (batch) distributes across <code>Cluster</code> and <code>Slice</code> (one batch element per slice).
+M in <code>Time</code>, K in <code>Packet</code>.
+This strategy is applicable when (1) the slice count covers the batch, (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>.
+When K is larger than <code>Packet</code>, split K across <code>Packet</code> (spatial) and <code>Time</code> (temporal).
+It maximizes MAC utilization across lanes.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
@@ -335,11 +343,14 @@ fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = bmatmul_m_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="v-in-time"><a class="header" href="#v-in-time">V in Time</a></h3>
-<p>V (batch) in <code>Time</code>, K in <code>Packet</code>. M splits across <code>Cluster</code> and <code>Slice</code>. This strategy is applicable when (1) the slice count covers M (<code>M / 16</code> in <code>Cluster</code>, <code>M % 16</code> in <code>Slice</code>), (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>. Useful when batch is the dominant axis (e.g., batched inference).</p>
+<p>V (batch) in <code>Time</code>, K in <code>Packet</code>.
+M splits across <code>Cluster</code> and <code>Slice</code>.
+This strategy is applicable when (1) the slice count covers M (<code>M / 16</code> in <code>Cluster</code>, <code>M % 16</code> in <code>Slice</code>), (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>.
+Useful when batch is the dominant axis (e.g., batched inference).</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
@@ -376,7 +387,7 @@ fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = bmatmul_v_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 

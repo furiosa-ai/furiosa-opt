@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,7 +177,9 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="dma-engine"><a class="header" href="#dma-engine">DMA Engine</a></h1>
-<p>The DMA Engine moves tensors directly between memory tiers without engaging the Tensor Unit pipeline.
+<p>The DMA Engine moves tensors directly between memory tiers without engaging the Tensor Unit pipeline, so use it for residency or layout changes that require no compute stage.</p>
+<p>Choose DMA for HBM↔HBM, HBM↔DM, or DM↔DM movement when no Fetch, compute, or Commit stage is needed.
+The Interface examples show how source tensors, destination mappings, and <code>tdma</code> or <code>pdma</code> contexts combine.
 Each transfer pairs two coordinated stages:</p>
 <ul>
 <li><strong><a href="#architecture">Read Sequencer</a></strong>: Reads from the source tier.</li>
@@ -208,23 +210,6 @@ The kernel writer calls <code>.to_dm()</code>, <code>.to_hbm()</code>, or relate
             Element2,
         &gt;(DMA_SRAM_WRITE_WIDTH);
         DmTensor::from_parts(self.inner.transpose(true), None)
-    }
-
-    /// Converts to data memory tensor at `address`.
-    #[primitive(HbmTensor::to_dm_at)]
-    pub fn to_dm_at&lt;Cluster: M, Slice: M, Element2: M&gt;(
-        &amp;self,
-        _dma: &amp;mut DmaContext&lt;{ Dma::Tensor }&gt;,
-        address: Address,
-    ) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element2, B&gt; {
-        assert_dma_layout::&lt;
-            D,
-            m![{ Chip }, { Element }],
-            Element,
-            m![{ Chip }, { Cluster }, { Slice }, { Element2 }],
-            Element2,
-        &gt;(DMA_SRAM_WRITE_WIDTH);
-        DmTensor::from_parts(self.inner.transpose(true), Some(address))
     }
 
     /// Reshapes the tensor to a different mapping at the same HBM address, consuming `self`.
@@ -271,7 +256,7 @@ fn transpose_simple(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let in_hbm = unsafe { HbmTensor::&lt;f32, m![1], m![A, B, C]&gt;::from_addr(0) };
+</span><span class="boring">let in_hbm = HbmTensor::&lt;f32, m![1], m![A, B, C]&gt;::new();
 </span><span class="boring">let _out_hbm = transpose_simple(&amp;mut ctx, &amp;in_hbm);
 </span><span class="boring">}</span></code></pre>
 <p>A transfer that crosses tiers also takes a layout transformation through the destination type’s mapping.
@@ -290,7 +275,7 @@ fn hbm_to_dm(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let in_hbm = unsafe { HbmTensor::&lt;i8, m![1], m![A]&gt;::from_addr(0) };
+</span><span class="boring">let in_hbm = HbmTensor::&lt;i8, m![1], m![A]&gt;::new();
 </span><span class="boring">let _out_dm = hbm_to_dm(&amp;mut ctx, &amp;in_hbm);
 </span><span class="boring">}</span></code></pre>
 <p>Here the 2,048-element vector is distributed as 256 elements per slice (<code>Slice = m![A / 8]</code>) with 8 elements per slice (<code>Element = m![A % 8]</code>), spread across 2 clusters.</p>
@@ -314,45 +299,6 @@ The compiler represents the pair compactly as a single sequencer with paired str
 Any DMA Engine handles any transfer.
 By default the compiler picks the source DM’s local DMA Engine, since local DMN access is faster than cross-DMN access.
 The kernel writer can also specify an engine explicitly.</p>
-<h3 id="sequencer-representation"><a class="header" href="#sequencer-representation">Sequencer Representation</a></h3>
-<p>The compiler represents each DMA Engine’s work as a <code>DmaSequencer</code> paired with source and destination addressing:</p>
-<pre><code class="language-rust ignore">struct DmaSequencer {
-    entries: Vec&lt;DmaEntry&gt;,
-    stride0: u16,        // 1..=4096, per-iteration packet size in bytes
-    source_base: usize,
-    dest_base: usize,
-}
-
-struct DmaEntry {
-    axis: AxisName,
-    size: usize,
-    source_stride: isize,
-    dest_stride: isize,
-}</code></pre>
-<p>Each entry specifies a loop with a shared <code>size</code> but separate <code>source_stride</code> and <code>dest_stride</code>, since the layout transformation reorders the same logical elements between source and destination memory.
-The innermost-loop stride <code>stride0</code> (1 to 4,096 bytes) sets the per-iteration packet size.
-A full DMA command bundles the sequencer with the engine’s location and media:</p>
-<pre><code class="language-rust ignore">struct DmaDescriptor {
-    sequencer: DmaSequencer,
-    source_media: Media,
-    dest_media: Media,
-}
-
-struct DmnIndex {
-    chip: ChipIndex,
-    cluster_in_chip: ClusterInChipIndex,
-    slice_in_cluster: SliceInClusterIndex,
-}
-
-enum Media {
-    Hbm(ChipIndex),
-    Dm(DmnIndex),
-    Spm(DmnIndex),
-}
-
-enum Dtype {
-    I4, I8, F8E4M3, F8E5M2, I16, Bf16, F16, I32, F32,
-}</code></pre>
 <p>A homogeneous aggregate uses one descriptor template parameterized across all participating DMA Engines.
 A heterogeneous aggregate uses a <code>HashMap&lt;DmnIndex, DmaDescriptor&gt;</code> that pairs each DMN with its specific descriptor.
 DM tensor specifications must include chip, cluster, and slice in the mapping expression to identify the exact memory location.</p>
@@ -391,7 +337,10 @@ The transfer completes in approximately 500 cycles of startup latency plus 256 �
 <li><strong>Packet size</strong>: Infers <code>stride0</code> from the consecutive read/write volume.
 When both read and write access 256 consecutive bytes, the optimal <code>stride0</code> is 256.</li>
 </ul>
-<p>For the layout transformation <code>m![A, B, C] → m![B, A, C]</code> over <code>axes![A=256, B=256, C=256]</code> with <code>Stream = m![A, B, C]</code>, the compiler uses the index relation <code>m![A, B, C]::map(i) = i![A: i / 65,536, B: (i % 65,536) / 256, C: i % 256]</code> (see <a href="../mapping-tensors/mapping-expressions.html">Mapping Expressions</a> for the notation) to derive:</p>
+<p>For <code>m![A, B, C] → m![B, A, C]</code> with <code>A=B=C=256</code>, the stream is <code>m![A, B, C]</code>.
+The compiler maps each linear index to A, B, and C using the relation below.
+It then derives the paired strides.</p>
+<p>The relation is <code>m![A, B, C]::map(i) = i![A: i / 65,536, B: (i % 65,536) / 256, C: i % 256]</code> (see <a href="../mapping-tensors/mapping-expressions.html">Mapping Expressions</a> for the notation):</p>
 <pre><code class="language-text">read_sequencer  = [
   A -&gt; 256 : 65,536,
   B -&gt; 256 : 256,
@@ -457,7 +406,6 @@ Misaligned DM writes therefore trigger a Read-Modify-Write operation that triple
 <tbody>
 <tr><td>HBM</td><td>1.5 TB/s per chip (32 channels × 48 GB/s per channel at 0.75 GHz)</td></tr>
 <tr><td>DM</td><td>256 B/cycle per cluster (with DMN interleaving, 128 B/cycle per DMN)</td></tr>
-<tr><td>SPM</td><td>128 B/cycle per cluster (same-chip only, not yet exposed in the API)</td></tr>
 <tr><td>PCIe</td><td>30 B/cycle for both reads and writes (see <a href="#pcie-dma">PCIe DMA</a>)</td></tr>
 </tbody>
 </table>
@@ -476,7 +424,8 @@ HBM bandwidth, however, is typically the bottleneck in practice, making this gap
 <p>HBM channel selection uses address bits 9 to 28, and address bit 8 is the stack bit.
 Access patterns must toggle all of these bits to spread requests across all 32 channels.
 Missing the stack bit (address bit 8) alone halves effective bandwidth by routing all requests to only 16 of the 32 channels.
-Access patterns that hit the same HBM bank repeatedly (toggling row-address bits 21+ on consecutive accesses) trigger row-conflict penalties of approximately 40 cycles per access, degrading bandwidth by an order of magnitude.
+Repeated access to the same HBM bank can toggle row-address bits 21 and above.
+Each conflict costs about 40 cycles and can reduce bandwidth by an order of magnitude.
 FR-FCFS memory scheduling recovers some throughput, but the fundamental cost remains severe.</p>
 <p>DM bandwidth requires alternating between both DMNs (each 128 B/cycle), so a single-DMN access pattern halves DM bandwidth.</p>
 <h3 id="startup-latency-and-packet-splitting"><a class="header" href="#startup-latency-and-packet-splitting">Startup Latency and Packet Splitting</a></h3>
@@ -692,7 +641,8 @@ A single descriptor on DMN 3 would write a fourth element past the valid region,
 Choose tensor shapes that divide evenly across DMNs to avoid this segmentation cost.</p>
 <h2 id="shuffle-operations"><a class="header" href="#shuffle-operations">Shuffle Operations</a></h2>
 <p>Shuffle operations redistribute a tensor across clusters or chips according to a per-partition source pattern.
-The methods chain off the source tensor, matching the <code>to_dm</code> / <code>to_hbm</code> convention: <code>dm_cluster_shuffle</code> and <code>dm_chip_shuffle</code> live on <code>DmTensorView</code>, while <code>hbm_cluster_shuffle</code> and <code>hbm_chip_shuffle</code> live on <code>HbmTensor</code>.
+These methods follow the <code>to_dm</code> / <code>to_hbm</code> convention.
+<code>dm_cluster_shuffle</code> and <code>dm_chip_shuffle</code> are methods on <code>DmTensorView</code>; <code>hbm_cluster_shuffle</code> and <code>hbm_chip_shuffle</code> are methods on <code>HbmTensor</code>.
 The shuffle pattern specifies, for each destination cluster or chip, which source cluster or chip provides its data.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -750,8 +700,8 @@ fn gather_minimal(
 fn gather_unscaled(
     ctx: &amp;mut Context,
     table: &amp;HbmTensor&lt;bf16, m![1], m![K, D]&gt;,
-    // Raw row positions per cluster. The gather reads the index off SPM, so the kernel first
-    // stages it on-chip with `to_dm`; a real per-cluster (`CL`) partition avoids broadcast padding.
+    // Raw row positions per cluster. The kernel stages the index on-chip with `to_dm`;
+    // a real per-cluster (`CL`) partition avoids broadcast padding.
     index: &amp;HbmTensor&lt;i32, m![1], m![CL, G]&gt;,
 ) -&gt; DmTensor&lt;bf16, m![1], m![CL], m![G / 2], m![G % 2, D]&gt; {
     let index_dm: DmTensor&lt;i32, m![1], m![CL], m![G / 2], m![G % 2]&gt; =
@@ -764,18 +714,17 @@ fn gather_unscaled(
 </span><span class="boring">    let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">    let index = &amp;(HostTensor::&lt;i32, m![K]&gt;::zero().to_hbm(&amp;mut ctx.pdma).await);
-</span><span class="boring">    let data = unsafe { HbmTensor::&lt;bf16, m![1], m![K, D]&gt;::from_addr(0) };
-</span><span class="boring">    let mut output_hbm = unsafe { HbmTensor::&lt;bf16, m![1], m![C, D]&gt;::from_addr(0) };
+</span><span class="boring">    let data = HbmTensor::&lt;bf16, m![1], m![K, D]&gt;::new();
+</span><span class="boring">    let mut output_hbm = HbmTensor::&lt;bf16, m![1], m![C, D]&gt;::new();
 </span><span class="boring">
 </span><span class="boring">    scatter_minimal(&amp;mut ctx, &amp;data, &amp;index, &amp;mut output_hbm);
 </span><span class="boring">    gather_minimal(&amp;data, &amp;(HostTensor::&lt;i32, m![G]&gt;::zero().to_hbm(&amp;mut ctx.pdma).await));
 </span><span class="boring">    let placed_index = &amp;(HostTensor::&lt;i32, m![CL, G]&gt;::zero().to_hbm(&amp;mut ctx.pdma).await);
 </span><span class="boring">    gather_unscaled(&amp;mut ctx, &amp;data, placed_index);
 </span><span class="boring">}</span></code></pre>
-<p>The scaled variants (<code>dma_gather_scaled</code>, <code>dma_scatter</code>) take the index from an <code>HbmTensor</code> in DRAM and read its values as byte offsets along the gather/scatter axis: to address row <code>r</code>, pass <code>r</code> times one row’s byte size (its element count times the element’s byte size; e.g. <code>128 * 2 = 256</code> for a 128-wide <code>bf16</code> row).
-<code>dma_gather_unscaled</code> instead takes an on-chip <code>DmTensor</code> index, staged from DRAM with <code>to_dm</code>, and reads its values as raw row positions, for indices computed on-chip such as paged-attention block tables.
-Note a side effect: the seed reads the index off SPM, so the compiler emits an extra DM to SPM DMA to stage the index (SPM is the on-chip tier noted above, not yet a user-facing type).
-Its scatter counterpart <code>dma_scatter_unscaled</code> is not yet implemented.</p>
+<p>The scaled variants (<code>dma_gather_scaled</code>, <code>dma_scatter</code>) take the index from an <code>HbmTensor</code> in DRAM and read its values as byte offsets along the gather/scatter axis.
+To address row <code>r</code>, pass <code>r</code> times one row’s byte size (its element count times the element’s byte size, for example <code>128 * 2 = 256</code> for a 128-wide <code>bf16</code> row).
+<code>dma_gather_unscaled</code> instead takes an on-chip <code>DmTensor</code> index, staged from DRAM with <code>to_dm</code>, and reads its values as raw row positions, for indices computed on-chip such as paged-attention block tables.</p>
 <h2 id="pcie-dma"><a class="header" href="#pcie-dma">PCIe DMA</a></h2>
 <p>PCIe DMA (<code>Context::pdma</code>) moves tensors between host system memory and device HBM.
 It is a separate physical engine from the on-chip Tensor DMA.
@@ -806,7 +755,7 @@ Algorithms should minimize host ↔ device traffic, uploading data once and reus
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../moving-tensors/commit-engine.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../moving-tensors/tensor-unit-io.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -820,7 +769,7 @@ Algorithms should minimize host ↔ device traffic, uploading data once and reus
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../moving-tensors/commit-engine.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../moving-tensors/tensor-unit-io.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["swap_halves"],"struct":["A","X","__furiosa_opt_swap_halves"]};

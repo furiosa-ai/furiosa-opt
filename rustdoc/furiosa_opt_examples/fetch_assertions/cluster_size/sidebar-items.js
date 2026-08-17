@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["valid_cluster_size"],"struct":["__furiosa_opt_valid_cluster_size"]};

@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -479,63 +479,6 @@ For regular configurations the compiler derives <code>ring_size</code> from the 
              └──────────────────────────────────────────────────────────────────────────────────────────┘
                                             wrap-around (links are bidirectional)
 </code></pre>
-<p>The Switch Engine is configured by a <em>snoop bitmap</em>: 256 entries (one per slice), each naming the source slices whose data should arrive at that output slice.
-Regular configurations come with built-in bitmap generators.
-<a href="#custom-configurations"><code>CustomBroadcast</code></a> instead lets the compiler synthesize an arbitrary bitmap from the kernel writer’s input/output mappings.</p>
-<p>Based on its bitmap entry, every router decides per incoming packet which combination of three actions to take:</p>
-<ul>
-<li><strong>Output</strong>: deliver the packet to the local slice’s downstream pipeline, when the packet’s source slice is selected for delivery here.</li>
-<li><strong>Forward right</strong>: pass the packet to the right neighbor’s router.</li>
-<li><strong>Forward left</strong>: pass the packet to the left neighbor’s router.</li>
-</ul>
-<p>In each sub-ring, the leftmost router sends its own data rightward, and the rightmost router sends its own data leftward.
-When <code>ring_size &gt; 2</code>, the intermediate routers output incoming left-neighbor data and forward it rightward.
-Every router also outputs any data that arrives from a neighbor.</p>
-<p>The trace below illustrates per-router execution in one 2-slice sub-ring (<code>ring_size = 2</code>), running a 2-slice broadcast pattern.
-The remaining 127 sub-rings behave identically and are omitted.
-Each link has a 1-cycle traversal latency, so the leftmost router initiates at cycle 0 while the rightmost begins at cycle 1, once the first packet from its left neighbor arrives.
-With <code>axes![A = 256, B = 2, C = 32]</code>, <code>Slice = m![A]</code>, <code>Time = m![B]</code>, and <code>Packet = m![C]</code>, the shown sub-ring contains slices 0 and 1: the leftmost slice holds packets <code>[0, 1]</code> and the rightmost slice holds <code>[2, 3]</code>.
-Each cell reads as <code>&lt;packet&gt;: from &lt;source&gt;, to &lt;action&gt;</code>, where source is <code>input</code>/<code>left</code>/<code>right</code> and action is one or more of <code>output</code>/<code>right</code>/<code>left</code>.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>cycle</th><th>Leftmost slice</th><th>Rightmost slice</th><th>Output Data</th></tr>
-</thead>
-<tbody>
-<tr><td>0</td><td>0: from input, to (output, right)</td><td></td><td><code>Leftmost: [0]</code><br><code>Rightmost: []</code></td></tr>
-<tr><td>1</td><td>1: from input, to (output, right)</td><td>0: from left, to output<br> 2: from input, to left</td><td><code>Leftmost: [0, 1]</code><br><code>Rightmost: [0]</code></td></tr>
-<tr><td>2</td><td>2: from right, to (output, right)</td><td>1: from left, to output<br> 3: from input, to left</td><td><code>Leftmost: [0, 1, 2]</code><br><code>Rightmost: [0, 1]</code></td></tr>
-<tr><td>3</td><td>3: from right, to (output, right)</td><td>2: from left, to output</td><td><code>Leftmost: [0, 1, 2, 3]</code><br><code>Rightmost: [0, 1, 2]</code></td></tr>
-<tr><td>4</td><td></td><td>3: from left, to output</td><td><code>Leftmost: [0, 1, 2, 3]</code><br><code>Rightmost: [0, 1, 2, 3]</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>After the trace, both slices in the sub-ring hold all four packets, completing the broadcast.</p>
-<p>The bitmap encodes transformations through the shape of its entries:</p>
-<ul>
-<li><strong>Broadcast shape</strong>: multiple output slices receiving the same source data have identical bitmap entries.</li>
-<li><strong><code>Slice</code>-to-<code>Time</code> shape</strong>: one output slice listing several source slices means that output collects data from all of them across consecutive time steps.</li>
-</ul>
-<p>For instance, the bitmap that reproduces the <a href="#broadcast01"><code>Broadcast01</code> example</a> above looks like this:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Bitmap Index</th><th><code>(A / 4, A % 4)</code></th><th><code>A</code></th><th>Ring Group</th></tr>
-</thead>
-<tbody>
-<tr><td>0</td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code>, <code>(0, 3)</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td></tr>
-<tr><td>1</td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code>, <code>(0, 3)</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td></tr>
-<tr><td>2</td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code>, <code>(0, 3)</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td></tr>
-<tr><td>3</td><td><code>(0, 0)</code>, <code>(0, 1)</code>, <code>(0, 2)</code>, <code>(0, 3)</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td><td><code>0</code>, <code>1</code>, <code>2</code>, <code>3</code></td></tr>
-<tr><td>4</td><td><code>(1, 0)</code>, <code>(1, 1)</code>, <code>(1, 2)</code>, <code>(1, 3)</code></td><td><code>4</code>, <code>5</code>, <code>6</code>, <code>7</code></td><td><code>4</code>, <code>5</code>, <code>6</code>, <code>7</code></td></tr>
-<tr><td>…</td><td>…</td><td>…</td><td>…</td></tr>
-<tr><td>255</td><td><code>(63, 0)</code>, <code>(63, 1)</code>, <code>(63, 2)</code>, <code>(63, 3)</code></td><td><code>252</code>, <code>253</code>, <code>254</code>, <code>255</code></td><td><code>252</code>, <code>253</code>, <code>254</code>, <code>255</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>Rows 0-3 share identical entries because slices <code>{0, 1, 2, 3}</code> all receive data from input slices <code>{0, 1, 2, 3}</code> (the broadcast shape), and each row lists all four sources because <code>slice1</code> and <code>slice0</code> collapse from <code>Slice</code> into <code>Time</code> (the <code>Slice</code>-to-<code>Time</code> shape).
-This pattern repeats every 4 rows for the 64 sub-rings.
-<code>SwitchConfig::Broadcast01</code> generates this bitmap automatically.</p>
 <h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
 <p>A switch operation takes roughly <code>ring_size × Time::SIZE × flits_per_packet</code> cycles.
 All sub-rings advance in parallel, so this per-ring cycle count is also the chip-wide latency.
@@ -712,7 +655,8 @@ A custom bitmap expresses this padding-only extraction instead.</p>
 <li><code>Time::SIZE = D::SIZE × C::SIZE = 8 × 3 = 24</code></li>
 <li><code>flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 8 / 32 = 1</code> (<code>Packet = m![E]</code>, <code>E::SIZE = 8</code>)</li>
 </ul>
-<p>The bitmap shows padding-only extraction directly: <code>bitmap[0] = {0, 1, 2}</code> means output slice 0 receives from the 3 valid input slices in its <code>C # 4</code> group while skipping index 3, the padding cell. Reading <code>{0, 1, 2, 3}</code> would pull that padding in as if it were real data.</p>
+<p>The bitmap shows padding-only extraction directly: <code>bitmap[0] = {0, 1, 2}</code> means output slice 0 receives from the 3 valid input slices in its <code>C # 4</code> group while skipping index 3, the padding cell.
+Reading <code>{0, 1, 2, 3}</code> would pull that padding in as if it were real data.</p>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
 <p>Custom configurations come with seven constraints that bound this flexibility.</p>
 <h4 id="broadcast-axes-must-be-new"><a class="header" href="#broadcast-axes-must-be-new">Broadcast axes must be new</a></h4>

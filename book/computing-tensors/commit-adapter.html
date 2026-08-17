@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -179,11 +179,13 @@
                         <h1 id="commit-adapter"><a class="header" href="#commit-adapter">Commit Adapter</a></h1>
 <p>The Commit Adapter applies element-wise transformations to the packet stream before the <a href="../moving-tensors/commit-engine.html">Commit Engine</a> writes it to DM.
 It mirrors the <a href="./fetch-adapter.html">Fetch Adapter</a> on the output side of the Tensor Unit.</p>
-<p>The adapter’s stages chain as dedicated <code>.commit_xxx(...)</code> methods on the upstream tensor, and the chain always ends in <code>.commit(...)</code> for the actual DM write. <a href="#trimming">Trimming</a> is the mandatory first stage: <code>.commit()</code> / <code>.commit_view()</code> are reachable only after <code>.commit_trim(...)</code>, so every commit is trimmed first (it is how flit padding is dropped). The other stages are rare and chain after trimming. Main and sub contexts then diverge. A separate operation, <a href="#generate-mode">Generate Mode</a>, is conceptually part of the Commit Adapter but stands alone (it does not chain off a <code>TuTensor</code>).</p>
+<p>The adapter’s stages chain as dedicated <code>.commit_xxx(...)</code> methods on the upstream tensor, and the chain always ends in <code>.commit(...)</code> for the actual DM write.
+<a href="#trimming">Trimming</a> is the mandatory first stage: <code>.commit()</code> / <code>.commit_view()</code> are reachable only after <code>.commit_trim(...)</code>, so every commit is trimmed first (it is how flit padding is dropped).
+The other public stage is optional type casting, and main and sub contexts then diverge.
+Generate Mode is a separate sub-context path used internally by <code>memset</code> for immediate fills; it does not chain off a <code>TuTensor</code>.</p>
 <ul>
 <li>Main pipeline: <a href="#trimming">Trimming</a> → <a href="#type-casting">Type Casting</a> (optionally fusing ReLU) → <code>.commit()</code>.</li>
-<li>Sub pipeline: <a href="#trimming">Trimming</a> → <a href="#valid-count-packing">Valid Count Packing</a> → <code>.commit()</code>.</li>
-<li>Sub bypass: <a href="#generate-mode">Generate Mode</a> writes a single 32-bit constant to DM directly via a standalone API, skipping the Tensor Unit pipeline entirely.</li>
+<li>Sub bypass: Generate Mode writes a constant directly for <code>memset</code>, without consuming an upstream Tensor Unit stream.</li>
 </ul>
 <div class="table-wrapper">
 <table>
@@ -193,8 +195,7 @@ It mirrors the <a href="./fetch-adapter.html">Fetch Adapter</a> on the output si
 <tbody>
 <tr><td><a href="#trimming">Trimming</a></td><td>✅</td><td>✅</td></tr>
 <tr><td><a href="#type-casting">Type Casting</a> (optional fused ReLU)</td><td>✅</td><td>❌</td></tr>
-<tr><td><a href="#valid-count-packing">Valid Count Packing</a></td><td>❌</td><td>✅</td></tr>
-<tr><td><a href="#generate-mode">Generate Mode</a></td><td>❌</td><td>✅ (UC, see <a href="#generate-mode">§Generate Mode</a>)</td></tr>
+<tr><td>Generate Mode (internal <code>memset</code> path)</td><td>❌</td><td>✅</td></tr>
 </tbody>
 </table>
 </div>
@@ -207,7 +208,7 @@ Users do not set it directly.
 <code>D[valid_size]</code> must be 8, 16, 24, or 32 bytes (where 32 means no trim).
 Trimming adds nearly zero latency.</p>
 <p>Trimming is the mandatory first stage of the Commit Adapter, even though not every commit has padding to drop: when <code>valid_size</code> is already 32 bytes the flit is fully valid and the trim is a no-op.
-It is mandatory because <code>.commit()</code> is reachable only after <code>.commit_trim(...)</code>, so it anchors the chain and runs ahead of <a href="#type-casting">Type Casting</a> (main) and <a href="#valid-count-packing">Valid Count Packing</a> (sub).</p>
+It is mandatory because <code>.commit()</code> is reachable only after <code>.commit_trim(...)</code>, so it anchors the chain and runs ahead of <a href="#type-casting">Type Casting</a> (main).</p>
 <pre><code class="language-rust ignore">// `D: MaterializableScalar` here (trim is the commit path's mandatory first stage) keeps i5/i9 uncommittable.
 impl&lt;
     'l,
@@ -235,7 +236,8 @@ impl&lt;
         CommitTrimTensor::new(self.ctx, self.inner.transpose(false))
     }
 }</code></pre>
-<p><code>.commit_trim::&lt;OutPacket&gt;()</code> declares the post-trim packet, and the chained <code>.commit(...)</code> then performs the DM write on the trimmed stream. The two are fully separate.</p>
+<p><code>.commit_trim::&lt;OutPacket&gt;()</code> declares the post-trim packet, and the chained <code>.commit(...)</code> then performs the DM write on the trimmed stream.
+The two are fully separate.</p>
 <pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
@@ -286,7 +288,7 @@ The Cast Engine sits on top of the Vector Engine and so occupies it during a con
 If the main-context performed its <code>f32</code> → <code>bf16</code> conversion through the Cast Engine, the Vector Engine would be busy and the sub-context could not run in parallel.
 Routing the conversion through the Commit Adapter instead leaves the Vector Engine free for the sub-context.
 Sub-context itself does not support type casting (consistent with the support matrix above).</p>
-<p><code>commit_cast</code> takes an <code>Activation</code>. <code>Activation::None</code> is a plain cast. <code>Activation::Relu</code> clamps negative values to zero as part of the same cast. ReLU has no standalone hardware stage, and exists only fused with a narrowing cast (<code>f32</code> → <code>bf16</code> + ReLU).</p>
+<p><code>commit_cast</code> and <code>commit_cast_relu</code> are separate methods because they are separate hardware conversions, not one conversion with a mode: ReLU has no standalone stage to select at run time, and exists only fused with the narrowing cast.</p>
 <pre><code class="language-rust ignore">impl&lt;
     'l,
     const T: Tu,
@@ -300,23 +302,34 @@ Sub-context itself does not support type casting (consistent with the support ma
     B: Backend,
 &gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
-    /// Runs the Commit Adapter's type-casting stage, optionally fusing a
-    /// ReLU.
+    /// Runs the Commit Adapter's type-casting stage.
     ///
-    /// Folds an `f32` → `bf16` (or other narrowing) cast into the commit
-    /// path, leaving the [Cast Engine](crate::engine::cast) free for
-    /// sub-context Vector Engine work. `activation` selects the optional
-    /// fused ReLU; ReLU has no standalone hardware stage.
+    /// Folds the `f32` → `bf16` cast into the commit path, leaving the
+    /// [Cast Engine](crate::engine::cast) free for sub-context Vector Engine
+    /// work. See [`CommitCast`](crate::prelude::CommitCast) for why this is the
+    /// only conversion, and [`commit_cast_relu`](Self::commit_cast_relu) for the
+    /// variant that fuses a ReLU.
     #[primitive(TuTensor::commit_cast)]
-    pub fn commit_cast&lt;OutD: Scalar&gt;(
-        self,
-        _activation: Activation,
-    ) -&gt; CommitCastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
+    pub fn commit_cast&lt;OutD: Scalar&gt;(self) -&gt; CommitCastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
     where
-        D: Cast&lt;OutD&gt;,
+        D: CommitCast&lt;OutD&gt;,
     {
-        verify_commit_cast::&lt;D, OutD&gt;();
+        verify_commit_cast::&lt;D, OutD, Packet&gt;();
         CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
+    }
+
+    /// The same cast with a ReLU fused in, clamping negative values to zero.
+    ///
+    /// A separate method rather than an argument because the two are separate
+    /// hardware conversions (`CommitF32ToBf16` and `CommitF32ToBf16Relu`), and
+    /// ReLU has no standalone stage to select at run time.
+    #[primitive(TuTensor::commit_cast_relu)]
+    pub fn commit_cast_relu&lt;OutD: Scalar&gt;(self) -&gt; CommitCastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
+    where
+        D: CommitCast&lt;OutD&gt;,
+    {
+        verify_commit_cast::&lt;D, OutD, Packet&gt;();
+        CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast_relu()))
     }
 }</code></pre>
 <pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
@@ -330,7 +343,7 @@ fn commit_cast_example&lt;'l, const T: Tu&gt;(
     // Cast f32 to bf16 (values preserved), no activation. A real main
     // commit runs `.commit_trim()` first, then `.commit(...)` after.
     // W = 8 f32 elements (32 bytes) stays 8 bf16 elements (16 bytes).
-    input.commit_cast::&lt;bf16&gt;(Activation::None)
+    input.commit_cast::&lt;bf16&gt;()
 }
 
 fn commit_cast_relu_example&lt;'l, const T: Tu&gt;(
@@ -338,42 +351,8 @@ fn commit_cast_relu_example&lt;'l, const T: Tu&gt;(
 ) -&gt; CommitCastTensor&lt;'l, T, bf16, m![1], m![1], m![1], m![N, C, H], m![W]&gt; {
     // f32 -&gt; bf16 with a fused ReLU: negative values clamped to zero.
     // e.g. [-5.0, -0.1, 0.0, 3.7] -&gt; [0.0, 0.0, 0.0, 3.7]
-    input.commit_cast::&lt;bf16&gt;(Activation::Relu)
+    input.commit_cast_relu::&lt;bf16&gt;()
 }</code></pre>
-<h2 id="valid-count-packing"><a class="header" href="#valid-count-packing">Valid Count Packing</a></h2>
-<p>Valid Count Packing is a sub-context-only stage that commits a variable number of valid elements per packet, excluding padding from the output.</p>
-<pre><code class="language-rust ignore">impl&lt;
-    'l,
-    const T: Tu,
-    P: CanApplyCommitValidCountPack,
-    D: Scalar,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Time: M,
-    Packet: M,
-    B: Backend,
-&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
-{
-    /// Runs the Commit Adapter's valid-count-packing stage (sub-context
-    /// only). The count comes from a per-call argument; the trailing
-    /// elements are discarded. The packed stream keeps the input
-    /// `Time` / `Packet` shape at this skeleton stage.
-    // TODO: `_valid_count` is currently discarded. The backend
-    // `TuOperationCommitValidCountPack` record does not store it yet.
-    #[primitive(TuTensor::commit_valid_count_pack)]
-    pub fn commit_valid_count_pack(
-        self,
-        _valid_count: usize,
-    ) -&gt; CommitValidCountPackTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, B&gt; {
-        verify_commit_valid_count_pack::&lt;D, Time, Packet&gt;();
-        CommitValidCountPackTensor::new(self.ctx, self.inner.transpose(false))
-    }
-}</code></pre>
-<h2 id="generate-mode"><a class="header" href="#generate-mode">Generate Mode</a></h2>
-<p>Generate Mode is used for sub-context-only ITOS (immediate-to-SRAM) writes. The sequencer hands the hardware a constant <code>u32</code> value and a sub-context-derived DM address, and the runtime writes the constant directly to that address.</p>
-<p>It does not fetch from DM and does not consume any upstream Tensor Unit stream.
-The constant <code>value</code> and the destination are the only inputs; the rest of the Tensor Unit pipeline (Fetch / Switch / Collect / Contraction / Vector / Cast / Transpose / Commit Adapter stages) is bypassed entirely.</p>
 
                     </main>
 
@@ -383,7 +362,7 @@ The constant <code>value</code> and the destination are the only inputs; the res
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../scheduling.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../kernel-examples/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -397,7 +376,7 @@ The constant <code>value</code> and the destination are the only inputs; the res
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../scheduling.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../kernel-examples/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

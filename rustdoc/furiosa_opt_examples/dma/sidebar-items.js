@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["dup_many","dup_one","dup_two","invalid_hbm_to_dm","padded_tail_alignment"],"struct":["A","B","PA","PC","PD","__furiosa_opt_dup_many","__furiosa_opt_dup_one","__furiosa_opt_dup_two","__furiosa_opt_invalid_hbm_to_dm","__furiosa_opt_padded_tail_alignment"]};

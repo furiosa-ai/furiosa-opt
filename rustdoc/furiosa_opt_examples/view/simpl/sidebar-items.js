@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["view_simpl"],"struct":["A","B","__furiosa_opt_view_simpl"]};

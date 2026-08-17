@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["aligned_fetch_packet_bf16","aligned_fetch_packet_i4","aligned_fetch_packet_i8"],"struct":["__furiosa_opt_aligned_fetch_packet_bf16","__furiosa_opt_aligned_fetch_packet_i4","__furiosa_opt_aligned_fetch_packet_i8"]};

@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,11 +177,13 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="fetch-engine"><a class="header" href="#fetch-engine">Fetch Engine</a></h1>
-<p>The Fetch Engine reads a DM tensor and produces a packet stream for the Tensor Unit, a <a href="../mapping-tensors/tensor-semantics.html#mathematical-tensor-move">mathematical tensor move</a> that reads DM with per-slice sequencers and emits a <code>FetchTensor</code>.</p>
+<p>The Fetch Engine reads a DM tensor and produces a packet stream for the Tensor Unit, with <code>OutTime</code> and <code>OutPacket</code> choosing the stream consumed by later stages.</p>
+<p>Choose Fetch when data in DM must enter the Tensor Unit stream with a specific temporal and packet order.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p><code>BeginTensor</code> represents a tensor resident in DM, at the entry of the Tensor Unit pipeline.
 Its <code>Time</code> is <code>m![1]</code> (no temporal iteration before the pipeline starts) and <code>Packet</code> is the element layout in DM.</p>
-<p><code>BeginTensor::fetch()</code> runs the sequencer and produces a <code>FetchTensor</code> packet stream that feeds the <a href="../computing-tensors/fetch-adapter.html">Fetch Adapter</a>, the <a href="../computing-tensors/switch-engine.html">Switch Engine</a>, or the <a href="../computing-tensors/collect-engine.html">Collect Engine</a>.
+<p><code>BeginTensor::fetch()</code> runs the sequencer and produces a <code>FetchTensor</code> packet stream.
+The stream can feed the <a href="../computing-tensors/fetch-adapter.html">Fetch Adapter</a>, <a href="../computing-tensors/switch-engine.html">Switch Engine</a>, or <a href="../computing-tensors/collect-engine.html">Collect Engine</a>.
 The <code>assert_eq!</code> calls enforce hardware constraints on <code>Cluster::SIZE</code>, <code>Slice::SIZE</code>, and packet alignment (see <a href="#constraints">Constraints</a>).</p>
 <pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyFetch, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
     TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
@@ -222,16 +224,19 @@ fn fetch_matrix_example&lt;'l, const T: Tu&gt;(
 <span class="boring">}</span></code></pre>
 <p><code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> are the hardware spatial parallelism dimensions.
 A Fetch Sequencer runs independently in every slice, each operating on its own local DM partition.
-In the example above, <code>Chip = m![CH]</code>, <code>Cluster = m![CL]</code>, and <code>Slice = m![S]</code> (with <code>CH = 4</code>, <code>CL = 2</code>, <code>S = 256</code>) reflect a 4-chip RNGD system with 2 clusters per chip and 256 slices per cluster (2,048 slices total), each running the same sequencer pattern on its own <code>A×B</code> sub-tensor.</p>
+In this example, <code>CH = 4</code>, <code>CL = 2</code>, and <code>S = 256</code> describe a 4-chip system with two clusters per chip and 256 slices per cluster.
+Each slice runs the same sequencer over its own <code>A×B</code> sub-tensor.</p>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
 <ul>
 <li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="./sequencer.html#architecture">Sequencer</a>).</li>
 </ul>
 <h2 id="multi-read-packet"><a class="header" href="#multi-read-packet">Multi-Read Packet</a></h2>
 <p>Preparing a packet may require multiple hardware reads because packet axes may not be contiguous in DM, and the hardware reads at most 32 bytes at once.
-In the <a href="../computing-tensors/index.html#execution-context">main-context</a>, <code>read_size</code> is the largest divisor of the sequencer’s <code>max_access_size</code> (see <a href="./sequencer.html#access-size">Sequencer Architecture</a> for <code>max_access_size</code>) such that <code>D[read_size]</code> is 1, 2, 4, 8, 16, or 32 bytes.
+In the <a href="../computing-tensors/index.html#execution-context">main-context</a>, <code>read_size</code> is the largest divisor of <code>max_access_size</code> for which <code>D[read_size]</code> is 1, 2, 4, 8, 16, or 32 bytes.
+See <a href="./sequencer.html#access-size">Sequencer Architecture</a> for <code>max_access_size</code>.
 In the <a href="../computing-tensors/index.html#execution-context">sub-context</a>, <code>read_size</code> is fixed at 8 bytes.
-The compiler derives <code>read_size</code> from the input element type of <code>fetch()</code> (and from any downstream <a href="../computing-tensors/fetch-adapter.html">Fetch Adapter</a> cast) and users do not set it directly.
+The compiler derives <code>read_size</code> from the input element type and any <a href="../computing-tensors/fetch-adapter.html">Fetch Adapter</a> cast.
+Users do not set it directly.
 Multi-read occurs whenever <code>Packet::SIZE &gt; read_size</code>.
 For example, a 24-byte packet in the main-context forces <code>read_size = 8</code> and 3 reads per packet.
 The total cycle count is <code>Time::SIZE * (Packet::SIZE / read_size)</code>.</p>
@@ -328,7 +333,8 @@ fn fetch_interleaved&lt;'l&gt;(
 Non-adjacent axes reduce <code>max_access_size</code> and therefore <code>read_size</code> (see <a href="./sequencer.html#non-contiguous-packets">Non-Contiguous Packets</a>).
 A packet smaller than the contiguous run also limits <code>read_size</code>.
 Padding to a larger power-of-two raises it (see <a href="#example-packet-padding">Packet padding</a>).</p>
-<p>Furthermore, access patterns that hit the same bank 64 or more times consecutively starve the lower-priority <a href="./commit-engine.html">Commit Engine</a> and <a href="./dma-engine.html">DMA Engine</a> and can cause catastrophic NoC timeouts.</p>
+<p>Repeated access to the same bank can starve lower-priority <a href="./commit-engine.html">Commit Engine</a> and <a href="./dma-engine.html">DMA Engine</a> operations.
+The limit is 64 consecutive accesses; exceeding it can cause a NoC timeout.</p>
 <p>See <a href="./memory-performance.html">Memory Performance</a> for details.</p>
 </li>
 <li>
@@ -382,6 +388,22 @@ fn fetch_packet_ABC&lt;'l, const T: Tu&gt;(
 </span><span class="boring">}</span></code></pre>
 <p>In these examples, padding reads beyond the actual data, but this is safe because padding values do not affect computation.
 Different padding strategies produce different <code>FetchTensor</code> mappings, which may affect downstream components.</p>
+<p>The same <code>A = 3</code>, <code>B = 5</code>, <code>C = 2</code> <code>f8e4m3</code> tensor can use these packet mappings:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Function</th><th>Fetch <code>Time</code></th><th>Fetch <code>Packet</code></th><th>Fetch work</th><th>Collect padding</th></tr>
+</thead>
+<tbody>
+<tr><td><code>fetch_packet_c</code></td><td><code>A, B</code></td><td><code>C # 8</code></td><td>15 packets of 8 bytes</td><td>24 bytes for each packet.</td></tr>
+<tr><td><code>fetch_packet_bc</code></td><td><code>A</code></td><td><code>[B, C] # 16</code></td><td>3 packets of 16 bytes</td><td>16 bytes for each packet.</td></tr>
+<tr><td><code>fetch_packet_abc</code></td><td><code>1</code></td><td><code>[A, B, C] # 32</code></td><td>1 packet of 32 bytes</td><td>None.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The 8-byte and 16-byte candidates require Collect to pad each packet to a 32-byte flit.
+The 32-byte candidate reaches Collect as one full flit, but its extra physical capacity can increase DM usage.
+The schedule comparison decides whether fewer fetches outweigh the padding and downstream layout cost for the fixed workload.</p>
 
                     </main>
 

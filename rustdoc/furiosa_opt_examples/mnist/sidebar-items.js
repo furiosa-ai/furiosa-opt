@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["forward"],"struct":["C","Dummy16","Dummy8","H","I","X","__furiosa_opt_forward"]};

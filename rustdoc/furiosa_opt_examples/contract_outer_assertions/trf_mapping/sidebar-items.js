@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["invalid_lane_mapping","invalid_lane_not_divisible_by_time","invalid_mapping","valid_mapping","valid_unit_time_lane"],"struct":["__furiosa_opt_invalid_lane_mapping","__furiosa_opt_invalid_lane_not_divisible_by_time","__furiosa_opt_invalid_mapping","__furiosa_opt_valid_mapping","__furiosa_opt_valid_unit_time_lane"]};

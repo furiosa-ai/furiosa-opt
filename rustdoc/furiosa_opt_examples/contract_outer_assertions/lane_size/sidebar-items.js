@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["invalid_size_16","invalid_size_3","valid_size_1","valid_size_2","valid_size_4","valid_size_8"],"struct":["__furiosa_opt_invalid_size_16","__furiosa_opt_invalid_size_3","__furiosa_opt_valid_size_1","__furiosa_opt_valid_size_2","__furiosa_opt_valid_size_4","__furiosa_opt_valid_size_8"]};

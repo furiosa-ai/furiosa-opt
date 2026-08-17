@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["launch"],"trait":["DeviceFn","DeviceSend","TupleApply"],"type":["CurrentBackend"]};

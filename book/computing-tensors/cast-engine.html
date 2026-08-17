@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -191,7 +191,7 @@ impl&lt;'l, const T: Tu, P: CanApplyCast, D: VeScalar, Chip: M, Cluster: M, Slic
     #[primitive(TuTensor::cast)]
     pub fn cast&lt;OutD: Scalar, OutPacket: M&gt;(self) -&gt; CastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, OutPacket, B&gt;
     where
-        D: Cast&lt;OutD&gt;,
+        D: CastEngineCast&lt;OutD&gt;,
     {
         verify_cast::&lt;D, OutD, Packet, OutPacket&gt;();
         CastTensor::new(self.ctx, self.inner.map(|v| v.cast()).transpose(false))
@@ -252,7 +252,7 @@ The supported source types are <code>f32</code> and <code>i32</code>, each with 
 </thead>
 <tbody>
 <tr><td><code>i32</code></td><td><code>i4</code>, <code>i8</code>, <code>i16</code></td></tr>
-<tr><td><code>f32</code></td><td><code>f8e5m2</code>, <code>f8e4m3</code>, <code>f16</code>, <code>bf16</code></td></tr>
+<tr><td><code>f32</code></td><td><code>f8e5m2</code>, <code>f8e4m3</code>, <code>bf16</code></td></tr>
 </tbody>
 </table>
 </div>

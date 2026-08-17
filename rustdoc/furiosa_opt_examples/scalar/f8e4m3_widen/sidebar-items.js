@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["widen_f8e4m3"],"struct":["A","B","__furiosa_opt_widen_f8e4m3"]};

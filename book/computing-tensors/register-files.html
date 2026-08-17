@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -188,31 +188,22 @@ These register files must be populated before their consumer engine runs.</p>
 #[derive(Debug)]
 pub struct TrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Element: M, B: Backend = CurrentBackend&gt; {
     pub(crate) inner: Tensor&lt;D, Pair&lt;Chip, Pair&lt;Cluster, Pair&lt;Slice, Pair&lt;Lane, Element&gt;&gt;&gt;&gt;, B&gt;,
-    #[expect(dead_code)]
-    address: Option&lt;TrfAddress&gt;,
     _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Lane, Element)&gt;,
 }</code></pre>
-<p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source. <code>Lane</code> indexes the spatial parallelism (1, 2, 4, or 8 active lanes). <code>Element</code> holds the per-lane layout.</p>
+<p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source.
+<code>Lane</code> indexes the spatial parallelism (1, 2, 4, or 8 active lanes).
+<code>Element</code> holds the per-lane layout.</p>
 <h4 id="from-collect-engine"><a class="header" href="#from-collect-engine">From Collect Engine</a></h4>
-<p><code>.to_trf::&lt;Lane, Element&gt;()</code> on <code>CollectTensor</code> produces a <code>TrfTensor</code> in the full TRF; <code>.to_trf_at::&lt;Lane, Element&gt;(address)</code> targets a <code>TrfAddress</code> region:</p>
+<p><code>.to_trf::&lt;Lane, Element&gt;()</code> on <code>CollectTensor</code> produces a <code>TrfTensor</code>.
+Where in the register file it lands is the compiler’s to decide, so the call names no region:</p>
 <pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
     TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Stores to the tensor register file.
     #[primitive(TuTensor::to_trf)]
     pub fn to_trf&lt;Lane: M, Element: M&gt;(self) -&gt; TrfTensor&lt;D, Chip, Cluster, Slice, Lane, Element, B&gt; {
-        verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;(&amp;TrfAddress::Full);
-        TrfTensor::new(self.inner.transpose(false), None)
-    }
-
-    /// Stores to the tensor register file at `address`.
-    #[primitive(TuTensor::to_trf_at)]
-    pub fn to_trf_at&lt;Lane: M, Element: M&gt;(
-        self,
-        address: TrfAddress,
-    ) -&gt; TrfTensor&lt;D, Chip, Cluster, Slice, Lane, Element, B&gt; {
-        verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;(&amp;address);
-        TrfTensor::new(self.inner.transpose(false), Some(address))
+        verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;();
+        TrfTensor::from_parts(self.inner.transpose(false))
     }
 }</code></pre>
 <p><code>.to_trf</code> reshapes the streaming <code>Time</code> / <code>Packet</code> into <code>Lane</code> / <code>Element</code>:</p>
@@ -220,6 +211,25 @@ pub struct TrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Eleme
 Element = [Time % FlitsPerLane, Packet]
 </code></pre>
 <p>for some <code>FlitsPerLane</code> that the compiler derives from <code>Lane</code> and <code>Time</code>, so each lane is filled by <code>FlitsPerLane</code> consecutive flits.</p>
+<p>The following simple case occupies the full TRF:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![B = 32];
+
+fn load_trf&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt;,
+) -&gt; TrfTensor&lt;i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; {
+    input.to_trf()
+}
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = load_trf(c);
+</span><span class="boring">}</span></code></pre>
 <p>For example, in a matmul kernel <code>Lane</code> holds output channels and <code>Element</code> holds the contracted axis.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -238,7 +248,7 @@ type Lane    = m![N];
 fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
     input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt;,
 ) -&gt; TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; {
-    input.to_trf_at(TrfAddress::FirstHalf)
+    input.to_trf()
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
@@ -263,21 +273,22 @@ The 8 lanes operate in parallel, with 1, 2, 4, or 8 active per access.</p>
 <tr><th>Type</th><th>Element size stored</th><th>Elements per row</th></tr>
 </thead>
 <tbody>
-<tr><td><code>i4</code> → <code>i5</code></td><td>5 bits</td><td>64</td></tr>
-<tr><td><code>i4</code> → <code>i9</code></td><td>9 bits (approx; rounds up to fit 320-bit row)</td><td>32</td></tr>
+<tr><td><code>i4</code> → <code>i5</code> (hardware behaviour; not wired, so an <code>i4</code> weight stays <code>i4</code> today)</td><td>5 bits</td><td>64</td></tr>
+<tr><td><code>i8</code> → <code>i9</code></td><td>9 bits (approx; rounds up to fit 320-bit row)</td><td>32</td></tr>
 <tr><td><code>i8</code> / <code>f8</code></td><td>8 bits</td><td>32 (40 bytes per row)</td></tr>
 <tr><td><code>bf16</code></td><td>16 bits</td><td>16 (32 bytes per row)</td></tr>
 </tbody>
 </table>
 </div>
-<p>Only <code>i4</code> elements promote on store: <code>i4 → i5</code> (5 bits) and <code>i4 → i9</code> (9 bits) leave room for the fetch adapter’s optional zero-point subtraction, which can widen <code>i4</code> intermediates by one bit per nibble.
+<p>Only integers promote on store: <code>i4 → i5</code> (5 bits) and <code>i8 → i9</code> (9 bits) leave room for the fetch adapter’s optional zero-point subtraction, which widens an integer weight by one bit.
 <code>i8</code> / <code>f8</code> and <code>bf16</code> stay at their native widths (8 and 16 bits respectively); the 320-bit row holds extra slack relative to a flat 8- or 16-bit packing so the same physical row width serves all types.</p>
-<p>With fewer than 8 active lanes, each active lane sees more rows (as if the row count grew). Halving the active count doubles the rows per active lane (e.g., 4 active → 256 rows per bank, 1 active → 1024).</p>
+<p>With fewer than 8 active lanes, each active lane sees more rows (as if the row count grew).
+Halving the active count doubles the rows per active lane (e.g., 4 active → 256 rows per bank, 1 active → 1024).</p>
 <h3 id="double-buffering"><a class="header" href="#double-buffering">Double Buffering</a></h3>
 <p>The TRF enables double-buffering by splitting each bank into two halves: the <a href="./contraction-engine/outer.html#trf-sequencer">TRF Sequencer</a> loads from one half while a store fills the other, and the two can be flipped between iterations.
-Three address modes select the region, fixed at store time: <code>Full</code> uses all 128 rows per bank, <code>FirstHalf</code> uses rows 0–63, and <code>SecondHalf</code> uses rows 64–127.
+Three address modes name the region, and the scheduler picks one at store time: <code>Full</code> uses all 128 rows per bank, <code>FirstHalf</code> uses rows 0–63, and <code>SecondHalf</code> uses rows 64–127.
 The half modes cap per-slice capacity at 40 KB.</p>
-<p>See <a href="../scheduling.html#double-buffering-pattern">Scheduling: Double-Buffering Pattern</a> for the kernel pattern that uses these halves across the main and sub contexts.</p>
+<p>See <a href="../scheduling/tuning.html#double-buffering">Scheduling and Tuning: Double Buffering</a> for the tuning pattern that uses these halves across the main and sub contexts.</p>
 <p>Both halves share the same banks, so reads and writes contend at the bank level even though they target different rows.
 When both target the same bank in a cycle, the read takes priority because the contraction pipeline needs the data this cycle while the store can wait.</p>
 <p>The TRF mitigates this contention with a read cache and bank alternation.</p>
@@ -298,26 +309,21 @@ Wide reads (64 bytes) occupy both banks every cycle, so each cache miss blocks t
 #[derive(Debug, Clone)]
 pub struct VrfTensor&lt;D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend = CurrentBackend&gt; {
     pub(crate) inner: Tensor&lt;D, Pair&lt;Chip, Pair&lt;Cluster, Pair&lt;Slice, Element&gt;&gt;&gt;, B&gt;,
-    #[expect(dead_code)]
-    address: Option&lt;Address&gt;,
     _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Element)&gt;,
 }</code></pre>
-<p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source. <code>Element</code> holds the per-(slice) layout.</p>
+<p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source.
+<code>Element</code> holds the per-(slice) layout.</p>
 <h4 id="from-collect-engine-1"><a class="header" href="#from-collect-engine-1">From Collect Engine</a></h4>
-<p><code>.to_vrf::&lt;Element2&gt;()</code> on <code>CollectTensor</code> stores the flits into the VRF and produces a <code>VrfTensor</code>; <code>.to_vrf_at::&lt;Element2&gt;(address)</code> stores at a raw <code>Address</code>:</p>
+<p><code>.to_vrf::&lt;Element2&gt;()</code> on <code>CollectTensor</code> stores the flits into the VRF and produces a <code>VrfTensor</code>.
+Where in the register file they land is the compiler’s to decide, so the call names no address:</p>
 <pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
     TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Stores to the vector register file.
     #[primitive(TuTensor::to_vrf)]
     pub fn to_vrf&lt;Element: M&gt;(self) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
-        VrfTensor::new(self.inner.transpose(false), None)
-    }
-
-    /// Stores to the vector register file at `address`.
-    #[primitive(TuTensor::to_vrf_at)]
-    pub fn to_vrf_at&lt;Element: M&gt;(self, address: Address) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
-        VrfTensor::new(self.inner.transpose(false), Some(address))
+        constraints::assert_vrf_capacity::&lt;D, Element&gt;();
+        VrfTensor::from_parts(self.inner.transpose(false))
     }
 }</code></pre>
 <p><code>.to_vrf</code> flattens the streaming <code>Time</code> / <code>Packet</code> into <code>Element2</code>:</p>

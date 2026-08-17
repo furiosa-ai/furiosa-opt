@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["attention","axes","decoder","embedding","head"]};

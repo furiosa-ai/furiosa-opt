@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["matmul_wo_broadcast"],"struct":["A","B","__furiosa_opt_matmul_wo_broadcast"]};

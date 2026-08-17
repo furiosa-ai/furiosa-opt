@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,7 +182,8 @@ It preserves <code>Chip</code>, <code>Cluster</code>, and <code>Packet</code>, a
 The output tensor is always <code>Way8</code> regardless of the input mode.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p>The reducer can be entered right after <code>vector_init()</code> (the <code>InterFirst</code> path, shown below) or from a <a href="./intra-slice-chain.html#transitioning-to-the-inter-slice-reducer">compatible intra-slice stage</a> (the <code>IntraFirst</code> path, with the same <code>vector_inter_slice_reduce()</code> method called on the intra-slice tensor).
-The signatures shown below are the <code>VectorInitTensor</code> variants. The same methods also exist on intra-slice tensors at the stages that support the transition, so the call site looks identical.</p>
+The signatures shown below are the <code>VectorInitTensor</code> variants.
+The same methods also exist on intra-slice tensors at the stages that support the transition, so the call site looks identical.</p>
 <p>The inter-slice reducer provides separate APIs for <code>i32</code> and <code>f32</code>.</p>
 <h3 id="i32-operations"><a class="header" href="#i32-operations"><code>i32</code> Operations</a></h3>
 <pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;

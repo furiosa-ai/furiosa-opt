@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -355,58 +355,8 @@ After:    Time = m![A, B # 64 / 32]
           └──────────────────────────┘
 </code></pre>
 <h2 id="register-file-loading"><a class="header" href="#register-file-loading">Register File Loading</a></h2>
-<p>After normalization, store the <code>CollectTensor</code> into the Tensor Register File via <a href="#to-trf"><code>.to_trf()</code></a> or the Vector Register File via <a href="#to-vrf"><code>.to_vrf()</code></a>.
-The “To TRF” / “To VRF” subsections below describe the store mechanism (<code>time_inner</code> derivation, <code>[time_inner, Packet]</code> sequenced into <code>Element</code>).</p>
-<h3 id="to-trf"><a class="header" href="#to-trf">To TRF</a></h3>
-<p><code>.to_trf::&lt;Row, Element&gt;()</code> partitions the TRF along its row dimension.
-The kernel writer chooses <code>Row</code> (the row layout in the TRF, with <code>Row::SIZE</code> in {1, 2, 4, 8}) and <code>Element</code> (the per-row element layout).
-The compiler then finds a <code>time_inner</code> such that <code>Time</code> decomposes into <code>[Row, time_inner]</code> and <code>[time_inner, Packet]</code> is sequenced into <code>Element</code>, so each row of the TRF is filled by <code>time_inner</code> consecutive flits.</p>
-<p><code>.to_trf()</code> uses the entire TRF (<code>TrfAddress::Full</code>). To let two tensors occupy the TRF independently, use <code>.to_trf_at::&lt;Row, Element&gt;(address)</code> with a <code>TrfAddress</code> that selects the region:</p>
-<ul>
-<li><code>Full</code>: the entire TRF.</li>
-<li><code>FirstHalf</code> / <code>SecondHalf</code>: the TRF split into two halves.</li>
-</ul>
-<p>The compiler bounds the resulting tensor’s total byte size by the chosen region’s capacity.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![B = 32];
-
-fn load_trf&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt;,
-) -&gt; TrfTensor&lt;i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; {
-    input.to_trf()
-}
-<span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let _o = load_trf(c);
-</span><span class="boring">}</span></code></pre>
-<h3 id="to-vrf"><a class="header" href="#to-vrf">To VRF</a></h3>
-<p><code>.to_vrf::&lt;Element&gt;()</code> stores the flits into the VRF; <code>.to_vrf_at::&lt;Element&gt;(address)</code> stores at a raw <code>Address</code> (no bounded-region selection).
-The kernel writer chooses <code>Element</code>, the destination element layout in the VRF.
-Unlike <code>.to_trf</code> (which accepts any <code>Scalar</code> element type), <code>.to_vrf</code> requires a <code>VeScalar</code> element type (i.e., <code>i32</code> or <code>f32</code>) because the Vector Engine downstream consumes these types only.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![B = 64];
-
-fn load_vrf&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt;,
-) -&gt; VrfTensor&lt;i32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
-    input.to_vrf()
-}
-<span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let _o = load_vrf(c);
-</span><span class="boring">}</span></code></pre>
+<p>After normalization, store the <code>CollectTensor</code> into the Tensor Register File with <a href="./register-files.html#tensor-register-file"><code>.to_trf()</code></a> or the Vector Register File with <a href="./register-files.html#vector-register-file"><code>.to_vrf()</code></a>.
+The <a href="./register-files.html">Register Files</a> chapter owns their APIs, regions, capacities, address modes, and examples.</p>
 
                     </main>
 

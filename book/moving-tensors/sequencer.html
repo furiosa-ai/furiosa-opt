@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,12 +178,16 @@
                     <main>
                         <h1 id="sequencer"><a class="header" href="#sequencer">Sequencer</a></h1>
 <p>A sequencer reads a memory buffer as a packet stream and writes a packet stream back to memory.
+Mappings and packet sizes are the author-facing controls.</p>
+<p>Sequencer mechanics explain the loops, strides, access sizes, and lifetimes shared by Fetch, Commit, and DMA.
+The pseudo-type examples introduce the model; Access Size and Architecture explain the concrete engine behavior.
 The Fetch and Commit Engines each use one sequencer to address DM.
-The DMA Engine chains a read sequencer and a write sequencer to move data among DM, SPM, and HBM without intermediate buffers.</p>
+The DMA Engine chains a read sequencer and a write sequencer to move data among DM and HBM without intermediate buffers.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
-<p><code>MemTensor</code> and <code>StreamTensor</code> are pedagogical pseudo types that capture the buffer-stream pattern in isolation, so this page can explain sequencer mechanics without dragging in each engine’s full type machinery.
+<p><code>MemTensor</code> and <code>StreamTensor</code> are teaching-only pseudo types that isolate the buffer-to-stream pattern, so this section can explain sequencer mechanics without introducing every engine type.
 The real engine APIs use different types (<code>DmTensor</code>, <code>HbmTensor</code>, <code>TuTensor</code>, …), but every concrete pair maps onto the same <code>MemTensor</code> → <code>StreamTensor</code> shape illustrated below.</p>
-<p><code>MemTensor</code> holds data in some memory mapping <code>Buf</code>, and any concrete buffer tensor (DM, SPM, HBM) plays this role.</p>
+<p><code>MemTensor</code> holds data in some memory mapping <code>Buf</code>.
+DM and HBM tensors play this role in the public API.</p>
 <pre><code class="language-rust ignore">/// A generic buffer-backed tensor.
 /// Anything that holds data in a memory `Buf` and can be streamed in or out.
 #[derive(Debug)]
@@ -568,7 +572,8 @@ The compiler processes <code>m![A / 4, A % 4 = 3, B / 4, B % 4 = 2, C]</code> te
 <p><code>Packet::SIZE = max_access_size = 8</code>.</p>
 <h3 id="broadcasting-axes"><a class="header" href="#broadcasting-axes">Broadcasting Axes</a></h3>
 <p>Broadcasting replicates an element across multiple packets or time steps when the stream visits axes that <code>Buf</code> does not carry.
-Any axis (or partial-axis fragment like <code>N / 512</code>) present in <code>Time</code> or <code>Packet</code> but absent from <code>Buf</code> becomes a broadcast entry, shown as <code>: 0</code> in the stride table (the hardware revisits the same address on each iteration).</p>
+An axis or partial-axis fragment such as <code>N / 512</code> can appear in <code>Time</code> or <code>Packet</code> but not <code>Buf</code>.
+The sequencer then emits a broadcast entry <code>: 0</code> and revisits the same address.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
@@ -771,11 +776,6 @@ fn read_incompatible&lt;'l&gt;(
 </span><span class="boring">}</span></code></pre>
 <p><code>Buf</code> decomposes <code>A</code> as <code>5 × 3</code> while the stream decomposes it as <code>3 × 5</code>.
 Since <code>gcd(5, 3) = 1</code>, neither decomposition refines the other: the compiler cannot consume <code>A % 3</code> from a <code>Buf</code> that has already committed to a 5-block split.</p>
-<h2 id="indirect-access"><a class="header" href="#indirect-access">Indirect Access</a></h2>
-<p>All entries above use fixed strides: the memory offset between iterations is constant.
-<code>IndirectLoop</code> extends this by allowing variable offsets per iteration, enabling gather operations with data-dependent access patterns.</p>
-<p>The standard pattern <code>(limit, stride)</code> becomes <code>(limit, [offset0, offset1, ...])</code>, where each iteration uses a different offset from the provided sequence.
-This supports operations like embedding lookups where indices are determined at runtime.</p>
 
                     </main>
 

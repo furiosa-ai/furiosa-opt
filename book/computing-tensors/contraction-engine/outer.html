@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -204,8 +204,11 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
 &gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Runs the Outer stage: stashes the two un-broadcast operands (widened to the accumulator type)
-    /// and the layouts [`super::lane::contract_lane`] needs to fuse them into a [`LazyContraction`]. No
+    /// and the layouts [`super::ContractTimeTensor::contract_lane`] needs to fuse them into a [`LazyContraction`]. No
     /// materializing alternative, no per-backend branch -- every backend fuses the same way.
+    ///
+    /// The impl block binds [`ContractionCast`], so this method does not exist on a `TuTensor` whose
+    /// element type the Multiplier has no MAC for.
     #[primitive(TuTensor::contract_outer)]
     pub fn contract_outer&lt;OutTime: M, OutPacket: M, Lane: M, TrfElement: M, TrfD&gt;(
         self,
@@ -239,18 +242,9 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
         // to the old per-cell widen (same `Cast::cast` per element), it just never allocates the
         // pre_reduce-shaped broadcast this stage used to build.
         //
-        // `map_bounded`, NOT the plain `map`: `D` (the stream side) and `TrfD` (the TRF side) may each
-        // legitimately be a non-`MaterializableScalar` staging type (`i5`/`i9`, produced by
-        // `fetch_zero_point_sub` -- "an i5/i9 may still be a contraction weight resident in the TRF" per
-        // its own doc). Such a type's storage-native length recovery over-reports (its `BITS` names a
-        // real-hardware wire width, disconnected from its host in-memory size), so a plain `map`'s
-        // internal whole-buffer walk reads/writes past the buffer once the count crosses the true
-        // element count -- this is the ONE place either operand is read back as a whole tensor before
-        // `contract_lane`'s fused `Backend::contraction` (its only other lifetime is written-once by
-        // `fetch_zero_point_sub`, never read back that way), so it is also the one place this matters.
         let contraction = LazyContraction {
-            lhs: self.inner.map_bounded(|v| -&gt; Out&lt;D&gt; { v.cast() }).inner,
-            rhs: trf_tensor.inner.map_bounded(|v| -&gt; Out&lt;D&gt; { v.cast() }).inner,
+            lhs: self.inner.map(|v| -&gt; Out&lt;D&gt; { v.cast() }).inner,
+            rhs: trf_tensor.inner.map(|v| -&gt; Out&lt;D&gt; { v.cast() }).inner,
             lhs_map,
             rhs_map,
             pre_reduce,
@@ -263,7 +257,8 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
 <code>OutPacket</code> absorbs the innermost size-1-or-2 factor of <code>Time</code> via <a href="#packing">Packing</a>.
 <code>OutTime</code> retains the remaining factors of <code>Time</code>, with broadcast factors added at its innermost positions via <a href="#broadcast">Broadcast</a>.
 Broadcast factors come from the TRF operand’s <code>Lane</code> / <code>Element</code> (where the streaming operand replicates against the TRF mapping) and from any purely-output axes that appear in <code>OutTime</code> / <code>OutPacket</code> but in neither the input nor the TRF (e.g. einsum <code>AB, BC -&gt; ABCD</code> where <code>D</code> is broadcast).</p>
-<p>The <code>TrfTensor</code> has shape <code>[Chip, Cluster, Slice, Lane, Element]</code>, with <code>Chip</code> / <code>Cluster</code> / <code>Slice</code> / <code>Lane</code> spatially parallel: <code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through to the output, and <code>Lane</code> partitions per-lane data across 1–8 hardware lanes. <code>Element</code> (the per-lane layout set by <a href="../register-files.html#tensor-register-file"><code>.to_trf()</code></a>) is reshaped by the TRF Sequencer to fill <code>OutTime</code> / <code>OutPacket</code>.</p>
+<p>The <code>TrfTensor</code> has shape <code>[Chip, Cluster, Slice, Lane, Element]</code>, with <code>Chip</code> / <code>Cluster</code> / <code>Slice</code> / <code>Lane</code> spatially parallel: <code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through to the output, and <code>Lane</code> partitions per-lane data across 1–8 hardware lanes.
+<code>Element</code> (the per-lane layout set by <a href="../register-files.html#tensor-register-file"><code>.to_trf()</code></a>) is reshaped by the TRF Sequencer to fill <code>OutTime</code> / <code>OutPacket</code>.</p>
 <h2 id="stream-adapter"><a class="header" href="#stream-adapter">Stream Adapter</a></h2>
 <p>The Stream Adapter transforms the streaming <code>Time</code> / <code>Packet</code> into the computation shape (<code>Lane</code> / <code>OutTime</code> / <code>OutPacket</code>) via two operations: <a href="#packing">Packing</a> and <a href="#broadcast">Broadcast</a>.
 The compiler derives the three free variables (<code>PackSize</code>, <code>LaneBroadcast</code>, <code>TimeBroadcast</code>) from the user-supplied <code>OutTime</code> / <code>OutPacket</code>, the TRF operand, and any purely-output broadcast axes, giving the mapping:</p>
@@ -279,7 +274,8 @@ PackPacket = [Time % PackSize, Packet] # (PackSize × 32 / D::SIZE)
 </code></pre>
 <p><code>PackSize</code> is set by matching <code>OutPacket</code> against the input <code>Packet</code>: <code>PackSize = 2</code> if <code>OutPacket</code> absorbs the innermost size-2 factor of <code>Time</code>, otherwise <code>PackSize = 1</code>.
 Equivalently, <code>PackSize = OutPacket::SIZE * D::SIZE / 32</code>, so the user picks <code>OutPacket</code> (32 B or 64 B) and Packing’s collect-flit count follows.</p>
-<p>Hardware always operates on 64 B packets internally; when <code>PackSize = 1</code>, the unused 32 B half holds zeros that do not propagate into the logical <code>OutPacket</code> type. Downstream stages (Packet Reducer, Lane Folder) therefore see only the <code>PackSize × 32</code> B payload, avoiding dummy cycles, see the <a href="./lane-folder.html#sequential">Lane Folder Sequential note</a>.</p>
+<p>Hardware always operates on 64 B packets internally; when <code>PackSize = 1</code>, the unused 32 B half holds zeros that do not propagate into the logical <code>OutPacket</code> type.
+Downstream stages (Packet Reducer, Lane Folder) therefore see only the <code>PackSize × 32</code> B payload, avoiding dummy cycles, see the <a href="./lane-folder.html#sequential">Lane Folder Sequential note</a>.</p>
 <h3 id="broadcast"><a class="header" href="#broadcast">Broadcast</a></h3>
 <p>After packing, the Stream Adapter broadcasts the data spatially via <code>LaneBroadcast</code> (the TRF’s <code>Lane</code> mapping, ∈ {1, 2, 4, 8}) and temporally via <code>TimeBroadcast</code>.
 <code>TimeBroadcast</code> covers factors of TRF <code>Element</code> not in the input <code>Time</code>, and also any purely-output axes in <code>OutTime</code> that appear in neither the input nor the TRF: the same broadcast machinery replicates the packet across both.
@@ -314,12 +310,14 @@ fn stream_adapter_example&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = stream_adapter_example(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
 <ul>
-<li><code>OutPacket::SIZE * Storage::SIZE ∈ {32, 64}</code> bytes (on RNGD), where <code>Storage</code> is the pre-widen operand dtype (e.g. <code>bf16</code> = 2 B, <em>not</em> the widened <code>f32</code> accumulator the result tensor carries): 32 for <code>PackSize = 1</code>, 64 for <code>PackSize = 2</code>. The user picks this size and Packing’s collect-flit count follows.</li>
+<li><code>OutPacket::SIZE * Storage::SIZE ∈ {32, 64}</code> bytes (on RNGD), where <code>Storage</code> is the pre-widen operand dtype (e.g. <code>bf16</code> = 2 B, <em>not</em> the widened <code>f32</code> accumulator the result tensor carries).
+The size is 32 for <code>PackSize = 1</code> and 64 for <code>PackSize = 2</code>.
+The user picks this size and Packing’s collect-flit count follows.</li>
 <li><code>PackSize ∈ {1, 2}</code> (see <a href="#packing">Packing</a>).</li>
 <li><code>Lane::SIZE ∈ {1, 2, 4, 8}</code>.</li>
 </ul>
@@ -369,7 +367,7 @@ fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = trf_sequencer_full_read(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <p>In this example, <code>ReadSize</code> covers only part of <code>Element</code>, so <code>Element / ReadSize</code> is non-trivial and the sequencer iterates the outer <code>Element</code> factor alongside a broadcast:</p>
@@ -395,25 +393,45 @@ fn trf_sequencer_partial_read&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = trf_sequencer_partial_read(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="constraints-1"><a class="header" href="#constraints-1">Constraints</a></h3>
 <ul>
-<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="../../moving-tensors/sequencer.html#configuration">Sequencer</a>).</li>
+<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="../../moving-tensors/sequencer.html#configurations">Sequencer</a>).</li>
 <li><strong>Address alignment</strong>: when <code>Element % ReadSize</code> covers all 64 B, the read spans both TRF banks per lane, so the sequencer’s base address and all strides must align to 64 B.</li>
 </ul>
 <h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>
-<p>Across cycles, the sequencer iterates the outer factors of <code>Element</code> (i.e. <code>Element / ReadSize</code>) using the same nested-loop configuration as all other <a href="../../moving-tensors/sequencer.html">sequencers</a>, so a single <code>TrfTensor</code> walks <code>Element / ReadSize</code> cycles before exhausting its content.
+<p>Across cycles, the sequencer iterates the outer factors of <code>Element</code> (i.e.
+<code>Element / ReadSize</code>) using the same nested-loop configuration as all other <a href="../../moving-tensors/sequencer.html">sequencers</a>, so a single <code>TrfTensor</code> walks <code>Element / ReadSize</code> cycles before exhausting its content.
 <code>PacketBroadcast</code> factors replicate the same row within a single cycle, filling the 64 B <code>OutPacket</code> past the natural <code>ReadSize</code> without consuming additional TRF read bandwidth.</p>
 <h3 id="performance-1"><a class="header" href="#performance-1">Performance</a></h3>
 <p>Throughput is one full <code>OutPacket</code> per lane per cycle: 640 bits per lane when both banks are read, 320 bits per lane when only one bank is read.
 See <a href="../register-files.html#to-contraction-engine">Register Files: To Contraction Engine</a> for the per-slice byte totals.
 The TRF read cache and bank alternation (see <a href="../register-files.html#double-buffering">Register Files: Double Buffering</a>) keep the concurrent sub-context store unblocked across broadcast reuse and narrow reads.</p>
 <h2 id="multiplier"><a class="header" href="#multiplier">Multiplier</a></h2>
-<p>The Multiplier consumes the two aligned operands from the Stream Adapter and TRF Sequencer, widens each input element to the contraction output type (<code>i4</code>/<code>i8</code> -&gt; <code>i32</code>, <code>f8</code>/<code>bf16</code> -&gt; <code>f32</code>) to keep the downstream accumulator from overflowing, and multiplies them elementwise.
+<p>The Multiplier consumes the two aligned operands from the Stream Adapter and TRF Sequencer, widens each input element to the contraction output type to keep the downstream accumulator from overflowing, and multiplies them elementwise.
 Its output, a single tensor in the joint mapping <code>[Chip, Cluster, Slice, Lane, Time, Packet]</code>, becomes the input to the <a href="./packet-reducer.html">Packet Reducer</a>.
 Each <code>Time</code> cycle, every <code>Lane</code> produces a full <code>packet</code> of products in parallel.</p>
+<h3 id="operand-types"><a class="header" href="#operand-types">Operand types</a></h3>
+<p>These are the operand pairs the Multiplier accepts, with the type each pair widens to:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stream (activation)</th><th>Weight (TRF)</th><th>Accumulator</th></tr>
+</thead>
+<tbody>
+<tr><td><code>i4</code> or <code>i5</code></td><td><code>i4</code> or <code>i5</code></td><td><code>i32</code></td></tr>
+<tr><td><code>i8</code> or <code>i9</code></td><td><code>i8</code> or <code>i9</code></td><td><code>i32</code></td></tr>
+<tr><td><code>f8e4m3</code></td><td><code>f8e4m3</code></td><td><code>f32</code></td></tr>
+<tr><td><code>f8e5m2</code></td><td><code>f8e5m2</code></td><td><code>f32</code></td></tr>
+<tr><td><code>bf16</code></td><td><code>bf16</code></td><td><code>f32</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>An integer operand may be the raw form (<code>i4</code>/<code>i8</code>) or its zero-point-subtracted staging (<code>i5</code>/<code>i9</code>, produced by <a href="../fetch-adapter.html#zero-point-subtraction">Zero-Point Subtraction</a>), and the two operands need not match within a family.
+They may not cross families (no <code>i4</code> against <code>i8</code>) or kinds (no integer against float), and a float pair must match exactly.</p>
+<p>A contraction over an element type this table does not list runs in the <a href="../vector-engine/index.html">Vector Engine</a> instead: multiply elementwise, then reduce with <a href="../vector-engine/intra-slice-reduce.html">Intra-Slice Reduce</a>, which computes in <code>i32</code> / <code>f32</code>.</p>
 
                     </main>
 

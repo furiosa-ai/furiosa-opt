@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,15 +177,39 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="mapping-tensors"><a class="header" href="#mapping-tensors">Mapping Tensors</a></h1>
-<p>Tensors have no intrinsic order of elements.
-A mapping assigns each tensor index to a buffer position, defining that order.</p>
-<p>This chapter shows how layout choices affect memory access and explains TCP’s declarative approach to tensor layout with mapping expressions.</p>
-<h2 id="layout-and-performance"><a class="header" href="#layout-and-performance">Layout and Performance</a></h2>
-<p>The mapping determines access efficiency: hardware reads memory in contiguous blocks, so elements stored far apart require more transfers.
-This choice affects programs too: programmers choose which axis is <em>major</em> (outermost, changes slowest) and which is <em>minor</em> (innermost, changes fastest, stored contiguously).
-Layout cannot change after allocation without copying and transposing data, so the choice at allocation time constrains all subsequent operations.</p>
-<p>Consider a tensor with axes H (height, 6 rows) and W (width, 8 columns).
-The same tensor admits different mappings, each with different performance characteristics.</p>
+<p>A mapping is the source of truth for logical order and physical placement.
+Validate its cells and dimensions before selecting movement or compute operations.
+Every mapping expression maps a logical index to a physical location.
+Read the result categories defined in <a href="#position-cell-summary">Position Cell Summary</a> before selecting movement or compute operations.</p>
+<h2 id="place-and-reduce-dimensions"><a class="header" href="#place-and-reduce-dimensions">Place and Reduce Dimensions</a></h2>
+<p>The table places axes before movement or compute operations are selected.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Dimension</th><th>Type</th><th>Defined in</th><th>Reduced in</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Chip</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#spatial-dimensions">HBM, DM</a>, <a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../moving-tensors/dma-engine.html">DMA</a> + <a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
+<tr><td><code>Cluster</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#spatial-dimensions">DM</a>, <a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../moving-tensors/dma-engine.html">DMA</a> + <a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
+<tr><td><code>Slice</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#spatial-dimensions">DM</a>, <a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
+<tr><td><code>Lane</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#spatial-dimensions">TRF</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
+<tr><td><code>Time</code></td><td>Temporal</td><td><a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
+<tr><td><code>Packet</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
+</tbody>
+</table>
+</div>
+<p>Chip and Cluster reductions use DMA redistribution followed by Vector Engine reduction.</p>
+<h2 id="mapping-order-and-performance"><a class="header" href="#mapping-order-and-performance">Mapping Order and Performance</a></h2>
+<p>A tensor has values but no intrinsic storage order.
+A mapping chooses that order, and hardware accesses are most efficient when adjacent values occupy contiguous buffer positions.
+The outermost mapping dimension is major and changes slowest.
+The innermost is minor and changes fastest.
+For a height-by-width tensor, <code>m![H, W]</code> makes rows contiguous, while <code>m![W, H]</code> makes columns contiguous.
+Each order favors locality along a different axis: an H-major mapping makes a scan along W contiguous, while a W-major mapping makes a scan along H contiguous.
+A tiled mapping such as <code>m![H / 2, W / 2, H % 2, W % 2]</code> places small two-dimensional neighborhoods contiguously, so neither H nor W is globally the sole contiguous direction.
+This changes which access patterns map to nearby buffer positions, but does not inherently guarantee faster hardware access.
+The additional mapping state needed to represent the split dimensions is its main extra cost.</p>
+<p>For axes <code>H</code> (six rows) and <code>W</code> (eight columns), the same values can therefore have different physical access patterns:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -203,7 +227,8 @@ The same tensor admits different mappings, each with different performance chara
 </div>
 <ul>
 <li>
-<p><strong>H Major, W Minor</strong>: A scan along W is contiguous; a scan along H accesses one element per cache line.</p>
+<p><strong>H-major, W-minor: <code>m![H, W]</code></strong> — a scan along W is contiguous.
+A scan along H touches one value per cache line.</p>
 <table>
   
 <tr>
@@ -223,7 +248,8 @@ The same tensor admits different mappings, each with different performance chara
 
 </li>
 <li>
-<p><strong>W Major, H Minor</strong>: A scan along H is contiguous; a scan along W accesses one element per cache line.</p>
+<p><strong>W-major, H-minor: <code>m![W, H]</code></strong> — a scan along H is contiguous.
+A scan along W touches one value per cache line.</p>
 <table>
   
 <tr>
@@ -245,8 +271,9 @@ The same tensor admits different mappings, each with different performance chara
 
 </li>
 <li>
-<p><strong>2×2 Tiles</strong>: Either choice sacrifices locality along one axis: H-major stores H-adjacent elements far apart, and W-major stores W-adjacent elements far apart.
-To avoid this trade-off, tiling groups nearby H and W indices into 2D tiles, achieving good locality along both axes, at the cost of a non-trivial address formula.</p>
+<p><strong>2×2 tiles: <code>m![H / 2, W / 2, H % 2, W % 2]</code></strong> — H-major and W-major each sacrifice locality along one axis.
+Tiling places small neighborhoods contiguously along both axes, changing the locality distribution without inherently guaranteeing faster hardware access.
+The split dimensions require a non-trivial address formula and additional mapping state.</p>
 <table>
   
 <tr>
@@ -266,36 +293,64 @@ To avoid this trade-off, tiling groups nearby H and W indices into 2D tiles, ach
 
 </table>
 
-<p>Decompositions also determine hardware execution structure.
-The outer dimension can become a hardware time loop, and the inner dimension becomes a parallel lane.
-TCP names these hardware dimensions <code>Time</code> (the sequential loop counter) and <code>Packet</code> (the parallel data lane width), used throughout this book.
-<a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> explains how decompositions map to them.</p>
 </li>
 </ul>
-<h2 id="the-declarative-approach"><a class="header" href="#the-declarative-approach">The Declarative Approach</a></h2>
-<p>Choosing optimal layout combinations manually is complex: the programmer must account for hardware geometry, alignment constraints, and execution patterns simultaneously.
-The compiler derives physical placement, alignment, and hardware scheduling.</p>
-<p>Virtual ISA lets the programmer and compiler declare a mapping in terms of logical axes.
-For the H×W tensor from <a href="#layout-and-performance">Layout and Performance</a>, the leftmost axis is major and the rightmost is minor:</p>
-<ul>
-<li><strong>H-major</strong>: <code>m![H, W]</code></li>
-<li><strong>W-major</strong>: <code>m![W, H]</code></li>
-<li><strong>2×2 Tiles</strong>: <code>m![H / 2, W / 2, H % 2, W % 2]</code>, where the first two dimensions are tile indices and the last two are positions within the tile.</li>
-</ul>
-<p>Declarative mappings offer two benefits:</p>
-<ul>
-<li><strong>Expressiveness</strong>: Layout is stated in terms of logical axes (<code>m![H, W]</code>), not raw strides or offsets.</li>
-<li><strong>Correctness</strong>: Mapping expressions are normalized to canonical form and verified symbolically, turning layout properties into compile-time invariants.</li>
-</ul>
-<p>Mapping expressions describe a tensor at every stage of its life: the same tensor can be stored in HBM, loaded into DM with a different layout, and streamed through the pipeline as packets.
-Each stage holds the same mathematical values in a different physical representation.
-<a href="./tensor-semantics.html">Tensor Semantics</a> formalizes this perspective and shows how it makes data movement composable with computation in the same pipeline.</p>
+<p>The selected mapping also constrains later execution.
+Changing a representation’s order after allocation generally requires copying or transposing its data, so allocation-time choices affect subsequent operations.
+Hardware geometry, alignment, and scheduling remain architectural constraints that compiler lowering must account for.
+The mapping expresses the logical order rather than a raw address calculation.
+Device-specific alignment checks apply, and misaligned accesses can require read-modify-write cycles with substantial performance cost (historically observed at roughly 50× for affected DM accesses).</p>
+<p>The mapping is the complete technical description of this choice.
+A physical representation is the concrete buffer, device placement, and stream decomposition produced from that mapping.
+The same values can move between different physical representations without changing the logical tensor.</p>
+<h2 id="position-cell-summary"><a class="header" href="#position-cell-summary">Position Cell Summary</a></h2>
+<p>Every mapping expression maps a physical position to a <code>Cell</code>.
+Identify the result category before interpreting any coordinates.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate furiosa_mapping;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 4];
+type E = m![A];
+
+assert_eq!(E::map(0), i![A: 0]);
+assert_eq!(E::map(4), Cell::OutOfBounds);
+<span class="boring">}</span></code></pre>
+<p><code>Cell::Index</code> carries live <code>Index</code> terms.
+<code>Cell::OutOfBounds</code> identifies a position outside the mapping.
+<code>Cell::Padding</code> is introduced with padding in <a href="./mapping-expressions.html">Mapping Expressions</a>.</p>
+<p>This section summarizes the result categories.
+After identifying the <code>Cell</code>, use <a href="./mapping-expressions.html">Mapping Expressions</a> for constructors and API syntax.</p>
+<h2 id="representation-and-distribution"><a class="header" href="#representation-and-distribution">Representation and Distribution</a></h2>
+<h3 id="physical-representations"><a class="header" href="#physical-representations">Physical Representations</a></h3>
+<p>Storage and stream tensors split one mapping across hardware dimensions.
+An HBM representation may distribute channels across chips.
+A DM representation may repartition those channels across slices.
+A stream representation may put the remaining dimensions in <code>Time</code> and <code>Packet</code>.
+<a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> follows one NCHW tensor through those representations with a concrete coordinate trace.</p>
+<p>This representation trace closes the chapter: choose a mapping, derive each physical representation, then verify that the value at a traced <code>Index</code> reaches the expected stream cell.
+The formal tensor-value definition is in <a href="./tensor-semantics.html">Tensor Semantics</a>.
+This chapter keeps the explanation operational.</p>
+<p>For a minimal computation over a representation, see the <a href="../computing-tensors/vector-engine/index.html">Vector Engine</a>.
+Elementwise operations belong with that execution API, while this chapter focuses on mapping and representation.</p>
+<h3 id="distribution-across-space-and-time"><a class="header" href="#distribution-across-space-and-time">Distribution Across Space and Time</a></h3>
+<p>Mapping dimensions are assigned explicitly to spatial hardware dimensions (<code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, and <code>Packet</code>) or to the temporal <code>Time</code> loop.
+These names describe where a mapping is consumed, not a second representation vocabulary.
+See <a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> for the tensor declarations and constraints.</p>
+<h3 id="declarative-mapping-context"><a class="header" href="#declarative-mapping-context">Declarative Mapping Context</a></h3>
+<p>Declarative mappings state order in terms of logical axes instead of raw strides or offsets.
+The H×W examples above use <code>m![H, W]</code> for H-major order, <code>m![W, H]</code> for W-major order, and <code>m![H / 2, W / 2, H % 2, W % 2]</code> for 2×2 tiles.
+The first two tile dimensions identify a tile and the last two identify its position within that tile.</p>
+<p>Mapping expressions can be normalized to a standard representation, which makes equivalent constructor forms easier to inspect.
+The tested normalization properties and their limits are documented with <a href="./mapping-expressions.html#equivalent-mappings">Equivalent Mappings</a>.
+This chapter does not claim a universal proof or unique representation.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../quick-start.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../quick-start/kernel-validation.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -309,7 +364,7 @@ Each stage holds the same mathematical values in a different physical representa
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../quick-start.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../quick-start/kernel-validation.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

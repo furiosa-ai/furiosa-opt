@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Transformer - Programming Tensor Contraction Processors</title>
+        <title>Case Study: Transformer - Programming Tensor Contraction Processors</title>
 
 
         <!-- Custom HTML head -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -176,1113 +176,139 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="transformer-architecture"><a class="header" href="#transformer-architecture">Transformer Architecture</a></h1>
-<p>This chapter maps each operation in a transformer model to specific TCP hardware components.
-Llama 3 70B serves as the running example.
-As a decoder-only model, it runs through two phases (prefill for input encoding and decode for token generation), each with different TCP hardware characteristics.</p>
-<h2 id="model-parameters"><a class="header" href="#model-parameters">Model Parameters</a></h2>
-<p>The following parameters define the Llama 3 70B architecture and are referenced in all shape annotations throughout this chapter:</p>
-<p><strong>Sequence dimensions</strong> (control input/output length):</p>
-<ul>
-<li><code>B</code>: batch size</li>
-<li><code>s_in</code>: input sequence length</li>
-<li><code>s_max</code>: maximum sequence length/context length</li>
-<li><code>s</code>: total sequence length processed so far (prefill + decode)</li>
-</ul>
-<p><strong>Model size</strong> (vocabulary and layer counts):</p>
-<ul>
-<li><code>V = 128256</code>: vocab size</li>
-<li><code>D = 8192</code>: hidden dimension/size of embedding</li>
-<li><code>F = 28672</code>: intermediate dimension for FFN up projection</li>
-<li><code>L = 80</code>: num layers</li>
-</ul>
-<p><strong>Attention head dimensions</strong> (how attention is partitioned):</p>
-<ul>
-<li><code>h_q = 64</code>: number of query heads</li>
-<li><code>h_kv = 8</code>: number of key/value heads</li>
-<li><code>G = 8</code>: number of attention groups (<code>= h_q / h_kv</code>)</li>
-<li><code>d_k = 128</code>: head dimension (equal to <code>D / h_q</code>)</li>
-<li><code>d_k_prime = 64</code>: split head dimension for RoPE computation</li>
-<li><code>f = 2</code>: frequency dimension for adjacent heads (<code>d_k = d_k_prime * f</code>)</li>
-</ul>
-<h2 id="prefill-phase"><a class="header" href="#prefill-phase">Prefill Phase</a></h2>
-<p>The prefill phase processes the entire input sequence in parallel, outputting the first token while storing computed Key/Value pairs as KV cache.
-The following subsections describe each step in order.</p>
-<h3 id="1-embedding-lookup"><a class="header" href="#1-embedding-lookup">1. Embedding Lookup</a></h3>
-<p>Embedding lookup converts input tokens to vector space representations.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>input: shape![B, s_in]</code></li>
-<li>Token indices of input text (which vocabulary entry each token corresponds to)</li>
-</ul>
-</li>
-<li><strong>Weight</strong>
-<ul>
-<li><code>w_emb: shape![V, D]</code></li>
-<li>Pre-trained embedding value table for each vocabulary entry</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_0: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_0 = gather(index: input, table: w_emb)</code></li>
-<li>gather: Operation that reads values from the table using index values specified in the index tensor.
-<ul>
-<li>Processed by TensorDMA.</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h3 id="2-transformer-layers-repeated-l-times"><a class="header" href="#2-transformer-layers-repeated-l-times">2. Transformer Layers (repeated L times)</a></h3>
-<p>Each transformer layer applies attention and feed-forward operations sequentially.
-For each layer <code>l = 1, ..., L</code>, perform the following:</p>
-<h4 id="21-input-layer-normalization"><a class="header" href="#21-input-layer-normalization">2.1. Input Layer Normalization</a></h4>
-<p>Input layer normalization normalizes activations before attention, processed by the Vector Engine.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_prev: shape![B, s_in, D]</code> (layer input from previous layer)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_norm: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li>Apply RMSNorm</li>
-<li><code>x_norm = RMSNorm(x_prev)</code></li>
-<li>RMSNorm: Root Mean Square Layer Normalization
-<ul>
-<li>Processed by Vector Engine.</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h4 id="22-multi-head-grouped-query-attention-gqa"><a class="header" href="#22-multi-head-grouped-query-attention-gqa">2.2. Multi-Head Grouped Query Attention (GQA)</a></h4>
-<p>Grouped Query Attention (GQA) improves memory efficiency by sharing key/value heads across multiple query heads, reducing KV cache size.</p>
-<h5 id="221-qkv-projection"><a class="header" href="#221-qkv-projection">2.2.1. QKV Projection</a></h5>
-<p>QKV projection runs three separate einsum operations on the Contraction Engine, each reducing the <code>D</code> axis to produce Query, Key, and Value tensors.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_norm: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Weights</strong>
-<ul>
-<li><code>w_q: shape![D, h_q, d_k]</code></li>
-<li><code>w_k: shape![D, h_kv, d_k]</code></li>
-<li><code>w_v: shape![D, h_kv, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Outputs</strong>
-<ul>
-<li><code>Q: shape![B, s_in, h_q, d_k]</code></li>
-<li><code>K: shape![B, s_in, h_kv, d_k]</code></li>
-<li><code>V: shape![B, s_in, h_kv, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><code>Q = einsum(x_norm, w_q)</code></li>
-<li><code>K = einsum(x_norm, w_k)</code></li>
-<li><code>V = einsum(x_norm, w_v)</code></li>
-<li>matmul corresponds to einsum: broadcast, then elementwise multiply, then reduce-add.</li>
-<li>elementwise multiply: Contraction Engine</li>
-<li>reduce-add decomposed by scope:
-<ul>
-<li>packet reduce: Packet Reducer</li>
-<li>time reduce: Time Reducer</li>
-<li>slice reduce: global adder tree</li>
-<li>split reduce: interleaved fetch + Vector Engine binary op</li>
-<li>cluster/chip reduce: DMA + interleaved fetch + Vector Engine binary op</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h5 id="222-rotary-position-embedding-rope"><a class="header" href="#222-rotary-position-embedding-rope">2.2.2. Rotary Position Embedding (RoPE)</a></h5>
-<p>Rotary Position Embedding (RoPE) applies positional information to Query and Key tensors through rotation transformations.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>Q: shape![B, s_in, h_q, d_k]</code></li>
-<li><code>K: shape![B, s_in, h_kv, d_k]</code></li>
-<li><code>d_k = d_k_prime * f</code>
-<ul>
-<li>Split the <code>d_k</code> axis to apply RoPE rotation in a TCP-friendly manner.</li>
-</ul>
-</li>
-</ul>
-</li>
-<li><strong>RoPE table</strong>
-<ul>
-<li><code>w_rope: shape![s_max, d_k_prime, 2, 2]</code></li>
-<li>Pre-computed table of cos/sin values based on sequence position and head position.</li>
-<li>RoPE operation groups consecutive pairs among <code>d_k</code> values and applies rotation transformation using cos/sin.</li>
-<li>Store the 2 × 2 matrix representing the cos/sin rotation transformation for TCP-friendly execution.</li>
-</ul>
-</li>
-<li><strong>Position</strong>
-<ul>
-<li><code>position: shape![s_in]</code></li>
-<li><code>position(i) = i</code></li>
-</ul>
-</li>
-<li><strong>Outputs</strong>
-<ul>
-<li><code>Q_rope: shape![B, h_q, s_in, d_k]</code></li>
-<li><code>K_rope: shape![B, h_kv, s_in, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>RoPE table lookup</strong>
-<ul>
-<li><code>t_rope: shape![s_in, d_k_prime, 2, 2] = gather(index: position, table: w_rope)</code></li>
-</ul>
-</li>
-<li><strong>Apply RoPE</strong>
-<ul>
-<li>RoPE computation reduces to an einsum operation once the rotation matrix values are prepared.</li>
-<li><strong>Reshape (noop)</strong>
-<ul>
-<li><code>Q: shape![B, s_in, h_q, d_k] == shape![B, s_in, h_q, d_k_prime, f]</code></li>
-<li><code>K: shape![B, s_in, h_kv, d_k] == shape![B, s_in, h_kv, d_k_prime, f]</code></li>
-<li><code>t_rope: shape![s_in, d_k_prime, 2, 2] == shape![s_in, d_k_prime, f, 2]</code></li>
-</ul>
-</li>
-<li><strong>einsum</strong>
-<ul>
-<li><code>Q_rope = einsum(Q, t_rope)</code>
-<ul>
-<li><code>(shape![B, s_in, h_q, d_k_prime, f], shape![s_in, d_k_prime, f, 2]) -&gt; shape![B, h_q, s_in, d_k_prime, 2] == shape![B, h_q, s_in, d_k]</code></li>
-</ul>
-</li>
-<li><code>K_rope = einsum(K, t_rope)</code>
-<ul>
-<li><code>(shape![B, s_in, h_kv, d_k_prime, f], shape![s_in, d_k_prime, f, 2]) -&gt; shape![B, h_kv, s_in, d_k_prime, 2] == shape![B, h_kv, s_in, d_k]</code></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h5 id="223-store-in-kv-cache"><a class="header" href="#223-store-in-kv-cache">2.2.3. Store in KV Cache</a></h5>
-<p>KV cache stores the current layer’s Key and Value for reuse during the decode phase, avoiding redundant computation.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>K_rope: shape![B, h_kv, s_in, d_k]</code></li>
-<li><code>V: shape![B, s_in, h_kv, d_k]</code></li>
-</ul>
-</li>
-<li><strong>KV Cache</strong> (for layer <code>l</code>)
-<ul>
-<li><code>kv_cache_l_K: shape![B, h_kv, s_in, d_k]</code></li>
-<li><code>kv_cache_l_V: shape![B, h_kv, s_in, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><code>kv_cache_l_K = K_rope</code></li>
-<li><code>kv_cache_l_V = V</code></li>
-<li>Cache storage: Stores einsum computation results from DM to HBM, processed by TensorDMA.</li>
-</ul>
-</li>
-</ul>
-<h5 id="224-grouped-query-attention-computation"><a class="header" href="#224-grouped-query-attention-computation">2.2.4. Grouped Query Attention Computation</a></h5>
-<p>Grouped Query Attention shares each key/value head across multiple query heads, with <code>G = 8</code> query heads sharing each KV head (as defined in the Model Parameters above).</p>
-<p><strong>2.2.4.1. Attention Scores Computation</strong></p>
-<p>Attention scores measure the relevance between query and key positions using dot product similarity.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>Q_rope: shape![B, h_q, s_in, d_k]</code></li>
-<li><code>K_rope: shape![B, h_kv, s_in, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>scores: shape![B, h_q, s_in, s_in]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><code>scores = (Q_rope @ K_rope.T) / sqrt(d_k)</code></li>
-<li><strong>Reshape (noop)</strong>
-<ul>
-<li>The dot product operation can be expressed as einsum.
-Each tensor’s shape axes must be precisely distinguished from the output shape perspective to accurately represent the einsum operation semantics.</li>
-<li><code>Q_rope: shape![B, h_q, s_in, d_k] == shape![B, G, h_kv, s_in_q, d_k]</code></li>
-<li><code>K_rope: shape![B, h_kv, s_in, d_k] == shape![B, h_kv, s_in_k, d_k]</code></li>
-</ul>
-</li>
-<li><strong>einsum</strong>
-<ul>
-<li><code>scores_before_normalize = einsum(Q_rope, K_rope)</code></li>
-<li><code>(shape![B, G, h_kv, s_in_q, d_k], shape![B, h_kv, s_in_k, d_k]) -&gt; shape![B, G, h_kv, s_in_q, s_in_k] == shape![B, h_q, s_in, s_in]</code></li>
-<li>The einsum expression shows that <code>G</code> was broadcast from <code>K_rope</code>, and <code>d_k</code> was reduced.</li>
-</ul>
-</li>
-<li><strong>Normalize</strong>
-<ul>
-<li><code>scores = scores_before_normalize / sqrt(d_k)</code></li>
-<li>Division by <code>sqrt(d_k)</code> can be computed as multiplication by <code>1/sqrt(d_k)</code>. The value <code>1/sqrt(d_k)</code> is pre-computed, and the Vector Engine performs simple constant multiplication.</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<p><strong>2.2.4.2. Causal Mask Application</strong></p>
-<p>Causal masking prevents tokens from attending to future positions.
-In the prefill phase, <code>s_in</code> tokens are processed in parallel, but the <code>i</code>-th token must not reference tokens after position <code>i</code>.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>scores: shape![B, h_q, s_in, s_in]</code></li>
-<li><code>attention_mask: shape![s_in, s_in]</code></li>
-<li><code>attention_mask(i, j) = true if j &lt;= i, false if j &gt; i</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>scores_masked: shape![B, h_q, s_in, s_in]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>scores_masked(b, h, i, j) = scores(b, h, i, j) if j &lt;= i, -inf if j &gt; i</code></li>
-<li>In the Vector Engine, the <code>attention_mask</code> tensor is written to the branch log, then processed through branched operations.</li>
-</ul>
-</li>
-</ul>
-<p><strong>2.2.4.3. Softmax Application</strong></p>
-<p>Softmax normalizes attention scores into a probability distribution over key positions.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>scores_masked: shape![B, h_q, s_in, s_in]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>attn_weights: shape![B, h_q, s_in, s_in]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>attn_weights = softmax(scores_masked)</code></li>
-<li>Softmax computes the ratio at which each query should reference each token to combine values.</li>
-<li>Reduces the key-corresponding axis among the two <code>s_in</code> dimensions.</li>
-<li><code>softmax(x)_i = exp(x_i) / sum_j(exp(x_j))</code></li>
-<li>Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<p><strong>2.2.4.4. Weighted Sum (Attention Output)</strong></p>
-<p>Weighted sum computes the attention output by combining Value vectors according to attention weights.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>attn_weights: shape![B, h_q, s_in, s_in]</code></li>
-<li><code>V: shape![B, s_in, h_kv, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>attn_output: shape![B, h_q, s_in, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>Reshape (noop)</strong>
-<ul>
-<li><code>attn_weights: shape![B, h_q, s_in, s_in] == shape![B, G, h_kv, s_in_q, s_in_kv]</code></li>
-<li><code>V: shape![B, s_in, h_kv, d_k] == shape![B, h_kv, s_in_kv, d_k]</code></li>
-</ul>
-</li>
-<li><strong>einsum</strong>
-<ul>
-<li><code>attn_output = einsum(attn_weights, V)</code></li>
-<li><code>(shape![B, G, h_kv, s_in_q, s_in_kv], shape![B, h_kv, s_in_kv, d_k]) -&gt; shape![B, G, h_kv, s_in_q, d_k] == shape![B, h_q, s_in, d_k]</code></li>
-<li>The einsum expression shows that <code>G</code> was broadcast from <code>V</code>, and <code>s_in_kv</code> was reduced.</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h5 id="225-output-projection"><a class="header" href="#225-output-projection">2.2.5. Output Projection</a></h5>
-<p>Output projection combines the multi-head attention results into a single hidden state vector.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>attn_output: shape![B, h_q, s_in, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Weight</strong>
-<ul>
-<li><code>w_o: shape![h_q, d_k, D]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>attn_out: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><code>attn_out = einsum(attn_output, w_o)</code></li>
-<li><code>(shape![B, h_q, s_in, d_k], shape![h_q, d_k, D]) -&gt; shape![B, s_in, D]</code></li>
-</ul>
-</li>
-</ul>
-<h5 id="226-residual-connection"><a class="header" href="#226-residual-connection">2.2.6. Residual Connection</a></h5>
-<p>Residual connection adds the attention output to the layer input, improving gradient flow during training.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>x_prev: shape![B, s_in, D]</code> (layer input)</li>
-<li><code>attn_out: shape![B, s_in, D]</code> (attention output)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_attn: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_attn = x_prev + attn_out</code></li>
-<li>elementwise addition: Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h4 id="23-feed-forward-network-ffn"><a class="header" href="#23-feed-forward-network-ffn">2.3. Feed-Forward Network (FFN)</a></h4>
-<p>The Feed-Forward Network applies non-linear transformations to each token independently after attention.</p>
-<h5 id="231-post-attention-layer-normalization"><a class="header" href="#231-post-attention-layer-normalization">2.3.1. Post-Attention Layer Normalization</a></h5>
-<p>Post-attention normalization stabilizes activations before the FFN computation.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_attn: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_ffn_norm: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_ffn_norm = RMSNorm(x_attn)</code></li>
-<li>RMSNorm: Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h5 id="232-swiglu-ffn"><a class="header" href="#232-swiglu-ffn">2.3.2. SwiGLU FFN</a></h5>
-<p>SwiGLU (Swish-Gated Linear Unit) is Llama 3’s activation function, combining gating with the Swish non-linearity.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_ffn_norm: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Weights</strong>
-<ul>
-<li><code>w_gate: shape![D, F]</code> (gate projection)</li>
-<li><code>w_up: shape![D, F]</code> (up projection)</li>
-<li><code>w_down: shape![F, D]</code> (down projection)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>ffn_out: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>Gate projection</strong>:
-<ul>
-<li><code>gate = einsum(x_ffn_norm, w_gate)</code></li>
-<li><code>(shape![B, s_in, D], shape![D, F]) -&gt; shape![B, s_in, F]</code></li>
-</ul>
-</li>
-<li><strong>Up projection</strong>:
-<ul>
-<li><code>up = einsum(x_ffn_norm, w_up)</code></li>
-<li><code>(shape![B, s_in, D], shape![D, F]) -&gt; shape![B, s_in, F]</code></li>
-</ul>
-</li>
-<li><strong>SwiGLU activation</strong>:
-<ul>
-<li><code>activated = SiLU(gate) * up</code></li>
-<li>SiLU (Swish): <code>SiLU(x) = x * sigmoid(x)</code></li>
-<li><code>*</code>: element-wise multiplication</li>
-<li>Processed by Vector Engine</li>
-</ul>
-</li>
-<li><strong>Down projection</strong>:
-<ul>
-<li><code>ffn_out = einsum(activated, w_down)</code></li>
-<li><code>(shape![B, s_in, F], shape![F, D]) -&gt; shape![B, s_in, D]</code></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h5 id="233-residual-connection"><a class="header" href="#233-residual-connection">2.3.3. Residual Connection</a></h5>
-<p>FFN residual connection adds the FFN output to the post-attention output.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>x_attn: shape![B, s_in, D]</code> (post-attention output)</li>
-<li><code>ffn_out: shape![B, s_in, D]</code> (FFN output)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_l: shape![B, s_in, D]</code> (final output of layer <code>l</code>)</li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_l = x_attn + ffn_out</code></li>
-<li>elementwise addition: Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h3 id="3-final-layer-normalization"><a class="header" href="#3-final-layer-normalization">3. Final Layer Normalization</a></h3>
-<p>Final layer normalization is applied after passing through all 80 transformer layers.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_L: shape![B, s_in, D]</code> (last layer output)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_final: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_final = RMSNorm(x_L)</code></li>
-<li>RMSNorm: Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h3 id="4-language-model-head-output-layer"><a class="header" href="#4-language-model-head-output-layer">4. Language Model Head (Output Layer)</a></h3>
-<p>The language model head converts the hidden state at the last token position into vocabulary logits for next-token prediction.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_final: shape![B, s_in, D]</code></li>
-</ul>
-</li>
-<li><strong>Weight</strong>
-<ul>
-<li><code>w_lm_head: shape![D, V]</code></li>
-<li>Typically <code>w_lm_head = w_emb.T</code> (weight tying)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>logits: shape![B, V]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>Slice</strong>: In prefill phase, only the last token is used
-<ul>
-<li><code>x_last: shape![B, D] = x_final[:, -1, :]</code></li>
-<li>Extract only the hidden state of the last token to predict the next token</li>
-<li>Process the slice operation as a simple view operation depending on shape, or use parallel copy to directly read and move a portion of data.</li>
-</ul>
-</li>
-<li><strong>einsum</strong>: Logit computation for vocabulary
-<ul>
-<li><code>logits = einsum(x_last, w_lm_head)</code></li>
-<li><code>(shape![B, D], shape![D, V]) -&gt; shape![B, V]</code></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h3 id="5-sampling"><a class="header" href="#5-sampling">5. Sampling</a></h3>
-<p>Sampling converts logit values into a probability distribution and selects the next token.
-This process occurs on the Host, not the TCP.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>logits: shape![B, V]</code></li>
-<li><code>temperature: scalar</code> (sampling temperature parameter, typically 0.7~1.0)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>next_token: shape![B]</code> (next token index for each batch)</li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>Temperature scaling</strong>:
-<ul>
-<li><code>logits_scaled = logits / temperature</code></li>
-<li>Higher temperature leads to more diverse token selection, lower temperature leads to more deterministic selection</li>
-<li>The value <code>1/temperature</code> is pre-computed, then processed as constant multiplication in Vector Engine</li>
-</ul>
-</li>
-<li><strong>Softmax</strong>:
-<ul>
-<li><code>probs: shape![B, V] = softmax(logits_scaled)</code></li>
-<li><code>softmax(x)_i = exp(x_i) / sum_j(exp(x_j))</code></li>
-<li>Apply softmax over the Vocabulary axis (<code>V</code>)</li>
-</ul>
-</li>
-<li><strong>Token sampling</strong>:
-<ul>
-<li>Sample the next token index from the probability distribution <code>probs</code></li>
-<li>Sampling strategies:
-<ul>
-<li>Greedy: <code>next_token = argmax_i(probs_i)</code></li>
-<li>Top-k sampling: Sample only from the top k tokens by probability</li>
-<li>Top-p (nucleus) sampling: Sample from the smallest token set whose cumulative probability exceeds p</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h2 id="decode-phase"><a class="header" href="#decode-phase">Decode Phase</a></h2>
-<p>The decode phase reuses the same operation sequence as prefill (embedding, transformer layers, LM head, sampling), but operates on a single token at a time and reuses cached KV pairs instead of recomputing them.
-It continues autoregressively until an EOS token is produced or the maximum length is reached.</p>
-<p>Three characteristics distinguish decode from prefill:</p>
-<ul>
-<li><strong>Single-token input</strong>: <code>s_in = 1</code> (only the most recent output token is used as query)</li>
-<li><strong>KV cache reuse</strong>: Previously computed Key and Value tensors are reused rather than recomputed</li>
-<li><strong>Autoregressive generation</strong>: Each token prediction references all previous tokens via the cache</li>
-</ul>
-<p>For each decoding step <code>s = s_prefill + 1, ..., s_max</code>:</p>
-<h3 id="1-embedding-lookup-1"><a class="header" href="#1-embedding-lookup-1">1. Embedding Lookup</a></h3>
-<p>Embedding lookup converts the previously generated token to its vector representation.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>input: shape![B, 1]</code></li>
-<li>Token index sampled in the previous step</li>
-</ul>
-</li>
-<li><strong>Weight</strong>
-<ul>
-<li><code>w_emb: shape![V, D]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_0: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_0 = gather(index: input, table: w_emb)</code></li>
-<li>Processed by TensorDMA</li>
-</ul>
-</li>
-</ul>
-<h3 id="2-transformer-layers-repeated-l-times-1"><a class="header" href="#2-transformer-layers-repeated-l-times-1">2. Transformer Layers (repeated L times)</a></h3>
-<p>Each transformer layer processes the single token through attention and FFN, reusing cached KV pairs.
-For each layer <code>l = 1, ..., L</code>, perform the following:</p>
-<h4 id="21-input-layer-normalization-1"><a class="header" href="#21-input-layer-normalization-1">2.1. Input Layer Normalization</a></h4>
-<p>Input layer normalization prepares the token for attention computation.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_prev: shape![B, 1, D]</code> (layer input from previous layer)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_norm: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_norm = RMSNorm(x_prev)</code></li>
-<li>Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h4 id="22-multi-head-grouped-query-attention-gqa-1"><a class="header" href="#22-multi-head-grouped-query-attention-gqa-1">2.2. Multi-Head Grouped Query Attention (GQA)</a></h4>
-<p>Attention in decode phase computes attention between the current token (query) and all cached tokens (keys/values).</p>
-<h5 id="221-qkv-projection-1"><a class="header" href="#221-qkv-projection-1">2.2.1. QKV Projection</a></h5>
-<p>QKV projection computes Query, Key, and Value for the current token only.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_norm: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Weights</strong>
-<ul>
-<li><code>w_q: shape![D, h_q, d_k]</code></li>
-<li><code>w_k: shape![D, h_kv, d_k]</code></li>
-<li><code>w_v: shape![D, h_kv, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Outputs</strong>
-<ul>
-<li><code>Q: shape![B, 1, h_q, d_k]</code></li>
-<li><code>K_new: shape![B, 1, h_kv, d_k]</code></li>
-<li><code>V_new: shape![B, 1, h_kv, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><code>Q = einsum(x_norm, w_q)</code></li>
-<li><code>K_new = einsum(x_norm, w_k)</code></li>
-<li><code>V_new = einsum(x_norm, w_v)</code></li>
-<li><code>(shape![B, 1, D], shape![D, h_q/kv, d_k]) -&gt; shape![B, 1, h_q/kv, d_k]</code></li>
-</ul>
-</li>
-</ul>
-<h5 id="222-rotary-position-embedding-rope-1"><a class="header" href="#222-rotary-position-embedding-rope-1">2.2.2. Rotary Position Embedding (RoPE)</a></h5>
-<p>RoPE applies positional encoding corresponding to the current sequence position.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>Q: shape![B, 1, h_q, d_k]</code></li>
-<li><code>K_new: shape![B, 1, h_kv, d_k]</code></li>
-</ul>
-</li>
-<li><strong>RoPE table</strong>
-<ul>
-<li><code>w_rope: shape![s_max, d_k_prime, 2, 2]</code></li>
-</ul>
-</li>
-<li><strong>Position</strong>
-<ul>
-<li><code>position: shape![1]</code></li>
-<li><code>position(0) = s</code> (total sequence length processed so far)</li>
-</ul>
-</li>
-<li><strong>Outputs</strong>
-<ul>
-<li><code>Q_rope: shape![B, h_q, 1, d_k]</code></li>
-<li><code>K_rope: shape![B, h_kv, 1, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>RoPE table lookup</strong>
-<ul>
-<li><code>t_rope: shape![1, d_k_prime, 2, 2] = gather(index: position, table: w_rope)</code></li>
-</ul>
-</li>
-<li><strong>Apply RoPE</strong>
-<ul>
-<li><strong>Reshape (noop)</strong>
-<ul>
-<li><code>Q: shape![B, 1, h_q, d_k] == shape![B, 1, h_q, d_k_prime, f]</code></li>
-<li><code>K_new: shape![B, 1, h_kv, d_k] == shape![B, 1, h_kv, d_k_prime, f]</code></li>
-<li><code>t_rope: shape![1, d_k_prime, 2, 2] == shape![1, d_k_prime, f, 2]</code></li>
-</ul>
-</li>
-<li><strong>einsum</strong>
-<ul>
-<li><code>Q_rope = einsum(Q, t_rope)</code>
-<ul>
-<li><code>(shape![B, 1, h_q, d_k_prime, f], shape![1, d_k_prime, f, 2]) -&gt; shape![B, h_q, 1, d_k_prime, 2] == shape![B, h_q, 1, d_k]</code></li>
-</ul>
-</li>
-<li><code>K_rope = einsum(K_new, t_rope)</code>
-<ul>
-<li><code>(shape![B, 1, h_kv, d_k_prime, f], shape![1, d_k_prime, f, 2]) -&gt; shape![B, h_kv, 1, d_k_prime, 2] == shape![B, h_kv, 1, d_k]</code></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h5 id="223-kv-cache-update"><a class="header" href="#223-kv-cache-update">2.2.3. KV Cache Update</a></h5>
-<p>KV cache update appends the new Key and Value to the existing cache for future token generation.</p>
-<ul>
-<li>
-<p><strong>Inputs</strong></p>
-<ul>
-<li><code>kv_cache_l_K: shape![B, h_kv, s-1, d_k]</code> (existing cache)</li>
-<li><code>kv_cache_l_V: shape![B, h_kv, s-1, d_k]</code> (existing cache)</li>
-<li><code>K_rope: shape![B, h_kv, 1, d_k]</code> (new Key)</li>
-<li><code>V_new: shape![B, 1, h_kv, d_k]</code> (new Value)</li>
-</ul>
-</li>
-<li>
-<p><strong>Outputs</strong></p>
-<ul>
-<li><code>kv_cache_l_K: shape![B, h_kv, s, d_k]</code> (updated cache)</li>
-<li><code>kv_cache_l_V: shape![B, h_kv, s, d_k]</code> (updated cache)</li>
-</ul>
-</li>
-<li>
-<p><strong>Operations</strong></p>
-<ul>
-<li><strong>Concatenate</strong>: Add new K, V to existing cache
-<ul>
-<li><code>kv_cache_l_K[s-1] = K_rope</code></li>
-<li><code>kv_cache_l_V[s-1] = V_new</code></li>
-<li>Processing differs depending on concat axis allocation.
-Data movement between slices: use RoutingEngine/parallel copy; data movement between elements: use parallel copy.</li>
-<li>Concat on HBM using DMA is also possible.</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h5 id="224-grouped-query-attention-computation-1"><a class="header" href="#224-grouped-query-attention-computation-1">2.2.4. Grouped Query Attention Computation</a></h5>
-<p>Attention computation uses the current Query against the entire KV cache to determine which past tokens contribute to the current output.</p>
-<p><strong>2.2.4.1. Attention Scores Computation</strong></p>
-<p>Attention scores measure similarity between the current Query and all cached Keys.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>Q_rope: shape![B, h_q, 1, d_k]</code></li>
-<li><code>kv_cache_l_K: shape![B, h_kv, s, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>scores: shape![B, h_q, 1, s]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><code>scores = (Q_rope @ kv_cache_l_K.T) / sqrt(d_k)</code></li>
-<li><strong>Reshape (noop)</strong>
-<ul>
-<li><code>Q_rope: shape![B, h_q, 1, d_k] == shape![B, G, h_kv, 1, d_k]</code></li>
-<li><code>kv_cache_l_K: shape![B, h_kv, s, d_k] == shape![B, h_kv, s, d_k]</code></li>
-</ul>
-</li>
-<li><strong>einsum</strong>
-<ul>
-<li><code>scores_before_normalize = einsum(Q_rope, kv_cache_l_K)</code></li>
-<li><code>(shape![B, G, h_kv, 1, d_k], shape![B, h_kv, s, d_k]) -&gt; shape![B, G, h_kv, 1, s] == shape![B, h_q, 1, s]</code></li>
-<li>The einsum expression shows that <code>G</code> was broadcast from <code>kv_cache_l_K</code>, and <code>d_k</code> was reduced.</li>
-</ul>
-</li>
-<li><strong>Normalize</strong>
-<ul>
-<li><code>scores = scores_before_normalize / sqrt(d_k)</code></li>
-<li>Processed as constant multiplication in Vector Engine</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<p><strong>2.2.4.2. Softmax Application</strong></p>
-<p>Softmax converts scores to attention weights.
-Causal mask is unnecessary in decode because the current token only references past tokens.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>scores: shape![B, h_q, 1, s]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>attn_weights: shape![B, h_q, 1, s]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>attn_weights = softmax(scores)</code></li>
-<li>Softmax is applied over the last axis (<code>s</code>, i.e., all past tokens)</li>
-<li><code>softmax(x)_i = exp(x_i) / sum_j(exp(x_j))</code></li>
-<li>Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<p><strong>2.2.4.3. Weighted Sum (Attention Output)</strong></p>
-<p>Weighted sum combines cached Values according to attention weights to produce the attention output.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>attn_weights: shape![B, h_q, 1, s]</code></li>
-<li><code>kv_cache_l_V: shape![B, h_kv, s, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>attn_output: shape![B, h_q, 1, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>Reshape (noop)</strong>
-<ul>
-<li><code>attn_weights: shape![B, h_q, 1, s] == shape![B, G, h_kv, 1, s]</code></li>
-<li><code>kv_cache_l_V: shape![B, h_kv, s, d_k] == shape![B, h_kv, s, d_k]</code></li>
-</ul>
-</li>
-<li><strong>einsum</strong>
-<ul>
-<li><code>attn_output = einsum(attn_weights, kv_cache_l_V)</code></li>
-<li><code>(shape![B, G, h_kv, 1, s], shape![B, h_kv, s, d_k]) -&gt; shape![B, G, h_kv, 1, d_k] == shape![B, h_q, 1, d_k]</code></li>
-<li>The einsum expression shows that <code>G</code> was broadcast from <code>kv_cache_l_V</code>, and <code>s</code> was reduced.</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h5 id="225-output-projection-1"><a class="header" href="#225-output-projection-1">2.2.5. Output Projection</a></h5>
-<p>Output projection transforms the attention result back to the hidden dimension.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>attn_output: shape![B, h_q, 1, d_k]</code></li>
-</ul>
-</li>
-<li><strong>Weight</strong>
-<ul>
-<li><code>w_o: shape![h_q, d_k, D]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>attn_out: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><code>attn_out = einsum(attn_output, w_o)</code></li>
-<li><code>(shape![B, h_q, 1, d_k], shape![h_q, d_k, D]) -&gt; shape![B, 1, D]</code></li>
-</ul>
-</li>
-</ul>
-<h5 id="226-residual-connection-1"><a class="header" href="#226-residual-connection-1">2.2.6. Residual Connection</a></h5>
-<p>Residual connection combines attention output with layer input.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>x_prev: shape![B, 1, D]</code> (layer input)</li>
-<li><code>attn_out: shape![B, 1, D]</code> (attention output)</li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_attn: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_attn = x_prev + attn_out</code></li>
-<li>elementwise addition: Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h4 id="23-feed-forward-network-ffn-1"><a class="header" href="#23-feed-forward-network-ffn-1">2.3. Feed-Forward Network (FFN)</a></h4>
-<p>FFN in decode phase is identical to prefill, but processes only a single token (sequence length = 1).</p>
-<h5 id="231-post-attention-layer-normalization-1"><a class="header" href="#231-post-attention-layer-normalization-1">2.3.1. Post-Attention Layer Normalization</a></h5>
-<p>Post-attention normalization prepares the token for FFN processing.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_attn: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_ffn_norm: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_ffn_norm = RMSNorm(x_attn)</code></li>
-<li>Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h5 id="232-swiglu-ffn-1"><a class="header" href="#232-swiglu-ffn-1">2.3.2. SwiGLU FFN</a></h5>
-<p>SwiGLU applies the gated activation function with three projections.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_ffn_norm: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Weights</strong>
-<ul>
-<li><code>w_gate: shape![D, F]</code></li>
-<li><code>w_up: shape![D, F]</code></li>
-<li><code>w_down: shape![F, D]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>ffn_out: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>Gate projection</strong>:
-<ul>
-<li><code>gate = einsum(x_ffn_norm, w_gate)</code></li>
-<li><code>(shape![B, 1, D], shape![D, F]) -&gt; shape![B, 1, F]</code></li>
-</ul>
-</li>
-<li><strong>Up projection</strong>:
-<ul>
-<li><code>up = einsum(x_ffn_norm, w_up)</code></li>
-<li><code>(shape![B, 1, D], shape![D, F]) -&gt; shape![B, 1, F]</code></li>
-</ul>
-</li>
-<li><strong>SwiGLU activation</strong>:
-<ul>
-<li><code>activated = SiLU(gate) * up</code></li>
-<li>Processed by Vector Engine</li>
-</ul>
-</li>
-<li><strong>Down projection</strong>:
-<ul>
-<li><code>ffn_out = einsum(activated, w_down)</code></li>
-<li><code>(shape![B, 1, F], shape![F, D]) -&gt; shape![B, 1, D]</code></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h5 id="233-residual-connection-1"><a class="header" href="#233-residual-connection-1">2.3.3. Residual Connection</a></h5>
-<p>FFN residual connection produces the final layer output.</p>
-<ul>
-<li><strong>Inputs</strong>
-<ul>
-<li><code>x_attn: shape![B, 1, D]</code></li>
-<li><code>ffn_out: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_l: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_l = x_attn + ffn_out</code></li>
-<li>elementwise addition: Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h3 id="3-final-layer-normalization-1"><a class="header" href="#3-final-layer-normalization-1">3. Final Layer Normalization</a></h3>
-<p>Final layer normalization prepares the output for the language model head.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_L: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>x_final: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Operation</strong>
-<ul>
-<li><code>x_final = RMSNorm(x_L)</code></li>
-<li>Processed by Vector Engine</li>
-</ul>
-</li>
-</ul>
-<h3 id="4-language-model-head"><a class="header" href="#4-language-model-head">4. Language Model Head</a></h3>
-<p>The language model head projects the hidden state to vocabulary logits.
-Unlike prefill, no slice operation is needed since there is only a single token.</p>
-<ul>
-<li><strong>Input</strong>
-<ul>
-<li><code>x_final: shape![B, 1, D]</code></li>
-</ul>
-</li>
-<li><strong>Weight</strong>
-<ul>
-<li><code>w_lm_head: shape![D, V]</code></li>
-</ul>
-</li>
-<li><strong>Output</strong>
-<ul>
-<li><code>logits: shape![B, V]</code></li>
-</ul>
-</li>
-<li><strong>Operations</strong>
-<ul>
-<li><strong>Reshape/Squeeze</strong>: Remove sequence dimension
-<ul>
-<li><code>x_squeezed: shape![B, D] = squeeze(x_final)</code></li>
-</ul>
-</li>
-<li><strong>einsum</strong>: Logit computation for vocabulary
-<ul>
-<li><code>logits = einsum(x_squeezed, w_lm_head)</code></li>
-<li><code>(shape![B, D], shape![D, V]) -&gt; shape![B, V]</code></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h3 id="5-sampling-1"><a class="header" href="#5-sampling-1">5. Sampling</a></h3>
-<p>Sampling is identical to <a href="#5-sampling">Prefill Sampling</a>: temperature scaling, softmax, and token selection, performed on the Host.</p>
-<h3 id="6-termination-conditions"><a class="header" href="#6-termination-conditions">6. Termination Conditions</a></h3>
-<p>Generation terminates when any of three conditions is met:</p>
-<ul>
-<li><strong>EOS token generated</strong>: Sampled token is the End-of-Sequence token</li>
-<li><strong>Maximum length reached</strong>: <code>s &gt;= s_max</code></li>
-<li><strong>User-defined termination conditions</strong>: When specific patterns or conditions are met</li>
-</ul>
-<p>If generation continues, update <code>s &lt;- s + 1</code> and return to the next decoding step.</p>
-<h2 id="prefill-vs-decode-phase-comparison"><a class="header" href="#prefill-vs-decode-phase-comparison">Prefill vs Decode Phase Comparison</a></h2>
-<p>Prefill is compute-bound (large parallel computation over all input tokens) while decode is memory-bound (KV cache access for a single token per step).
-The following table summarizes the key differences:</p>
+                        <h1 id="case-study-transformer"><a class="header" href="#case-study-transformer">Case Study: Transformer</a></h1>
+<p>This Transformer page uses Qwen3-0.6B as a concrete tutorial case, explaining its model mental model and following one decoder token from a host-prepared embedding to padded vocabulary logits.
+Each boundary is checked with a portable host oracle and a reproducible schedule artifact.
+Preserve those host-prepared boundaries when adapting it.</p>
+<p>The model is a decoder-only transformer with 28 layers.
+Each layer transforms one running hidden vector for one token at a time.</p>
+<pre><code class="language-text">token id
+   |
+   v
+[Embedding lookup]
+   |
+   v
++-----------------------------+
+| Decoder layer × 28          |
+| RMSNorm → Q/K/V projection  |
+| QK-Norm → RoPE → Attention  |
+| Output projection + residual|
+| RMSNorm → SwiGLU MLP        |
+| + residual                  |
++-----------------------------+
+   |
+   v
+[Final RMSNorm] → [LM head] → logits
+</code></pre>
+<p>The model uses hidden size 1024, 16 query heads, 8 key/value heads, head dimension 128, and intermediate size 3072.
+Grouped-query attention shares each key/value head across two query heads.
+RoPE uses theta 1,000,000, and the embedding and output weights are tied by the model design.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Characteristic</th><th>Prefill Phase</th><th>Decode Phase</th></tr>
+<tr><th>Component</th><th>Shape or count</th></tr>
 </thead>
 <tbody>
-<tr><td>Input sequence length</td><td><code>s_in</code> (variable)</td><td>1 (fixed)</td></tr>
-<tr><td>Parallel processing</td><td><code>s_in</code> tokens processed in parallel</td><td>Only 1 token processed</td></tr>
-<tr><td>KV Cache</td><td>Create and store</td><td>Read and update</td></tr>
-<tr><td>Attention computation</td><td>Causal mask required</td><td>Causal mask not required</td></tr>
-<tr><td>Attention shape</td><td><code>shape![B, h_q, s_in, s_in]</code></td><td><code>shape![B, h_q, 1, s]</code></td></tr>
-<tr><td>Computation characteristics</td><td>Compute-bound (large-scale computation)</td><td>Memory-bound (KV cache access)</td></tr>
-<tr><td>Throughput</td><td>High (parallel processing)</td><td>Low (sequential processing)</td></tr>
-<tr><td>Latency</td><td>Relatively high</td><td>Low (per token)</td></tr>
+<tr><td>Decoder layers</td><td>28</td></tr>
+<tr><td>Vocabulary</td><td>151,936 tokens</td></tr>
+<tr><td>Embedding and tied LM head</td><td><code>151,936 × 1,024</code></td></tr>
+<tr><td>Attention projections per layer</td><td><code>6,291,456</code> parameters</td></tr>
+<tr><td>SwiGLU MLP per layer</td><td><code>9,437,184</code> parameters</td></tr>
+<tr><td>Total model</td><td>approximately 596 million parameters</td></tr>
 </tbody>
 </table>
 </div>
+<p>The RMSNorm, RoPE, attention, KV-cache, SwiGLU, residual, and output-projection decisions are summarized in this case study and implemented in the local transformer example.</p>
+<p>The example is <strong>decode-only and single-token</strong>.
+It does not implement prefill, sampling, or device-side token lookup.
+The executable source is the <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/furiosa-opt-examples/src/transformer/mod.rs">transformer example</a>.
+This case study explains its decisions and points to the source and tests instead of copying the implementation.</p>
+<h2 id="runnable-decoder-flow"><a class="header" href="#runnable-decoder-flow">Runnable decoder flow</a></h2>
+<p>The local <code>furiosa-opt-examples/src/transformer/mod.rs</code> exposes these device launches:</p>
+<ul>
+<li><code>embedding</code></li>
+<li><code>projection</code></li>
+<li><code>attention_forward_first</code></li>
+<li><code>attention_forward</code></li>
+<li><code>decoder</code></li>
+<li><code>final_layer</code></li>
+</ul>
+<p>This local launch map is the canonical execution surface for this case study.
+The vISA and API contracts remain in the reference chapters.</p>
+<h2 id="workload-semantics"><a class="header" href="#workload-semantics">Workload semantics</a></h2>
+<p>The workload is one decoder step:</p>
+<pre><code class="language-text">host-prepared embedding → 28 decoder layers → final RMSNorm and LM head → logits [Wp]
+</code></pre>
+<p>The current example describes Qwen3-0.6B with 28 layers and hidden size 1024.
+Each decoder layer has these boundaries:</p>
+<ol>
+<li><code>projection</code>: input RMSNorm, Q/K/V projections, Q/K RMSNorm, RoPE, and KV-cache writes.</li>
+<li><code>attention_forward_first</code> or <code>attention_forward</code>: one online-softmax attention chunk.</li>
+<li><code>decoder</code>: output projection, residual, post-attention RMSNorm, MLP, and residual.</li>
+</ol>
+<p><code>final_layer</code> applies the final RMSNorm and computes logits into the padded vocabulary shape.
+The exact axis sizes and tensor types are defined in <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/furiosa-opt-examples/src/transformer/axes.rs"><code>axes.rs</code></a>.</p>
+<h2 id="decision-trace"><a class="header" href="#decision-trace">Decision trace</a></h2>
+<p>The case study follows the same order as the rest of the book:</p>
+<ol>
+<li><strong>Workload semantics</strong>: one token and a growing KV cache define the data movement.</li>
+<li><strong>Hard constraints</strong>: every kernel has a typed public boundary.
+The vocabulary output uses <code>Wp</code>, while the model vocabulary is <code>W</code>.</li>
+<li><strong>Kernel boundaries</strong>: the Rust module exposes <code>embedding</code>, <code>projection</code>, <code>attention_forward_first</code>, <code>attention_forward</code>, <code>decoder</code>, and <code>final_layer</code> as separate device entry points.</li>
+<li><strong>Mapping and movement</strong>: the source moves host-prepared tensors through HBM and DM and uses the representations required by each engine.
+See <a href="../mapping-tensors/index.html">Mapping Tensors</a> and <a href="../moving-tensors/index.html">Moving Tensors</a> for those contracts.</li>
+<li><strong>Engine choices</strong>: projection and LM-head contractions use the Contraction Engine.
+RMSNorm and elementwise stages use the Vector Engine.
+Transfers use the DMA and Fetch/Commit paths.
+See <a href="../computing-tensors/index.html">Computing Tensors</a> for the contracts.</li>
+<li><strong>Checks</strong>: host-oracle tests establish values, and a dumped schedule records the static execution plan.
+See <a href="../scheduling/index.html">Scheduling and Tuning</a>.</li>
+</ol>
+<p>The case study therefore demonstrates how choices compose.
+It does not redefine any individual engine API.</p>
+<h2 id="host-prepared-embedding"><a class="header" href="#host-prepared-embedding">Host-prepared embedding</a></h2>
+<p>The <code>embedding</code> entry point is a host-prepared HBM copy.
+It accepts an <code>HbmTensor&lt;bf16, ..., m![H]&gt;</code> and copies its view into the output HBM tensor with <code>to_hbm_view</code>.
+It is not a device lookup from token IDs and must not be described as one.</p>
+<p>The current source implements this step as <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/furiosa-opt-examples/src/transformer/mod.rs"><code>ops::embedding</code></a>.
+The smoke test is <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/furiosa-opt-examples/tests/transformer_tests.rs"><code>test_embedding</code></a>.</p>
+<h2 id="decoder-step"><a class="header" href="#decoder-step">Decoder step</a></h2>
+<p><code>projection</code> receives one hidden vector, the projection and RMSNorm weights, the position-dependent <code>cos</code> and <code>sin</code> vectors, and mutable K/V caches.
+It writes Q to HBM and updates the cache.
+The first attention chunk uses <code>attention_forward_first</code>.
+Later chunks use <code>attention_forward</code> to continue the online reduction state.</p>
+<p><code>decoder</code> consumes the attention output and its reduction state, writes the residual stream back to HBM, and applies the output projection, residual path, RMSNorm, MLP, and final residual path.
+The function signatures define the required inputs and outputs.
+The implementation details are in <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/furiosa-opt-examples/src/transformer/mod.rs"><code>furiosa-opt-examples/src/transformer/mod.rs</code></a>.</p>
+<p>The boundary test <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/furiosa-opt-examples/tests/transformer_tests.rs"><code>test_decoder_step_wires_kernel_boundaries</code></a> passes host-prepared input through projection, one attention chunk, and decoder with zero weights.
+Its scalar-oracle tests separately cover projection, chunked attention, and decoder arithmetic.</p>
+<h2 id="final-layer-and-padded-logits"><a class="header" href="#final-layer-and-padded-logits">Final layer and padded logits</a></h2>
+<p><code>final_layer</code> takes the residual stream, applies RMSNorm, reshapes the model vocabulary weight view to the padded output representation, and writes logits to <code>m![Wp]</code>.
+The source accepts a separate <code>lm_head_weight</code>.
+This example makes no tied-embedding claim.</p>
+<p>The deterministic test <a href="https://github.com/furiosa-ai/furiosa-opt/blob/main/furiosa-opt-examples/tests/transformer_tests.rs"><code>test_final_layer_matches_scalar_reference</code></a> compares the valid <code>W</code> logits with a host RMSNorm-and-dot-product oracle.
+Padding is part of the tensor’s required shape and storage behavior.
+Interpretation of padded entries belongs to the caller.</p>
+<h2 id="verify-and-inspect"><a class="header" href="#verify-and-inspect">Verify and inspect</a></h2>
+<p>Run the transformer test target with the repository’s normal command:</p>
+<pre><code class="language-bash">cargo furiosa-opt test --test transformer_tests
+</code></pre>
+<p>The tests use seeded small fixtures and compare each supported boundary against host equations.
+They do not require model files or a sampling loop.
+Compile a selected device entry point with <code>--dump-schedule</code> to produce schedule data.
+Inspect the result with the <a href="../tools/schedule-viewer.html">Schedule Viewer</a> and follow the <a href="../scheduling/index.html">Scheduling and Tuning</a> comparison protocol.</p>
+<p>Keep changes disciplined: establish the oracle first, record a baseline schedule, change one mapping, movement, engine, or shape choice, and compare the same artifact.
+Do not infer throughput from the oracle or from source order.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../kernel-examples/fetch-commit-engine.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../kernel-examples/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../kernel-examples/mixture-of-experts.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../scheduling/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -1292,11 +318,11 @@ The following table summarizes the key differences:</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../kernel-examples/fetch-commit-engine.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../kernel-examples/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../kernel-examples/mixture-of-experts.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../scheduling/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

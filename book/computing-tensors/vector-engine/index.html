@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,7 +181,7 @@
 Examples include activations (GELU, SiLU), normalizations (softmax, layer norm), binary operations, and intra- and inter-slice reductions.</p>
 <p>The engine accepts only 32-bit types, <code>i32</code> and <code>f32</code>.
 An upstream <a href="../contraction-engine/index.html">Contraction Engine</a> widens types automatically (<code>bf16</code> products accumulate in <code>f32</code>, <code>i8</code> products in <code>i32</code>).
-When that engine is bypassed, the <a href="../../moving-tensors/fetch-engine.html#type-casting">Fetch Engine</a> must widen the input via its type-cast adapter.</p>
+When that engine is bypassed, the <a href="../fetch-adapter.html#type-casting">Fetch Adapter</a> must widen the input via its type-cast adapter.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p>In a single Tensor Unit invocation, the Vector Engine portion is the method chain from <code>vector_init()</code> to <code>vector_final()</code>.
 The engine has two sub-pieces: the <a href="./intra-slice-chain.html">Intra-Slice Chain</a> (elementwise / binary / per-slice reduce stages) and the <a href="./inter-slice-reducer.html">Inter-Slice Reducer</a> (reduces across the 256 slices in a cluster).
@@ -210,8 +210,8 @@ impl&lt;'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Pa
     #[primitive(VectorInitTensor::vector_intra_slice_tag)]
     pub fn vector_intra_slice_tag(
         self,
-        branch: TagMode,
-    ) -&gt; VectorBranchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, D, Fresh, { VeOrder::IntraFirst }&gt; {
+        branch: TagMode&lt;D&gt;,
+    ) -&gt; VectorBranchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, Fresh, { VeOrder::IntraFirst }&gt; {
         VectorBranchTensor::new(self.ctx, self.inner, branch)
     }
 
@@ -397,7 +397,7 @@ fn pair_add&lt;'l, const T: Tu&gt;(
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../../computing-tensors/contraction-engine/2d-convolution.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../../computing-tensors/contraction-engine/lane-folder.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -411,7 +411,7 @@ fn pair_add&lt;'l, const T: Tu&gt;(
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../../computing-tensors/contraction-engine/2d-convolution.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../../computing-tensors/contraction-engine/lane-folder.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

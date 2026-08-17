@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["transpose_simple"],"struct":["A","B","C","__furiosa_opt_transpose_simple"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["nested","padding","simpl","whole_view_mut"]};

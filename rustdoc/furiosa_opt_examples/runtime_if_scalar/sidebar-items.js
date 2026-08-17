@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["runtime_if_scalar_immediate","runtime_if_scalar_index"],"struct":["A","B","N","__furiosa_opt_runtime_if_scalar_immediate","__furiosa_opt_runtime_if_scalar_index"]};

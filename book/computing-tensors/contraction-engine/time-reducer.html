@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -231,7 +231,7 @@ fn reduce_b&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = reduce_b(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
@@ -242,7 +242,8 @@ The hardware caps <code>Lane::SIZE ≤ 8</code> (spatially parallel lanes) and <
 Dimensions in <code>Time</code> absent from <code>OutTime</code> are summed away, and the outermost such dimension iterates over flits.</p>
 <p>Let <code>InnerTime</code> denote the inner non-reduce dimensions of <code>Time</code> (the dimensions inner to the outermost reduce dimension that survive in <code>OutTime</code>).
 In <code>reduce_b</code> above, <code>Time = m![B / 4, A % 8]</code> and <code>OutTime = m![A % 8]</code>, so <code>B / 4</code> is the outermost reduce dimension (iterates over <code>Time::SIZE = 2 × 8 = 16</code> flits) and <code>InnerTime = m![A % 8]</code>.</p>
-<p>Accumulation requires <code>InnerTime::SIZE</code> slots of <code>[Lane, Packet]</code>, one per <code>InnerTime</code> tuple value. Flits with the same tuple accumulate into the same slot.
+<p>Accumulation requires <code>InnerTime::SIZE</code> slots of <code>[Lane, Packet]</code>, one per <code>InnerTime</code> tuple value.
+Flits with the same tuple accumulate into the same slot.
 For <code>reduce_b</code>, 8 slots accumulate across the <code>B / 4 = 2</code> iterations, and after flit 15 the buffer contains the final reduced results and hands them off to the <a href="./lane-folder.html">Lane Folder</a>:</p>
 <pre><code class="language-text">Time = m![B / 4, A % 8]
           ~~~~~  ~~~~~

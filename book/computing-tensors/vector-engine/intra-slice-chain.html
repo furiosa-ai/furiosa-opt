@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -223,8 +223,8 @@ fn staged_pipeline&lt;'l, const T: Tu&gt;(
 <pre><code class="language-rust ignore">    #[primitive(VectorInitTensor::vector_intra_slice_tag)]
     pub fn vector_intra_slice_tag(
         self,
-        branch: TagMode,
-    ) -&gt; VectorBranchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, D, Fresh, { VeOrder::IntraFirst }&gt; {
+        branch: TagMode&lt;D&gt;,
+    ) -&gt; VectorBranchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, Fresh, { VeOrder::IntraFirst }&gt; {
 
     #[primitive(VectorInitTensor::vector_intra_slice_unzip)]
     pub fn vector_intra_slice_unzip&lt;I: AxisName, TileTime: M, SplitTime: M&gt;(
@@ -255,6 +255,7 @@ Per-stage detail is in <a href="#stages">Stages</a> below.</p>
 </tbody>
 </table>
 </div>
+<p><code>vector_reinterpret()</code> is deliberately absent from the table: it occupies no stage and can sit between any two of them (see <a href="#reinterpret">Reinterpret</a>).</p>
 <p>Stages run either 8-way (8 elements per cycle) or 4-way (4 elements per cycle).
 The floating-point cluster runs 4-way to amortize its half-throughput ALUs against the rest of the chain.
 A chain that uses the float path therefore enters 8-way, calls <code>Narrow</code> (<code>vector_narrow_split</code> or <code>vector_narrow_trim</code>) before the float stages, and calls <code>Widen</code> (<code>vector_widen_concat</code> or <code>vector_widen_pad</code>) afterward to return to 8-way.
@@ -272,22 +273,25 @@ Each operand comes from one of three sources.</p>
 </thead>
 <tbody>
 <tr><td>Constant</td><td><code>100</code>, <code>2.5f32</code></td><td>Scalar broadcast to all elements</td></tr>
-<tr><td>VRF tensor</td><td><code>VeRhs::vrf(&amp;vrf_tensor)</code></td><td>Pre-loaded via <code>.to_vrf()</code> before entering the Vector Engine</td></tr>
+<tr><td>VRF tensor</td><td><code>&amp;vrf_tensor</code></td><td>Pre-loaded via <code>.to_vrf()</code> before entering the Vector Engine</td></tr>
 <tr><td>Stash</td><td><code>Stash</code></td><td>Snapshot of an earlier chain step, described below</td></tr>
 </tbody>
 </table>
 </div>
 <p>Ternary ops (<code>FmaF</code>) take a pair <code>(operand0, operand1)</code>.</p>
 <p>The same op method picks up different sources by the argument type:</p>
-<pre><code class="language-rust ignore">.vector_fxp(FxpBinaryOp::AddFxp, 100)                // operand from constant
-.vector_fxp(FxpBinaryOp::MulInt, VeRhs::vrf(&amp;vrf))   // operand from VRF tensor
-.vector_clip(ClipBinaryOpI32::Max, Stash)            // operand from stash (set earlier)</code></pre>
+<pre><code class="language-rust ignore">.vector_fxp(FxpBinaryOp::AddFxp, 100)         // operand from constant
+.vector_fxp(FxpBinaryOp::MulInt, &amp;vrf)        // operand from VRF tensor
+.vector_clip(ClipBinaryOpI32::Max, Stash)     // operand from stash (set earlier)</code></pre>
 <p>The <code>Stash</code> source comes from <code>vector_stash()</code>, which snapshots the running tensor so a later binary or ternary op can read it back as the <code>Stash</code> operand.
 The typical use is a residual or skip-connection like <code>max(f(x), x)</code>, where the original <code>x</code> must survive across intermediate stages.
 Call <code>vector_stash()</code> at any <code>Stashable</code> stage (<code>Branch</code>, <code>Logic</code>, <code>Fxp</code>, <code>Narrow</code>, <code>Fp</code>, <code>FpDiv</code>, <code>Clip</code>); the snapshot stays live until the Tensor Unit invocation ends and feeds any later binary or ternary call that takes <code>Stash</code>.
-The slot is single-use (a second <code>vector_stash()</code> is a compile-time error) and typed, so an <code>f32</code> stash only feeds <code>f32</code> ops.
-The stash is also read-once: it feeds exactly one later op (reading it moves the slot past <code>Occupied</code>, so a second <code>Stash</code> read is a compile-time error). A value that must be read more than once is not a stash - put it in a read-many VRF (<code>VeRhs::vrf</code>).
+The slot is single-use (a second <code>vector_stash()</code> is a compile-time error) and typed, so an <code>f32</code> stash only feeds <code>f32</code> ops: a conversion or reinterpret between the write and the read has to be undone first.
+The stash is also read-once: it feeds exactly one later op (reading it moves the slot past <code>Occupied</code>, so a second <code>Stash</code> read is a compile-time error).
+A value that must be read more than once is not a stash: put it in a read-many VRF, passed as <code>&amp;vrf</code>.
 The mapping follows the running tensor, so a stash taken before <code>Narrow</code> is still usable after <code>Widen</code>.
+Those seven stages are the seven chain steps that own a VRF write port, which is why <code>Widen</code> is not one of them: the operand register cannot be written from the widen’s output at all.
+A value computed in the 4-way region therefore reaches the stash by widening first and stashing at a <code>Clip</code> op, which puts both the write and the read on the 8-way side.
 Stash is unavailable in <a href="#pair-mode">Pair Mode</a>, and the <code>IntraFirst</code> transition to the <a href="./inter-slice-reducer.html">inter-slice reducer</a> drops it, so anything stashed before <code>vector_inter_slice_reduce()</code> is gone afterward.</p>
 <p>An <strong>argument mode</strong> then picks which slots hold the stream versus the operands so the same op can compute, e.g., <code>stream + operand</code> or <code>operand - stream</code>.
 For example, <code>BinaryArgMode::Mode10</code> swaps the slots so <code>SubFxp</code> computes <code>operand - stream</code>:</p>
@@ -328,7 +332,8 @@ For example, <code>BinaryArgMode::Mode10</code> swaps the slots so <code>SubFxp<
 <p>Pair mode runs the chain on a tensor whose elements split into two interleaved groups, so an op can relate the two groups (e.g., pair-wise add, asymmetric scale).
 Entry is <code>vector_intra_slice_unzip()</code> directly after <code>vector_init()</code>, applied to a collected tensor that carries a 2-way grouping axis.
 Starting the chain with <code>vector_intra_slice_unzip()</code> precludes the <a href="#filter">Filter</a> stage downstream.
-Under the hood, <code>vector_intra_slice_unzip()</code> uses <code>TagMode::AxisToggle</code> to derive each element’s <code>GroupId</code> from the 2-way grouping axis.</p>
+Under the hood, <code>vector_intra_slice_unzip()</code> derives each element’s <code>GroupId</code> from its position along the 2-way grouping axis, driving the branch unit’s count augmenter rather than any <code>TagMode</code>.
+The tag the chain was started with is untouched, which is why this is the supported route to a group split and <code>TagMode::AxisToggle</code> is not.</p>
 <p>The flow has four steps:</p>
 <ol>
 <li><code>vector_intra_slice_unzip()</code> splits the input into two parallel streams (group 0 and group 1).</li>
@@ -364,7 +369,8 @@ Under the hood, <code>vector_intra_slice_unzip()</code> uses <code>TagMode::Axis
 <p>Pair-mode constraints:</p>
 <ul>
 <li><code>stash()</code> and <code>filter()</code> are unavailable throughout pair mode (both paired and merged phases).</li>
-<li>Before <code>_zip</code> (the paired phase), the chain cannot transition to the <a href="./inter-slice-reducer.html">inter-slice reducer</a>, since <code>vector_inter_slice_reduce()</code> is not available on per-group tensors. After <code>_zip</code> (the merged phase), the result is <code>Commitable</code> again and can call <code>vector_inter_slice_reduce()</code> if the current stage supports the transition.</li>
+<li>Before <code>_zip</code> (the paired phase), the chain cannot transition to the <a href="./inter-slice-reducer.html">inter-slice reducer</a>, since <code>vector_inter_slice_reduce()</code> is not available on per-group tensors.
+After <code>_zip</code> (the merged phase), the result is <code>Commitable</code> again and can call <code>vector_inter_slice_reduce()</code> if the current stage supports the transition.</li>
 <li>ALU usage is shared across the two groups: an ALU used in either group counts as consumed for both.</li>
 </ul>
 <h2 id="stages"><a class="header" href="#stages">Stages</a></h2>
@@ -375,25 +381,56 @@ For example, <code>tanh(sqrt(x))</code> cannot fit in a single Tensor Unit invoc
 <p>The Tag stage is the chain’s entry point and assigns each 32-bit element in a flit a 4-bit <code>Tag</code> (0-15), which later stages use to apply conditional operations.
 Bit 3 (the MSB) is <code>GroupId</code>, used by Filter and pair mode to split elements into Group 0 / Group 1.
 Bits 0..2 are general-purpose flag bits filled by comparison results.</p>
-<p>The <code>TagMode</code> selects how the 4 bits are computed for each element:</p>
+<p>The <code>TagMode</code> selects how the 4 bits are computed for each element.
+Only <code>Zero</code> and <code>Comparison</code> are available today. <code>AxisToggle</code> is declared but not compilable, as
+the last column records; <code>ValidCount</code> and <code>Vrf</code> are withheld from the enum entirely until they run on
+both paths.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th><code>TagMode</code></th><th>How each tag bit is filled</th></tr>
+<tr><th><code>TagMode</code></th><th>How each tag bit is filled</th><th>Status</th></tr>
 </thead>
 <tbody>
-<tr><td><code>Zero</code></td><td>All four bits are 0. Every element has tag = 0.</td></tr>
-<tr><td><code>AxisToggle { axis }</code></td><td>Bit 3 (<code>GroupId</code>) = <code>axis_index % 2</code> along <code>axis</code>. Bits 0..2 stay 0.</td></tr>
-<tr><td><code>Comparison([cmp0, cmp1, cmp2, cmp3])</code></td><td>For each element <code>x</code>, bit <code>i</code> = <code>1</code> iff <code>cmp_i(x)</code> holds. The four comparisons see the same <code>x</code> and must match its dtype (all <code>InputCmpI32</code> or all <code>InputCmpF32</code>). Each <code>cmp_i</code> independently picks (op, boundary) from <code>InputCmp</code> (<code>Less</code>, <code>Greater</code>, <code>Equal</code>, <code>LessUnsigned</code>, <code>GreaterUnsigned</code>, <code>True</code>, <code>False</code>).</td></tr>
-<tr><td><code>ValidCount</code></td><td>Bits derived from the <a href="./vcg.html">Valid Count Generator</a> output.</td></tr>
-<tr><td><code>Vrf</code></td><td>Bits loaded from VRF, previously written by an earlier TuExec (enables tag reuse across invocations).</td></tr>
+<tr><td><code>Zero</code></td><td>All four bits are 0. Every element has tag = 0.</td><td>Works</td></tr>
+<tr><td><code>Comparison([cmp0, cmp1, cmp2, cmp3])</code></td><td>For each element <code>x</code>, bit <code>i</code> = <code>1</code> iff <code>cmp_i(x)</code> holds. Each <code>cmp_i</code> is a <code>Cmp&lt;D&gt;</code> carrying the boundary it compares against, typed by the stream’s scalar so the boundary is checked against it: <code>Equal</code>, <code>Less</code>, <code>Greater</code>, <code>LessUnsigned</code>, <code>GreaterUnsigned</code>, <code>True</code>, <code>False</code>. The <code>*Unsigned</code> pair compares raw bit patterns.</td><td>Works</td></tr>
+<tr><td><code>AxisToggle { axis }</code></td><td>Bit 3 (<code>GroupId</code>) = <code>axis_index % 2</code> along <code>axis</code>. Bits 0..2 stay 0.</td><td><strong>Not compilable.</strong> Runs on the host, but rejected with a kernel compile error when lowered. <code>vector_intra_slice_unzip()</code> is the supported way to get this grouping.</td></tr>
 </tbody>
 </table>
 </div>
-<p>For example, with <code>i32</code> data and <code>Comparison([Less{0}, Equal{5}, Greater{100}, True])</code>, an element <code>x = 7</code> yields bits <code>0/0/0/1</code> (LSB first), so its tag is <code>0b1000 = 8</code>.</p>
-<p>Once tags are assigned, later binary and ternary ops can condition an operand on the <code>GroupId</code> MSB so different tag groups see different values.
-<code>BinaryOperandTag::always(operand)</code> applies to all groups, <code>BinaryOperandTag::group(operand, GroupId::Zero)</code> applies only to group 0.
-<code>TernaryOperandTag</code> is the ternary form.</p>
+<p>For example, with <code>i32</code> data and <code>Comparison([Cmp::Less(0), Cmp::Equal(5), Cmp::Greater(100), Cmp::True])</code>, an element <code>x = 7</code> yields bits <code>0/0/0/1</code> (LSB first), so its tag is <code>0b1000 = 8</code>.</p>
+<p>Once tags are assigned, later binary and ternary ops can condition an operand on the tag, so
+different elements see different values.
+The rule is one sentence: with no condition write the operand bare, and with a condition name the
+hardware slot it drives, through <code>Branched</code>. <code>ve_elementwise_branched</code> in <code>furiosa-opt-examples</code> is a
+compiled kernel doing exactly that – a guarded immediate with a trailing unconditional rf read – and
+<code>ve_branch_bit_order</code> adds three immediates and a guarded stash read. Both are read here rather than
+restated, so an API change breaks them instead of leaving prose behind.</p>
+<p>A <code>TagGuard</code> is <code>TagGuard::all()</code>, <code>TagGuard::group(id)</code> for one group, or <code>matches</code>/<code>not_matches</code> of a
+<code>[BitReq; 4]</code> pattern written LSB first, one <code>BitReq</code> per tag bit: <code>One</code> where the bit must be 1,
+<code>Zero</code> where it must be 0, <code>Ignore</code> where it does not matter. The requirement is on the bit’s value,
+whatever the tag mode filled it from.</p>
+<p>A pass has four operand slots: three immediate registers and the register-file port, which reads either
+a VRF register or the stash.
+A conditional operand says which <em>kind</em> of slot it drives — <code>Branched::imm</code> for an immediate,
+<code>Branched::rf</code> for the port — and gets back a builder offering only what may still follow.
+<code>imm</code> may be called three times and <code>rf</code> once, last; a fourth <code>imm</code>, or an <code>imm</code> after <code>rf</code>, does not
+compile.</p>
+<p>The kernel does not pick <em>which</em> immediate register: <code>imm</code> takes the next one, and which physical
+register a value ends up in is command generation’s choice.
+What is preserved is <strong>call order</strong> — the slots reach the hardware in the order they were filled, and
+that order is match priority, so an element takes the first slot whose guard it satisfies and an
+unconditional slot is the pass’s <code>else</code> with nothing after it.</p>
+<p>Two guards are rejected outright, because a slot carrying one is filled and inert while a pass has only
+four: <code>TagGuard::not_matches([Ignore, Ignore, Ignore, Ignore])</code>, which no execution id satisfies, and any slot placed
+after an unconditional one. <code>TagGuard::matches([Ignore, Ignore, Ignore, Ignore])</code> is accepted and stored as
+<code>TagGuard::all()</code>, the same predicate spelled shorter.</p>
+<p>Helpers that build a layout and hand it back are ordinary functions, so a kernel library can wrap
+whatever combinations it uses often.
+Two things such a helper cannot do, both of which the <code>operand</code> module documents in full: it cannot
+introduce a <em>new</em> operand type (an operand carries a claim about what it does to the stash, so the
+traits that say so are closed), and it cannot fill a slot conditionally, because how many slots are
+spoken for is part of the builder’s type and the two arms of an <code>if</code> would disagree.
+Vary the payload or the guard instead of the slot count, or branch around the whole op.</p>
 <h3 id="logic-cluster"><a class="header" href="#logic-cluster">Logic Cluster</a></h3>
 <p>The Logic Cluster performs bitwise operations on <code>i32</code> or <code>f32</code> (bit-level).
 It runs 8-way.</p>
@@ -499,16 +536,16 @@ Narrowing halves throughput on the float and reduce path, so the same logical te
 </span>axes![A = 512, B = 2, S = 64];
 
 fn vector_narrow_split_semantics&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![B], m![S / 4 # 256], m![S % 4], m![A % 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorNarrowTensor&lt;'l, T, i32, m![1], m![B], m![S / 4 # 256], m![S % 4, A / 4 % 2], m![A % 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![B], m![S / 4 # 256], m![S % 4], m![A % 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorNarrowTensor&lt;'l, T, i32, m![1], m![B], m![S / 4 # 256], m![S % 4, A / 4 % 2], m![A % 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input.vector_narrow_split::&lt;m![S % 4, A / 4 % 2], m![A % 4]&gt;()
     // shape semantics: [T], [P] -&gt; [T, P / 2], [P % 4]
 }
 
 fn vector_narrow_trim_semantics&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorNarrowTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorNarrowTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input.vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()
     // shape semantics: [T], [P] -&gt; [T], [P = 4]
@@ -516,10 +553,10 @@ fn vector_narrow_trim_semantics&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![B], m![S / 4 # 256], m![S % 4], m![A % 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![B], m![S / 4 # 256], m![S % 4], m![A % 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = vector_narrow_split_semantics(i);
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = vector_narrow_trim_semantics(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="float-cluster"><a class="header" href="#float-cluster">Float Cluster</a></h3>
@@ -634,16 +671,16 @@ Later stages (<code>FpToFxp</code>, <code>Clip</code>, <code>Filter</code>, <cod
 </span>axes![A = 512, B = 2, S = 64, R = 8];
 
 fn vector_widen_concat_semantics&lt;'l, const T: Tu&gt;(
-    input: VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![B], m![S / 4 # 256], m![A / 4 % 2], m![A % 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorWidenTensor&lt;'l, T, i32, m![1], m![B], m![S / 4 # 256], m![1], m![A % 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![B], m![S / 4 # 256], m![A / 4 % 2], m![A % 4], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorWidenTensor&lt;'l, T, i32, m![1], m![B], m![S / 4 # 256], m![1], m![A % 8], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input.vector_widen_concat::&lt;m![1], m![A % 8]&gt;()
     // shape semantics: [T, P / 2], [P % 4] -&gt; [T], [P]
 }
 
 fn vector_widen_pad_semantics&lt;'l, const T: Tu&gt;(
-    input: VectorFpTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorWidenTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorFpTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorWidenTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input.vector_widen_pad::&lt;m![A % 2 # 8]&gt;()
     // shape semantics: [T], [P] -&gt; [T], [P # 8]
@@ -651,14 +688,14 @@ fn vector_widen_pad_semantics&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![B], m![S / 4 # 256], m![R, A / 4 % 2], m![A % 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![B], m![S / 4 # 256], m![R, A / 4 % 2], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let i = i
 </span><span class="boring">    .vector_narrow_trim::&lt;m![A % 4]&gt;()
 </span><span class="boring">    .vector_intra_slice_reduce::&lt;R, m![A / 4 % 2], m![A % 4]&gt;(IntraSliceReduceOpI32::AddSat);
 </span><span class="boring">
 </span><span class="boring">let _o = vector_widen_concat_semantics(i);
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let i = i.vector_narrow_trim::&lt;m![A % 2 # 4]&gt;().vector_fp_unary(FpUnaryOp::Exp);
 </span><span class="boring">let _o = vector_widen_pad_semantics(i);
 </span><span class="boring">}</span></code></pre>
@@ -711,12 +748,31 @@ It runs 8-way.</p>
 </table>
 </div>
 <h3 id="filter"><a class="header" href="#filter">Filter</a></h3>
-<p>The Filter stage applies an execution mask derived from <code>TagFilter</code> (matching on the <code>GroupId</code> MSB of each element’s <code>Tag</code>) to filter output flits.
+<p>The Filter stage applies an execution mask derived from a <code>TagGuard</code> (typically matching on the <code>GroupId</code> MSB of each element’s <code>Tag</code>) to filter output flits.
 Available 8-way and <code>Standalone</code> context only.
 The source <code>impl</code> lives on <code>VectorTensor</code> for any stage with <code>CanTransitionTo&lt;Filter&gt;</code>, which covers every intra-slice stage and <code>InterSliceReduce</code>.</p>
 <h3 id="output"><a class="header" href="#output">Output</a></h3>
 <p>The Output stage exits the Vector Engine pipeline.
 The result can continue to the <a href="../cast-engine.html">Cast Engine</a>, <a href="../transpose-engine.html">Transpose Engine</a>, or <a href="../../moving-tensors/commit-engine.html">Commit Engine</a>.</p>
+<h2 id="reinterpret"><a class="header" href="#reinterpret">Reinterpret</a></h2>
+<p><code>vector_reinterpret::&lt;D2&gt;()</code> rereads the stream as the other 32-bit scalar with the bits untouched, so <code>1.0f32</code> becomes <code>0x3f80_0000</code> and not <code>1</code>.
+Every element is 32 bits and every cluster takes its operand type from the op it runs, so a reinterpret emits no instruction, claims no ALU, and holds both the current stage and the way.
+It can therefore appear anywhere in the chain, any number of times, including between two ops of the same cluster.</p>
+<p>One possible use for a reinterpret is applying a bitwise operation to floating-point values, as in <a href="#bitwise-abs-on-f32">Bitwise <code>abs</code> on <code>f32</code></a>.
+For the value-preserving conversions use <a href="#fxptofp-conversion">FxpToFp</a> / <a href="#fptofxp-conversion">FpToFxp</a> instead.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>vector_reinterpret::&lt;i32&gt;()</code></td><td>read the <code>f32</code> stream’s bits as <code>i32</code></td></tr>
+<tr><td><code>vector_reinterpret::&lt;f32&gt;()</code></td><td>read the <code>i32</code> stream’s bits as <code>f32</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>A reinterpret also decides what a following <a href="#operands"><code>vector_stash()</code></a> writes, since the stash takes the scalar the stream carries at the write.
+So a value reaches a reader of the other scalar by reinterpreting first and stashing after; a read at the other scalar does not compile.</p>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
 <h3 id="i32-pipeline"><a class="header" href="#i32-pipeline"><code>i32</code> Pipeline</a></h3>
 <p>A minimal <code>i32</code> chain that adds a constant after branching.
@@ -770,6 +826,33 @@ fn sigmoid&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = sigmoid(i);
 </span><span class="boring">}</span></code></pre>
+<h3 id="bitwise-abs-on-f32"><a class="header" href="#bitwise-abs-on-f32">Bitwise <code>Abs</code> on <code>f32</code></a></h3>
+<p>Clearing the sign bit is \(|x|\), reached with no float ALU: the mask is an ordinary <code>i32</code> literal because the stream is read as <code>i32</code> for the one op that needs it.
+Both reinterprets are free, so this costs exactly one <code>LogicAnd</code>.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 512, B = 2];
+
+fn abs&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt;,
+) -&gt; VectorFinalTensor&lt;'l, T, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; {
+    input
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_reinterpret::&lt;i32&gt;() // read the bits as i32
+        .vector_logic(LogicBinaryOpI32::BitAnd, 0x7fff_ffff) // clear the sign bit
+        .vector_reinterpret::&lt;f32&gt;() // and back
+        .vector_final()
+}
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">
+</span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = abs(i);
+</span><span class="boring">}</span></code></pre>
 <h3 id="single-stream-argument-mode"><a class="header" href="#single-stream-argument-mode">Single-Stream Argument Mode</a></h3>
 <p><code>BinaryArgMode::Mode10</code> swaps the stream and operand positions, so <code>SubFxp</code> computes <code>operand - stream</code> (here, <code>7 - x</code>) rather than the default <code>stream - operand</code>.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
@@ -817,7 +900,7 @@ fn vrf_add&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![N], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let v: VrfTensor&lt;i32, m![1], m![B], m![A / 8], m![A % 8]&gt; = unsafe { VrfTensor::from_addr(0) };
+</span><span class="boring">let v: VrfTensor&lt;i32, m![1], m![B], m![A / 8], m![A % 8]&gt; = VrfTensor::new();
 </span><span class="boring">let _o = vrf_add(i, &amp;v);
 </span><span class="boring">}</span></code></pre>
 <h3 id="stash-on-the-fp-only-path"><a class="header" href="#stash-on-the-fp-only-path">Stash on the Fp-Only Path</a></h3>

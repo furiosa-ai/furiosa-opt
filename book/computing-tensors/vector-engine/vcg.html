@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -219,7 +219,9 @@ The two components, <code>TimeFilterConfig</code> and <code>PacketClipperConfig<
 <h3 id="time-filter"><a class="header" href="#time-filter">Time Filter</a></h3>
 <p>For each slice <code>s</code>, a time filter determines whether each time step <code>t</code> carries valid <code>R</code> data.
 The subsections below build up <code>fn valid()</code> step by step, starting from the simplest case and adding complexity.
-When <code>R</code> has no sub-expressions in <code>Time</code> or <code>Slice</code>, the time filter is disabled by setting <code>slice_mask = 0</code> and <code>slice_thres = 1</code>. Then <code>s &amp; 0 = 0 &lt; 1</code> for every <code>s</code>, hitting the <code>Less</code> arm so <code>fn valid()</code> always returns <code>true</code>. The choice of <code>slice_thres = 1</code> is conventional; any positive value works since <code>0</code> is always less than it.</p>
+When <code>R</code> has no sub-expressions in <code>Time</code> or <code>Slice</code>, the time filter is disabled by setting <code>slice_mask = 0</code> and <code>slice_thres = 1</code>.
+Then <code>s &amp; 0 = 0 &lt; 1</code> for every <code>s</code>, hitting the <code>Less</code> arm so <code>fn valid()</code> always returns <code>true</code>.
+The choice of <code>slice_thres = 1</code> is conventional; any positive value works since <code>0</code> is always less than it.</p>
 <pre><code class="language-rust ignore">struct TimeFilterConfig {
     // How R's index is reconstructed from t.
     sequencer: Sequencer,
@@ -261,8 +263,8 @@ TimeFilterConfig {
 </span>axes![A = 8, R = 12, X = 128];
 
 fn reduce_time_only&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, A / 4], m![1], m![A % 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, A / 4], m![1], m![A % 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![A % 4]&gt;()
@@ -278,7 +280,7 @@ fn reduce_time_only&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_only(i);
 </span><span class="boring">}</span></code></pre>
 <p>In the example above, the sequencer iterates <code>R # 16</code> once with <code>size 16 : stride 1</code>, so <code>idx = t</code> for every time step.
@@ -298,8 +300,8 @@ The time filter uses a <a href="../../moving-tensors/sequencer.html">Sequencer</
 // R = 10, padded to R # 12, split as (size 3, stride 4) × (size 4, stride 1).
 // time filter sums (R # 12 / 4 value) * 4 + (R # 12 % 4 value) * 1 to recover R index regardless of A.
 fn reduce_time_reordered&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X # 256], m![A], m![B], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X # 256], m![A], m![B], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![B]&gt;()
@@ -315,7 +317,7 @@ fn reduce_time_reordered&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_reordered(i);
 </span><span class="boring">}</span></code></pre>
 <p>The compiler configures the time filter for this placement as follows:</p>
@@ -347,8 +349,8 @@ Within <code>Time</code>, sub-expressions may appear in any order.</p>
 </span>axes![R = 11, X = 64];
 
 fn reduce_slice_time_slicemajor&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![1], m![1 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![1 # 4]&gt;()
@@ -364,7 +366,7 @@ fn reduce_slice_time_slicemajor&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_slice_time_slicemajor(i);
 </span><span class="boring">}</span></code></pre>
 <p>The example places <code>R = 11</code> (padded to <code>R # 16</code>) across <code>Slice</code> and <code>Time</code> with the following sub-expressions.</p>
@@ -407,15 +409,23 @@ The layout has three regimes: 2 slices are fully valid, 1 slice is partial, and 
 }</code></pre>
 <p>Each field encodes one part of the validity decision:</p>
 <ul>
-<li><code>sequencer</code> records each <code>Time</code> sub-expression with its <code>R</code> stride, so the reconstructed <code>idx</code> equals the <code>R</code> contribution from <code>Time</code> at each time step <code>t</code>. For this example <code>idx</code> takes values in <code>{0, 1, 2, 3}</code> as <code>t</code> ranges over <code>[0, 4)</code>.</li>
-<li><code>slice_mask</code> extracts the bits of the slice id that carry the <code>R</code> contribution from <code>Slice</code>. For this example bit <code>0</code> carries <code>R # 16 / 4 % 2</code> and bit <code>6</code> carries <code>R # 16 / 8</code>, so <code>slice_mask = 0b1000001</code>.</li>
-<li><code>slice_thres</code> is the bit pattern within <code>slice_mask</code> that encodes the partial slice’s <code>R</code> contribution. From the table above, the partial slice has <code>R</code> contribution <code>8</code>, encoded by setting bit <code>6</code> (<code>R # 16 / 8 = 1</code>) and clearing bit <code>0</code> (<code>R # 16 / 4 % 2 = 0</code>). So <code>slice_thres = 64</code>.</li>
-<li><code>time_thres</code> is <code>R::SIZE</code> minus the partial slice’s <code>R</code> contribution. For this example <code>time_thres = 11 - 8 = 3</code>.</li>
+<li><code>sequencer</code> records each <code>Time</code> sub-expression with its <code>R</code> stride, so the reconstructed <code>idx</code> equals the <code>R</code> contribution from <code>Time</code> at each time step <code>t</code>.
+For this example <code>idx</code> takes values in <code>{0, 1, 2, 3}</code> as <code>t</code> ranges over <code>[0, 4)</code>.</li>
+<li><code>slice_mask</code> extracts the bits of the slice id that carry the <code>R</code> contribution from <code>Slice</code>.
+For this example bit <code>0</code> carries <code>R # 16 / 4 % 2</code> and bit <code>6</code> carries <code>R # 16 / 8</code>, so <code>slice_mask = 0b1000001</code>.</li>
+<li><code>slice_thres</code> is the bit pattern within <code>slice_mask</code> that encodes the partial slice’s <code>R</code> contribution.
+From the table above, the partial slice has <code>R</code> contribution <code>8</code>, encoded by setting bit <code>6</code> (<code>R # 16 / 8 = 1</code>) and clearing bit <code>0</code> (<code>R # 16 / 4 % 2 = 0</code>).
+So <code>slice_thres = 64</code>.</li>
+<li><code>time_thres</code> is <code>R::SIZE</code> minus the partial slice’s <code>R</code> contribution.
+For this example <code>time_thres = 11 - 8 = 3</code>.</li>
 </ul>
-<p><code>fn valid</code> returns the correct validity for every flit. To verify, decompose the <code>R</code> index as <code>r = r_slice + idx</code>, where <code>r_slice</code> is the <code>R</code> contribution from <code>Slice</code> (encoded by <code>s &amp; slice_mask</code>) and <code>idx</code> is the contribution from <code>Time</code>, and consider the three cases of the slice comparison.</p>
+<p><code>fn valid</code> returns the correct validity for every flit.
+To verify, decompose the <code>R</code> index as <code>r = r_slice + idx</code>, where <code>r_slice</code> is the <code>R</code> contribution from <code>Slice</code> (encoded by <code>s &amp; slice_mask</code>) and <code>idx</code> is the contribution from <code>Time</code>, and consider the three cases of the slice comparison.</p>
 <ul>
 <li>When <code>(s &amp; slice_mask) &lt; slice_thres</code>, every time step is valid: <code>r_slice</code> is at least one slice spacing below the partial slice’s contribution, so <code>r = r_slice + idx &lt; R::SIZE</code> for every <code>idx</code>.</li>
-<li>When <code>(s &amp; slice_mask) = slice_thres</code>, a time step is valid iff <code>idx &lt; time_thres</code>. This is the partial slice, and by definition of <code>time_thres</code> its <code>r_slice = R::SIZE - time_thres</code>. So <code>r = r_slice + idx &lt; R::SIZE</code> exactly when <code>idx &lt; time_thres</code>.</li>
+<li>When <code>(s &amp; slice_mask) = slice_thres</code>, a time step is valid iff <code>idx &lt; time_thres</code>.
+This is the partial slice, and by definition of <code>time_thres</code> its <code>r_slice = R::SIZE - time_thres</code>.
+So <code>r = r_slice + idx &lt; R::SIZE</code> exactly when <code>idx &lt; time_thres</code>.</li>
 <li>When <code>(s &amp; slice_mask) &gt; slice_thres</code>, no time step is valid: <code>r_slice</code> is at least one slice spacing above the partial slice’s contribution, so <code>r_slice ≥ R::SIZE</code>.</li>
 </ul>
 <h4 id="r-in-time-and-slice"><a class="header" href="#r-in-time-and-slice"><code>R</code> in <code>Time</code> and <code>Slice</code></a></h4>
@@ -424,7 +434,7 @@ The within-<code>Slice</code> and within-<code>Time</code> ordering rules and th
 <p><code>TimeMajor</code> adds one extra constraint on top of these inherited rules.
 Recall that <code>PADDED_SIZE</code> decomposes as <code>slice_span × time_span</code>, where <code>slice_span</code> and <code>time_span</code> are the products of sizes of <code>R</code>’s sub-expressions in <code>Slice</code> and <code>Time</code> respectively.
 <code>TimeMajor</code> requires <code>PADDED_SIZE - R::SIZE ≤ slice_span</code>, meaning at most <code>slice_span</code> <code>R</code> positions may be over-padded.
-This constraint is essential, and placements that violate it are not supported by the VCG (see <a href="#r-in-time-and-slice-over-padded"><code>R</code> in <code>Time</code> and <code>Slice</code>, Over-padded</a>).</p>
+This constraint is essential, and placements that violate it are not supported by the VCG (see <a href="#r-in-time-and-slice"><code>R</code> in <code>Time</code> and <code>Slice</code></a>).</p>
 <pre class="playground"><code class="language-rust should_panic edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
@@ -433,8 +443,8 @@ This constraint is essential, and placements that violate it are not supported b
 </span>axes![R = 13, X = 64];
 
 fn reduce_time_slice_timemajor&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![1], m![1 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![1 # 4]&gt;()
@@ -450,7 +460,7 @@ fn reduce_time_slice_timemajor&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_slice_timemajor(i);
 </span><span class="boring">}</span></code></pre>
 <p>The example places <code>R = 13</code> (padded to <code>R # 16</code>) across <code>Slice</code> and <code>Time</code> with the following sub-expressions.</p>
@@ -494,16 +504,24 @@ The layout has two regimes: 1 slice is fully valid, and 3 are partial (each losi
 }</code></pre>
 <p>The config differs from <code>SliceMajor</code> in three fields (<code>slice_mask</code> follows the same pattern):</p>
 <ul>
-<li><code>sequencer</code>: every <code>Time</code> sub-expression stride is divided by <code>slice_span</code> first. For this example strides <code>4</code> and <code>8</code> become <code>1</code> and <code>2</code>.</li>
-<li><code>slice_thres</code>: encodes the partial slice’s <code>r_slice = slice_span - (PADDED_SIZE - R::SIZE)</code>. For this example the target value is <code>4 - 3 = 1</code>, encoded with bit <code>0</code> set (<code>R # 16 % 2 = 1</code>) and bit <code>6</code> clear (<code>R # 16 / 2 % 2 = 0</code>), giving <code>slice_thres = 1</code>.</li>
-<li><code>time_thres</code>: always <code>time_span - 1</code>. For this example <code>time_thres = 3</code>.</li>
+<li><code>sequencer</code>: every <code>Time</code> sub-expression stride is divided by <code>slice_span</code> first.
+For this example strides <code>4</code> and <code>8</code> become <code>1</code> and <code>2</code>.</li>
+<li><code>slice_thres</code>: encodes the partial slice’s <code>r_slice = slice_span - (PADDED_SIZE - R::SIZE)</code>.
+For this example the target value is <code>4 - 3 = 1</code>, encoded with bit <code>0</code> set (<code>R # 16 % 2 = 1</code>) and bit <code>6</code> clear (<code>R # 16 / 2 % 2 = 0</code>), giving <code>slice_thres = 1</code>.</li>
+<li><code>time_thres</code>: always <code>time_span - 1</code>.
+For this example <code>time_thres = 3</code>.</li>
 </ul>
-<p><code>fn valid</code> returns the correct validity for every flit. To verify, decompose the <code>R</code> index as <code>r = idx * slice_span + r_slice</code>, where <code>r_slice</code> is the slice’s <code>R</code> contribution decoded from <code>s &amp; slice_mask</code>, and consider the two cases of the slice comparison.</p>
+<p><code>fn valid</code> returns the correct validity for every flit.
+To verify, decompose the <code>R</code> index as <code>r = idx * slice_span + r_slice</code>, where <code>r_slice</code> is the slice’s <code>R</code> contribution decoded from <code>s &amp; slice_mask</code>, and consider the two cases of the slice comparison.</p>
 <ul>
 <li>When <code>(s &amp; slice_mask) &lt; slice_thres</code>, every time step is valid: <code>r_slice &lt; slice_span - (PADDED_SIZE - R::SIZE)</code>, so <code>r ≤ (time_span - 1) * slice_span + r_slice &lt; R::SIZE</code> for every <code>idx</code>.</li>
-<li>When <code>(s &amp; slice_mask) ≥ slice_thres</code>, a time step is valid iff <code>idx &lt; time_thres = time_span - 1</code>. The slice’s <code>r_slice ≥ slice_span - (PADDED_SIZE - R::SIZE)</code>. For <code>idx ≤ time_span - 2</code>, <code>r ≤ (time_span - 2) * slice_span + (slice_span - 1) &lt; (time_span - 1) * slice_span ≤ R::SIZE</code>. For <code>idx = time_span - 1</code>, <code>r ≥ (time_span - 1) * slice_span + slice_span - (PADDED_SIZE - R::SIZE) = R::SIZE</code>.</li>
+<li>When <code>(s &amp; slice_mask) ≥ slice_thres</code>, a time step is valid iff <code>idx &lt; time_thres = time_span - 1</code>.
+The slice’s <code>r_slice ≥ slice_span - (PADDED_SIZE - R::SIZE)</code>.
+For <code>idx ≤ time_span - 2</code>, <code>r ≤ (time_span - 2) * slice_span + (slice_span - 1) &lt; (time_span - 1) * slice_span ≤ R::SIZE</code>.
+For <code>idx = time_span - 1</code>, <code>r ≥ (time_span - 1) * slice_span + slice_span - (PADDED_SIZE - R::SIZE) = R::SIZE</code>.</li>
 </ul>
-<p>Unlike <code>SliceMajor</code>, <code>TimeMajor</code> has no “all invalid” regime. The padding constraint <code>PADDED_SIZE - R::SIZE ≤ slice_span</code> caps over-padding tightly enough that no slice becomes fully invalid.</p>
+<p>Unlike <code>SliceMajor</code>, <code>TimeMajor</code> has no “all invalid” regime.
+The padding constraint <code>PADDED_SIZE - R::SIZE ≤ slice_span</code> caps over-padding tightly enough that no slice becomes fully invalid.</p>
 <h3 id="packet-clipper"><a class="header" href="#packet-clipper">Packet Clipper</a></h3>
 <p>For each flit, the packet clipper computes <code>valid_size(t)</code>, which depends only on <code>t</code> (not on the slice <code>s</code>), so all slices receive the same count at the same time step.
 This slice-independence constrains which placements the VCG can express.
@@ -534,8 +552,8 @@ Any other axis sharing <code>Packet</code> with <code>R</code>, or <code>R</code
 </span>axes![A = 8, R = 3, X = 64];
 
 fn reduce_packet_only&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![1 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![R # 4]&gt;()
@@ -551,7 +569,7 @@ fn reduce_packet_only&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_packet_only(i);
 </span><span class="boring">}</span></code></pre>
 <p>The example above places <code>R = 3</code> (padded to <code>R # 8</code>) entirely in <code>Packet</code> with a single sub-expression.
@@ -572,8 +590,8 @@ The compiler configures the packet clipper as follows:</p>
 </span>axes![A = 8, R = 10, X = 64];
 
 fn reduce_time_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![1 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![R # 16 % 4]&gt;()
@@ -589,7 +607,7 @@ fn reduce_time_packet&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_packet(i);
 </span><span class="boring">}</span></code></pre>
 <p>The example above places <code>R = 10</code> (padded to <code>R # 16</code>) across <code>Time</code> and <code>Packet</code>:</p>
@@ -742,8 +760,10 @@ Legend: `v` = below (all valid), `&gt;` = boundary (partial), `x` = above (all i
 <ul>
 <li><code>Ho=3</code> columns (rightmost 4): all 0 (<code>H</code> time filter <code>x</code>, always closed).</li>
 <li><code>Co=3</code> columns (every 4th): all 0 (<code>C</code> time filter <code>x</code>).</li>
-<li><code>Co=2</code> columns (<code>H:v C:&gt;</code>): <code>C</code> time filter is boundary, so only rows with <code>Ci=0</code> pass. Compare <code>Co=1</code> vs <code>Co=2</code>.</li>
-<li><code>Ho=2</code> columns (<code>H:&gt; C:v</code>): <code>H</code> time filter is boundary, so only rows with <code>Hi=0</code> pass. Compare <code>Ho=1</code> vs <code>Ho=2</code>.</li>
+<li><code>Co=2</code> columns (<code>H:v C:&gt;</code>): <code>C</code> time filter is boundary, so only rows with <code>Ci=0</code> pass.
+Compare <code>Co=1</code> vs <code>Co=2</code>.</li>
+<li><code>Ho=2</code> columns (<code>H:&gt; C:v</code>): <code>H</code> time filter is boundary, so only rows with <code>Hi=0</code> pass.
+Compare <code>Ho=1</code> vs <code>Ho=2</code>.</li>
 <li><code>Ho=2 × Co=2</code> (both <code>&gt;</code>): only <code>(Hi=0, Ci=0)</code> rows pass, the intersection of both boundaries.</li>
 <li>Within valid cells, the <code>[8, 8, 3]</code> sawtooth from packet clipper always appears, the same regardless of slice.</li>
 </ul>
@@ -763,8 +783,8 @@ Reversing this order produces non-monotonic per-slice <code>R</code> index range
 // NOT supported: inner sub-expression (/ 2 % 4, stride 2) placed outside major (/ 8, stride 8) in Slice.
 // Produces non-monotonic slice validity (S6 valid after S5 partial); VCG cannot express this.
 fn reduce_wrong_ordering&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![1], m![1 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![1 # 4]&gt;()
@@ -780,7 +800,7 @@ fn reduce_wrong_ordering&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_ordering(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="r-in-slice-and-time-interleaved"><a class="header" href="#r-in-slice-and-time-interleaved"><code>R</code> in <code>Slice</code> and <code>Time</code>, Interleaved</a></h3>
@@ -796,8 +816,8 @@ A single <code>slice_thres</code> cannot express this per-slice variation.</p>
 // NOT supported: Time-Slice-Time interleave.
 // Different slices need different valid step counts (e.g., S2: 3/4, S3: 2/4); single threshold cannot express this.
 fn reduce_wrong_interleave&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![1], m![1 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![1 # 4]&gt;()
@@ -813,17 +833,18 @@ fn reduce_wrong_interleave&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_interleave(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="r-in-slice-and-time-over-padded"><a class="header" href="#r-in-slice-and-time-over-padded"><code>R</code> in <code>Slice</code> and <code>Time</code>, Over-padded</a></h3>
-<p><code>TimeMajor</code> mode requires <code>PADDED_SIZE - R::SIZE ≤ slice_span</code>. At most <code>slice_span</code> <code>R</code> positions are over-padded.</p>
+<p><code>TimeMajor</code> mode requires <code>PADDED_SIZE - R::SIZE ≤ slice_span</code>.
+At most <code>slice_span</code> <code>R</code> positions are over-padded.</p>
 <p>In the example below, <code>R = 14</code>, <code>Slice = m![X, R # 20 % 4]</code> (<code>slice_span = 4</code>), and <code>Time = m![A, R # 20 / 4]</code> with <code>A = 3</code> (so <code>time_span = 5</code> from <code>R # 20 / 4</code>, while <code>Time::SIZE = A × time_span = 15</code>).
 The constraint is on <code>time_span</code>, not <code>Time::SIZE</code>: non-<code>R</code> axes in <code>Time</code> like <code>A</code> cycle without changing <code>R</code>’s index, so they do not affect the constraint.
 The correct padding is <code>R # 16</code> (since <code>16 - 14 = 2 ≤ slice_span = 4</code>), giving <code>time_span = 4</code>.
 Using <code>R # 20</code> over-pads <code>R</code>, making <code>time_span = 5</code> and adding an extra <code>Time</code> iteration that contains no real data.
 For slices below <code>slice_thres</code> (slice contribution = 0), the sequencer-reconstructed <code>idx</code> reaches <code>4 × 4 = 16</code> when <code>R # 20 / 4 = 4</code>, giving <code>R</code> index 16 ≥ <code>R::SIZE</code>: padding that shouldn’t be reachable.
-<code>Emulation</code> catches exactly this: reducing over the over-padded layout panics (<code>out x residue must factor the operand</code>) rather than running with a stale, unreachable <code>R</code> index.</p>
+The CPU engine catches exactly this: reducing over the over-padded layout panics (<code>out x residue must factor the operand</code>) rather than running with a stale, unreachable <code>R</code> index.</p>
 <pre class="playground"><code class="language-rust should_panic edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
@@ -832,8 +853,8 @@ For slices below <code>slice_thres</code> (slice contribution = 0), the sequence
 </span>axes![A = 3, R = 14, X = 64];
 
 fn reduce_time_major_wrong&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A], m![1 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![1 # 4]&gt;()
@@ -851,7 +872,7 @@ fn reduce_time_major_wrong&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_major_wrong(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="r-in-packet-complex"><a class="header" href="#r-in-packet-complex"><code>R</code> in <code>Packet</code>, Complex</a></h3>
@@ -866,8 +887,8 @@ Other forms break the contiguous-prefix property that <code>fn valid_size()</cod
 </span>axes![A = 8, R = 19, X = 64];
 
 fn reduce_wrong_packet_outer&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![1 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![R # 24 / 8 # 4]&gt;()
@@ -883,7 +904,7 @@ fn reduce_wrong_packet_outer&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_packet_outer(i);
 </span><span class="boring">}</span></code></pre>
 <p>The second example has <code>R</code> sharing <code>Packet</code> with another axis <code>A</code>, so <code>A</code>’s elements occupy positions that the prefix-based count treats as padding.</p>
@@ -895,8 +916,8 @@ fn reduce_wrong_packet_outer&lt;'l, const T: Tu&gt;(
 </span>axes![A = 4, R = 19, X = 256];
 
 fn reduce_wrong_mixed_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X], m![1], m![A], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![X], m![1], m![A], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_split::&lt;m![R # 24], m![A]&gt;()
@@ -912,7 +933,7 @@ fn reduce_wrong_mixed_packet&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], f32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_mixed_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="r-in-slice-and-packet"><a class="header" href="#r-in-slice-and-packet"><code>R</code> in <code>Slice</code> and <code>Packet</code></a></h3>
@@ -928,7 +949,7 @@ But slice 255’s flit holds <code>R</code> indices 2040–2047, of which only f
 </thead>
 <tbody>
 <tr><td><code>R</code> index</td><td>2040</td><td>2041</td><td>2042</td><td>2043</td><td>2044</td><td>2045</td><td>2046</td><td>2047</td></tr>
-<tr><td>valid?</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>[pad]</td><td>[pad]</td><td>[pad]</td></tr>
+<tr><td>valid?</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td><code>[pad]</code></td><td><code>[pad]</code></td><td><code>[pad]</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -945,8 +966,8 @@ But slice 255’s flit holds <code>R</code> indices 2040–2047, of which only f
 // NOT supported: R = 2045 split across Slice (/ 8, 256 slices) and Packet (% 8).
 // Slices 0-254 need valid_size = 8; slice 255 needs valid_size = 5. fn valid_size(t) cannot vary by slice.
 fn reduce_wrong_slice_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![1 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![R # 2048 % 4]&gt;()
@@ -961,7 +982,7 @@ fn reduce_wrong_slice_packet&lt;'l, const T: Tu&gt;(
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_slice_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>

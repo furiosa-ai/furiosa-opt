@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["gen_copy"],"struct":["__furiosa_opt_gen_copy"]};

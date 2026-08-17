@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -203,8 +203,8 @@ It computes \(output[a] = \sum_{r \in R} input[a, r]\) with saturating addition.
 
 // R in Time → temporal accumulation. Packet is non-reduce.
 fn reduce_time&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![A / 2], m![1], m![A % 2 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![A / 2], m![1], m![A % 2 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![A % 2 # 4]&gt;()       // 8-way → 4-way
@@ -216,7 +216,7 @@ fn reduce_time&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="reduction-in-packet"><a class="header" href="#reduction-in-packet">Reduction in <code>Packet</code></a></h3>
@@ -231,8 +231,8 @@ It computes \(output[a] = \sum_{r \in R} input[a, r]\).</p>
 
 // R in Packet → tree reduce within flit.
 fn reduce_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![1 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![R]&gt;()             // 8-way → 4-way
@@ -244,7 +244,7 @@ fn reduce_packet&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="reduction-in-both"><a class="header" href="#reduction-in-both">Reduction in Both</a></h3>
@@ -261,8 +261,8 @@ It computes \(output[a] = \max_{r \in R} input[a, r]\).</p>
 // R % 4 in Packet → spatial tree reduce
 // R / 4 in Time → temporal accumulation
 fn reduce_time_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A], m![1], m![1 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![R % 4]&gt;()            // 8-way → 4-way
@@ -274,7 +274,7 @@ fn reduce_time_packet&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="per-slice-reduction"><a class="header" href="#per-slice-reduction">Per-Slice Reduction</a></h3>
@@ -291,8 +291,8 @@ The <a href="#padding-strategy">VCG</a> drives the per-slice reduction count so 
 
 // R split across all three: Slice (groups of 8), Time (pairs within group), Packet (4 elements).
 fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![1], m![1 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![R # 32 % 4]&gt;()       // 8-way → 4-way
@@ -304,15 +304,17 @@ fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_slice_time_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
 <p>The stage runs separate machinery for the <code>Time</code> and <code>Packet</code> axes.</p>
 <h3 id="reduction-in-time-1"><a class="header" href="#reduction-in-time-1">Reduction in <code>Time</code></a></h3>
 <p>The stage applies the <a href="../contraction-engine/time-reducer.html#constraints">temporal accumulator</a> model with slot capacity 8 (so <code>InnerTime::SIZE ≤ 8</code>).</p>
-<p>For <code>reduce_time</code> above, <code>Time = m![R]</code> and <code>OutTime = m![1]</code>, so <code>R</code> is the outermost reduce dimension and <code>InnerTime = m![1]</code> (<code>InnerTime::SIZE = 1</code>). A single slot accumulates all <code>R</code> values into the output.</p>
-<p>If <code>InnerTime::SIZE</code> exceeds 8, the API rejects the call. For example:</p>
+<p>For <code>reduce_time</code> above, <code>Time = m![R]</code> and <code>OutTime = m![1]</code>, so <code>R</code> is the outermost reduce dimension and <code>InnerTime = m![1]</code> (<code>InnerTime::SIZE = 1</code>).
+A single slot accumulates all <code>R</code> values into the output.</p>
+<p>If <code>InnerTime::SIZE</code> exceeds 8, the API rejects the call.
+For example:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
@@ -320,8 +322,8 @@ fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">axes![A = 6, B = 16, R = 16];
 </span>fn invalid_too_many_slots&lt;'l, const T: Tu&gt;(
-    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;,
-) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![A / 3 # 256], m![A % 3, B % 4], m![B / 4], i32, Fresh, { stage::VeOrder::IntraFirst }&gt;
+    input: VectorBranchTensor&lt;'l, T, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt;,
+) -&gt; VectorIntraSliceReduceTensor&lt;'l, T, i32, m![1], m![1 # 2], m![A / 3 # 256], m![A % 3, B % 4], m![B / 4], Fresh, { stage::VeOrder::IntraFirst }&gt;
 {
     input
         .vector_narrow_trim::&lt;m![B / 4]&gt;()
@@ -336,7 +338,7 @@ fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = invalid_too_many_slots(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="reduction-in-packet-1"><a class="header" href="#reduction-in-packet-1">Reduction in <code>Packet</code></a></h3>
@@ -357,7 +359,7 @@ See <a href="./vcg.html">Valid Count Generator</a> for details.</p>
 </li>
 <li>
 <p><strong>Identity-element padding</strong>: Fill pad positions with the identity element of the reduce operation before data reaches the <a href="./intra-slice-chain.html">Intra-Slice Chain</a>.
-The <a href="../../moving-tensors/fetch-engine.html#masking">Fetch Engine’s masking</a> writes the identity value into pad positions during fetch:</p>
+The book does not document a usable public masking operation; use a verified identity-producing path before reduction.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -371,7 +373,8 @@ The <a href="../../moving-tensors/fetch-engine.html#masking">Fetch Engine’s ma
 </table>
 </div>
 <p>This strategy applies only when no non-invertible transformation precedes the reduce operation.
-For example, with <code>exp(x) + exp(y) + ...</code> (sum of exponentials), no value <code>p</code> satisfies <code>exp(p) = 0</code> (the additive identity), so identity padding does not apply.</p>
+For example, with <code>exp(x) + exp(y) + ...</code> (sum of exponentials), no value <code>p</code> satisfies <code>exp(p) = 0</code> (the additive identity).
+Identity padding does not apply.</p>
 </li>
 </ul>
 <h2 id="performance"><a class="header" href="#performance">Performance</a></h2>

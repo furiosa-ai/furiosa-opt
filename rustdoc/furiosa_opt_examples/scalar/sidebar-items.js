@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["bf16_widen","f32_relayout","f8e4m3_widen","i16_relayout","i32_relayout","i8_relayout","u8_relayout"]};

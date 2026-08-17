@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-65a723fd.js"></script>
+        <script src="../../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -183,18 +183,8 @@ No values are summed: the stage folds <code>Lane</code> into another axis rather
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p><code>.contract_lane(mode)</code> invokes the Lane Folder.
 The stage drains the upstream Time Reducer’s buffer through an 8-element-wide output bus one cycle at a time, and <code>LaneMode</code> selects what each cycle’s flit carries.</p>
-<pre><code class="language-rust ignore">impl&lt;
-    'l,
-    const T: Tu,
-    D: ContractionCast + MaterializableScalar,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Lane: M,
-    Time: M,
-    Packet: M,
-    B: Backend,
-&gt; ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: ContractionAccumulator, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
+    ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
     /// Folds the `Lane` dimension into the output stream.
     /// `LaneMode::Interleaved` relocates `Lane` into `OutPacket`;
@@ -230,7 +220,7 @@ The stage drains the upstream Time Reducer’s buffer through an 8-element-wide 
         let contraction = self.inner;
         let out = &lt;m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Time }, { Packet }]&gt;::to_value();
         let reduced: Tensor&lt;D, m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Time }, { Packet }], B&gt; =
-            Tensor::from_inner(B::contraction(
+            Tensor::from_inner(B::contraction_prewidened(
                 &amp;contraction.lhs,
                 &amp;contraction.rhs,
                 &amp;contraction.lhs_map,
@@ -267,7 +257,7 @@ fn lane_interleaved&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::new();
 </span><span class="boring">
 </span><span class="boring">let i: ContractTimeTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt; = a 
 </span><span class="boring">    .contract_outer::&lt;m![M], m![P], m![N], m![P], _&gt;(&amp;b)
@@ -303,7 +293,7 @@ fn lane_sequential&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::new();
 </span><span class="boring">
 </span><span class="boring">let i: ContractTimeTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt; = a 
 </span><span class="boring">    .contract_outer::&lt;m![M], m![P], m![N], m![P], _&gt;(&amp;b)
@@ -328,7 +318,7 @@ The <code>LaneMode</code> selected here determines the slot capacity bound that 
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../../computing-tensors/contraction-engine/2d-convolution.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../../computing-tensors/vector-engine/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -342,7 +332,7 @@ The <code>LaneMode</code> selected here determines the slot capacity bound that 
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../../computing-tensors/contraction-engine/2d-convolution.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../../computing-tensors/vector-engine/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["VeOperand","VeRhs"],"struct":["BranchOperands","NoStash","OperandTagValue","Stash","StashOperand","WithStash"],"trait":["IntoGroupOperand","IntoGroupTernaryOperandTag","IntoOperands","IntoTernaryOperandTags","OperandTag","Plain","StashTransition"],"type":["BinaryOperandTag","GroupOperand","GroupTernaryOperandTag","TernaryOperandTag"]};

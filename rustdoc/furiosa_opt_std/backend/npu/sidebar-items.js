@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["Buffer","Kernel","Npu","NpuDesc"],"trait":["ExtendBuffers","KernelOutput"]};

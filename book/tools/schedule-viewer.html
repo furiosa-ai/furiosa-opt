@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Quick Start - Programming Tensor Contraction Processors</title>
+        <title>Schedule Viewer - Programming Tensor Contraction Processors</title>
 
 
         <!-- Custom HTML head -->
@@ -12,20 +12,20 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
-        <link rel="icon" href="favicon-de23e50b.svg">
-        <link rel="shortcut icon" href="favicon-8114d1fc.png">
-        <link rel="stylesheet" href="css/variables-8adf115d.css">
-        <link rel="stylesheet" href="css/general-e96d0476.css">
-        <link rel="stylesheet" href="css/chrome-d279d366.css">
-        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
-        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
-        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
-        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
 
@@ -34,13 +34,13 @@
 
         <!-- Provide site root and default themes to javascript -->
         <script>
-            const path_to_root = "";
+            const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-b78bfe2e.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -107,7 +107,7 @@
             <!-- populated by js -->
             <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
             <noscript>
-                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
             </noscript>
             <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -142,7 +142,7 @@
                     <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
 
                     <div class="right-buttons">
-                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
                             <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
                         </a>
 
@@ -176,44 +176,63 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h1>
-<p>This index bootstraps a runnable base-template vector kernel.
-The five runnable patterns in <a href="./quick-start/kernel-design.html">Kernel Design</a> add one hardware decision at a time.
-That single chapter owns the source-backed device and host-oracle walkthroughs for constant addition, elementwise multiplication, dot product, GEMV, and GEMM.</p>
-<p>Validation meanings and caveats are defined only in <a href="./quick-start/kernel-validation.html">Kernel Validation</a>.</p>
-<p>HBM is high-bandwidth memory used for host transfers, and DM is on-chip data memory used by the Tensor Unit.</p>
-<p>After these basic patterns, continue through Mapping, Moving, Computing, End-to-End Cases, Scheduling, and Tools.
-The subsystem chapters now own the matching advanced examples, while End-to-End Cases collects composed model tutorials.</p>
-<h2 id="read-the-ordered-child-pages"><a class="header" href="#read-the-ordered-child-pages">Read the ordered child pages</a></h2>
-<p>Read <a href="./quick-start/setup-and-tooling.html">Setup and Tooling</a> for installation and the first project.
-Read <a href="./quick-start/tensor-and-contraction.html">Tensor and Contraction</a> for tensor shapes and contraction math.
-Read <a href="./quick-start/kernel-design.html">Kernel Design</a> for the five runnable pattern sections.
-Read <a href="./quick-start/kernel-validation.html">Kernel Validation</a> for compile, CPU, NPU, and schedule evidence.</p>
-<h2 id="continue-to-reference-chapters"><a class="header" href="#continue-to-reference-chapters">Continue to Reference Chapters</a></h2>
-<p>The runnable patterns process tensors that fit in one hardware pass and within the 512 KB per-slice DM capacity.
-Use temporal partitioning when tiles run sequentially over time and spatial partitioning when tiles distribute across parallel hardware units.
-Read <a href="./mapping-tensors/index.html">Mapping Tensors</a>, then <a href="./moving-tensors/index.html">Moving Tensors</a>, then <a href="./computing-tensors/index.html">Computing Tensors</a>.
-After those reference chapters, choose a matching advanced pattern in the relevant Mapping, Moving, or Computing chapter.</p>
-<h2 id="choose-the-next-pattern"><a class="header" href="#choose-the-next-pattern">Choose the next pattern</a></h2>
-<p>The three reference chapters establish the mapping, movement, and compute contracts before you choose an example.
-Use the simplest example route that matches the kernel’s next constraint.</p>
-<ul>
-<li><strong>Fits one pass:</strong> No escalation; the preceding basic patterns apply.</li>
-<li><strong>Layout permutation or packet handling:</strong> Read <a href="./moving-tensors/tensor-unit-io.html">Case Study: Tensor Unit I/O</a> under Moving Tensors.</li>
-<li><strong>Composed model patterns:</strong> Read the <a href="./kernel-examples/transformer.html">Case Study: Transformer</a> under End-to-End Cases.</li>
-</ul>
+                        <h1 id="schedule-viewer"><a class="header" href="#schedule-viewer">Schedule Viewer</a></h1>
+<p>The Schedule Viewer supports schedule compilation and makespan comparison between fixed candidates.
+The viewer shows the static execution plan; it does not validate values or throughput.</p>
+<p>The Schedule Viewer loads a schedule JSON file generated by <a href="./kernel-optimizer.html"><code>cargo furiosa-opt</code></a> and displays it as an interactive execution timeline.
+Quick Start introduces the viewer as part of the development tools; this section explains how to install it and inspect a schedule.
+Use it to inspect which operations run in parallel, which context or resource each operation occupies, and which operations block pipeline progress.</p>
+<h2 id="review-a-schedule"><a class="header" href="#review-a-schedule">Review a Schedule</a></h2>
+<p>Use schedule makespan, the final scheduled cycle, to compare fixed kernel workloads.
+Keep release, shapes, data types, and mapping unchanged between candidates.
+Use the timeline to explain differences in overlap, dependencies, and resource occupancy.</p>
+<h2 id="getting-started"><a class="header" href="#getting-started">Getting Started</a></h2>
+<h3 id="install-and-run-the-viewer"><a class="header" href="#install-and-run-the-viewer">Install and Run the Viewer</a></h3>
+<p>Install <code>furiosa-schedule-viewer</code> binary from crates.io:</p>
+<pre><code class="language-bash">cargo install furiosa-schedule-viewer
+</code></pre>
+<p>Run the viewer to start the local web UI:</p>
+<pre><code class="language-bash">furiosa-schedule-viewer
+</code></pre>
+<p>By default the server binds to <code>127.0.0.1:9254</code> and opens the page in your default browser.
+Use <code>--host</code> and <code>--port</code> to change the address that the server listens on:</p>
+<pre><code class="language-bash">furiosa-schedule-viewer --host 127.0.0.1 --port 9254
+</code></pre>
+<h3 id="generate-a-schedule-json-file"><a class="header" href="#generate-a-schedule-json-file">Generate a Schedule JSON File</a></h3>
+<p><a href="./kernel-optimizer.html#--dump-schedule-file"><code>--dump-schedule</code></a> writes the compiled schedule to a JSON file.
+It is available when compiling a single kernel with <a href="./kernel-optimizer.html#direct-compilation-cargo-furiosa-opt-compile"><code>cargo furiosa-opt compile</code></a>:</p>
+<pre><code class="language-bash">cargo furiosa-opt compile &lt;device-function&gt; \
+  --dump-schedule &lt;path-to-json-file&gt;
+</code></pre>
+<p>Provide the function name as the positional <a href="./kernel-optimizer.html#filter">filter</a>.
+If the function name is ambiguous, use the full Rust path, such as <code>kernel::gemm_kernel::gemm_kernel</code>.
+The command still emits the normal kernel artifacts.
+The JSON file is the input for the Schedule Viewer.</p>
+<h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
+<p>Click the drop zone or drag a schedule JSON file onto the page to visualize it.</p>
+<h3 id="inspect-tensors-and-operators"><a class="header" href="#inspect-tensors-and-operators">Inspect Tensors and Operators</a></h3>
+<p>Click any node to inspect it.
+The left sidebar shows details such as its name, lifetime, context, and connected nodes.</p>
+<p>When you hover over or select a node, related nodes are highlighted.
+For example, selecting an operator highlights its input and output tensors.
+Selecting a tensor highlights operators connected to that tensor.</p>
+<p>Because tensors and operators are based on actual hardware instructions, they may differ from the tensors and operators defined in vISA.
+Whenever possible, the Schedule Viewer shows the vISA tensor name and shape, and the operator description.</p>
+<h3 id="zoom-in-on-the-schedule"><a class="header" href="#zoom-in-on-the-schedule">Zoom In on the Schedule</a></h3>
+<p>You can zoom in on the schedule to inspect a specific region.</p>
+<p>To adjust only the cycle range, drag across the timeline at the top or use the <strong>Cycle Range</strong> inputs at the top right.
+To adjust the memory-address range, click <strong>Enable Brush</strong>, then drag across the schedule view.
+The brush sets both the cycle range and the memory-address range.</p>
+<p>To restore the full schedule view, click the timeline background or click <strong>Reset</strong> at the top right.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="introduction.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../tools/language-server.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="quick-start/setup-and-tooling.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -221,13 +240,10 @@ Use the simplest example route that matches the kernel’s next constraint.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="introduction.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../tools/language-server.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="quick-start/setup-and-tooling.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                    </a>
             </nav>
 
         </div>
@@ -245,17 +261,17 @@ Use the simplest example route that matches the kernel’s next constraint.</p>
         </script>
 
 
-        <script src="elasticlunr-ef4e11c1.min.js"></script>
-        <script src="mark-09e88c2c.min.js"></script>
-        <script src="searcher-09f2665d.js"></script>
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
-        <script src="clipboard-1626706a.min.js"></script>
-        <script src="highlight-abc7f01d.js"></script>
-        <script src="book-609e4cb8.js"></script>
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
-        <script src="mermaid-eefea253.min.js"></script>
-        <script src="mermaid-init-ccf746f1.js"></script>
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
 
 
 

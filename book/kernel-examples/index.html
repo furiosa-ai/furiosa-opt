@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Kernel Examples - Programming Tensor Contraction Processors</title>
+        <title>End-to-End Cases - Programming Tensor Contraction Processors</title>
 
 
         <!-- Custom HTML head -->
@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -176,64 +176,34 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="kernel-examples"><a class="header" href="#kernel-examples">Kernel Examples</a></h1>
-<p>This chapter shows how to combine mapping, movement, computation, and scheduling into complete, working kernels.
-The preceding chapters explained how mapping expressions distribute work across TCP’s hardware hierarchy and how each component reduces partial results.
-The <a href="../quick-start.html">introductory tutorial</a> briefly introduced temporal and spatial partitioning for large tensors.
-The table below summarizes the available parallelism and reduction at each level:</p>
+                        <h1 id="end-to-end-cases"><a class="header" href="#end-to-end-cases">End-to-End Cases</a></h1>
+<p>End-to-End Cases connect the mapping, movement, computation, and scheduling contracts into composed workloads.
+Choose the nearest case below, then verify its referenced API before adapting mappings.</p>
+<p>Legend: <strong>Verified and tested</strong> identifies a reader-ready pattern with current source and tests.
+<strong>Design guide</strong> identifies explanatory material whose API details must be verified before implementation.</p>
+<h2 id="choose-a-starting-point"><a class="header" href="#choose-a-starting-point">Choose a Starting Point</a></h2>
+<p>Start implementation from a <a href="../quick-start.html">Quick Start</a> pattern whenever it can express the required API behavior.
+The remaining pages explain design choices; verify their code against the current API before using it.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Dimension</th><th>Type</th><th>Defined in</th><th>Reduced in</th></tr>
+<tr><th>Need</th><th>Start with</th><th>Technical focus and status</th></tr>
 </thead>
 <tbody>
-<tr><td><code>Chip</code></td><td>Spatial</td><td><a href="../mapping-tensors/spatial-temporal-dimensions.html#hbm-and-sram">HBM, SRAM</a>, <a href="../mapping-tensors/spatial-temporal-dimensions.html#tensor-unit-stream">Stream</a></td><td><a href="../moving-tensors/dma-engine.html">DMA</a> + <a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
-<tr><td><code>Cluster</code></td><td>Spatial</td><td><a href="../mapping-tensors/spatial-temporal-dimensions.html#hbm-and-sram">SRAM</a>, <a href="../mapping-tensors/spatial-temporal-dimensions.html#tensor-unit-stream">Stream</a></td><td><a href="../moving-tensors/dma-engine.html">DMA</a> + <a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
-<tr><td><code>Slice</code></td><td>Spatial</td><td><a href="../mapping-tensors/spatial-temporal-dimensions.html#hbm-and-sram">SRAM</a>, <a href="../mapping-tensors/spatial-temporal-dimensions.html#tensor-unit-stream">Stream</a></td><td><a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
-<tr><td><code>Lane</code></td><td>Spatial</td><td><a href="../mapping-tensors/spatial-temporal-dimensions.html#hbm-and-sram">TRF</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
-<tr><td><code>Time</code></td><td>Temporal</td><td><a href="../mapping-tensors/spatial-temporal-dimensions.html#tensor-unit-stream">Stream</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
-<tr><td><code>Packet</code></td><td>Spatial</td><td><a href="../mapping-tensors/spatial-temporal-dimensions.html#tensor-unit-stream">Stream</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
+<tr><td>Qwen3 decoder step</td><td><a href="./transformer.html">Case Study: Transformer</a></td><td>Model mental model, baseline kernel map, decode-only boundaries, portable oracle, and schedule data from the current transformer example.</td></tr>
 </tbody>
 </table>
 </div>
-<p>The <code>Chip</code> and <code>Cluster</code> rows above involve cross-chip and cross-cluster reduction patterns.
-See <a href="./chip-cluster-reduce.html">Chip/Cluster Reduce</a>, which demonstrates DMA broadcast followed by Vector Engine binary add.</p>
-<p>The examples progress from single-engine patterns to composed multi-engine patterns to full model implementations:</p>
-<ul>
-<li>
-<p><a href="./tiling.html">Tiling</a>: Tile size selection, memory layout, and accumulation strategies.</p>
-</li>
-<li>
-<p><a href="./fetch-commit-engine.html">Fetch and Commit Engine</a>: Axis permutation, full-flit commit, tail padding, and tensor segmentation.
-Use when data layout transformations are needed between memory and compute.</p>
-</li>
-<li>
-<p><a href="./split-reduce.html">Split Reduce</a>: Interleaved fetch for reducing across multiple tensor instances.
-Use when a reduction dimension exceeds what a single tile can accumulate.</p>
-</li>
-<li>
-<p><a href="./chip-cluster-reduce.html">Chip/Cluster Reduce</a>: ReduceScatter and AllReduce across chips.
-Use when computation must be distributed across multiple chips or clusters.</p>
-</li>
-<li>
-<p><a href="./transformer.html">Transformer</a>: Llama 3 70B implementation with prefill and decode phases.
-A full model combining tiling, multi-chip reduce, and memory management.</p>
-</li>
-<li>
-<p><a href="./mixture-of-experts.html">Mixture of Experts</a>: Branchless TopK routing and blockwise sparse computation.
-A full model demonstrating dynamic routing with sparse computation patterns.</p>
-</li>
-</ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../scheduling.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../computing-tensors/commit-adapter.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../kernel-examples/tiling.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../kernel-examples/transformer.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -243,11 +213,11 @@ A full model demonstrating dynamic routing with sparse computation patterns.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../scheduling.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../computing-tensors/commit-adapter.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../kernel-examples/tiling.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../kernel-examples/transformer.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

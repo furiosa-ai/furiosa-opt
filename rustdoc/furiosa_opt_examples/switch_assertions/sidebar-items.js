@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["alignment","broadcast01","broadcast1","inter_transpose","packet","slice","transpose"],"struct":["A","B","C","D","E","F","G"]};

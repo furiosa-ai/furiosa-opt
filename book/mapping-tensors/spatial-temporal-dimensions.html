@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,18 +177,19 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="spatial-and-temporal-dimensions"><a class="header" href="#spatial-and-temporal-dimensions">Spatial and Temporal Dimensions</a></h1>
-<p><code>HostTensor&lt;D, E&gt;</code> uses a single mapping to fully capture its layout.
-Device tensors split their layout across multiple dedicated dimensions:</p>
+<p><code>HostTensor&lt;D, E&gt;</code> uses a single mapping to fully capture its physical representation.
+Device tensors split their mapping across multiple dedicated dimensions:</p>
 <ul>
-<li><strong>Spatial dimensions</strong>: <code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> distribute data across the hardware hierarchy. In stream tensors, <code>Packet</code> additionally sizes parallel delivery within each temporal iteration.</li>
+<li><strong>Spatial dimensions</strong>: <code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> distribute data across the hardware hierarchy.
+In stream tensors, <code>Packet</code> additionally sizes parallel delivery within each temporal iteration.</li>
 <li><strong>Temporal dimension</strong>: <code>Time</code> sequences the delivery iterations in stream tensors.</li>
 </ul>
 <h2 id="spatial-dimensions"><a class="header" href="#spatial-dimensions">Spatial Dimensions</a></h2>
 <p>Each spatial level in the hardware hierarchy gets its own type parameter in the tensor type, enabling spatial parallelism.
 All units at each level are assumed to share the same mapping.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_opt_std;
+<p>The notation below names physical dimensions but is not a public type or constructor.
+The storage modules document the public tensor APIs and views.</p>
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span><span class="boring">use std::marker::PhantomData;
 </span>// Assumed throughout this page.
@@ -213,16 +214,17 @@ struct TrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Element: 
 struct VrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M&gt; {
     /* ... */
 <span class="boring">    _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Element)&gt;,
-</span>}
-<span class="boring">}</span></code></pre>
+</span>}</code></pre>
 <p>HBM tensors distribute data across chips for spatial parallelism: each chip processes its own portion of the data simultaneously.
 For example, <code>HbmTensor&lt;bf16, m![A], m![B]&gt;</code> distributes <code>8 × 512 = 4096</code> elements across 8 chips with 512 elements per chip.
 The <code>i</code>-th chip’s <code>j</code>-th element stores tensor index <code>i![A: i, B: j]</code>.</p>
 <p>SRAM tensor types add <code>Cluster</code> and <code>Slice</code> dimensions for finer-grained parallelism.
 <code>TrfTensor</code> additionally has a <code>Lane</code> dimension that distributes TRF data across the 8 lanes per slice.
 See <a href="../computing-tensors/contraction-engine/index.html">Contraction Engine</a> for details.</p>
-<p>Every storage tensor (<code>HostTensor</code>, <code>HbmTensor</code>, and the SRAM types) places its element data at a starting address.
-For example, a <code>DmTensor&lt;D, ..., Element&gt;</code> at address <code>addr</code> occupies bytes <code>addr..(addr + Element::SIZE * size_of::&lt;D&gt;())</code>; <code>TrfTensor</code> and <code>VrfTensor</code> follow the same pattern.</p>
+<p>HBM tensors carry concrete addresses.
+DM, TRF, and VRF tensors may receive addresses from the backend.
+Host tensors remain host-side values.
+Mapping parameters determine physical representation; storage owns addresses separately.</p>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
 <ul>
 <li>
@@ -263,7 +265,7 @@ This may be relaxed in future releases.</p>
 </div>
 </li>
 <li>
-<p><strong><code>Element</code> alignment</strong>: The starting address must be a multiple of <code>size_of::&lt;D&gt;()</code>, because misaligned writes require a read-modify-write cycle that can slow DM access by roughly 50×.</p>
+<p><strong><code>Element</code> alignment</strong>: Device storage APIs impose alignment constraints on addresses; consult the tier-specific constructor and backend checks rather than assuming one address rule for every tensor.</p>
 </li>
 </ul>
 <h2 id="temporal-dimension"><a class="header" href="#temporal-dimension">Temporal Dimension</a></h2>
@@ -327,6 +329,33 @@ type T&lt;'l&gt; = TuTensor&lt;
 The <code>Time</code> dimension (<code>m![N, H, W]</code>) has size <code>4 * 32 * 32 = 4096</code>, which means there are 4,096 temporal iterations.
 For each temporal iteration, the <code>Packet</code> dimension <code>m![C % 2]</code> delivers 2 channels to each slice.
 Since 32 slices operate in parallel, each temporal iteration processes <code>32 * 2 = 64</code> channels total.</p>
+<h2 id="nchw-representation-trace"><a class="header" href="#nchw-representation-trace">NCHW Representation Trace</a></h2>
+<p>The NCHW example makes the representation changes traceable from an HBM representation that distributes batches across four chips:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">axes![N = 4, C = 64, H = 32, W = 32];
+</span>type Hbm = HbmTensor&lt;bf16, m![N], m![C, H, W]&gt;;
+<span class="boring">}</span></code></pre>
+<p>Move it to DM with one active chip and one element slice per pair of channels:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">axes![N = 4, C = 64, H = 32, W = 32];
+</span>type Dm = DmTensor&lt;bf16, m![1], m![1], m![C / 2], m![N, H, W, C % 2]&gt;;
+<span class="boring">}</span></code></pre>
+<p>The stream type <code>T</code> above uses the same channel split, but places <code>N, H, W</code> in <code>Time</code> and the two channels of each slice in <code>Packet</code>.</p>
+<p>Trace <code>Index (N=1, C=17, H=3, W=5)</code>:</p>
+<ul>
+<li>HBM selects chip <code>1</code>; its element offset is <code>17 * 32 * 32 + 3 * 32 + 5 = 17,509</code>.</li>
+<li>DM selects slice <code>17 / 2 = 8</code>; the element mapping selects <code>N=1, H=3, W=5</code> and packet position <code>17 % 2 = 1</code>.</li>
+<li>The stream selects <code>Time = 1 * 32 * 32 + 3 * 32 + 5 = 1,125</code> and <code>Packet = 1</code> on slice <code>8</code>.</li>
+</ul>
+<p>The value changes physical coordinates at each stage, but its <code>Index</code> remains <code>(1, 17, 3, 5)</code>.
+This traces the mapping-to-representation path.
+<a href="./tensor-semantics.html">Tensor Semantics</a> defines what it means for a tensor to hold values.</p>
 
                     </main>
 

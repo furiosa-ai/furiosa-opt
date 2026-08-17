@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["backend","prelude","pseudo","runtime"],"struct":["Device","OnceCell"]};

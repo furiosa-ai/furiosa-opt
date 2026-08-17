@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,39 +177,174 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="moving-tensors"><a class="header" href="#moving-tensors">Moving Tensors</a></h1>
-<p><a href="../quick-start.html#memory-tiers">Quick Start</a> introduced TCP’s memory tiers.
-This chapter covers how tensors move between three of them: HBM, DM, and SPM, through three dedicated engines:</p>
+<p>Furiosa-opt kernels are Rust functions compiled for the Furiosa NPU.
+This chapter explains how a kernel transfers tensor data between host memory, HBM, DM, and the Tensor Unit.
+The <a href="../quick-start/kernel-design.html#pattern-specific-mapping-and-memory">Quick Start kernel design</a> introduces these tiers in a complete kernel.
+Choose the source and destination in the movement table before reading the worked transfer.
+The <a href="./sequencer.html">Sequencer</a> describes the common loop model.
+The engine pages document each concrete boundary.</p>
+<h2 id="choose-a-movement-route"><a class="header" href="#choose-a-movement-route">Choose a movement route</a></h2>
+<p>The movement table selects operations from the current value to its destination.
+It gives the operation and context for each public boundary.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Current value</th><th>Destination</th><th>Operation and context</th></tr>
+</thead>
+<tbody>
+<tr><td><code>HostTensor</code></td><td><code>HbmTensor</code></td><td><code>HostTensor::to_hbm</code> with <code>Context::pdma</code> (async); see <a href="./dma-engine.html">DMA Engine</a></td></tr>
+<tr><td><code>HbmTensor</code></td><td><code>HostTensor</code></td><td><code>HbmTensor::to_host</code> with <code>Context::pdma</code> (async); see <a href="./dma-engine.html">DMA Engine</a></td></tr>
+<tr><td><code>HbmTensor</code></td><td><code>DmTensor</code></td><td><code>HbmTensor::to_dm</code> with <code>Context::tdma</code>; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
+<tr><td><code>DmTensor</code></td><td><code>HbmTensor</code></td><td><code>DmTensor::to_hbm</code> with <code>Context::tdma</code>; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
+<tr><td><code>HbmTensor</code></td><td><code>HbmTensor</code></td><td><code>HbmTensor::to_hbm</code> with the DMA context required by the call; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
+<tr><td><code>DmTensor</code></td><td><code>DmTensor</code></td><td><code>DmTensor::to_dm</code> with <code>Context::tdma</code>, or <code>to_dm_pcopy</code> with the sub context; see <a href="../computing-tensors/collect-engine.html">Collect Engine</a></td></tr>
+<tr><td><code>DmTensorView</code></td><td>Tensor Unit stream</td><td><code>TuContext::begin</code>, then <a href="./fetch-engine.html"><code>fetch</code></a></td></tr>
+<tr><td>Tensor Unit stream</td><td><code>DmTensor</code></td><td><a href="./commit-engine.html"><code>commit</code></a>, or <a href="./commit-engine.html"><code>commit_view</code></a> for an existing mutable view</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="copyable-end-to-end-transfer"><a class="header" href="#copyable-end-to-end-transfer">Copyable end-to-end transfer</a></h2>
+<p>This page defines movement boundaries, context ownership, and lifetime rules.
+The worked transfer widens and reorders an HBM tensor before returning it to HBM.
+The device function stages HBM into DM, fetches a stream, casts and collects it, commits to DM, and transfers the result back to HBM.
+The host test awaits only host-to-HBM and HBM-to-host I/O and checks the reordered result.</p>
+<p>Read and change the worked transfer in this order:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Step</th><th>Declared choice</th></tr>
+</thead>
+<tbody>
+<tr><td>Input</td><td><code>A = 4096</code>, <code>B = 8</code>, input element type <code>i8</code>, and input HBM mapping <code>m![1], m![A, B]</code>.</td></tr>
+<tr><td>HBM→DM</td><td>The DM <code>Cluster</code> is <code>m![1 # 2]</code>, <code>Slice</code> is <code>m![A / 16]</code>, and <code>Element</code> is <code>m![A / 8 % 2, A % 8, B]</code>.</td></tr>
+<tr><td>Fetch</td><td><code>OutTime</code> is <code>m![A / 8 % 2]</code> and <code>OutPacket</code> is <code>m![A % 8, B]</code>.</td></tr>
+<tr><td>Compute and Collect</td><td>The stream casts <code>i8</code> to <code>i32</code>, then Collect uses <code>m![A / 8 % 2, A % 8]</code> for <code>Time</code> and <code>m![B]</code> for <code>Packet</code>.</td></tr>
+<tr><td>Commit→DM→HBM</td><td><code>commit_trim::&lt;m![B]&gt;()</code> writes the DM tensor in <code>m![A, B]</code>; <code>to_hbm</code> then returns <code>HbmTensor&lt;i32, m![1], m![B, A]&gt;</code> through DMA relayout.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Change only these declared axes, mappings, or element types while preserving the alignment assertions in the source.
+The host test awaits <code>to_hbm</code> and <code>to_host</code> through <code>pdma</code>, then asserts the expected <code>B</code>-major result.</p>
+<pre><code class="language-rust ignore">#![expect(clippy::type_complexity)]
+
+use furiosa_opt_std::prelude::*;
+
+axes![A = 4096, B = 8];
+
+type Chip = m![1];
+type Cluster = m![1 # 2];
+
+#[device(chip = 1)]
+pub fn fetch_commit_simple(
+    ctx: &amp;mut Context,
+    input: &amp;HbmTensor&lt;i8, m![1], m![A, B]&gt;,
+) -&gt; HbmTensor&lt;i32, m![1], m![B, A]&gt; {
+    // Element's innermost axis must match the source's innermost (B, stride 1) so that the
+    // DMA tail contains the full B axis (8 × i8 = 8 bytes), satisfying min_align = 8.
+    let input_dm = input.to_dm::&lt;Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]&gt;(&amp;mut ctx.tdma);
+
+    let fetch_and_commit_tensor: DmTensor&lt;i32, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]&gt; = ctx
+        .main
+        .begin(input_dm.view())
+        .fetch::&lt;m![A / 8 % 2], m![A % 8, B]&gt;()
+        .fetch_cast::&lt;i32&gt;()
+        .collect::&lt;m![A / 8 % 2, A % 8], m![B]&gt;()
+        .commit_trim::&lt;m![B]&gt;()
+        .commit();
+
+    fetch_and_commit_tensor.to_hbm(&amp;mut ctx.tdma)
+}</code></pre>
+<pre><code class="language-rust ignore">use furiosa_opt_examples::fetch_commit::fetch_commit_simple;
+use furiosa_opt_std::prelude::*;
+
+#[tokio::test]
+async fn test_fetch_commit_simple_host() {
+    use furiosa_opt_examples::fetch_commit::{A, B};
+
+    let mut ctx = Context::acquire();
+
+    // Create input tensor with shape (A=4096)(B=8).
+    let input = HostTensor::&lt;i8, m![A, B]&gt;::from_vec((0..32768).map(|x| x as i8).collect::&lt;Vec&lt;_&gt;&gt;())
+        .to_hbm::&lt;m![1], m![A, B]&gt;(&amp;mut ctx.pdma)
+        .await;
+
+    // Call the device function.
+    let output = launch(fetch_commit_simple, (&amp;mut *ctx, &amp;input)).await;
+
+    let mut expected = vec![0i32; 4096 * 8];
+    let mut idx = 0;
+    for b in 0..8 {
+        for a in 0..4096 {
+            expected[idx] = ((a * 8 + b) as i8) as i32;
+            idx += 1;
+        }
+    }
+
+    assert_eq!(
+        output.to_host::&lt;m![B, A]&gt;(&amp;mut ctx.pdma).await.into_inner(),
+        Tensor::&lt;_, m![B, A], CurrentBackend&gt;::from_vec(expected)
+    );
+}</code></pre>
+<p>The included source is the complete example for the ordering and lifetime rules described below.
+This chapter keeps that transfer as a readable HBM↔DM and lifetime tutorial; the linked Tensor Unit I/O pattern owns the detailed packet and performance comparisons.</p>
+<p>The type-level <code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, <code>Time</code>, and <code>Element</code> mappings define each value’s storage and stream behavior.
+A DMA call creates a destination with the mapping supplied by its type parameters.
+It does not mutate the source.
+Fetch and commit are the hand-off points into and out of the Tensor Unit pipeline.</p>
+<p>For a first pipeline, stage an HBM input into DM, call <code>begin(...).fetch(...)</code>, run the compute stages, then commit the stream to DM and transfer the result back to HBM.
+The <a href="./tensor-unit-io.html">Case Study: Tensor Unit I/O</a> shows this order with concrete mappings and source code.</p>
+<h2 id="keep-transfers-ordered"><a class="header" href="#keep-transfers-ordered">Keep transfers ordered</a></h2>
+<p><code>Context::acquire()</code> provides one process-wide context containing independent <code>main</code> and <code>sub</code> Tensor Unit contexts plus <code>tdma</code> and <code>pdma</code> DMA contexts.
+Pass the matching mutable context to each operation.
+Rust borrows enforce that a Tensor Unit stream keeps its source view alive.
+<code>begin</code> borrows a <code>DmTensorView</code>, and the stream lifetime cannot outlive that view.
+Fetch consumes the <code>BeginTensor</code> and produces a stream.
+Adapters such as <a href="../computing-tensors/fetch-adapter.html"><code>fetch_cast</code></a> and <a href="../computing-tensors/collect-engine.html"><code>collect</code></a> consume and return the next stage.
+Commit consumes the final stream, or consumes it while writing to a supplied <code>DmTensorViewMut</code>.</p>
+<p>Host transfers <code>to_hbm</code> and <code>to_host</code> are async I/O and must be awaited.
+Kernel-side <code>to_dm</code>, <code>to_hbm</code>, fetch, and commit operations enqueue device commands on their selected contexts.
+Keep source and destination handles alive until the enclosing kernel or backend submission has completed.
+Use a mutable view only when the destination region is intentionally overwritten.
+Do not read a destination before its producing transfer or commit has completed, and do not overlap writes to aliased views without an ordering edge.</p>
+<h2 id="engine-boundaries"><a class="header" href="#engine-boundaries">Engine boundaries</a></h2>
 <ul>
-<li><strong><a href="./fetch-engine.html">Fetch</a></strong>: DM → Tensor Unit stream</li>
-<li><strong><a href="./commit-engine.html">Commit</a></strong>: Tensor Unit stream → DM</li>
-<li><strong><a href="./dma-engine.html">DMA</a></strong>: any pair among DM, SPM, HBM</li>
+<li><strong><a href="./fetch-engine.html">Fetch</a></strong> reads DM with one per-slice sequencer and emits a packet stream for the Tensor Unit.
+Its output mapping chooses the stream <code>Time</code> and <code>Packet</code> axes.</li>
+<li><strong><a href="./commit-engine.html">Commit</a></strong> writes a Tensor Unit stream to DM.
+Its <code>Element</code> mapping chooses the destination layout and can transpose stream axes during the write.</li>
+<li><strong><a href="./dma-engine.html">DMA</a></strong> pairs read and write sequencers for memory-to-memory movement.
+The supported public paths are HBM to HBM, HBM to DM, DM to HBM, and DM to DM.
+Indirect gather/scatter APIs have separate index-unit contracts: unscaled gather uses a <code>DmTensor</code> index with raw row positions, while unscaled scatter is currently unimplemented.
+SPM has no public tensor type.</li>
 </ul>
-<p>TRF and VRF are populated by Tensor Unit primitives rather than dedicated move engines, and are covered in <a href="../computing-tensors/index.html">Computing Tensors</a>.</p>
-<pre class="mermaid">flowchart TB
-    HBM[(HBM)] &lt;--&gt; DMA[DMA]
-    SPM[(SPM)] &lt;--&gt; DMA[DMA]
-    DMA &lt;--&gt; DM[(DM)]
-
-    subgraph TU[Tensor Unit]
-        direction TB
-        FE[Fetch] --&gt; DOT1[...] --&gt; CT[Contraction] --&gt; VE[Vector] --&gt; DOT2[...] --&gt; CM[Commit]
-    end
-
-    DM --&gt;|stream| FE
-    CM --&gt;|stream| DM
-
-    click DMA "./dma-engine.html" "DMA Engine"
-    click FE "./fetch-engine.html" "Fetch Engine"
-    click CT "../computing-tensors/contraction-engine/index.html" "Contraction Engine"
-    click VE "../computing-tensors/vector-engine/index.html" "Vector Engine"
-    click CM "./commit-engine.html" "Commit Engine"
-    click TU "../computing-tensors/index.html" "Tensor Unit"
+<p>The Tensor Unit pipeline is therefore:</p>
+<pre class="mermaid">flowchart LR
+    H[Host] &lt;--&gt;|PCIe DMA| B[HBM]
+    B &lt;--&gt;|Tensor DMA| D[DM]
+    D --&gt;|begin + fetch| F[Tensor Unit stream]
+    F --&gt;|commit| D
+    F --&gt; A[Adapters / switch / collect]
+    A --&gt; C[Compute]
+    C --&gt;|commit| D
 </pre>
 
-<p>Their APIs are designed around what the programmer controls: which engine moves each tensor and how axes map to hardware dimensions.
-The compiler translates these declarations into low-level hardware concerns such as memory bank scheduling, stride calculation, and access alignment.</p>
-<p>The <a href="./sequencer.html">Sequencer</a> is the shared mechanism all three engines use to convert between memory buffers and packet streams.
-<a href="./memory-performance.html">Memory Performance</a> covers how the choice of engine and axis mapping affects bandwidth utilization.</p>
+<p>Collect can place a stream operand in the TRF or VRF register files for Contraction or Vector work.
+Those compute boundaries are covered in <a href="../computing-tensors/index.html">Computing Tensors</a>.</p>
+<h2 id="tune-movement"><a class="header" href="#tune-movement">Tune movement</a></h2>
+<p>Every movement is a mathematical tensor move: the logical values are preserved while the destination mapping may change.
+The compiler derives sequencer strides from both mappings.
+Respect the engine constraints before tuning performance: DM <code>Cluster</code> must be 1 or 2, DM <code>Slice</code> must be 64, 128, or 256, and DMA packet tails must satisfy the element-size alignment checked by the API.
+Fetch and commit also validate their mapping-specific sequencer rules.
+Invalid mappings fail during compilation or command verification.</p>
+<p>Prefer contiguous packet layouts and mappings that distribute traffic across clusters, slices, DM banks, and HBM channels.
+Small or strided packets increase the number of sequencer accesses.
+Conflicting DM-bank patterns can starve DMA.
+See <a href="./memory-performance.html">Memory Performance</a> for the bank-starvation rule, HBM interleaving, and packet-size trade-offs.</p>
+<p>For a complete end-to-end movement pattern, see <a href="./tensor-unit-io.html">Case Study: Tensor Unit I/O</a>.
+For indirect HBM row movement, see <a href="./dma-engine.html#scatter-and-gather">DMA gather and scatter</a>.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<p>The <a href="https://docs.rs/crate/furiosa-opt-std">furiosa-opt-std rustdoc</a> documents the release API.
+Use the engine pages above for operation-specific contracts and <a href="../scheduling/index.html">Scheduling and Tuning</a> when a valid movement plan needs measured overlap or hazard diagnosis.</p>
 
                     </main>
 

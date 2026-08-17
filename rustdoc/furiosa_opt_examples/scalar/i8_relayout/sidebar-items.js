@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["relayout_i8"],"struct":["A","B","__furiosa_opt_relayout_i8"]};

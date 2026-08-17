@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,8 +177,9 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="commit-engine"><a class="header" href="#commit-engine">Commit Engine</a></h1>
-<p>The Commit Engine writes a Tensor Unit stream packet to DM, the inverse of the <a href="./fetch-engine.html">Fetch Engine</a>.
+<p>The Commit Engine writes a Tensor Unit stream packet to DM, the inverse of the <a href="./fetch-engine.html">Fetch Engine</a>, after adapters have selected the final element type and layout.
 It is the Commit Sequencer: a <a href="../mapping-tensors/tensor-semantics.html#mathematical-tensor-move">mathematical tensor move</a> that runs independently in every slice, each writing to its own local DM partition.</p>
+<p>Choose Commit when a computed Tensor Unit stream must become a DM tensor with a deliberate <code>Element</code> layout.</p>
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p>A <code>TuTensor</code> carries <code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, <code>Time</code>, and <code>Packet</code> dimensions at the end of the Tensor Unit pipeline.
 Its <code>Time</code> reflects the temporal unrolling of the computation, and <code>Packet</code> is the element layout in the output stream.</p>
@@ -191,13 +192,6 @@ Its <code>Time</code> reflects the temporal unrolling of the computation, and <c
     pub fn commit&lt;Element: M&gt;(self) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
         verify_commit::&lt;D, Time, Packet, Element&gt;();
         DmTensor::from_parts(self.inner.transpose(false), None)
-    }
-
-    /// Commits to data memory at `address`.
-    #[primitive(TuTensor::commit_at)]
-    pub fn commit_at&lt;Element: M&gt;(self, address: Address) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
-        verify_commit::&lt;D, Time, Packet, Element&gt;();
-        DmTensor::from_parts(self.inner.transpose(false), Some(address))
     }
 
     /// Commits to a mutable tensor view in data memory.
@@ -245,7 +239,8 @@ fn cast_commit&lt;'l, const T: Tu&gt;(
 </ul>
 <h2 id="multi-write-packet"><a class="header" href="#multi-write-packet">Multi-Write Packet</a></h2>
 <p>Writing a packet may require multiple hardware writes because packet axes may not be contiguous in DM.
-The per-write element count <code>write_size = gcd(valid_size, access_size)</code> is derived by the compiler, where <code>valid_size</code> comes from the <a href="../computing-tensors/commit-adapter.html">Commit Adapter</a> and <code>access_size</code> from the <a href="./sequencer.html#access-size">Sequencer Architecture</a>.
+The compiler derives <code>write_size = gcd(valid_size, access_size)</code>.
+The <a href="../computing-tensors/commit-adapter.html">Commit Adapter</a> supplies <code>valid_size</code>; the <a href="./sequencer.html#access-size">Sequencer</a> supplies <code>access_size</code>.
 In the <a href="../computing-tensors/index.html#execution-context">sub-context</a>, <code>D[write_size]</code> is fixed at 8 bytes.
 The total cycle count is <code>Time::SIZE * (valid_size / write_size)</code>.
 The division is always exact: in the main-context, <code>valid_size == write_size</code>, so each packet commits in a single cycle.
@@ -302,9 +297,6 @@ fn transpose_with_trimming&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let c: CastTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]&gt; = CastTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = transpose_with_trimming(c);
 </span><span class="boring">}</span></code></pre>
-<h2 id="slice-bitmap"><a class="header" href="#slice-bitmap">Slice Bitmap</a></h2>
-<p>The slice bitmap is a 256-bit mask covering one full cluster (one bit per slice, 256 slices per cluster) that gates which slices receive commit data.
-For example, <code>bitmap = 00000000...01</code> enables commit only to slice <code>0</code>, and <code>bitmap = 11111111...10</code> enables commit to all slices except slice <code>0</code>.</p>
 <h2 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h2>
 <p>Three factors determine Commit Sequencer throughput.</p>
 <ul>
@@ -323,7 +315,7 @@ Sequencer strides are multiples of 8 bytes (see <a href="#constraints">Constrain
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../moving-tensors/dma-engine.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../moving-tensors/tensor-unit-io.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -337,7 +329,7 @@ Sequencer strides are multiples of 8 bytes (see <a href="#constraints">Constrain
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../moving-tensors/dma-engine.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../moving-tensors/tensor-unit-io.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

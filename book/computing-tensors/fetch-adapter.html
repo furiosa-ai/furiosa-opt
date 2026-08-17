@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -180,252 +180,13 @@
 <p>The Fetch Adapter applies element-wise transformations (type casting, masking, table lookup, zero-point subtraction) to the packet stream emitted by the <a href="../moving-tensors/fetch-engine.html">Fetch Engine</a>, before the <a href="./switch-engine.html">Switch Engine</a> routes it across slices.
 The Fetch Engine itself does not run any of these transforms; they live here under Computing Tensors and are applied as separate stages between the Fetch Engine and the Switch Engine.
 The kernel writer composes the per-stage methods directly on a <code>FetchTensor</code>, and each call advances to the next stage.</p>
-<p>The adapter has four stages, each optional and invoked by calling its method on the stream in hardware pipeline order.
+<p>The adapter has three usable stages, each optional and invoked by calling its method on the stream in hardware pipeline order.
 A <code>FetchTensor</code> may flow directly into the <a href="./switch-engine.html">Switch Engine</a> or the <a href="./collect-engine.html">Collect Engine</a> with no adapter call at all.</p>
 <ul>
-<li><a href="#masking">Masking</a> zeros the padded slots of the sequencer’s right pad.</li>
 <li><a href="#table-lookup">Table Lookup</a> replaces values via a hardware lookup table.</li>
 <li><a href="#type-casting">Type Casting</a> converts the element type.</li>
 <li><a href="#zero-point-subtraction">Zero-Point Subtraction</a> subtracts a quantization zero point, widening an integer stream to the <a href="./contraction-engine/index.html">Contraction Engine</a>’s staging type (<code>i4</code> to <code>i5</code>, <code>i8</code> to <code>i9</code>).</li>
 </ul>
-<p>The <a href="./index.html#execution-context">main-context</a> adapter supports all four stages, while the <a href="./index.html#execution-context">sub-context</a> adapter supports only <code>fetch_cast</code>.</p>
-<p>The example below pads 63 elements to 64, masks the 64th slot to zero, then casts <code>i8</code> → <code>i32</code>.
-The two stages are chained as two method calls on the <code>FetchTensor</code> produced by <code>fetch()</code>, in the mask → cast order matching the hardware pipeline.</p>
-<pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 63];
-
-fn fetch_mask_then_cast&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A]&gt;,
-) -&gt; FetchCastTensor&lt;'l, T, i32, m![1], m![1], m![1], m![1], m![A # 64]&gt; {
-    input
-        .fetch::&lt;m![1], m![A # 64]&gt;()
-        //   Time      = m![1]
-        //   Packet    = m![A # 64]
-        //   OutTime   = m![1]
-        //   OutPacket = m![A # 64]    (#{0} cannot yet ride the type, see UC below)
-        .fetch_mask::&lt;m![1], m![A # 64]&gt;()
-        .fetch_cast::&lt;i32&gt;()
-}
-<span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let _o = fetch_mask_then_cast(x);</span></code></pre>
-<h2 id="masking"><a class="header" href="#masking">Masking</a></h2>
-<p>The Tensor Unit’s internal data paths operate on fixed-width units (32-byte flits of 8 elements at 32 bits each), so axes whose sizes do not align must be padded (for example, 63 rounds up to 64).
-The padded slots in <code>m![A # 64]</code> hold arbitrary values, which corrupts downstream computations.
-Masking overwrites those slots with zero, tightening the mapping from <code>A # 64</code> to <code>A #{0} 64</code>.</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyFetchMask, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
-    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
-{
-    /// Runs the Fetch Adapter's masking stage.
-    ///
-    /// Zeroes the padded slots described by the book chapter. `OutTime`
-    /// and `OutPacket` carry the pad-kind change at the type level (e.g.
-    /// `m![D # n]` → `m![D #{0} n]`). Callers spell them out explicitly
-    /// because downstream methods do not constrain their input shape. This
-    /// method takes no runtime argument (see [`FetchMaskConfig`]).
-    #[primitive(TuTensor::fetch_mask)]
-    pub fn fetch_mask&lt;OutTime: M, OutPacket: M&gt;(
-        self,
-    ) -&gt; FetchMaskTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
-        verify_fetch_mask::&lt;Time, Packet, OutTime, OutPacket&gt;();
-        FetchMaskTensor::new(self.ctx, self.inner.transpose(true))
-    }
-}</code></pre>
-<p>The padded <code># m</code> annotations on the input become <code>#{0} m</code> on the output.
-<code>fetch_mask</code> takes no runtime argument. The compiler derives the mask config (<code>FetchMaskConfig</code>, holding <code>last_axis</code>, <code>valid_count_dim</code>, and <code>rightmost_valid_count</code>) from the difference between the input and output mappings.</p>
-<p>The three cases below walk through the configuration the compiler will eventually emit for each mapping shape, using the same <code>B</code>-axis pattern under three different sequencer layouts.</p>
-<h3 id="contiguous-right-mask"><a class="header" href="#contiguous-right-mask">Contiguous right mask</a></h3>
-<p>This case shows the basic shape: one contiguous right pad sits along the innermost axis, and the DM tensor’s <code>B # 96</code> carries 4 trailing slots of arbitrary values.</p>
-<pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 32, B = 92];
-
-fn fetch_mask_contiguous_right&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A, B # 96]&gt;,
-) -&gt; FetchMaskTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A, B #{0} 96 / 32], m![B #{0} 96 % 32]&gt; {
-    input
-        .fetch::&lt;m![A, B # 96 / 32], m![B # 96 % 32]&gt;()
-        //   Time      = m![A, B # 96 / 32]
-        //   Packet    = m![B # 96 % 32]
-        //   OutTime   = m![A, B #{0} 96 / 32]   (chunk axis tightens to #{0})
-        //   OutPacket = m![B #{0} 96 % 32]      (packet axis inherits #{0})
-        .fetch_mask::&lt;m![A, B #{0} 96 / 32], m![B #{0} 96 % 32]&gt;()
-}
-<span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let _o = fetch_mask_contiguous_right(x);</span></code></pre>
-<p>The diagram below shows the intent: the chunk axis <code>B # 96 / 32</code> carries the pad, and the mask zeroes its last 4 slots.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"><span class="img-wrapper"><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"></span></label></p>
-<p>From the input and output mappings the compiler emits these sequencer loops (innermost first):</p>
-<pre><code class="language-text">[
-    B # 96 % 32 = 32 : 1,    // loop 0: packet axis
-    B # 96 / 32 = 3 : 32,    // loop 1: chunk axis (carries the pad)
-    A = 32 : 96,             // loop 2: outer
-] : 32 @ base_addr = 0
-</code></pre>
-<p>It then programs the hardware mask with these parameters:</p>
-<ul>
-<li><code>last_axis</code> = the chunk axis <code>B # 96 / 32</code> (recorded as an axis, not a raw loop index, since the sequencer optimizer may merge entries).</li>
-<li><code>valid_count_dim = Rightmost</code> (only the rightmost cell of <code>last_axis</code> is masked).</li>
-<li><code>rightmost_valid_count = [4, 0, 0, 0, 0, 0, 0, 0]</code> (4 slots zeroed at the tail of the rightmost iteration).</li>
-</ul>
-<p>At run time the hardware streams every packet untouched until the chunk axis hits its last iteration, where it zeroes the trailing 4 slots of that final packet.
-The output type therefore tightens from <code>B # 96</code> to <code>B #{0} 96</code>.</p>
-<h3 id="split-right-mask"><a class="header" href="#split-right-mask">Split right mask</a></h3>
-<p>This case keeps the same right pad as the previous case, but a non-padded axis splits the padded region across the stream.</p>
-<pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 32, B = 92];
-
-fn fetch_mask_split_right&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A, B # 96]&gt;,
-) -&gt; FetchMaskTensor&lt;'l, T, i8, m![1], m![1], m![1], m![B #{0} 96 / 32, A], m![B #{0} 96 % 32]&gt; {
-    input
-        .fetch::&lt;m![B # 96 / 32, A], m![B # 96 % 32]&gt;()
-        //   Time      = m![B # 96 / 32, A]
-        //   Packet    = m![B # 96 % 32]
-        //   OutTime   = m![B #{0} 96 / 32, A]
-        //   OutPacket = m![B #{0} 96 % 32]   (innermost packet axis tightens)
-        .fetch_mask::&lt;m![B #{0} 96 / 32, A], m![B #{0} 96 % 32]&gt;()
-}
-<span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A, B # 96]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let _o = fetch_mask_split_right(x);</span></code></pre>
-<p>The diagram below shows the intent: <code>A</code> now sits between <code>B # 96 / 32</code> and <code>B # 96 % 32</code>, so the pad lives on the innermost packet axis instead of an outer chunk axis.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"><span class="img-wrapper"><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"></span></label></p>
-<p>The compiler emits these sequencer loops:</p>
-<pre><code class="language-text">[
-    B # 96 % 32 = 32 : 1,    // loop 0: packet axis (carries the pad)
-    A = 32 : 96,              // loop 1: non-padded axis splits the chunks
-    B # 96 / 32 = 3 : 32,    // loop 2: outer chunk axis
-] : 32 @ base_addr = 0
-</code></pre>
-<p>It then programs the hardware mask with these parameters:</p>
-<ul>
-<li><code>last_axis</code> = the innermost packet axis (the only axis carrying the pad in this layout).</li>
-<li><code>valid_count_dim = Rightmost</code> (a single cell at the tail of the outermost iteration covers the pad).</li>
-<li><code>rightmost_valid_count = [4, 0, 0, 0, 0, 0, 0, 0]</code> (4 slots zeroed per affected packet).</li>
-</ul>
-<p>While the outermost <code>B # 96 / 32</code> loop runs its final iteration, the hardware zeroes the last 4 elements of every packet it emits.
-The input keeps <code>B # 96</code> and the masked return type is the same <code>B #{0} 96</code> as the previous case, with only the Time-axis order differing.</p>
-<h3 id="variable-per-chunk-mask"><a class="header" href="#variable-per-chunk-mask">Variable per-chunk mask</a></h3>
-<p>This case lifts the per-cell cap (255 for 4-bit data, 31 for <code>f32</code>) by giving each chunk its own valid count.
-The DM tensor’s <code>B # 128</code> carries 31 trailing pad slots split across 8 chunks of 16, so the cap does not suffice on its own.</p>
-<pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 32, B = 97];
-
-fn fetch_mask_variable_per_chunk&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, f32, m![1], m![1], m![1], m![1], m![A, B # 128]&gt;,
-) -&gt; FetchMaskTensor&lt;'l, T, f32, m![1], m![1], m![1], m![A, B #{0} 128 / 16, 1], m![B #{0} 128 % 16]&gt; {
-    input
-        .fetch::&lt;m![A, B # 128 / 16, 1], m![B # 128 % 16]&gt;()
-        //   Time      = m![A, B # 128 / 16, 1]
-        //   Packet    = m![B # 128 % 16]
-        //   OutTime   = m![A, B #{0} 128 / 16, 1]
-        //   OutPacket = m![B #{0} 128 % 16]
-        .fetch_mask::&lt;m![A, B #{0} 128 / 16, 1], m![B #{0} 128 % 16]&gt;()
-}
-<span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, f32, m![1], m![1], m![1], m![1], m![A, B # 128]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let _o = fetch_mask_variable_per_chunk(x);</span></code></pre>
-<p>The diagram below shows the intent: 8 chunks each get their own valid count, so the per-chunk cap no longer constrains the pad.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-3.png" alt="PADDING_3"><span class="img-wrapper"><img src="images/fetch-adapter-padding-3.png" alt="PADDING_3"></span></label></p>
-<p>The compiler emits these sequencer loops:</p>
-<pre><code class="language-text">[
-    B # 128 % 16 = 16 : 1,    // loop 0: packet axis
-    1 = 1 : 0,                 // loop 1: unit loop (placeholder)
-    B # 128 / 16 = 8 : 16,    // loop 2: chunk axis (one count per iteration)
-    A = 32 : 128,              // loop 3: outer
-] : 16 @ base_addr = 0
-</code></pre>
-<p>It then programs the hardware mask with these parameters:</p>
-<ul>
-<li><code>last_axis</code> = the <code>B # 128 / 16</code> chunk axis.</li>
-<li><code>valid_count_dim = Iterator(2)</code> (the count array indexes along the same loop, so entry <code>i</code> covers chunk <code>i</code>; the only variant that consumes more than one array entry).</li>
-<li><code>rightmost_valid_count = [16, 16, 16, 16, 16, 16, 1, 0]</code> (counts sum to 97, the valid <code>B</code> length: chunks 0-5 fully live, chunk 6 keeps only its first element, chunk 7 is fully zeroed).</li>
-</ul>
-<p>The hardware applies one cell’s count per chunk iteration, in lockstep with the loop.
-The output type’s <code>B #{0} 128</code> records the remaining 31 trailing slots as zero.</p>
-<h3 id="left-padding"><a class="header" href="#left-padding">Left Padding</a></h3>
-<p>Left padding zeroes the first few elements when <code>last_axis</code> is the innermost axis.
-The sequencer’s <code>base_addr</code> is shifted by <code>-left_pad</code> so reads start in pre-data memory, which the mask then overwrites.
-This is the only place where masking depends on the sequencer configuration.</p>
-<h4 id="contiguous-leftright-mask"><a class="header" href="#contiguous-leftright-mask">Contiguous left+right mask</a></h4>
-<p>This case combines one contiguous left pad with one contiguous right pad along the innermost axis.
-Input <code>(# 2 + B) # 96</code> has 2 arbitrary head slots and 4 arbitrary tail slots.</p>
-<pre><code class="language-rust ignore">axes![A = 32, B = 90];
-
-fn fetch_mask_contiguous_left_right&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A, (# 2 + B) # 96]&gt;,
-) -&gt; FetchMaskTensor&lt;'l, T, i8, m![1], m![1], m![1], m![A, (#{0} 2 + B) #{0} 96 / 32], m![(#{0} 2 + B) #{0} 96 % 32]&gt; {
-    input
-        .fetch::&lt;m![A, (# 2 + B) # 96 / 32], m![(# 2 + B) # 96 % 32]&gt;()
-        //   Time      = m![A, (# 2 + B) # 96 / 32]
-        //   Packet    = m![(# 2 + B) # 96 % 32]
-        //   OutTime   = m![A, (#{0} 2 + B) #{0} 96 / 32]
-        //   OutPacket = m![(#{0} 2 + B) #{0} 96 % 32]
-        .fetch_mask::&lt;m![A, (#{0} 2 + B) #{0} 96 / 32], m![(#{0} 2 + B) #{0} 96 % 32]&gt;()
-}</code></pre>
-<p>The diagram below shows the intent.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"><span class="img-wrapper"><img src="images/fetch-adapter-padding-1.png" alt="PADDING_1"></span></label></p>
-<p>The sequencer shape matches the contiguous-right case, but the base address shifts:</p>
-<pre><code class="language-text">[
-    (# 2 + B) # 96 % 32 = 32 : 1,    // loop 0: packet axis
-    (# 2 + B) # 96 / 32 = 3 : 32,    // loop 1: chunk axis (carries the right pad)
-    A = 32 : 96,                       // loop 2: outer
-] : 32 @ base_addr = -2
-</code></pre>
-<p>It then programs the hardware mask with these parameters:</p>
-<ul>
-<li><code>last_axis</code> = the chunk axis carrying the right pad (same as the contiguous-right case).</li>
-<li><code>valid_count_dim = Rightmost</code> (one cell at the tail of the rightmost iteration covers the right pad).</li>
-<li><code>rightmost_valid_count = [4, 0, 0, 0, 0, 0, 0, 0]</code> (4 slots zeroed at the tail of the rightmost iteration).</li>
-<li><code>left_pad = 2</code> (planned; zero the first 2 slots of every packet).</li>
-</ul>
-<p><code>base_addr = -2</code> reads 2 bytes earlier so the head pad enters the stream, and <code>left_pad = 2</code> overwrites those leading slots before they reach the consumer.
-The return type tightens to <code>(#{0} 2 + B) #{0} 96</code>.</p>
-<h4 id="split-leftright-mask"><a class="header" href="#split-leftright-mask">Split left+right mask</a></h4>
-<p>This case combines a left pad and a right pad whose regions are split across the stream by a non-padded axis.</p>
-<pre><code class="language-rust ignore">axes![A = 32, B = 90];
-
-fn fetch_mask_split_left_right&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, i8, m![1], m![1], m![1], m![1], m![A, (# 2 + B) # 96]&gt;,
-) -&gt; FetchMaskTensor&lt;'l, T, i8, m![1], m![1], m![1], m![(#{0} 2 + B) #{0} 96 / 32, A], m![(#{0} 2 + B) #{0} 96 % 32]&gt; {
-    input
-        .fetch::&lt;m![(# 2 + B) # 96 / 32, A], m![(# 2 + B) # 96 % 32]&gt;()
-        //   Time      = m![(# 2 + B) # 96 / 32, A]
-        //   Packet    = m![(# 2 + B) # 96 % 32]
-        //   OutTime   = m![(#{0} 2 + B) #{0} 96 / 32, A]
-        //   OutPacket = m![(#{0} 2 + B) #{0} 96 % 32]
-        .fetch_mask::&lt;m![(#{0} 2 + B) #{0} 96 / 32, A], m![(#{0} 2 + B) #{0} 96 % 32]&gt;()
-}</code></pre>
-<p>The diagram below shows the intent.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"><span class="img-wrapper"><img src="images/fetch-adapter-padding-2.png" alt="PADDING_2"></span></label></p>
-<p>The sequencer shape matches the split-right case, but the base address shifts:</p>
-<pre><code class="language-text">[
-    (# 2 + B) # 96 % 32 = 32 : 1,    // loop 0: packet axis (carries both pads)
-    A = 32 : 96,                       // loop 1: non-padded axis splits the chunks
-    (# 2 + B) # 96 / 32 = 3 : 32,    // loop 2: outer chunk axis
-] : 32 @ base_addr = -2
-</code></pre>
-<p>It then programs the hardware mask with these parameters:</p>
-<ul>
-<li><code>last_axis</code> = the innermost packet axis, carrying both head and tail pads.</li>
-<li><code>valid_count_dim = Rightmost</code> (one cell at the tail of the outermost iteration covers the right pad).</li>
-<li><code>rightmost_valid_count = [4, 0, 0, 0, 0, 0, 0, 0]</code> (4 slots zeroed at the tail of every affected packet).</li>
-<li><code>left_pad = 2</code> (planned; zero the first 2 slots of every packet).</li>
-</ul>
-<p>The masked return type is the same <code>(#{0} 2 + B) #{0} 96</code> as the previous case, with only the Time-axis order differing.</p>
 <h2 id="table-lookup"><a class="header" href="#table-lookup">Table Lookup</a></h2>
 <p>Table lookup provides hardware-accelerated lookup tables during the fetch stage.
 Each value is treated as an index into a pre-configured table, and the corresponding table entry is output instead.
@@ -455,13 +216,13 @@ impl&lt;
 {
     /// Runs the Fetch Adapter's table-lookup stage (main context only).
     ///
-    /// Each input value indexes a decode table selected by the input type `D`
-    /// (via the `TableLookup` trait), not by a runtime argument. The only decode is
-    /// `f4e2m1 -&gt; f8e4m3`, the RNGD paired-key 4b-&gt;8b table for NVFP4 / MXFP4
-    /// weights. Chain a [`fetch_cast`](Self::fetch_cast) to widen `f8e4m3` to
-    /// `bf16`/`f32`; the per-block scale is not applied here, it is a separate
-    /// downstream VE multiply. See the book chapter
-    /// `computing-tensors/fetch-adapter.md` (the "Table Lookup" section).
+    /// Each input value indexes a decode table selected by the `TableLookup` impl,
+    /// not by a runtime argument: `f4e2m1` decodes to either 8-bit float through the
+    /// paired 4b-&gt;8b table (the NVFP4 / MXFP4 weight path), and either 8-bit float
+    /// decodes to `bf16` through the non-paired table. Chain a
+    /// [`fetch_cast`](Self::fetch_cast) to widen a paired decode to `f32`; the
+    /// per-block scale is applied downstream in the Vector or Contraction Engine.
+    /// See the book chapter `computing-tensors/fetch-adapter.md` ("Table Lookup").
     ///
     /// Only available on the main context: the lookup table lives in a main Fetch Unit register the
     /// sub context lacks. To feed a decoded weight into a contraction, decode here and commit the
@@ -477,10 +238,25 @@ impl&lt;
     }
 }</code></pre>
 <p>The decode table is selected by the input scalar type (via the <code>TableLookup</code> trait), not by a runtime argument, exactly as <code>fetch_cast</code> selects its conversion by the input type.
-The hardware paired-key table for 4-bit keys supports only a 4-bit to 8-bit decode, so the sole implemented decode is <code>f4e2m1 -&gt; f8e4m3</code>.
-Widen to <code>bf16</code> / <code>f32</code> with a following <code>fetch_cast</code>, and apply any NVFP4 / MXFP4 per-block scale downstream in the Vector Engine (it is intentionally not folded into the table, which stays a static 16-entry, block-independent decode).</p>
-<p>The table for the <code>f4e2m1</code> decode is a compile-time constant baked into the fetch-sequencer configuration, so the <code>f4e2m1</code> weight stream is the only data input to the stage; there is no per-invocation table staging. The 16-entry e2m1 decode is block-independent, which is why the per-block scale stays out of it: folding the scale in would need a distinct table per block and defeat the shared static table.</p>
-<p>The hardware sequencer walks byte-aligned keys (1 or 2 bytes), never a raw 4-bit nibble, and a 4-bit key must use a <em>paired</em> table. The <code>f4e2m1</code> decode therefore runs as a 256-entry byte-indexed table: each byte carries two nibbles and one lookup yields the pair of decoded <code>f8e4m3</code> values, decoding at two elements per key. The <code>f4e2m1</code> scalar is modelled accordingly as a byte holding two nibbles, with <code>BITS = 4</code> so the fetch mapping accounts elements rather than bytes.</p>
+The key width picks the table and the requested output type picks the entry encoding:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Output</th></tr>
+</thead>
+<tbody>
+<tr><td><code>f4e2m1</code></td><td><code>f8e4m3</code>, <code>f8e5m2</code></td></tr>
+<tr><td><code>f8e4m3</code></td><td><code>bf16</code></td></tr>
+<tr><td><code>f8e5m2</code></td><td><code>bf16</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>Widen a decoded 8-bit float to <code>f32</code> with a following <code>fetch_cast</code>, and apply any NVFP4 / MXFP4 per-block scale downstream in the <a href="./vector-engine/index.html">Vector Engine</a> or the <a href="./contraction-engine/index.html">Contraction Engine</a> (it is intentionally not folded into the table, which stays a static 16-entry, block-independent decode).</p>
+<p>The table for the <code>f4e2m1</code> decode is a compile-time constant baked into the fetch-sequencer configuration, so the <code>f4e2m1</code> weight stream is the only data input to the stage; there is no per-invocation table staging.
+The 16-entry e2m1 decode is block-independent, which is why the per-block scale stays out of it: folding the scale in would need a distinct table per block and defeat the shared static table.</p>
+<p>The hardware sequencer walks byte-aligned keys (1 or 2 bytes), never a raw 4-bit nibble, and a 4-bit key must use a <em>paired</em> table.
+The <code>f4e2m1</code> decode therefore runs as a 256-entry byte-indexed table: each byte carries two nibbles and one lookup yields the pair of decoded <code>f8e4m3</code> values, decoding at two elements per key.
+The <code>f4e2m1</code> scalar is modelled accordingly as a byte holding two nibbles, with <code>BITS = 4</code> so the fetch mapping accounts elements rather than bytes.</p>
 <pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
@@ -525,7 +301,7 @@ Type casting adds 1 to 2 cycles of latency.
         FetchCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
     }
 }</code></pre>
-<p>RNGD supports the following <code>fetch_cast</code> conversions (the <code>i4</code> to <code>i5</code> and <code>i8</code> to <code>i9</code> widenings are <a href="#zero-point-subtraction">Zero-Point Subtraction</a>, not type casts):</p>
+<p>RNGD supports the conversions below and no others: every widening lands in the <code>i32</code> / <code>f32</code> compute width, and <code>f32</code> to <code>bf16</code> is the only narrowing.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -538,11 +314,12 @@ Type casting adds 1 to 2 cycles of latency.
 <tr><td><code>f8e4m3</code></td><td><code>f32</code></td></tr>
 <tr><td><code>f8e5m2</code></td><td><code>f32</code></td></tr>
 <tr><td><code>bf16</code></td><td><code>f32</code></td></tr>
-<tr><td><code>f16</code></td><td><code>f32</code></td></tr>
 <tr><td><code>f32</code></td><td><code>bf16</code></td></tr>
 </tbody>
 </table>
 </div>
+<p>In particular the Fetch Adapter has no cast from an 8-bit float to <code>bf16</code>, and none from <code>f32</code> to an 8-bit float.
+To land an <code>f8e4m3</code> stream in <code>bf16</code>, decode it through the non-paired <a href="#table-lookup">Table Lookup</a> table instead; to reach an 8-bit float, narrow with the <a href="./cast-engine.html">Cast Engine</a> later in the pipeline.</p>
 <p>The example below fetches an 8-element <code>i8</code> stream and casts it to <code>i32</code>.
 The <code>Time</code> and <code>Packet</code> mapping is unchanged across the call.</p>
 <pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
@@ -622,31 +399,17 @@ It is the only stage that produces an <code>i5</code>/<code>i9</code>.</p>
         FetchZeroPointSubTensor::new(self.ctx, self.inner.map(|v| v.zero_point_sub(zero_point)))
     }
 }</code></pre>
-<h3 id="why-the-extra-bit"><a class="header" href="#why-the-extra-bit">Why the extra bit</a></h3>
+<h3 id="extra-bit-rationale"><a class="header" href="#extra-bit-rationale">Extra-Bit Rationale</a></h3>
 <p>Subtracting the zero point turns an unsigned-around-<code>zero_point</code> quantized value into a signed residual whose range no longer fits the input width.
 For a symmetric-signed input the residual is a difference of two same-width values:</p>
 <ul>
 <li><code>i4</code> residual: <code>[-8, 7] - [-8, 7] = [-15, 15]</code>, which needs <code>i5</code>’s <code>[-16, 15]</code>.</li>
 <li><code>i8</code> residual: <code>[-128, 127] - [-128, 127] = [-255, 255]</code>, which needs <code>i9</code>’s <code>[-256, 255]</code>.</li>
 </ul>
-<p>The subtraction therefore produces one more bit than it consumes. The conversion checks this at runtime: a residual outside the <code>i5</code>/<code>i9</code> range (an out-of-range <code>zero_point</code> or input) is rejected rather than silently wrapped.</p>
-<h3 id="contraction-engine-specification"><a class="header" href="#contraction-engine-specification">Contraction Engine specification</a></h3>
-<p><code>i5</code> and <code>i9</code> exist only as Contraction Engine operands. The engine multiplies operand pairs drawn from the same integer precision family and accumulates in <code>i32</code>:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Stream (activation)</th><th>Weight (TRF)</th><th>Accumulator</th></tr>
-</thead>
-<tbody>
-<tr><td><code>i4</code> or <code>i5</code></td><td><code>i4</code> or <code>i5</code></td><td><code>i32</code></td></tr>
-<tr><td><code>i8</code> or <code>i9</code></td><td><code>i8</code> or <code>i9</code></td><td><code>i32</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>Either operand may be the raw form (<code>i4</code>/<code>i8</code>) or its zero-point-subtracted staging (<code>i5</code>/<code>i9</code>); the two operands need not match within a family, but they may not cross families (no <code>i4</code> against <code>i8</code>) or kinds (no integer against float).
-Floating-point contraction pairs (<code>bf16</code>, <code>f8e4m3</code>, <code>f8e5m2</code>) must match exactly and are never zero-point-subtracted.</p>
-<h3 id="staging-is-contraction-only"><a class="header" href="#staging-is-contraction-only">Staging is contraction-only</a></h3>
-<p>An <code>i5</code>/<code>i9</code> stream may flow through the <a href="./switch-engine.html">Switch Engine</a> and <a href="./collect-engine.html">Collect Engine</a>, but from there its <strong>only</strong> legal consumer is <code>contract_outer</code>.
+<p>The subtraction therefore produces one more bit than it consumes.
+The conversion checks this at runtime: a residual outside the <code>i5</code>/<code>i9</code> range (an out-of-range <code>zero_point</code> or input) is rejected rather than silently wrapped.</p>
+<h3 id="contraction-only-staging"><a class="header" href="#contraction-only-staging">Contraction-Only Staging</a></h3>
+<p>An <code>i5</code>/<code>i9</code> stream may flow through the <a href="./switch-engine.html">Switch Engine</a> and <a href="./collect-engine.html">Collect Engine</a>, but from there its <strong>only</strong> legal consumer is <code>contract_outer</code>, which pairs it with a weight as <a href="./contraction-engine/outer.html#operand-types">Operand types</a> lays out.
 It cannot be committed to memory, stored to a register file (<code>to_trf</code>/<code>to_vrf</code>), transposed, or fed to any other engine.</p>
 <p>This restriction is enforced at compile time, not by a runtime check: passing an <code>i5</code>/<code>i9</code> stream to any consumer other than <code>contract_outer</code> is a compile error.</p>
 

@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6f528e2.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-65a723fd.js"></script>
+        <script src="../toc-b78bfe2e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -180,23 +180,46 @@
 <p>Tensors reside in HBM, on-chip DM, or the pipeline stream, and operations transform them.
 This chapter defines their mathematical meaning: what it means for a tensor variable to <em>hold</em> a mathematical tensor, and what it means for an operation to <em>specify</em> a mathematical function.
 These definitions enable tensor-level reasoning about vISA programs: a function is correct when its output holds the right mathematical tensor, regardless of which mapping or memory tier is used.</p>
-<h2 id="holding-a-tensor"><a class="header" href="#holding-a-tensor">Holding a Tensor</a></h2>
+<h2 id="tensor-holding-semantics"><a class="header" href="#tensor-holding-semantics">Tensor Holding Semantics</a></h2>
 <p>A tensor variable <em>holds</em> mathematical tensor \(T\) when each element stores the value of \(T\) at the tensor index formed by summing the partial indices produced by each dimension’s mapping.</p>
 <p><code>HostTensor&lt;D, E&gt;</code> is the simplest case: a single mapping <code>E</code> fully determines the correspondence between buffer positions and tensor indices.
 <code>HostTensor&lt;bf16, m![A, B]&gt;</code> with <code>A = 8</code> and <code>B = 512</code>, for instance, stores 4,096 <code>bf16</code> elements in A-major, B-minor order.
 It holds tensor \(T\) when:</p>
 <ul>
-<li>for every buffer index <code>i</code> where <code>E::map(i) = Some(ti)</code>,</li>
+<li>for every buffer index <code>i</code> where <code>E::map(i) = Cell::Index(ti)</code>,</li>
 <li>the <code>i</code>-th element stores the value of \(T\) at <code>ti</code>.</li>
 </ul>
 <p><code>HbmTensor&lt;D, Chip, Element&gt;</code> extends this by splitting the single mapping into two: <code>Chip</code> maps chip indices to partial tensor indices, and <code>Element</code> maps per-chip element indices to the remaining partial indices, with each covering a disjoint subset of axes so their sum recovers the full tensor index.
 It holds \(T\) when:</p>
 <ul>
-<li>for every chip index <code>i</code> and element index <code>j</code> where <code>Chip::map(i) = Some(ti)</code> and <code>Element::map(j) = Some(tj)</code>,</li>
+<li>for every chip index <code>i</code> and element index <code>j</code> where <code>Chip::map(i) = Cell::Index(ti)</code> and <code>Element::map(j) = Cell::Index(tj)</code>,</li>
 <li>the <code>i</code>-th chip’s <code>j</code>-th element stores \(T\) at the index <code>ti + tj</code>.</li>
 </ul>
 <p>All other tensor types apply the same rule to more dimensions: each element stores \(T\) at the sum of the partial indices returned by all its mapping parameters.</p>
-<h2 id="specifying-a-function"><a class="header" href="#specifying-a-function">Specifying a Function</a></h2>
+<h2 id="linear-combination-semantics"><a class="header" href="#linear-combination-semantics">Linear Combination Semantics</a></h2>
+<p>Linear combination expressions <code>$(e1:n1, ..., ed:nd)</code> combine multiple dimensions with specified strides.
+Their size is <code>size_S($(e1:n1, ..., ed:nd)) = 1 + sum_k((size_S(ek) - 1) * nk)</code>.
+The mapping <code>S, $(e1:n1, ..., ed:nd) |- si ~ ti</code> is valid if there exist <code>si1...sid, ti1...tid</code> such that for every <code>k</code>, <code>S, ek |- sik ~ tik</code>, <code>si = sum_k(sik * nk)</code>, and <code>ti = sum_k(tik * nk)</code>.</p>
+<p>Linear combinations can encode outer sum: <code>e1 * e2</code> is equivalent to <code>$(e1 : size_S(e2), e2 : 1)</code>.
+Outer sum is preferred when axis reordering matters because changing <code>e1 * e2</code> to <code>e2 * e1</code> does not require manual stride updates.</p>
+<p>Sliding operations access overlapping data blocks.
+Consider a buffer of 9 elements representing a tensor with shape \(\{N=5, F=3\}\), where each row is a 3-element slice that slides one element at a time.
+The tensor element at \(N, F\) maps to buffer index \(N + 2F\):</p>
+<p>$$
+\begin{array}{c|ccc}
+&amp; F=0 &amp; F=1 &amp; F=2 \\
+\hline
+N=0 &amp; 0 &amp; 2 &amp; 4 \\
+N=1 &amp; 1 &amp; 3 &amp; 5 \\
+N=2 &amp; 2 &amp; 4 &amp; 6 \\
+N=3 &amp; 3 &amp; 5 &amp; 7 \\
+N=4 &amp; 4 &amp; 6 &amp; 8 \\
+\end{array}
+$$</p>
+<p>In this sliding pattern, a single space index can map to multiple tensor indices.
+For example, space index <code>4</code> maps to <code>{4_N}</code>, <code>{2_N, 1_F}</code>, and <code>{2_F}</code> simultaneously, illustrating the non-one-to-one nature of <code>(S, e).maps(si, ti)</code>.
+The linear combination uses stride <code>1</code> for <code>N</code> and stride <code>2</code> for <code>F</code>, yielding <code>1 + (5-1)*1 + (3-1)*2 = 9</code>.</p>
+<h2 id="function-specification"><a class="header" href="#function-specification">Function Specification</a></h2>
 <p>Specifying a function means declaring what its output holds in terms of its inputs.
 For example, the function <code>elementwise_add</code> specifies the mathematical operation \(f(T_1, T_2) = T_1 + T_2\) in that:</p>
 <ul>
@@ -204,20 +227,19 @@ For example, the function <code>elementwise_add</code> specifies the mathematica
 <li>if <code>lhs</code> holds \(T_1\) and <code>rhs</code> holds \(T_2\),</li>
 <li>then the return value holds \(T_1 + T_2\).</li>
 </ul>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_opt_std;
+<pre><code class="language-rust ignore"><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, B = 512];
 
+// This signature specifies the mathematical contract; the engine pipeline
+// implementation is shown in the Computing Tensors chapter.
 fn elementwise_add(
     lhs: &amp;HbmTensor&lt;bf16, m![A], m![B]&gt;,
     rhs: &amp;HbmTensor&lt;bf16, m![A], m![B]&gt;,
 ) -&gt; HbmTensor&lt;bf16, m![A], m![B]&gt; {
-    // ... computes elementwise add ...
-<span class="boring">    todo!("elementwise add lhs and rhs")
-</span>}
-<span class="boring">}</span></code></pre>
+    // The implementation is intentionally omitted; this example states only
+    // the function's tensor-level contract.
+}</code></pre>
 <p><a id="mathematical-tensor-move"></a>
 A <em>mathematical tensor move</em> specifies \(f(T) = T\): the output holds the same mathematical tensor as the input, regardless of representation.
 <code>.to_dm()</code> is a mathematical tensor move.

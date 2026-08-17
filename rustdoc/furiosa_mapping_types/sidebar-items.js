@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Atom","CarvingMode","Mapping","PaddingKind","SequencerError","SequencerMode"],"macro":["axes","m"],"struct":["AxisTerm","Broadcast","Ident","Index","MappingIter","Modulo","Padding","Pair","RSortedMap","Resize","SequencerConfig","SequencerEntry","SequencerIter","Stride","Symbol","Term"],"trait":["AxisName","M"],"type":["Identity"]};
