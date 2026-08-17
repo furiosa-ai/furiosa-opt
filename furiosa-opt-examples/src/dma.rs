@@ -2,18 +2,10 @@
 
 use furiosa_opt_std::prelude::*;
 
-axes![A = 65536, B = 1024, PA = 256, PC = 5, PD = 8];
+axes![A = 65536, B = 1024, PA = 256, PC = 5, PD = 8, PV = 2];
 
 type Chip = m![1];
 type Cluster = m![1 # 2];
-
-/// Tries to transpose element with to_dm.
-#[device(chip = 1)]
-pub fn invalid_hbm_to_dm(ctx: &mut Context, input: &HbmTensor<i8, Chip, m![A, B]>) -> HbmTensor<i8, Chip, m![B, A]> {
-    let output_dm: DmTensor<i8, Chip, Cluster, m![B / 4], m![B % 4, A]> = input.to_dm(&mut ctx.tdma);
-
-    output_dm.to_hbm(&mut ctx.tdma)
-}
 
 /// Copies `lhs` and `rhs` to two separate HBM outputs. Guards vISA multiple-output lowering;
 /// distinct content pins tuple order `(lhs, rhs)`. `PD = 8` is DMA-aligned, so the round trip
@@ -61,6 +53,25 @@ pub fn dup_many(
         da.to_hbm(&mut ctx.tdma),
         db.to_hbm(&mut ctx.tdma),
     )
+}
+
+/// Mixes both in-place output forms with a regular returned tensor. Each output copies a distinct
+/// input so a permutation of the lowered output order is observable.
+#[device(chip = 1)]
+pub fn mixed_inplace_and_returned_outputs(
+    ctx: &mut Context,
+    for_ref: &DupHbm,
+    for_view: &DupHbm,
+    for_return: &DupHbm,
+    by_ref: &mut DupHbm,
+    by_view: HbmTensorViewMut<'_, i32, Chip, m![1 #{!} 2, PA, PD]>,
+) -> DupHbm {
+    let for_ref: DupDm = for_ref.to_dm(&mut ctx.tdma);
+    let for_view: DupDm = for_view.to_dm(&mut ctx.tdma);
+    let for_return: DupDm = for_return.to_dm(&mut ctx.tdma);
+    for_ref.view().to_hbm_view(&mut ctx.tdma, by_ref.view_mut());
+    for_view.view().to_hbm_view(&mut ctx.tdma, by_view);
+    for_return.to_hbm(&mut ctx.tdma)
 }
 
 /// Regression guard for the padded-tail DMA path: an in-slice tail axis whose live size is not

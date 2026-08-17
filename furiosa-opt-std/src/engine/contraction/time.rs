@@ -39,6 +39,7 @@ mod tests {
     use super::*;
 
     axes![A = 4, B = 2, C = 4, D = 32, K = 64, M = 4, N = 8, O = 2, P = 8];
+    axes![L1 = 192, Bat = 4096, W = 12];
 
     mod contract_time_subset {
         use super::*;
@@ -59,6 +60,18 @@ mod tests {
             // Outer axis can be reduced too: verify_contract_lane handles cross-stage
             // checks; here we only verify the order/padding contract.
             verify_contract_time(<m![A, B]>::to_value(), <m![B]>::to_value());
+        }
+
+        /// Reducing an axis that sits BETWEEN two digits of a padded axis. The division then splits
+        /// the padded axis into intra-axis sub-terms, and a sub-term carries no padding of its own,
+        /// so checking every term against the per-axis padding rejects a contraction the engine
+        /// performs. Only the terms that land on an axis boundary carry padding to compare.
+        #[test]
+        fn valid_reduce_between_the_digits_of_a_padded_axis() {
+            verify_contract_time(
+                <m![L1 # 256 / 32 % 4, Bat / 32 % 2, Bat / 64 % 2, W % 6, W / 6, L1 # 256 / 8 % 4]>::to_value(),
+                <m![L1 # 256 / 32 % 4, Bat / 32 % 2, Bat / 64 % 2, L1 # 256 / 8 % 4]>::to_value(),
+            );
         }
     }
 }

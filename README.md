@@ -3,7 +3,7 @@
 [![Build](https://github.com/furiosa-ai/furiosa-opt/actions/workflows/build.yml/badge.svg)](https://github.com/furiosa-ai/furiosa-opt/actions/workflows/build.yml)
 [![Deploy](https://github.com/furiosa-ai/furiosa-opt/actions/workflows/deploy.yml/badge.svg)](https://github.com/furiosa-ai/furiosa-opt/actions/workflows/deploy.yml)
 [![Book](https://img.shields.io/badge/docs-book-blue)](https://developer.furiosa.ai/furiosa-opt/book/)
-[![Rustdoc](https://img.shields.io/badge/docs-rustdoc-blue)](https://developer.furiosa.ai/furiosa-opt/rustdoc/furiosa_opt_std/)
+[![docs.rs](https://img.shields.io/docsrs/furiosa-opt-std)](https://docs.rs/furiosa-opt-std)
 
 Crates for the Furiosa NPU optimizer.
 
@@ -29,10 +29,15 @@ furiosa-opt/
 
 #### Ubuntu (jammy / noble / resolute)
 
+22.04 is the oldest usable release: `cargo-furiosa-opt` and `furiosa-opt-driver` need `GLIBC_2.34`,
+and 20.04 ships 2.31, so they do not start there.
+
 ```bash
-sudo apt install libclang-dev gcc-aarch64-linux-gnu
+sudo apt install build-essential libclang-dev   # every backend
+sudo apt install gcc-aarch64-linux-gnu          # only for the NPU build (cargo furiosa-opt)
 ```
 
+- `build-essential` — rustc links host binaries with the system `cc`, which the Rust toolchain does not supply.
 - `libclang-dev` — `furiosa-opt-std/build.rs` runs `bindgen`, which loads `libclang.so`.
 - `gcc-aarch64-linux-gnu` — `aarch64-linux-gnu-{gcc,as,ld,objcopy}` are invoked when the compiler produces NPU device binaries (`*.bin`).
 

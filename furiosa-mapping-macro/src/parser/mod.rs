@@ -160,7 +160,7 @@ impl Mapping {
         }
     }
 
-    /// Expand the mapping into an index addition operation.
+    /// Expand the mapping into a cell contribution, preserving non-live results.
     pub fn expand_as_index(&self, value: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
         match self {
             Self::Symbol { symbol } => {
@@ -170,6 +170,7 @@ impl Mapping {
                     {
                         use ::furiosa_mapping as m;
                         const SIZE: usize = #size_expr;
+                        let mut index = m::Index::new();
                         index.add_term(
                             m::Term {
                                 inner: m::Atom::Symbol {
@@ -181,6 +182,7 @@ impl Mapping {
                             },
                             #value
                         );
+                        cell = cell.combine(m::Cell::Index(index));
                     }
                 }
             }
@@ -188,11 +190,7 @@ impl Mapping {
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <m::Broadcast<#size> as m::M>::map(#value) {
-                            index.add(mapped_index);
-                        } else {
-                            index.mark_invalid();
-                        }
+                        cell = cell.combine(<m::Broadcast<#size> as m::M>::map(#value));
                     }
                 }
             }
@@ -202,11 +200,7 @@ impl Mapping {
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <m::Stride<#inner_expanded, #stride> as m::M>::map(#value) {
-                            index.add(mapped_index);
-                        } else {
-                            index.mark_invalid();
-                        }
+                        cell = cell.combine(<m::Stride<#inner_expanded, #stride> as m::M>::map(#value));
                     }
                 }
             }
@@ -216,11 +210,7 @@ impl Mapping {
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <m::Modulo<#inner_expanded, #modulo> as m::M>::map(#value) {
-                            index.add(mapped_index);
-                        } else {
-                            index.mark_invalid();
-                        }
+                        cell = cell.combine(<m::Modulo<#inner_expanded, #modulo> as m::M>::map(#value));
                     }
                 }
             }
@@ -230,11 +220,7 @@ impl Mapping {
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <m::Resize<#inner_expanded, #resize> as m::M>::map(#value) {
-                            index.add(mapped_index);
-                        } else {
-                            index.mark_invalid();
-                        }
+                        cell = cell.combine(<m::Resize<#inner_expanded, #resize> as m::M>::map(#value));
                     }
                 }
             }
@@ -248,11 +234,7 @@ impl Mapping {
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <#pad_ty as m::M>::map(#value) {
-                            index.add(mapped_index);
-                        } else {
-                            index.mark_invalid();
-                        }
+                        cell = cell.combine(<#pad_ty as m::M>::map(#value));
                     }
                 }
             }
@@ -262,11 +244,7 @@ impl Mapping {
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <m::Pair<#left_expanded, #right_expanded> as m::M>::map(#value) {
-                            index.add(mapped_index);
-                        } else {
-                            index.mark_invalid();
-                        }
+                        cell = cell.combine(<m::Pair<#left_expanded, #right_expanded> as m::M>::map(#value));
                     }
                 }
             }
@@ -274,11 +252,7 @@ impl Mapping {
                 quote! {
                     {
                         use ::furiosa_mapping as m;
-                        if let Some(mapped_index) = <#tokens as m::M>::map(#value) {
-                            index.add(mapped_index);
-                        } else {
-                            index.mark_invalid();
-                        }
+                        cell = cell.combine(<#tokens as m::M>::map(#value));
                     }
                 }
             }

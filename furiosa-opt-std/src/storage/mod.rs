@@ -1,7 +1,7 @@
 //! Concrete backend storage types and their host-side capabilities.
 //!
 //! The layer below [`crate::tensor`]: each [`crate::backend::Backend`] picks one of these as its
-//! `Storage` (Emulation/Npu → [`BufStorage`], Typecheck → [`PhantomStorage`]). The `Tensor`
+//! `Storage` (Cpu/Npu → [`BufStorage`]). The `Tensor`
 //! wrapper drives them through the `Backend` seam; the storage types own their buffers and
 //! implement the lifecycle constructors/serializers and value-ops as inherent methods.
 
@@ -10,11 +10,10 @@ use furiosa_mapping::*;
 
 mod buf;
 mod par_iters;
-mod phantom;
 
 pub(crate) use buf::Buf;
 pub use buf::BufStorage;
-pub use phantom::PhantomStorage;
+pub(crate) use buf::window_base;
 
 /// Minimum work per parallel job, in scalar operations (multiply-adds / fold steps), for the storages'
 /// rayon-parallel ops (`contraction`, `reduce`, `transpose`): rayon never splits below this, so a small
@@ -35,10 +34,9 @@ pub(crate) fn min_cells_per_job(inner_block: usize) -> usize {
 
 // Concrete per-backend storage types.
 //
-// Two concrete storage types, [`BufStorage`] (Emulation / Npu: physical `Vec<D>` staging buffer)
-// and [`PhantomStorage`] (Typecheck: axes only), each own their storage and implement the
-// lifecycle constructors/serializers and value-ops as inherent methods. The single backend seam
-// ([`crate::backend::Backend`]) delegates to these.
+// One concrete storage type, [`BufStorage`] (Cpu / Npu: physical `Vec<D>` staging buffer),
+// owning its buffer and implementing the lifecycle constructors/serializers and value-ops as
+// inherent methods. The single backend seam ([`crate::backend::Backend`]) delegates to it.
 //
 // The storage `Mapping` type parameter is fully erased: each concrete storage is `XStorage<D>` and
 // the backend GAT is `Storage<D>`. Element-wise ops (`map` / `zip_with` / `zip3_with`) are
@@ -51,7 +49,7 @@ pub(crate) fn min_cells_per_job(inner_block: usize) -> usize {
 //
 // Where a per-backend body addresses storage by a flat offset (e.g. `BufStorage`'s `self.get(i)`),
 // that address space is NOT portable across backends: `BufStorage` offsets are physical
-// (`Mapping::SIZE`, padding included); `PhantomStorage` has none. The only contract is: two tensors
+// (`Mapping::SIZE`, padding included). The only contract is: two tensors
 // of the **same backend and mapping** address the same logical position by the same offset. That
 // suffices for the element-wise ops (same mapping) and for the per-backend restructuring bodies
 // (which relate two mappings using their own backend's convention).

@@ -59,8 +59,8 @@ pub mod nested {
             .tile::<m![B = 264 # 528], 132, m![B = 132 # 528]>(0);
         let out_nested = output
             .view_mut()
-            .tile::<m![B], 264, m![B = 264 # 528]>(0)
-            .tile::<m![B = 264 # 528], 132, m![B = 132 # 528]>(0);
+            .tile::<m![B], 264, m![B = 264 #{!} 528]>(0)
+            .tile::<m![B = 264 #{!} 528], 132, m![B = 132 #{!} 528]>(0);
         in_nested.to_dm_view(&mut ctx.tdma, out_nested);
 
         output.to_hbm(&mut ctx.tdma)
@@ -71,48 +71,6 @@ pub mod padding {
     use furiosa_opt_std::prelude::*;
 
     axes![A = 9, B = 7];
-
-    #[device(chip = 1, pe = 1)]
-    pub fn view_padding(
-        ctx: &mut Context,
-        input_hbm: &HbmTensor<i32, m![1], m![[A, B] # 1024]>,
-    ) -> HbmTensor<i32, m![1], m![[A, B] # 1024]> {
-        let input_hbm_transposed: HbmTensor<i32, m![1], m![[A, B] # 1024 % 8, [A, B] # 1024 / 8]> =
-            input_hbm.to_hbm::<_, _>(&mut ctx.tdma);
-        // Transfer to DM: `(A=9)(B=7)=63` real values padded to 1024 so the slice is a valid 64.
-        // - cluster: 1
-        // - slice: (A,B)#1024/16 = 64
-        // - element: (A,B)#1024%8 * (A,B)#1024/8%2 = 16
-        let input = input_hbm_transposed
-            .to_dm::<m![1], m![[A, B] # 1024 / 16], m![[A, B] # 1024 % 8, [A, B] # 1024 / 8 % 2]>(&mut ctx.tdma);
-
-        // Allocate output tensor in DM with the same shape as input.
-        let mut output =
-            DmTensor::<i32, m![1], m![1], m![[A, B] # 1024 / 16], m![[A, B] # 1024 % 8, [A, B] # 1024 / 8 % 2]>::new();
-
-        // Create views on input (((A=9)(B=7)#1024%4)=0,1,2) and output (((A=9)(B=7)#1024%4)=1,2,3), and copy data from input to output.
-        let input012 = input
-            .view()
-            .tile::<m![[A, B] # 1024 % 4], 3, m![[A, B] # 1024 / 4 % 2, ([A, B] # 1024 % 4) = 3 # 4, [A, B] # 1024 / 8 % 2]>(0);
-        let output123 = output
-            .view_mut()
-            .tile::<m![[A, B] # 1024 % 4], 3, m![[A, B] # 1024 / 4 % 2, ([A, B] # 1024 % 4) = 3 #{!} 4, [A, B] # 1024 / 8 % 2]>(
-                1,
-            );
-        input012.to_dm_view(&mut ctx.tdma, output123);
-
-        // Create views on input (((A=9)(B=7)#1024%4)=3) and output (((A=9)(B=7)#1024%4)=0), and copy data from input to output.
-        let input3 = input
-            .view()
-            .tile::<m![[A, B] # 1024 % 4], 1, m![[A, B] # 1024 / 4 % 2, 1 # 4, [A, B] # 1024 / 8 % 2]>(3);
-        let output0 = output
-            .view_mut()
-            .tile::<m![[A, B] # 1024 % 4], 1, m![[A, B] # 1024 / 4 % 2, 1 #{!} 4, [A, B] # 1024 / 8 % 2]>(0);
-        input3.to_dm_view(&mut ctx.tdma, output0);
-
-        // Transfer output tensor back to HBM.
-        output.to_hbm(&mut ctx.tdma)
-    }
 }
 
 pub mod whole_view_mut {

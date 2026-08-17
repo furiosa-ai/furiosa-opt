@@ -16,11 +16,16 @@ src/
 
 ## Install cargo-furiosa-opt
 
-First install system prerequisites:
+First install system prerequisites, on Ubuntu 22.04 or newer (the binaries need `GLIBC_2.34`, which
+20.04 does not have):
 
 ```bash
-sudo apt install libclang-dev gcc-aarch64-linux-gnu
+sudo apt install build-essential libclang-dev   # every backend
+sudo apt install gcc-aarch64-linux-gnu          # only for --backend npu
 ```
+
+Installing the Rust toolchain below does not cover these: rustc links host binaries with the system
+`cc`, and `furiosa-opt-std`'s build script loads `libclang.so`.
 
 `cargo-furiosa-opt` is ABI-locked to `nightly-2026-05-01`, so run all related cargo commands through that toolchain.
 

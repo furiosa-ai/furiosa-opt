@@ -9,8 +9,9 @@
 //!
 //! i8/f8e4m3/f8e5m2/bf16 reach EDF. i4 reaches LIR: its vISA translation is
 //! complete, but LIR->EDF has incomplete RawInt5/i5 backend support (COM-63).
-//! `i16` is not a DPE input at all (`ContractionCast` is not implemented for
-//! it, so an i16 `contract_outer` does not compile).
+//! `i16`, `i32` and `f32` are not DPE inputs at all, so no kernel here covers
+//! them: none has a `ContractionCast` impl, and a `contract_outer` on any of
+//! them does not compile.
 
 use furiosa_opt_std::prelude::*;
 

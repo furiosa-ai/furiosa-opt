@@ -9,7 +9,10 @@
 
 use furiosa_opt_std::prelude::*;
 
-axes![A = 4096, B = 8];
+// `f4e2m1` packs two codes per byte, so the DM element's innermost axis must hold 16 of them to
+// reach the 8-byte DMA tail minimum. The decoded `f32` side is then 64 B, which exceeds one commit
+// flit, so `collect` moves `B / 8` into Time and commits 8 elements (32 B) at a time.
+axes![A = 4096, B = 16];
 
 type Chip = m![1];
 type Cluster = m![1 # 2];
@@ -36,8 +39,34 @@ pub fn fetch_table_lookup_decode_e2m1(
         .fetch::<m![A / 8 % 2], m![A % 8, B]>()
         .fetch_table_lookup::<f8e4m3>()
         .fetch_cast::<f32>()
-        .collect::<m![A / 8 % 2, A % 8], m![B]>()
-        .commit_trim::<m![B]>()
+        .collect::<m![A / 8 % 2, A % 8, B / 8], m![B % 8]>()
+        .commit_trim::<m![B % 8]>()
+        .commit();
+
+    decoded.to_hbm(&mut ctx.tdma)
+}
+
+// The paired decode's `f8e5m2` output is 1 byte, so a 32-byte collect flit needs 32 of them; the
+// packed `f4e2m1` source is then 16 B, well over the 8-byte DMA tail minimum.
+axes![Bp = 32];
+
+/// The `f8e5m2` value encoding of the paired decode. `f4e2m1`'s 16 values are exact in both 8-bit
+/// floats, so this differs from [`fetch_table_lookup_decode_e2m1`] only in the baked table; it
+/// commits the decoded stream directly, with no widening `fetch_cast`.
+#[device(chip = 1)]
+pub fn fetch_table_lookup_decode_e2m1_to_f8e5m2(
+    ctx: &mut Context,
+    input: &HbmTensor<f4e2m1, m![1], m![A, Bp]>,
+) -> HbmTensor<f8e5m2, m![1], m![Bp, A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, Bp]>(&mut ctx.tdma);
+
+    let decoded: DmTensor<f8e5m2, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, Bp]> = ctx
+        .main
+        .begin(input_dm.view())
+        .fetch::<m![A / 8 % 2], m![A % 8, Bp]>()
+        .fetch_table_lookup::<f8e5m2>()
+        .collect::<m![A / 8 % 2, A % 8], m![Bp]>()
+        .commit_trim::<m![Bp]>()
         .commit();
 
     decoded.to_hbm(&mut ctx.tdma)
@@ -66,8 +95,8 @@ pub fn fetch_table_lookup_decode_e2m1_mxfp4(
         .fetch::<m![AM / 8 % 4], m![AM % 8, B]>()
         .fetch_table_lookup::<f8e4m3>()
         .fetch_cast::<f32>()
-        .collect::<m![AM / 8 % 4, AM % 8], m![B]>()
-        .commit_trim::<m![B]>()
+        .collect::<m![AM / 8 % 4, AM % 8, B / 8], m![B % 8]>()
+        .commit_trim::<m![B % 8]>()
         .commit();
 
     decoded.to_hbm(&mut ctx.tdma)
@@ -77,6 +106,27 @@ pub fn fetch_table_lookup_decode_e2m1_mxfp4(
 // example's inner element axis is 16 wide (16 * 2 = 32 bytes), unlike the NVFP4 decode whose f32
 // output makes an 8-wide axis a flit.
 axes![Bf = 16];
+
+/// The `f8e5m2` twin of [`fetch_table_lookup_decode_f8_to_bf16`]: the same non-paired 8-bit-key
+/// table with the wider-exponent key encoding.
+#[device(chip = 1)]
+pub fn fetch_table_lookup_decode_f8e5m2_to_bf16(
+    ctx: &mut Context,
+    input: &HbmTensor<f8e5m2, m![1], m![A, Bf]>,
+) -> HbmTensor<bf16, m![1], m![Bf, A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, Bf]>(&mut ctx.tdma);
+
+    let decoded: DmTensor<bf16, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, Bf]> = ctx
+        .main
+        .begin(input_dm.view())
+        .fetch::<m![A / 8 % 2], m![A % 8, Bf]>()
+        .fetch_table_lookup::<bf16>()
+        .collect::<m![A / 8 % 2, A % 8], m![Bf]>()
+        .commit_trim::<m![Bf]>()
+        .commit();
+
+    decoded.to_hbm(&mut ctx.tdma)
+}
 
 /// Decodes an `f8e4m3` stream to `bf16` through the **non-paired** 8-bit-key baked table
 /// (`f8e4m3 -> bf16`), the general single-key counterpart to the paired NVFP4 / MXFP4 4b->8b decode

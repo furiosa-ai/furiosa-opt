@@ -174,8 +174,11 @@ pub fn m(input: TokenStream) -> TokenStream {
 /// ```ignore
 /// use furiosa_opt_std::prelude::*;
 /// axes![A = 512, B = 64];
-/// let idx = i![A / 32 = 8, B = 10];
+/// let cell = i![A / 32 = 8, B = 10];
 /// ```
+///
+/// Assignments are combined in written major-to-minor order. This order is observable when
+/// assignments produce different padding kinds.
 ///
 /// ## Compile Diagnostics
 ///
@@ -216,9 +219,9 @@ pub fn i(input: TokenStream) -> TokenStream {
 
     quote! {
         {
-            let mut index = ::furiosa_mapping::Index::new();
+            let mut cell = ::furiosa_mapping::Cell::Index(::furiosa_mapping::Index::new());
             #(#expansions)*
-            index
+            cell
         }
     }
     .into()

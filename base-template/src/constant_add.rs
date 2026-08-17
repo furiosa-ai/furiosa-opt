@@ -31,8 +31,6 @@ mod tests {
 
         let out_hbm = launch(constant_add_kernel, (&mut ctx, &in_hbm)).await;
 
-        // Under the typecheck backend `actual` is empty (phantom tensors), so
-        // the loop trivially runs zero iterations and the assertion is skipped.
         let actual: Vec<i32> = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await.into_vec();
         for (i, (&e, &a)) in expected.iter().zip(&actual).enumerate() {
             assert_eq!(e, a, "constant_add mismatch at i={i}: expected {e}, actual {a}");

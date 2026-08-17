@@ -25,6 +25,72 @@ pub fn ve_group_pair_add(
     result.to_hbm(&mut ctx.tdma)
 }
 
+/// `2a + 4b` on interleaved `f32` inputs, with each doubling done as `exponent += 1` on the bit
+/// pattern instead of a float multiply.
+///
+/// Pair mode reads the two groups as one stream, so each `vector_reinterpret` covers both: the
+/// per-group integer adds land while the stream is read as `i32`, and the `f32` view is back in place
+/// for the float zip.
+#[device(chip = 1)]
+pub fn ve_group_pair_reinterpret_scale_f32(
+    ctx: &mut Context,
+    lhs: &HbmTensor<f32, Chip, m![A]>,
+    rhs: &HbmTensor<f32, Chip, m![A]>,
+) -> HbmTensor<f32, Chip, m![A]> {
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+        .main
+        .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<f32>()
+        .collect::<m![I], m![A % 2 # 8]>()
+        .vector_init()
+        .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
+        .vector_reinterpret::<i32>()
+        .vector_fxp(FxpBinaryOp::AddFxp, 1 << 23, 2 << 23)
+        .vector_reinterpret::<f32>()
+        .vector_clip_zip(ClipBinaryOpF32::Add)
+        .vector_final()
+        .commit_trim::<m![A % 2]>()
+        .commit();
+
+    result.to_hbm(&mut ctx.tdma)
+}
+
+/// `|a| + |b|` on `f32`, with the sign bit cleared per group by the Logic cluster.
+///
+/// The per-group `vector_logic` masks each group with its own operand while the stream is read as
+/// `i32`, then the `f32` view returns for the clip zip that adds the two groups.
+#[device(chip = 1)]
+pub fn ve_group_pair_logic_abs_add_f32(
+    ctx: &mut Context,
+    lhs: &HbmTensor<f32, Chip, m![A]>,
+    rhs: &HbmTensor<f32, Chip, m![A]>,
+) -> HbmTensor<f32, Chip, m![A]> {
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+        .main
+        .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<f32>()
+        .collect::<m![I], m![A % 2 # 8]>()
+        .vector_init()
+        .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
+        .vector_reinterpret::<i32>()
+        .vector_logic(LogicBinaryOpI32::BitAnd, 0x7fff_ffff, 0x7fff_ffff)
+        .vector_reinterpret::<f32>()
+        .vector_clip_zip(ClipBinaryOpF32::Add)
+        .vector_final()
+        .commit_trim::<m![A % 2]>()
+        .commit();
+
+    result.to_hbm(&mut ctx.tdma)
+}
+
 #[device(chip = 1)]
 pub fn ve_group_pair_preprocess_both(
     ctx: &mut Context,
@@ -96,6 +162,36 @@ pub fn ve_group_pair_preprocess_g1(
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_fxp(FxpBinaryOp::MulInt, (), 10)
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+        .vector_final()
+        .commit_trim::<m![A % 2]>()
+        .commit();
+
+    result.to_hbm(&mut ctx.tdma)
+}
+
+/// An op *after* the zip, with a bare operand. The zip merges the two groups, so from there on the
+/// tag carries the group bit and nothing else, and a bare operand is unconditional -- it is not
+/// narrowed to the group the zip wrote. This is the only shape that pins that, so it is the one
+/// `compare_edf` reads to check host and device agree on it.
+#[device(chip = 1)]
+pub fn ve_group_pair_post_zip(
+    ctx: &mut Context,
+    lhs: &HbmTensor<i32, Chip, m![A]>,
+    rhs: &HbmTensor<i32, Chip, m![A]>,
+) -> HbmTensor<i32, Chip, m![A]> {
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+        .main
+        .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
+        .fetch::<m![I], m![A % 2]>()
+        .fetch_cast::<i32>()
+        .collect::<m![I], m![A % 2 # 8]>()
+        .vector_init()
+        .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
+        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+        .vector_clip(ClipBinaryOpI32::Max, 0)
         .vector_final()
         .commit_trim::<m![A % 2]>()
         .commit();
@@ -345,8 +441,9 @@ pub fn ve_elementwise_ternary_stash(
         .collect::<m![1], m![A % 2 # 8]>()
         .vector_init()
         .vector_intra_slice_tag(TagMode::Zero)
-        .vector_stash()
+        // The stash is written inside the 4-way region, the way the ternary reads it at.
         .vector_narrow_trim::<m![A % 2 # 4]>()
+        .vector_stash()
         // Using Stash as operand0: data * stash + 1.0 = input * input + 1.0
         .vector_fp_ternary(FpTernaryOp::FmaF, (Stash, 1.0f32))
         .vector_widen_pad::<m![A % 2 # 8]>()
@@ -379,7 +476,6 @@ pub fn ve_group_pair_ternary(
         .vector_init()
         .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
         .vector_narrow_split::<m![1 # 2], m![A % 2 # 4]>()
-        // Using IntoGroupTernaryOperandTag: (f32, f32) tuple for each group
         .vector_fp_ternary(FpTernaryOp::FmaF, (2.0f32, 1.0f32), (3.0f32, 2.0f32))
         .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()

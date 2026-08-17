@@ -45,7 +45,7 @@ fn reduce_b<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]> = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]> = TrfTensor::new();
 # let _o = reduce_b(a, &b);
 ```
 
@@ -61,7 +61,8 @@ Dimensions in `Time` absent from `OutTime` are summed away, and the outermost su
 Let `InnerTime` denote the inner non-reduce dimensions of `Time` (the dimensions inner to the outermost reduce dimension that survive in `OutTime`).
 In `reduce_b` above, `Time = m![B / 4, A % 8]` and `OutTime = m![A % 8]`, so `B / 4` is the outermost reduce dimension (iterates over `Time::SIZE = 2 × 8 = 16` flits) and `InnerTime = m![A % 8]`.
 
-Accumulation requires `InnerTime::SIZE` slots of `[Lane, Packet]`, one per `InnerTime` tuple value. Flits with the same tuple accumulate into the same slot.
+Accumulation requires `InnerTime::SIZE` slots of `[Lane, Packet]`, one per `InnerTime` tuple value.
+Flits with the same tuple accumulate into the same slot.
 For `reduce_b`, 8 slots accumulate across the `B / 4 = 2` iterations, and after flit 15 the buffer contains the final reduced results and hands them off to the [Lane Folder](./lane-folder.md):
 
 ```text

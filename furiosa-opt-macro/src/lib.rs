@@ -5,6 +5,36 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{Data, DeriveInput, Item, Type, Variant, parse_macro_input, parse_quote};
 
+/// The rev of this macro's source tree, read at first expansion so no build script has to
+/// stamp it (a build-script trigger on the macro would rebuild every dependent crate).
+/// `FURIOSA_OPT_REV` overrides it (a pipeline building outside the origin tree). A published
+/// snapshot carries its origin rev in the crate version (`0.5.1+g<sha>`), and that stamp wins
+/// over git: a mirror checkout's own sha is the MIRROR commit, not the rev the driver was
+/// built from. A registry checkout has neither and reads `unknown`, which the driver skips.
+fn rev() -> &'static str {
+    static REV: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    REV.get_or_init(|| {
+        std::env::var("FURIOSA_OPT_REV")
+            .ok()
+            .or_else(|| {
+                env!("CARGO_PKG_VERSION")
+                    .split_once("+g")
+                    .map(|(_, sha)| sha.to_owned())
+                    .filter(|sha| !sha.is_empty())
+            })
+            .or_else(|| {
+                let out = std::process::Command::new("git")
+                    .args(["-C", env!("CARGO_MANIFEST_DIR"), "rev-parse", "--short=12", "HEAD"])
+                    .output()
+                    .ok()?;
+                out.status
+                    .success()
+                    .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+            })
+            .unwrap_or_else(|| "unknown".into())
+    })
+}
+
 #[proc_macro_attribute]
 pub fn primitive(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr_str = attr.to_string().trim_matches('"').to_owned();
@@ -290,7 +320,9 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
     let cpu_body = quote! { #hidden(#(#param_names),*) };
 
+    let rev = rev();
     quote! {
+        #[furiosa_opt::rev = #rev]
         #[furiosa_opt::device = #attr_str]
         // `#[allow]` (not `#[expect]`): the hidden fn may or may not trigger
         // each of these lints depending on how the user defined the device
@@ -313,6 +345,13 @@ pub fn device(attr: TokenStream, item: TokenStream) -> TokenStream {
             /// Pass to `Context::acquire().bind(..)` before any host I/O.
             pub fn device(&self) -> furiosa_opt_std::Device {
                 furiosa_opt_std::Device { chip: #device_chip, pe: #device_pe }
+            }
+
+            /// The name the compiler knows this kernel by, the same string that names its `.bin`.
+            /// A caller that filters kernels takes it from here rather than restating the path.
+            #[doc(hidden)]
+            pub fn path(&self) -> &'static str {
+                concat!(module_path!(), "::", #name_str)
             }
         }
 

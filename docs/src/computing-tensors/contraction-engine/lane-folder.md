@@ -43,7 +43,7 @@ fn lane_interleaved<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]> = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]> = TrfTensor::new();
 # 
 # let i: ContractTimeTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]> = a 
 #     .contract_outer::<m![M], m![P], m![N], m![P], _>(&b)
@@ -84,7 +84,7 @@ fn lane_sequential<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]> = unsafe { TrfTensor::from_addr(TrfAddress::Full) };
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]> = TrfTensor::new();
 # 
 # let i: ContractTimeTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]> = a 
 #     .contract_outer::<m![M], m![P], m![N], m![P], _>(&b)

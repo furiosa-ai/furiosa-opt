@@ -36,7 +36,7 @@ pub fn typelevel_const(
     ctx: &mut Context,
     input: HbmTensorView<'_, i8, m![1], m![A, B]>,
 ) -> HbmTensor<i8, m![1], m![B, A]> {
-    let mut output = unsafe { HbmTensor::<i8, m![1], m![B, A]>::from_addr(0x3000) };
+    let mut output = HbmTensor::<i8, m![1], m![B, A]>::new();
     transpose_rows::<32>(ctx, input, &mut output);
     output
 }

@@ -68,8 +68,7 @@ The supported source types are `f32` and `i32`, each with specific target types:
 | Input Type (`D`) | Supported Output Types (`OutD`) |
 | --- | --- |
 | `i32` | `i4`, `i8`, `i16` |
-| `f32` | `f8e5m2`, `f8e4m3`, `f16`, `bf16` |
-
+| `f32` | `f8e5m2`, `f8e4m3`, `bf16` |
 
 ## Performance
 

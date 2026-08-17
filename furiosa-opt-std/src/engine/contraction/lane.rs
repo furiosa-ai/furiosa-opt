@@ -5,10 +5,9 @@ use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
 use crate::backend::Backend;
-use crate::cast::ContractionCast;
+use crate::cast::ContractionAccumulator;
 use crate::context::*;
 use crate::engine::contraction::{ContractTensor, ContractTimeTensor};
-use crate::scalar::*;
 use crate::tensor::Tensor;
 
 /// Contraction mode for the Lane Folder.
@@ -31,18 +30,8 @@ impl std::fmt::Display for LaneMode {
 }
 
 // ANCHOR: contract_lane_def
-impl<
-    'l,
-    const T: Tu,
-    D: ContractionCast + MaterializableScalar,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Lane: M,
-    Time: M,
-    Packet: M,
-    B: Backend,
-> ContractTimeTensor<'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B>
+impl<'l, const T: Tu, D: ContractionAccumulator, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend>
+    ContractTimeTensor<'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B>
 {
     /// Folds the `Lane` dimension into the output stream.
     /// `LaneMode::Interleaved` relocates `Lane` into `OutPacket`;
@@ -78,7 +67,7 @@ impl<
         let contraction = self.inner;
         let out = <m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Time }, { Packet }]>::to_value();
         let reduced: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Time }, { Packet }], B> =
-            Tensor::from_inner(B::contraction(
+            Tensor::from_inner(B::contraction_prewidened(
                 &contraction.lhs,
                 &contraction.rhs,
                 &contraction.lhs_map,
@@ -247,6 +236,24 @@ mod tests {
                 <m![1 # 8]>::to_value(),
                 <m![B]>::to_value(),
                 LaneMode::Sequential,
+            );
+        }
+
+        /// Reducing an axis that sits BETWEEN two digits of a padded axis splits that axis into
+        /// intra-axis sub-terms. A sub-term owns no padded extent, so reading one inflates InnerTime
+        /// and the accumulator check rejects a contraction that fits.
+        #[test]
+        fn valid_inner_time_across_a_split_padded_axis() {
+            axes![L1 = 192, Bat = 4096, W = 12];
+
+            verify_contract_lane(
+                <m![L1 # 256 % 8]>::to_value(),
+                <m![L1 # 256 / 32 % 4, Bat / 32 % 2, Bat / 64 % 2, L1 # 256 / 8 % 4]>::to_value(),
+                <m![Bat % 32]>::to_value(),
+                <m![L1 # 256 / 32 % 4, Bat / 32 % 2, Bat / 64 % 2, L1 # 256 / 8 % 4, Bat % 32]>::to_value(),
+                <m![L1 # 256 % 8]>::to_value(),
+                <m![L1 # 256 / 32 % 4, Bat / 32 % 2, Bat / 64 % 2, W % 6, W / 6, L1 # 256 / 8 % 4]>::to_value(),
+                LaneMode::Interleaved,
             );
         }
 

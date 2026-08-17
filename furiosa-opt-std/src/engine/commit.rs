@@ -13,7 +13,7 @@ use crate::backend::Backend;
 use crate::context::*;
 use crate::engine::CanApplyCommit;
 use crate::scalar::*;
-use crate::tensor::memory::{Address, DmTensor, DmTensorViewMut};
+use crate::tensor::memory::{DmTensor, DmTensorViewMut};
 use crate::tensor::tu::TuTensor;
 
 // ANCHOR: commit_impl
@@ -25,13 +25,6 @@ impl<'l, const T: Tu, P: CanApplyCommit, D: Scalar, Chip: M, Cluster: M, Slice: 
     pub fn commit<Element: M>(self) -> DmTensor<D, Chip, Cluster, Slice, Element, B> {
         verify_commit::<D, Time, Packet, Element>();
         DmTensor::from_parts(self.inner.transpose(false), None)
-    }
-
-    /// Commits to data memory at `address`.
-    #[primitive(TuTensor::commit_at)]
-    pub fn commit_at<Element: M>(self, address: Address) -> DmTensor<D, Chip, Cluster, Slice, Element, B> {
-        verify_commit::<D, Time, Packet, Element>();
-        DmTensor::from_parts(self.inner.transpose(false), Some(address))
     }
 
     /// Commits to a mutable tensor view in data memory.

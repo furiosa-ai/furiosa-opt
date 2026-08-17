@@ -4,6 +4,7 @@ members = [
     "furiosa-mapping",
     "furiosa-mapping-macro",
     "furiosa-mapping-types",
+    "furiosa-opt-common-ir",
     "furiosa-opt-lower",
     "furiosa-opt-lower-types",
     "furiosa-opt-examples",
@@ -14,7 +15,7 @@ resolver = "3"
 
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(backend, values("emulation", "npu", "typecheck"))', 'cfg(furiosa_opt)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(backend, values("npu"))', 'cfg(furiosa_opt)'] }
 
 [workspace.dependencies]
 abi_stable = "0.11"

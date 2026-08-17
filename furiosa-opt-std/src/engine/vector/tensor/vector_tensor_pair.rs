@@ -40,12 +40,12 @@ use furiosa_opt_macro::primitive;
 use super::VeTensorShape;
 
 use crate::context::*;
-use crate::engine::vector::layer::{FpToFxp, FxpToFp};
+use crate::engine::vector::layer::{FpToFxp, FxpToFp, Reinterpret};
 use crate::engine::vector::op::{
     BinaryArgMode, ClipBinaryOpF32, ClipBinaryOpI32, FpBinaryOp, FpDivBinaryOp, FpTernaryOp, FpUnaryOp, FxpBinaryOp,
     HasAlu, HasBinaryOp, HasTernaryOp, HasUnaryOp, LogicBinaryOpF32, LogicBinaryOpI32, TernaryArgMode,
 };
-use crate::engine::vector::operand::{GroupOperand, IntoGroupOperand, IntoGroupTernaryOperandTag, TernaryOperandTag};
+use crate::engine::vector::operand::{GroupOperand, GroupTernaryOperand, IntoGroupOperand, IntoGroupTernaryOperand};
 use crate::engine::vector::scalar::VeScalar;
 use crate::engine::vector::stage::markers as stage;
 use crate::engine::vector::stage::markers::{
@@ -70,7 +70,7 @@ use super::vector_tensor::{
 
 /// Type alias for group tensor data with Group state.
 type GroupTensorData<S, D, Chip, Cluster, Slice, Time, Packet, const W: Way = { Way8 }> =
-    VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, D, Fresh, { VeOrder::IntraFirst }, stage::Group, W>;
+    VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, Fresh, { VeOrder::IntraFirst }, stage::Group, W>;
 
 // ============================================================================
 // VectorTensorPair - Manages both groups together
@@ -124,7 +124,7 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Packet: M, Spl
             "VectorTensorPair requires Packet of 8 elements (one flit) in Way8 mode, got {}",
             Packet::SIZE,
         );
-        // `tile` produces TileTime; `transmute` rewraps to the same-layout SplitTime shape.
+        // `tile` produces TileTime; `reinterpret` rewraps to the same-layout SplitTime shape.
         let (g0_inner, g1_inner): (
             Tensor<D, VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
             Tensor<D, VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
@@ -201,15 +201,16 @@ impl<
         let group1_tag = self.group1.tag.clone();
         let op_fn = op.binary_op_fn(mode);
 
+        let (op_fn, group0_tag, group1_tag) = (&op_fn, &group0_tag, &group1_tag);
         let fn_group0 = group0_operand.map(|operand| {
-            |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
-                apply_binary_op(&data, &group0_tag, &op_fn, &[operand], None)
+            move |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
+                apply_binary_op(&data, group0_tag, op_fn, &operand, None)
             }
         });
 
         let fn_group1 = group1_operand.map(|operand| {
-            |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
-                apply_binary_op(&data, &group1_tag, &op_fn, &[operand], None)
+            move |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
+                apply_binary_op(&data, group1_tag, op_fn, &operand, None)
             }
         });
 
@@ -290,14 +291,14 @@ impl<
             group0: VeTensorData {
                 inner: fn_group0(self.group0.inner),
                 tag: self.group0.tag,
-                ve_state: self.group0.ve_state.retype(),
+                ve_state: self.group0.ve_state,
                 _stage: PhantomData,
                 _filter_state: PhantomData,
             },
             group1: VeTensorData {
                 inner: fn_group1(self.group1.inner),
                 tag: self.group1.tag,
-                ve_state: self.group1.ve_state.retype(),
+                ve_state: self.group1.ve_state,
                 _stage: PhantomData,
                 _filter_state: PhantomData,
             },
@@ -344,8 +345,8 @@ impl<'l, const T: Tu, S: stage::Stage, Chip: M, Cluster: M, Slice: M, SplitTime:
         self,
         op: Op,
         mode: Option<TernaryArgMode>,
-        group0_operand: Option<TernaryOperandTag<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>>,
-        group1_operand: Option<TernaryOperandTag<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>>,
+        group0_operand: GroupTernaryOperand<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
+        group1_operand: GroupTernaryOperand<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
     ) -> VectorTensorPair<'l, T, f32, TargetStage, Chip, Cluster, Slice, SplitTime, Packet, W>
     where
         TargetStage: stage::Stage,
@@ -356,15 +357,16 @@ impl<'l, const T: Tu, S: stage::Stage, Chip: M, Cluster: M, Slice: M, SplitTime:
         let group1_tag = self.group1.tag.clone();
         let op_fn = op.ternary_op_fn(mode);
 
+        let (op_fn, group0_tag, group1_tag) = (&op_fn, &group0_tag, &group1_tag);
         let fn_group0 = group0_operand.map(|operand| {
-            |data: Tensor<f32, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
-                apply_ternary_op(&data, &group0_tag, &op_fn, &[operand], None)
+            move |data: Tensor<f32, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
+                apply_ternary_op(&data, group0_tag, op_fn, &operand, None)
             }
         });
 
         let fn_group1 = group1_operand.map(|operand| {
-            |data: Tensor<f32, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
-                apply_ternary_op(&data, &group1_tag, &op_fn, &[operand], None)
+            move |data: Tensor<f32, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| {
+                apply_ternary_op(&data, group1_tag, op_fn, &operand, None)
             }
         });
 
@@ -741,8 +743,8 @@ impl<
     pub fn vector_fp_ternary(
         self,
         op: FpTernaryOp,
-        group0_operand: impl IntoGroupTernaryOperandTag<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
-        group1_operand: impl IntoGroupTernaryOperandTag<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
+        group0_operand: impl IntoGroupTernaryOperand<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
+        group1_operand: impl IntoGroupTernaryOperand<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
     ) -> VectorTensorPair<'l, T, f32, stage::Fp, Chip, Cluster, Slice, SplitTime, Packet, { Way4 }> {
         self.apply_ternary_to_both(
             op,
@@ -758,8 +760,8 @@ impl<
         self,
         op: FpTernaryOp,
         mode: TernaryArgMode,
-        group0_operand: impl IntoGroupTernaryOperandTag<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
-        group1_operand: impl IntoGroupTernaryOperandTag<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
+        group0_operand: impl IntoGroupTernaryOperand<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
+        group1_operand: impl IntoGroupTernaryOperand<VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
     ) -> VectorTensorPair<'l, T, f32, stage::Fp, Chip, Cluster, Slice, SplitTime, Packet, { Way4 }> {
         self.apply_ternary_to_both(
             op,
@@ -1066,7 +1068,6 @@ impl<
         Slice,
         Time,
         Packet,
-        i32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1093,7 +1094,6 @@ impl<
         Slice,
         Time,
         Packet,
-        i32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1135,7 +1135,6 @@ impl<
         Slice,
         Time,
         Packet,
-        f32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1162,7 +1161,6 @@ impl<
         Slice,
         Time,
         Packet,
-        f32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1196,7 +1194,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fxp>, Chip: M, Cl
         Slice,
         Time,
         Packet,
-        i32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1223,7 +1220,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fxp>, Chip: M, Cl
         Slice,
         Time,
         Packet,
-        i32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1257,7 +1253,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fp>, Chip: M, Clu
         Slice,
         Time,
         Packet,
-        f32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1284,7 +1279,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fp>, Chip: M, Clu
         Slice,
         Time,
         Packet,
-        f32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1318,7 +1312,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         Slice,
         Time,
         Packet,
-        i32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1345,7 +1338,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         Slice,
         Time,
         Packet,
-        i32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1379,7 +1371,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         Slice,
         Time,
         Packet,
-        f32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1406,7 +1397,6 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         Slice,
         Time,
         Packet,
-        f32,
         Fresh,
         { VeOrder::IntraFirst },
         stage::Zipped,
@@ -1419,5 +1409,33 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
             .inner
             .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
         VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+    }
+}
+
+// ============================================================================
+// VectorTensorPair - Reinterpret (no hardware, so no stage)
+// ============================================================================
+
+impl<
+    'l,
+    const T: Tu,
+    D: VeScalar,
+    S: stage::Stage,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    SplitTime: M,
+    Packet: M,
+    const W: Way,
+> VectorTensorPair<'l, T, D, S, Chip, Cluster, Slice, SplitTime, Packet, W>
+{
+    /// Rereads both groups' bits as `D2`, since they are elements of one stream. Claims no ALU, so it
+    /// leaves the cluster's ALUs to the ops around it; see
+    /// [`VectorTensor::vector_reinterpret`](super::vector_tensor::VectorTensor::vector_reinterpret).
+    #[primitive(VectorTensorPair::vector_reinterpret)]
+    pub fn vector_reinterpret<D2: VeScalar>(
+        self,
+    ) -> VectorTensorPair<'l, T, D2, S, Chip, Cluster, Slice, SplitTime, Packet, W> {
+        self.apply_conversion_op_to_both(Reinterpret)
     }
 }

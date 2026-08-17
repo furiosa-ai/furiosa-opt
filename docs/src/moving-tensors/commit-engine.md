@@ -1,7 +1,9 @@
 # Commit Engine
 
-The Commit Engine writes a Tensor Unit stream packet to DM, the inverse of the [Fetch Engine](./fetch-engine.md).
+The Commit Engine writes a Tensor Unit stream packet to DM, the inverse of the [Fetch Engine](./fetch-engine.md), after adapters have selected the final element type and layout.
 It is the Commit Sequencer: a [mathematical tensor move](../mapping-tensors/tensor-semantics.md#mathematical-tensor-move) that runs independently in every slice, each writing to its own local DM partition.
+
+Choose Commit when a computed Tensor Unit stream must become a DM tensor with a deliberate `Element` layout.
 
 ## Interface
 
@@ -55,7 +57,8 @@ fn cast_commit<'l, const T: Tu>(
 ## Multi-Write Packet
 
 Writing a packet may require multiple hardware writes because packet axes may not be contiguous in DM.
-The per-write element count `write_size = gcd(valid_size, access_size)` is derived by the compiler, where `valid_size` comes from the [Commit Adapter](../computing-tensors/commit-adapter.md) and `access_size` from the [Sequencer Architecture](./sequencer.md#access-size).
+The compiler derives `write_size = gcd(valid_size, access_size)`.
+The [Commit Adapter](../computing-tensors/commit-adapter.md) supplies `valid_size`; the [Sequencer](./sequencer.md#access-size) supplies `access_size`.
 In the [sub-context](../computing-tensors/index.md#execution-context), `D[write_size]` is fixed at 8 bytes.
 The total cycle count is `Time::SIZE * (valid_size / write_size)`.
 The division is always exact: in the main-context, `valid_size == write_size`, so each packet commits in a single cycle.
@@ -112,11 +115,6 @@ fn transpose_with_trimming<'l, const T: Tu>(
 # let c: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]> = CastTensor::new(&mut ctx.main, Tensor::zero());
 # let _o = transpose_with_trimming(c);
 ```
-
-## Slice Bitmap
-
-The slice bitmap is a 256-bit mask covering one full cluster (one bit per slice, 256 slices per cluster) that gates which slices receive commit data.
-For example, `bitmap = 00000000...01` enables commit only to slice `0`, and `bitmap = 11111111...10` enables commit to all slices except slice `0`.
 
 
 ## Optimizations

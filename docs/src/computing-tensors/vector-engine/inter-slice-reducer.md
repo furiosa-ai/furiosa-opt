@@ -7,7 +7,8 @@ The output tensor is always `Way8` regardless of the input mode.
 ## Interface
 
 The reducer can be entered right after `vector_init()` (the `InterFirst` path, shown below) or from a [compatible intra-slice stage](./intra-slice-chain.md#transitioning-to-the-inter-slice-reducer) (the `IntraFirst` path, with the same `vector_inter_slice_reduce()` method called on the intra-slice tensor).
-The signatures shown below are the `VectorInitTensor` variants. The same methods also exist on intra-slice tensors at the stages that support the transition, so the call site looks identical.
+The signatures shown below are the `VectorInitTensor` variants.
+The same methods also exist on intra-slice tensors at the stages that support the transition, so the call site looks identical.
 
 The inter-slice reducer provides separate APIs for `i32` and `f32`.
 

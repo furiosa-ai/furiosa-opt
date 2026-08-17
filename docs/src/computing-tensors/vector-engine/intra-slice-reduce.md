@@ -31,8 +31,8 @@ axes![A = 512, R = 16];
 
 // R in Time → temporal accumulation. Packet is non-reduce.
 fn reduce_time<'l, const T: Tu>(
-    input: VectorBranchTensor<'l, T, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }>,
-) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1 # 2], m![A / 2], m![1], m![A % 2 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }>
+    input: VectorBranchTensor<'l, T, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }>,
+) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1 # 2], m![A / 2], m![1], m![A % 2 # 4], Fresh, { stage::VeOrder::IntraFirst }>
 {
     input
         .vector_narrow_trim::<m![A % 2 # 4]>()       // 8-way → 4-way
@@ -44,7 +44,7 @@ fn reduce_time<'l, const T: Tu>(
 # 
 # let mut ctx = Context::acquire();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time(i);
 ```
 
@@ -61,8 +61,8 @@ axes![A = 512, R = 4];
 
 // R in Packet → tree reduce within flit.
 fn reduce_packet<'l, const T: Tu>(
-    input: VectorBranchTensor<'l, T, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], f32, Fresh, { stage::VeOrder::IntraFirst }>,
-) -> VectorIntraSliceReduceTensor<'l, T, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![1 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }>
+    input: VectorBranchTensor<'l, T, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }>,
+) -> VectorIntraSliceReduceTensor<'l, T, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }>
 {
     input
         .vector_narrow_trim::<m![R]>()             // 8-way → 4-way
@@ -74,7 +74,7 @@ fn reduce_packet<'l, const T: Tu>(
 # 
 # let mut ctx = Context::acquire();
 # 
-# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], f32, Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_packet(i);
 ```
 
@@ -93,8 +93,8 @@ axes![A = 256, R = 16];
 // R % 4 in Packet → spatial tree reduce
 // R / 4 in Time → temporal accumulation
 fn reduce_time_packet<'l, const T: Tu>(
-    input: VectorBranchTensor<'l, T, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }>,
-) -> VectorIntraSliceReduceTensor<'l, T, f32, m![1], m![1 # 2], m![A], m![1], m![1 # 4], f32, Fresh, { stage::VeOrder::IntraFirst }>
+    input: VectorBranchTensor<'l, T, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }>,
+) -> VectorIntraSliceReduceTensor<'l, T, f32, m![1], m![1 # 2], m![A], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }>
 {
     input
         .vector_narrow_trim::<m![R % 4]>()            // 8-way → 4-way
@@ -106,7 +106,7 @@ fn reduce_time_packet<'l, const T: Tu>(
 # 
 # let mut ctx = Context::acquire();
 # 
-# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], f32, Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_packet(i);
 ```
 
@@ -125,8 +125,8 @@ axes![R = 13];
 
 // R split across all three: Slice (groups of 8), Time (pairs within group), Packet (4 elements).
 fn reduce_slice_time_packet<'l, const T: Tu>(
-    input: VectorBranchTensor<'l, T, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }>,
-) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![1], m![1 # 4], i32, Fresh, { stage::VeOrder::IntraFirst }>
+    input: VectorBranchTensor<'l, T, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }>,
+) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![1], m![1 # 4], Fresh, { stage::VeOrder::IntraFirst }>
 {
     input
         .vector_narrow_trim::<m![R # 32 % 4]>()       // 8-way → 4-way
@@ -138,7 +138,7 @@ fn reduce_slice_time_packet<'l, const T: Tu>(
 # 
 # let mut ctx = Context::acquire();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_slice_time_packet(i);
 ```
 
@@ -150,9 +150,11 @@ The stage runs separate machinery for the `Time` and `Packet` axes.
 
 The stage applies the [temporal accumulator](../contraction-engine/time-reducer.md#constraints) model with slot capacity 8 (so `InnerTime::SIZE ≤ 8`).
 
-For `reduce_time` above, `Time = m![R]` and `OutTime = m![1]`, so `R` is the outermost reduce dimension and `InnerTime = m![1]` (`InnerTime::SIZE = 1`). A single slot accumulates all `R` values into the output.
+For `reduce_time` above, `Time = m![R]` and `OutTime = m![1]`, so `R` is the outermost reduce dimension and `InnerTime = m![1]` (`InnerTime::SIZE = 1`).
+A single slot accumulates all `R` values into the output.
 
-If `InnerTime::SIZE` exceeds 8, the API rejects the call. For example:
+If `InnerTime::SIZE` exceeds 8, the API rejects the call.
+For example:
 
 ```rust
 # #![feature(adt_const_params)]
@@ -160,8 +162,8 @@ If `InnerTime::SIZE` exceeds 8, the API rejects the call. For example:
 # use furiosa_opt_std::prelude::*;
 # axes![A = 6, B = 16, R = 16];
 fn invalid_too_many_slots<'l, const T: Tu>(
-    input: VectorBranchTensor<'l, T, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }>,
-) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1 # 2], m![A / 3 # 256], m![A % 3, B % 4], m![B / 4], i32, Fresh, { stage::VeOrder::IntraFirst }>
+    input: VectorBranchTensor<'l, T, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }>,
+) -> VectorIntraSliceReduceTensor<'l, T, i32, m![1], m![1 # 2], m![A / 3 # 256], m![A % 3, B % 4], m![B / 4], Fresh, { stage::VeOrder::IntraFirst }>
 {
     input
         .vector_narrow_trim::<m![B / 4]>()
@@ -176,7 +178,7 @@ fn invalid_too_many_slots<'l, const T: Tu>(
 # 
 # let mut ctx = Context::acquire();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], i32, Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
 # let _o = invalid_too_many_slots(i);
 ```
 
@@ -198,7 +200,7 @@ Two strategies handle padding exclusion.
   See [Valid Count Generator](./vcg.md) for details.
 
 - **Identity-element padding**: Fill pad positions with the identity element of the reduce operation before data reaches the [Intra-Slice Chain](./intra-slice-chain.md).
-  The [Fetch Engine's masking](../../moving-tensors/fetch-engine.md#masking) writes the identity value into pad positions during fetch:
+  The book does not document a usable public masking operation; use a verified identity-producing path before reduction.
 
   | Operation | Identity Element |
   |-----------|-----------------|
@@ -207,7 +209,8 @@ Two strategies handle padding exclusion.
   | `Min` | `i32::MAX` / `f32::INFINITY` |
 
   This strategy applies only when no non-invertible transformation precedes the reduce operation.
-  For example, with `exp(x) + exp(y) + ...` (sum of exponentials), no value `p` satisfies `exp(p) = 0` (the additive identity), so identity padding does not apply.
+  For example, with `exp(x) + exp(y) + ...` (sum of exponentials), no value `p` satisfies `exp(p) = 0` (the additive identity).
+  Identity padding does not apply.
 
 
 ## Performance
@@ -216,4 +219,3 @@ Throughput stays at one flit per cycle since the tree reduce is fully pipelined 
 
 Latency adds a first-output delay of `n` flit cycles where `n` is the number of time steps in the reduce axis, because the stage must accumulate all input flits for a reduction group before emitting the result.
 In a multi-engine pipeline, this accumulation delay stalls downstream engines waiting for the first flit.
-

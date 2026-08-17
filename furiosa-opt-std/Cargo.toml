@@ -1,6 +1,6 @@
 [package]
 name = "furiosa-opt-std"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/furiosa-ai/furiosa-opt"
@@ -10,9 +10,10 @@ description = "Standard library for Furiosa NPU TCP Virtual ISA programming."
 abi_stable = { workspace = true }
 arrayvec = { workspace = true }
 cfg-if = { workspace = true }
-furiosa-mapping = { path = "../furiosa-mapping", version = "0.5" }
-furiosa-opt-lower = { path = "../furiosa-opt-lower", version = "0.5" }
-furiosa-opt-macro = { path = "../furiosa-opt-macro", version = "0.5" }
+furiosa-mapping = { path = "../furiosa-mapping", version = "0.6" }
+furiosa-opt-common-ir = { path = "../furiosa-opt-common-ir", version = "0.6" }
+furiosa-opt-lower = { path = "../furiosa-opt-lower", version = "0.6" }
+furiosa-opt-macro = { path = "../furiosa-opt-macro", version = "0.6" }
 half = { workspace = true }
 log = { workspace = true }
 ndarray = { workspace = true }

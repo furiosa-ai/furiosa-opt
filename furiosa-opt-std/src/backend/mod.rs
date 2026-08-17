@@ -1,31 +1,29 @@
 //! Backend abstraction: the storage-op seam for tensor operations.
 //!
 //! A [`Backend`] picks the concrete tensor storage type and implements every tensor operation
-//! against it. The concrete impls are [`Emulation`] (host-side buffer emulator), [`Npu`] (real
-//! device), and [`Typecheck`] (shape/mapping validation only). The cfg-selected
-//! [`crate::runtime::CurrentBackend`] alias picks which one the crate compiles against.
+//! against it. The concrete impls are [`Cpu`] (host-side buffer emulator) and [`Npu`] (real
+//! device). The cfg-selected [`crate::runtime::CurrentBackend`] alias picks which one the crate
+//! compiles against.
 //! Device-function execution (`launch`, `DeviceFn`, `DeviceSend`) lives in the sibling
 //! [`crate::runtime`] module.
 
 pub(crate) mod op_prep;
 
-mod emulation;
+mod cpu;
 /// NPU backend.
 pub mod npu;
-mod typecheck;
 
 use std::fmt::Debug;
 
 use furiosa_mapping::Mapping as MappingValue;
 use furiosa_mapping::*;
 
-use crate::cast::ContractionCast;
+use crate::cast::{ContractionAccumulator, ContractionCast};
 use crate::scalar::{MaterializableScalar, Scalar};
 use crate::tensor::memory::{HbmTensor, HostTensor};
 
-pub use emulation::Emulation;
+pub use cpu::Cpu;
 pub use npu::Npu;
-pub use typecheck::Typecheck;
 
 /// Backend for tensor operations.
 ///
@@ -34,15 +32,14 @@ pub use typecheck::Typecheck;
 /// lifecycle constructors/serializers and the value-ops (map, reduce, zip_with, scatter, ...),
 /// is a method on this trait, delegating to the concrete storage's inherent methods.
 ///
-/// `Emulation`: interprets ops on `BufStorage`'s physical staging buffer (default).
+/// `Cpu`: interprets ops on `BufStorage`'s physical staging buffer (default).
 /// `Npu`: owns native staging buffers and does real PCIe DMA; the host never interprets ops.
-/// `Typecheck`: shape/mapping validation only, no host values (`--cfg backend="typecheck"`).
 ///
-/// The host backend (Emulation) implements the DMA as a plain host-side `transpose`
+/// The host backend (Cpu) implements the DMA as a plain host-side `transpose`
 /// passthrough; `Npu` provides real device transfers. DMA stays a required method (no default) so
 /// each backend states its choice explicitly.
 pub trait Backend: Sized + 'static {
-    /// Concrete per-backend tensor type (`BufStorage` / `PhantomStorage`). Opaque:
+    /// Concrete per-backend tensor type. Opaque:
     /// only `Clone + Debug + PartialEq` (so the memory-tier `#[derive(Debug)]` structs and the
     /// `Tensor<D, Mapping, B>` wrapper's `Debug`/`PartialEq` resolve without a per-backend `where`
     /// clause). `PartialEq` (not `Eq`) because `f32` tensors must compare. All operations on the
@@ -56,16 +53,22 @@ pub trait Backend: Sized + 'static {
 
     /// Build a storage from its dense physical device byte image (`mapping`-order, packed on `D::BITS`):
     /// the inverse of [`Self::into_buf`]. The default decodes the packed bytes to a logical `Vec<D>` and
-    /// packs via [`Self::from_vec`]; a backend whose storage already IS the packed image (Emulation /
-    /// Npu's [`BufStorage`]) overrides this to store the bytes directly, no decode / re-pack. Pre-packed
+    /// packs via [`Self::from_vec`]; a backend whose storage already IS the packed image (Cpu /
+    /// Npu's [`crate::storage::BufStorage`]) overrides this to store the bytes directly, no decode / re-pack. Pre-packed
     /// data (fp4 / f4e2m1 weights) enters through here. Backs [`crate::tensor::Tensor::from_buf`].
-    fn from_buf<D: Scalar>(mapping: &MappingValue, buf: Vec<u8>) -> Self::Storage<D> {
+    fn from_buf<D: MaterializableScalar>(mapping: &MappingValue, buf: Vec<u8>) -> Self::Storage<D> {
         Self::from_vec(mapping, (0..mapping.size()).map(|i| D::load(&buf, i)))
     }
 
     /// A zeroed storage of this layout, delegating to the concrete storage's inherent
     /// constructor.
     fn zeroed<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D>;
+
+    /// A fresh HBM tensor with no source (see [`crate::tensor::memory::HbmTensor::new`]).
+    ///
+    /// Required, no default: whether an HBM tensor needs a device allocation is a backend's own call.
+    /// `Npu` takes one and hands its ownership to the tensor; the host-side backends hold bytes.
+    fn alloc_hbm<D: Scalar, Chip: M, Element: M>() -> HbmTensor<D, Chip, Element, Self>;
 
     /// Serialize the storage to a flat `D` buffer in `mapping`-order (the physical / wire layout),
     /// consuming the storage, delegating to the concrete storage's inherent serializer.
@@ -74,31 +77,19 @@ pub trait Backend: Sized + 'static {
     /// Serialize the storage to its dense physical device byte image (`mapping`-order, packed on
     /// `D::BITS`): the exact bytes that sit in HBM / DM, half the logical length for a 4-bit `D`. The
     /// default decodes to a logical `Vec<D>` and re-packs via [`Scalar::to_buf`]; a backend whose
-    /// storage already IS the packed image (Emulation / Npu's [`BufStorage`]) overrides this to move the
+    /// storage already IS the packed image (Cpu / Npu's [`crate::storage::BufStorage`]) overrides this to move the
     /// internal bytes out directly. Backs [`crate::tensor::memory::HbmTensor::to_buf`].
     fn into_buf<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &MappingValue) -> Vec<u8> {
         D::to_buf(&Self::into_vec(storage, mapping))
     }
 
     /// Element-wise map to a new scalar, preserving layout. The closure is bare-`D`; each backend
-    /// applies its own per-storage strategy, Emulation/Npu walk the `BufStorage` buffer over bare
-    /// `D`, Typecheck no-ops on the phantom. Mapping-free: elementwise ops preserve the source
+    /// applies its own per-storage strategy; Cpu/Npu walk the `BufStorage` buffer over bare
+    /// `D`. Mapping-free: elementwise ops preserve the source
     /// layout, so no mapping type parameter is needed.
     /// The closure must be `Fn + Sync` (not `FnMut`): an elementwise map has no cross-cell state, and
-    /// [`Emulation`] folds the cells across the rayon pool.
-    fn map<D: MaterializableScalar, D2: Scalar>(
-        src: &Self::Storage<D>,
-        f: impl Fn(D) -> D2 + Sync,
-    ) -> Self::Storage<D2>;
-
-    /// [`Self::map`], but bounded by a caller-supplied `len` instead of the storage's own length
-    /// recovery. Backs [`crate::tensor::Tensor::map_bounded`]; see its doc for why plain [`Self::map`]
-    /// is unsound for a non-`MaterializableScalar` staging type (`i5`/`i9`).
-    fn map_bounded<D: Scalar, D2: Scalar>(
-        src: &Self::Storage<D>,
-        len: usize,
-        f: impl Fn(D) -> D2 + Sync,
-    ) -> Self::Storage<D2>;
+    /// [`Cpu`] folds the cells across the rayon pool.
+    fn map<D: Scalar, D2: Scalar>(src: &Self::Storage<D>, f: impl Fn(D) -> D2 + Sync) -> Self::Storage<D2>;
 
     /// Element-wise zip of two same-layout tensors to a new scalar. See [`Self::map`]; the result is
     /// defined only where both inputs are.
@@ -111,7 +102,7 @@ pub trait Backend: Sized + 'static {
     /// Element-wise zip of three same-layout tensors to a new scalar, the ternary peer of
     /// [`Self::map`] (1-ary) and [`Self::zip_with`] (2-ary). The result is defined only where all
     /// three inputs are. The VE engine uses it for branch-conditional combine: it passes the
-    /// execution-id `tag` as the third operand and resolves `TagFilter`/select inside the closure,
+    /// execution-id `tag` as the third operand and resolves the slot's `TagGuard`/select inside the closure,
     /// so the backend stays free of VE concepts.
     fn zip3_with<D: MaterializableScalar, D2: MaterializableScalar, D3: MaterializableScalar, D4: Scalar>(
         a: &Self::Storage<D>,
@@ -124,8 +115,8 @@ pub trait Backend: Sized + 'static {
     /// operating on partial views; `src_map` / `dst_map` are each storage's base (live-axis) mapping,
     /// where a tiled axis the `Src` / `Dst` *type* carries as padding stays a live `Symbol`, needed
     /// to resolve a partial-view offset's physical wire base. Each backend applies its own per-storage
-    /// strategy: Emulation/Npu resolve the offset bases against the maps and drive a
-    /// sequencer over the `BufStorage` buffer, Typecheck runs only the structural check.
+    /// strategy: Cpu/Npu resolve the offset bases against the maps and drive a
+    /// sequencer over the `BufStorage` buffer.
     #[allow(clippy::too_many_arguments)]
     fn transpose<D: Scalar, Src: M, Dst: M>(
         dst: &mut Self::Storage<D>,
@@ -147,7 +138,7 @@ pub trait Backend: Sized + 'static {
     /// `reduce_fn` should be associative: the parallel backends may regroup the fold across threads. An
     /// associative fn gives a deterministic, serial-identical result; a non-associative one (saturating
     /// integer add, float add/mul) can differ from a serial left-fold and vary run-to-run on
-    /// [`Emulation`], which regroups the fold across the rayon pool.
+    /// [`Cpu`], which regroups the fold across the rayon pool.
     fn reduce<D: MaterializableScalar, Src: M, Dst: M>(
         src: &Self::Storage<D>,
         reduce_fn: impl Fn(D, D) -> D + Sync,
@@ -174,9 +165,23 @@ pub trait Backend: Sized + 'static {
     /// contract `contract_outer` validates), which a naive per-symbol union of the two maps cannot
     /// recover. So it is a required, independently-computed argument, not derived here.
     ///
-    /// Like [`Self::reduce`], [`Emulation`]'s per-output-cell sum regroups across threads, so its
+    /// Like [`Self::reduce`], [`Cpu`]'s per-output-cell sum regroups across threads, so its
     /// `f32` result can differ from serial and vary run-to-run.
+    ///
+    /// Operands arrive at the engine's operand width and accumulate in [`ContractionCast::Output`].
+    /// [`Self::contraction_prewidened`] is the same fold over operands already at that width.
     fn contraction<D: ContractionCast + MaterializableScalar>(
+        lhs: &Self::Storage<D>,
+        rhs: &Self::Storage<D>,
+        lhs_map: &MappingValue,
+        rhs_map: &MappingValue,
+        pre_reduce: &MappingValue,
+        out: &MappingValue,
+    ) -> Self::Storage<D>;
+
+    /// [`Self::contraction`] over operands already at [`ContractionAccumulator`] width, so its widen and
+    /// narrow are the identity. This is the pipeline's own fold, at `contract_lane`.
+    fn contraction_prewidened<D: ContractionAccumulator>(
         lhs: &Self::Storage<D>,
         rhs: &Self::Storage<D>,
         lhs_map: &MappingValue,
@@ -217,8 +222,7 @@ pub trait Backend: Sized + 'static {
     /// maps may differ in size: the vector engine relabels a padded read down to its compact slot
     /// (`…tile(k).read().transmute()`), so `dst_map.size() <= src_map.size()` is intended.
     ///
-    /// `Typecheck` returns `storage` unchanged, its canonical storage is already
-    /// padding-free, so a smaller `dst_map` needs no data move. `Emulation` / `Npu` COMPACT the
+    /// `Cpu` / `Npu` COMPACT the
     /// physical buffer: they keep only the live (non-padding) cells of the `src_map` layout, in
     /// `dst_map` order, producing a `dst_map.size()`-length buffer (a no-op when no padding is dropped).
     fn transmute<D: MaterializableScalar, Src: M, Dst: M>(

@@ -5,7 +5,7 @@ Examples include activations (GELU, SiLU), normalizations (softmax, layer norm),
 
 The engine accepts only 32-bit types, `i32` and `f32`.
 An upstream [Contraction Engine](../contraction-engine/index.md) widens types automatically (`bf16` products accumulate in `f32`, `i8` products in `i32`).
-When that engine is bypassed, the [Fetch Engine](../../moving-tensors/fetch-engine.md#type-casting) must widen the input via its type-cast adapter.
+When that engine is bypassed, the [Fetch Adapter](../fetch-adapter.md#type-casting) must widen the input via its type-cast adapter.
 
 ## Interface
 

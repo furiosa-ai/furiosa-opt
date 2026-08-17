@@ -8,8 +8,15 @@ use std::ops::{Add, Div, Mul, Rem, Sub};
 
 /// A trait for scalar types.
 pub trait Scalar: ndarray::LinalgScalar + Debug + Clone + Copy + PartialEq + Num + Send + Sync {
-    /// Number of bits per element.
+    /// Bits per element on the wire and in a device image: what codegen sizes packets, DM tensors and
+    /// `to_buf` images by.
     const BITS: usize;
+
+    /// The width a value is laid out in while it is staged for computation, which only [`i5`] / [`i9`]
+    /// need to state: they are staged in the `i8` / `i16` that backs them, while their
+    /// [`BITS`](Self::BITS) names the wire the contraction engine reads. Every other dtype stages at
+    /// its `BITS`, sub-byte ones included ([`i4`] / [`f4e2m1`] pack two per byte either way).
+    const STAGING_BITS: usize = Self::BITS;
 
     /// Returns the byte size for `length` elements of this scalar type.
     ///
@@ -18,13 +25,12 @@ pub trait Scalar: ndarray::LinalgScalar + Debug + Clone + Copy + PartialEq + Num
         crate::constraints::size_in_bytes(Self::BITS, length)
     }
 
-    /// The buffer byte length for `n` elements: the size of [`to_buf`](Self::to_buf)'s output, the
-    /// run [`load`](Self::load) / [`store`](Self::store) address per element. Byte-centric by default
-    /// (`n * size_of`); the sub-byte packers ([`i4`]/[`f4e2m1`]) override it to their `BITS`-packed
-    /// size. Wider than [`size_in_bytes_from_length`](Self::size_in_bytes_from_length) for a staging
-    /// type ([`i5`]/[`i9`]), whose `i8`/`i16` host form exceeds its narrower `BITS` wire width.
+    /// The buffer byte length for `n` elements, the run [`load`](Self::load) / [`store`](Self::store)
+    /// address per element. Wider than
+    /// [`size_in_bytes_from_length`](Self::size_in_bytes_from_length) for a staging type ([`i5`]/[`i9`]),
+    /// whose staged form exceeds its narrower wire width.
     fn buf_bytes(n: usize) -> usize {
-        n * std::mem::size_of::<Self>()
+        crate::constraints::size_in_bytes(Self::STAGING_BITS, n)
     }
 
     /// Reads element `i` from a packed byte image. This and [`store`](Self::store) are the sole place the
@@ -61,15 +67,17 @@ pub trait Scalar: ndarray::LinalgScalar + Debug + Clone + Copy + PartialEq + Num
     /// Panics if the byte count does not evenly divide into whole elements.
     fn length_from_bytes(bytes: usize) -> usize {
         assert_eq!(
-            (bytes * 8) % Self::BITS,
+            (bytes * 8) % Self::STAGING_BITS,
             0,
             "bytes must correspond to a whole number of elements"
         );
-        (bytes * 8) / Self::BITS
+        (bytes * 8) / Self::STAGING_BITS
     }
 
     /// Serializes `vals` into the dense physical DRAM byte image: the exact bytes that would sit
     /// in HBM / DM for this element stream, sized [`size_in_bytes_from_length`](Self::size_in_bytes_from_length).
+    /// Only a dtype that reaches a device has one; a staging type ([`i5`]/[`i9`]) never leaves the
+    /// host, where it occupies the wider [`buf_bytes`](Self::buf_bytes).
     ///
     /// This is the single reconciliation point between the type's *nominal* in-memory
     /// representation (a sub-byte scalar such as [`f4e2m1`] / [`i4`] still occupies a whole byte in
@@ -111,9 +119,10 @@ pub trait ScalarBytes: Scalar {
 /// Every real tensor dtype implements this. The zero-point-subtracted
 /// contraction-engine stagings [`i5`]/[`i9`] deliberately do **not**: as a
 /// stream they exist only between `fetch_zero_point_sub` and `contract_outer`,
-/// so the host/HBM/DM carriers and the commit / to-TRF / transpose entry points
-/// bound `MaterializableScalar` to make storing or re-routing an i5/i9 stream a
-/// compile error. The to-VRF / Vector / Cast paths exclude them separately via
+/// so the host/HBM/DM carriers, the device-image entry points
+/// ([`from_buf`](crate::tensor::Tensor::from_buf) / [`into_buf`](crate::tensor::Tensor::into_buf)) and
+/// the commit / to-TRF / transpose entry points bound `MaterializableScalar` to make storing or
+/// re-routing an i5/i9 stream a compile error. The to-VRF / Vector / Cast paths exclude them separately via
 /// `VeScalar`. (An i5/i9 may still be a contraction weight resident in the TRF.)
 ///
 /// A real dtype satisfies the bound:
@@ -339,6 +348,26 @@ impl bf16 {
     /// Converts to `f32`.
     pub fn to_f32(self) -> f32 {
         self.0.to_f32()
+    }
+
+    /// Reinterprets the raw 16-bit encoding, for pinning a specific bit pattern (a subnormal, a
+    /// NaN payload) that no `f32` literal names.
+    pub const fn from_bits(bits: u16) -> Self {
+        bf16(half::bf16::from_bits(bits))
+    }
+
+    /// The raw 16-bit encoding.
+    pub const fn to_bits(self) -> u16 {
+        self.0.to_bits()
+    }
+
+    /// The wrapped `half` value, so `crate::float` can state the hardware conversion rules once.
+    pub(crate) fn to_half(self) -> half::bf16 {
+        self.0
+    }
+
+    pub(crate) fn from_half(v: half::bf16) -> Self {
+        bf16(v)
     }
 }
 
@@ -644,10 +673,6 @@ impl Scalar for i4 {
     fn to_buf(vals: &[Self]) -> Vec<u8> {
         pack_nibbles(vals)
     }
-
-    fn buf_bytes(n: usize) -> usize {
-        Self::size_in_bytes_from_length(n)
-    }
 }
 
 impl i4 {
@@ -750,8 +775,10 @@ impl Num for i5 {
 }
 
 impl Scalar for i5 {
-    // Packs as i4 in storage; the extra bit lives in the contraction engine, not memory.
+    // Packs as i4 on the wire; the extra bit lives in the contraction engine, not memory.
     const BITS: usize = 4;
+    // Staged in the whole `i8` backing it.
+    const STAGING_BITS: usize = 8;
 }
 
 impl i5 {
@@ -855,8 +882,10 @@ impl Num for i9 {
 }
 
 impl Scalar for i9 {
-    // Packs as i8 in storage; the extra bit lives in the contraction engine, not memory.
+    // Packs as i8 on the wire; the extra bit lives in the contraction engine, not memory.
     const BITS: usize = 8;
+    // Staged in the whole `i16` backing it.
+    const STAGING_BITS: usize = 16;
 }
 
 impl i9 {
@@ -1053,10 +1082,6 @@ impl Scalar for f4e2m1 {
     /// Two codes per byte (see [`store`](Self::store)); the sub-byte override of the memcpy default.
     fn to_buf(vals: &[Self]) -> Vec<u8> {
         pack_nibbles(vals)
-    }
-
-    fn buf_bytes(n: usize) -> usize {
-        Self::size_in_bytes_from_length(n)
     }
 }
 

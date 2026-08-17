@@ -10,7 +10,7 @@
 //! (main) or `trim → valid_count_pack` (sub):
 //!
 //! - `commit_trim::<OutPacket>()` → `CommitTrimTensor`
-//! - `commit_cast::<OutD>(Activation)` → `CommitCastTensor` (main; ReLU only ever fuses into the cast)
+//! - `commit_cast::<OutD>()` / `commit_cast_relu::<OutD>()` → `CommitCastTensor` (main)
 //! - `commit_valid_count_pack(count)` → `CommitValidCountPackTensor` (sub)
 
 use std::marker::PhantomData;
@@ -19,7 +19,7 @@ use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
 use crate::backend::Backend;
-use crate::cast::Cast;
+use crate::cast::CommitCast;
 use crate::constraints;
 use crate::context::*;
 use crate::engine::{CanApplyCommitCast, CanApplyCommitTrim, CanApplyCommitValidCountPack};
@@ -27,18 +27,6 @@ use crate::runtime::CurrentBackend;
 use crate::scalar::*;
 use crate::tensor::Tensor;
 use crate::tensor::tu::{Position, TuTensor};
-
-/// Element-wise activation fused into the Commit Adapter's type-casting
-/// stage. ReLU is not a standalone hardware stage: it exists only fused
-/// with a narrowing cast (e.g. `f32` → `bf16` + ReLU).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Activation {
-    /// Plain cast, no activation.
-    #[default]
-    None,
-    /// Clamp negative values to zero, fused into the cast.
-    Relu,
-}
 
 /// After the Commit Adapter's trimming stage.
 #[derive(Debug)]
@@ -77,7 +65,7 @@ pub struct PositionCommitCast;
 
 impl Position for PositionCommitCast {}
 
-/// Tensor streamed after `commit_cast`.
+/// Tensor streamed after `commit_cast` or `commit_cast_relu`.
 pub type CommitCastTensor<'l, const T: Tu, D, Chip, Cluster, Slice, Time, Packet, B = CurrentBackend> =
     TuTensor<'l, { T }, PositionCommitCast, D, Chip, Cluster, Slice, Time, Packet, B>;
 
@@ -175,23 +163,34 @@ impl<
     B: Backend,
 > TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
-    /// Runs the Commit Adapter's type-casting stage, optionally fusing a
-    /// ReLU.
+    /// Runs the Commit Adapter's type-casting stage.
     ///
-    /// Folds an `f32` → `bf16` (or other narrowing) cast into the commit
-    /// path, leaving the [Cast Engine](crate::engine::cast) free for
-    /// sub-context Vector Engine work. `activation` selects the optional
-    /// fused ReLU; ReLU has no standalone hardware stage.
+    /// Folds the `f32` → `bf16` cast into the commit path, leaving the
+    /// [Cast Engine](crate::engine::cast) free for sub-context Vector Engine
+    /// work. See [`CommitCast`](crate::prelude::CommitCast) for why this is the
+    /// only conversion, and [`commit_cast_relu`](Self::commit_cast_relu) for the
+    /// variant that fuses a ReLU.
     #[primitive(TuTensor::commit_cast)]
-    pub fn commit_cast<OutD: Scalar>(
-        self,
-        _activation: Activation,
-    ) -> CommitCastTensor<'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B>
+    pub fn commit_cast<OutD: Scalar>(self) -> CommitCastTensor<'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B>
     where
-        D: Cast<OutD>,
+        D: CommitCast<OutD>,
     {
-        verify_commit_cast::<D, OutD>();
+        verify_commit_cast::<D, OutD, Packet>();
         CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
+    }
+
+    /// The same cast with a ReLU fused in, clamping negative values to zero.
+    ///
+    /// A separate method rather than an argument because the two are separate
+    /// hardware conversions (`CommitF32ToBf16` and `CommitF32ToBf16Relu`), and
+    /// ReLU has no standalone stage to select at run time.
+    #[primitive(TuTensor::commit_cast_relu)]
+    pub fn commit_cast_relu<OutD: Scalar>(self) -> CommitCastTensor<'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B>
+    where
+        D: CommitCast<OutD>,
+    {
+        verify_commit_cast::<D, OutD, Packet>();
+        CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast_relu()))
     }
 }
 // ANCHOR_END: commit_cast_impl
@@ -234,9 +233,11 @@ pub(crate) fn verify_commit_trim<D: Scalar, Packet: M, OutPacket: M>() {
         .unwrap_or_else(|message| panic!("{message}"));
 }
 
-#[allow(clippy::extra_unused_type_parameters)]
-fn verify_commit_cast<D: Scalar, OutD: Scalar>() {
-    todo!("commit_cast is not yet implemented")
+/// Validates the Commit Adapter's cast via [`furiosa_opt_lower::config_commit_cast`]. `Packet` is
+/// the post-`commit_trim` packet, whose width in the pre-cast type `D` is the commit input width.
+fn verify_commit_cast<D: Scalar, OutD: Scalar, Packet: M>() {
+    furiosa_opt_lower::config_commit_cast(&Packet::to_value(), D::BITS, OutD::BITS)
+        .unwrap_or_else(|message| panic!("{message}"));
 }
 
 #[allow(clippy::extra_unused_type_parameters)]

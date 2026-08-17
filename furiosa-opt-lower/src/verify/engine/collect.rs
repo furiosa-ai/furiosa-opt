@@ -1,8 +1,9 @@
-//! Collect engine: normalize the packet to exactly one flit, and store to the TRF (`to_trf`).
+//! Collect engine: normalize the packet to exactly one flit, and store to the TRF (`to_trf`) or
+//! the VRF (`to_vrf`).
 
 use furiosa_mapping::{Mapping, MappingExt, PaddingKind};
 
-use crate::verify::{FLIT_BYTES, is_valid_lane_size, length_from_bytes, size_in_bytes};
+use crate::verify::{FLIT_BYTES, VRF_BYTES, is_valid_lane_size, length_from_bytes, size_in_bytes};
 
 /// Why a collect is not realizable on the Collect engine.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -71,6 +72,19 @@ pub enum ToTrfError {
         expected: Mapping,
         /// The declared `Element`.
         got: Mapping,
+    },
+}
+
+/// Why a `to_vrf` is not realizable.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ToVrfError {
+    /// The VRF data does not fit the register file.
+    #[error("VRF data ({bytes} bytes) exceeds register file capacity ({capacity} bytes per slice)")]
+    ExceedsCapacity {
+        /// Byte size of one slice's `Element`.
+        bytes: usize,
+        /// Register file capacity in bytes.
+        capacity: usize,
     },
 }
 
@@ -170,4 +184,60 @@ pub fn config_to_trf(
         });
     }
     Ok(())
+}
+
+/// `to_vrf`: store the collected stream as the VRF `[Element]`.
+///
+/// One slice's `Element` must fit the vector register file. The VRF is not partitioned by an address
+/// the way the TRF is, so the capacity is the whole file ([`VRF_BYTES`]).
+pub fn config_to_vrf(element: &Mapping, element_bits: usize) -> Result<(), ToVrfError> {
+    let bytes = size_in_bytes(element_bits, element.size());
+    if bytes > VRF_BYTES {
+        return Err(ToVrfError::ExceedsCapacity {
+            bytes,
+            capacity: VRF_BYTES,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    // Glob import: the `m!` macro expands to DSL type-level structs that must all be in scope.
+    use furiosa_mapping::*;
+
+    use super::*;
+
+    axes![B = 2048, C = 4096];
+
+    /// One slice's operand filling the file exactly is the largest legal `to_vrf`.
+    #[test]
+    fn to_vrf_at_capacity() {
+        assert_eq!(config_to_vrf(&<m![B]>::to_value(), 32), Ok(()));
+    }
+
+    /// The same element count in a wider type no longer fits, so the bound is on bytes and not on
+    /// the element count.
+    #[test]
+    fn to_vrf_over_capacity_by_element_width() {
+        assert_eq!(
+            config_to_vrf(&<m![B]>::to_value(), 64),
+            Err(ToVrfError::ExceedsCapacity {
+                bytes: 16_384,
+                capacity: VRF_BYTES,
+            })
+        );
+    }
+
+    /// A larger axis overruns the file even in a type that fits at half the count.
+    #[test]
+    fn to_vrf_over_capacity_by_axis_size() {
+        assert_eq!(
+            config_to_vrf(&<m![C]>::to_value(), 32),
+            Err(ToVrfError::ExceedsCapacity {
+                bytes: 16_384,
+                capacity: VRF_BYTES,
+            })
+        );
+    }
 }

@@ -2,20 +2,44 @@ use std::ops::RangeInclusive;
 
 use crate::scalar::{bf16, f4e2m1, f8e4m3, f8e5m2, i4, i5, i9};
 
-use super::scalar::Scalar;
+use super::scalar::{MaterializableScalar, Scalar};
 
-/// Trait for types that can be cast during fetch operations.
-pub trait FetchCast<D: Scalar>: Into<D> + Cast<D> {}
+/// Host-side value conversion between scalar types: what a conversion computes, not a claim that
+/// hardware performs it. Some impls match no hardware conversion at all (`i32 -> u8`, `i32 -> i5`),
+/// existing only for the contraction fold's round trip. Each converting stage names its own legal
+/// subset in a subtrait its primitive binds instead ([`FetchCast`], [`CastEngineCast`],
+/// [`CommitCast`]); only `contract_outer` still binds `Cast`, gated by [`ContractionCast`].
+pub trait Cast<D: Scalar> {
+    /// Casts self to target type D.
+    fn cast(self) -> D;
+}
+
+/// Element-type pairs the Fetch Adapter's type-casting stage converts, one impl per RNGD
+/// conversion. `i4 -> i5` and `i8 -> i9` belong to [`FetchZeroPointSub`] instead. See
+/// `computing-tensors/fetch-adapter.md`.
+pub trait FetchCast<D: Scalar>: Cast<D> {}
+
+// Identity: the stage is programmed `TypeConversion::None`.
+impl<D> FetchCast<D> for D where D: Scalar {}
+
+// Integer widenings to the i32 compute width.
+impl FetchCast<i32> for i4 {}
+impl FetchCast<i32> for i8 {}
+impl FetchCast<i32> for i16 {}
+// Float widenings to the f32 compute width.
+impl FetchCast<f32> for f8e4m3 {}
+impl FetchCast<f32> for f8e5m2 {}
+impl FetchCast<f32> for bf16 {}
+impl FetchCast<bf16> for f32 {}
+// No 8-bit float to `bf16`; use `fetch_table_lookup`. `TypeConversion`'s four Renegade-S variants
+// stay out: the trait has no chip-generation axis to hold them.
 
 /// Input scalar types the Fetch Adapter's table-lookup stage can decode to `OutD`.
 ///
-/// The RNGD table-lookup only supports a 4-bit key decoding to an 8-bit value
-/// (paired-key table, 4b->8b only), so the only implementor is
-/// `f4e2m1: TableLookup<f8e4m3>`. Wider floats and the per-block scale come from a
-/// downstream `fetch_cast`. Stating the table at the type level lets
-/// `fetch_table_lookup` take no
-/// runtime table argument. See the book chapter
-/// `computing-tensors/fetch-adapter.md` (the "Table Lookup" section).
+/// One impl per hardware table: a paired 4b->8b decode of `f4e2m1` into either 8-bit float, and a
+/// non-paired 8-bit decode of either into `bf16`, which is the only route from an 8-bit float to
+/// `bf16` since no [`FetchCast`] does it. Selecting the table by type is what lets
+/// `fetch_table_lookup` take no runtime table argument. See `computing-tensors/fetch-adapter.md`.
 pub trait TableLookup<D: Scalar> {
     /// Functional model of the hardware decode table.
     fn lookup(self) -> D;
@@ -27,26 +51,27 @@ impl TableLookup<f8e4m3> for f4e2m1 {
     }
 }
 
-impl TableLookup<bf16> for f8e4m3 {
-    /// The non-paired `f8e4m3 -> bf16` baked decode table. `f8e4m3 -> f32` is exact and `f8e4m3` has
-    /// only 3 mantissa bits, so the low 16 bits of the `f32` are zero and the `bf16` truncation the
-    /// hardware table performs (`build_fp8_to_bf16_lookup_table`) equals `from_f32` exactly.
+impl TableLookup<f8e5m2> for f4e2m1 {
+    fn lookup(self) -> f8e5m2 {
+        f8e5m2::from_f32(self.to_f32())
+    }
+}
+
+impl TableLookup<bf16> for f8e5m2 {
+    /// Exact for the same reason as the `f8e4m3` decode: 2 mantissa bits leave the `f32`'s low 16
+    /// bits zero, so the hardware table's truncation equals `from_f32`.
     fn lookup(self) -> bf16 {
         bf16::from_f32(self.to_f32())
     }
 }
 
-// TODO: extend `FetchCast` with the remaining int/float widening and narrowing conversions
-// (including the Renegade-S-only variants).
-
-// Identity casts
-impl<D> FetchCast<D> for D where D: Scalar {}
-
-impl FetchCast<i32> for i8 {}
-impl FetchCast<f32> for bf16 {}
-impl FetchCast<f32> for f8e4m3 {}
-impl FetchCast<f32> for f8e5m2 {}
-impl FetchCast<i32> for i4 {}
+impl TableLookup<bf16> for f8e4m3 {
+    /// `f8e4m3 -> f32` is exact and `f8e4m3` has only 3 mantissa bits, so the low 16 bits of the
+    /// `f32` are zero and the hardware table's `bf16` truncation equals `from_f32` exactly.
+    fn lookup(self) -> bf16 {
+        bf16::from_f32(self.to_f32())
+    }
+}
 
 /// Valid zero-point-subtraction widenings for `fetch_zero_point_sub`.
 ///
@@ -83,14 +108,52 @@ impl FetchZeroPointSub<i9> for i8 {
     }
 }
 
-/// Trait for casting between scalar types.
-pub trait Cast<D: Scalar> {
-    /// Casts self to target type D.
-    fn cast(self) -> D;
+/// Output element types the Cast Engine narrows an `i32` / `f32` packet to, one impl per RNGD
+/// cast-compaction conversion. No identity impl: a width-preserving cast is not a compaction and
+/// the stage rejects it. See `computing-tensors/cast-engine.md`.
+#[diagnostic::on_unimplemented(
+    message = "the Cast Engine cannot cast `{Self}` to `{D}`",
+    label = "not a cast-compaction conversion",
+    note = "widenings belong to the Fetch Adapter: `.fetch_cast::<{D}>()`"
+)]
+pub trait CastEngineCast<D: Scalar>: Cast<D> {}
+
+impl CastEngineCast<i4> for i32 {}
+impl CastEngineCast<i8> for i32 {}
+impl CastEngineCast<i16> for i32 {}
+impl CastEngineCast<f8e4m3> for f32 {}
+impl CastEngineCast<f8e5m2> for f32 {}
+impl CastEngineCast<bf16> for f32 {}
+
+/// The one cast the Commit Adapter folds in on the way to DM: `f32 -> bf16`
+/// (`CommitConversion::CommitF32ToBf16`, ReLU optionally fused). Anything else narrows in
+/// [`CastEngineCast`]; a plain `commit()` is already `NoCommitConversion`. See
+/// `computing-tensors/commit-adapter.md`.
+#[diagnostic::on_unimplemented(
+    message = "the Commit Adapter cannot cast `{Self}` to `{D}`",
+    label = "commit_cast converts only `f32` to `bf16`",
+    note = "narrow to anything else in the Cast Engine: `.cast::<{D}, OutPacket>()`"
+)]
+pub trait CommitCast<D: Scalar>: Cast<D> {
+    /// The fused-ReLU form of the same conversion: negatives clamp to zero on the way through.
+    /// ReLU has no standalone hardware stage, so it lives on the cast it fuses into.
+    fn cast_relu(self) -> D;
+}
+
+impl CommitCast<bf16> for f32 {
+    /// NaN is tested before the clamp, so a NaN canonicalizes even with its sign bit set. The clamp
+    /// then keys on the sign bit rather than on `< 0.0`, so `-0.0` and every negative subnormal land
+    /// on `+0.0` instead of keeping their sign.
+    fn cast_relu(self) -> bf16 {
+        if !self.is_nan() && self.is_sign_negative() {
+            return Cast::cast(0.0);
+        }
+        Cast::cast(self)
+    }
 }
 
 // `#[inline]` because each `cast` runs once per MAC in the contraction fold; the integer narrow legs
-// (`i32 -> i8/i16/u8`) wrap via `as`. See `ContractionCast` for the widen/narrow rule.
+// (`i32 -> i8/i16`) wrap via `as`. See `ContractionCast` for the widen/narrow rule.
 
 impl<D: Scalar> Cast<D> for D {
     #[inline]
@@ -116,14 +179,14 @@ impl Cast<i8> for i32 {
 impl Cast<f32> for bf16 {
     #[inline]
     fn cast(self) -> f32 {
-        self.to_f32()
+        crate::float::bf16_to_f32(self.to_half())
     }
 }
 
 impl Cast<bf16> for f32 {
     #[inline]
     fn cast(self) -> bf16 {
-        bf16::from_f32(self)
+        bf16::from_half(crate::float::f32_to_bf16(self))
     }
 }
 
@@ -142,12 +205,14 @@ impl Cast<f8e4m3> for f32 {
 }
 
 impl Cast<f32> for f8e5m2 {
+    #[inline]
     fn cast(self) -> f32 {
         self.to_f32()
     }
 }
 
 impl Cast<f8e5m2> for f32 {
+    #[inline]
     fn cast(self) -> f8e5m2 {
         f8e5m2::from_f32(self)
     }
@@ -178,20 +243,6 @@ impl Cast<i16> for i32 {
     #[inline]
     fn cast(self) -> i16 {
         self as i16
-    }
-}
-
-impl Cast<i32> for u8 {
-    #[inline]
-    fn cast(self) -> i32 {
-        i32::from(self)
-    }
-}
-
-impl Cast<u8> for i32 {
-    #[inline]
-    fn cast(self) -> u8 {
-        self as u8
     }
 }
 
@@ -226,19 +277,45 @@ impl Cast<i9> for i32 {
     }
 }
 
-/// The contraction output type and the single source of truth for the widen/narrow rule. The Outer
-/// stage's Multiplier widens each operand to [`Self::Output`] before multiplying
-/// (`i4`/`i8` -> `i32`, `f8`/`bf16` -> `f32`); the host fold (`BufStorage::contraction`)
-/// reuses the same types and [`Cast`] conversions, widening on load and narrowing after the fold.
+/// The element types the contraction engine multiplies, each with the accumulator it widens to
+/// (`i4`/`i8` -> `i32`, `f8`/`bf16` -> `f32`): `i4` and `i8`, each also in the [`i5`]/[`i9`] staging
+/// zero-point subtraction produces, plus `f8e4m3`, `f8e5m2` and `bf16`. Nothing else, so a contraction
+/// on `i16`, `i32` or `f32` does not compile:
 ///
-/// The `Cast` supertrait and `Output: Cast<Self>` bound make both directions reachable from a single
-/// `D: ContractionCast` (widen `D -> Output`, narrow `Output -> D`) and pin that the pair round-trips
-/// storage values. They do not constrain the width of `Output`; the per-impl author and the narrow
-/// tests own that. Integer narrows wrap (`as`) and `f32 -> bf16` rounds to nearest-even.
-pub trait ContractionCast: Scalar + Cast<<Self as ContractionCast>::Output> {
+/// ```compile_fail
+/// use furiosa_opt_std::prelude::*;
+/// fn contraction_stream<D: ContractionCast>() {}
+/// contraction_stream::<f32>();
+/// ```
+///
+/// `i32` and `f32` are what a contraction accumulates *to*, never what it reads;
+/// [`ContractionAccumulator`] names that side. The [`ContractionWeight`] supertrait ties this set to the
+/// weight table. Narrows wrap (`as`); `f32 -> bf16` rounds to nearest-even.
+pub trait ContractionCast: Scalar + ContractionWeight<Self> + Cast<<Self as ContractionCast>::Output> {
     /// The wider type the contraction accumulates in, and casts back to the storage type to narrow.
-    type Output: Scalar + Cast<Self>;
+    type Output: ContractionAccumulator + Cast<Self>;
 }
+
+/// The widths a contraction accumulates in: `i32` for the integer operand families, `f32` for the float
+/// ones. Every [`ContractionCast::Output`] is one of these.
+///
+/// A fold binds this where the Multiplier binds [`ContractionCast`], so neither type has to be both.
+/// Accumulating at a storage width would sum an `i8` matmul in `i8`:
+///
+/// ```compile_fail
+/// use furiosa_opt_std::prelude::*;
+/// fn contraction_fold<Acc: ContractionAccumulator>() {}
+/// contraction_fold::<bf16>();
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "a contraction cannot accumulate in `{Self}`",
+    label = "not a contraction accumulator width",
+    note = "a contraction accumulates in `i32` (integer operands) or `f32` (float operands)"
+)]
+pub trait ContractionAccumulator: MaterializableScalar {}
+
+impl ContractionAccumulator for i32 {}
+impl ContractionAccumulator for f32 {}
 
 /// Weight (TRF) element types that can be contracted against a given stream
 /// (activation) element type `Stream`.
@@ -289,30 +366,12 @@ impl ContractionCast for i4 {
     type Output = i32;
 }
 
-impl ContractionCast for i16 {
-    type Output = i32;
-}
-
-impl ContractionCast for u8 {
-    type Output = i32;
-}
-
 impl ContractionCast for i5 {
     type Output = i32;
 }
 
 impl ContractionCast for i9 {
     type Output = i32;
-}
-
-// Already at accumulator width: the MAC runs in `i32` / `f32`, so `Output = Self` and the widen/narrow
-// casts are the identity `impl Cast<D> for D`.
-impl ContractionCast for i32 {
-    type Output = i32;
-}
-
-impl ContractionCast for f32 {
-    type Output = f32;
 }
 
 #[cfg(test)]
@@ -341,62 +400,56 @@ mod tests {
     #[test]
     fn narrow_widen_round_trips() {
         assert_roundtrip([i8::MIN, -1, 0, 1, i8::MAX]);
-        assert_roundtrip([i16::MIN, -1, 0, 1, i16::MAX]);
-        assert_roundtrip([i32::MIN, -1, 0, 1, i32::MAX]);
-        assert_roundtrip([0u8, 1, u8::MAX]);
-        assert_roundtrip([f32::MIN, -1.5, 0.0, 1.5, f32::MAX]);
         assert_roundtrip([-8, -1, 0, 1, 7].map(i4::from_i32));
         // Narrowing floats: a value built in the storage type is exact in `f32`, so it round-trips.
         assert_roundtrip([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0].map(bf16::from_f32));
         assert_roundtrip([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0].map(f8e4m3::from_f32));
+        assert_roundtrip([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0].map(f8e5m2::from_f32));
     }
 
-    /// `i32` is already at accumulator width (`Output = Self`, identity widen/narrow): the MAC runs in
-    /// `i32`, not `i64`, so a product overflowing `i32` is computed in `i32`. Uses `wrapping_*` to stay
-    /// independent of the build's overflow-check setting. The wider integer accumulators cap at this `i32`.
+    /// The whole operand set, as compile-time bounds. The negative half is the `compile_fail` doctest
+    /// on [`ContractionCast`].
     #[test]
-    fn i32_accumulator_stays_in_i32() {
-        let (l, r) = (1i32 << 16, 1i32 << 16);
-        let prod = narrow::<i32>(widen(l).wrapping_mul(widen(r)));
-        assert_eq!(prod, l.wrapping_mul(r));
+    fn contraction_operands_are_the_engine_input_types() {
+        fn assert_operand<D: ContractionCast>() {}
+        assert_operand::<i4>();
+        assert_operand::<i5>();
+        assert_operand::<i8>();
+        assert_operand::<i9>();
+        assert_operand::<f8e4m3>();
+        assert_operand::<f8e5m2>();
+        assert_operand::<bf16>();
+    }
+
+    /// The integer accumulator is exactly `i32`, never a wider `i64`: a product past `i32` wraps rather
+    /// than being held. `wrapping_*` keeps this independent of the build's overflow checks.
+    #[test]
+    fn integer_accumulator_stays_in_i32() {
+        type Acc = <i8 as ContractionCast>::Output;
+        let (l, r): (Acc, Acc) = (1 << 16, 1 << 16);
+        let prod = l.wrapping_mul(r);
+        assert_eq!(prod, 0, "2^32 wraps to 0 in i32");
         assert_ne!(i64::from(prod), i64::from(l) * i64::from(r));
     }
 
-    /// Every integer (`i4`/`i8`/`i16`/`u8`) widens to `i32` and accumulates there, so a product or sum
-    /// overflowing the storage range is held exactly mid-reduction; only the final narrow `Cast` (a
-    /// wrapping truncation) loses range. An `Output = Self` fold would instead wrap at every step. The
-    /// narrow half pins the per-type wrap (`as i16` / `as u8`), including the unsigned `-1 -> 255` the
-    /// in-range round-trip never witnesses.
+    /// Every integer operand widens to `i32`, so a sum past the storage range survives to the final
+    /// narrow, which is the only step that loses it.
     #[test]
     fn narrow_integer_accumulates_in_i32() {
         // `i4`: -8 * -8 = 64, far past i4's -8..=7. The product is exact in the i32 accumulator.
         let (l, r) = (i4::from_i32(-8), i4::from_i32(-8));
         assert_eq!(widen(l) * widen(r), 64);
-        // `i8`: a 256-term dot of 100*100 = 2_560_000, far past i8's -128..=127, held exactly in i32.
+        // `i8`: 256 * 100 * 100 = 2_560_000, far past i8's -128..=127; the narrow wraps it `as i8`.
         let acc: i32 = std::iter::repeat_n((widen(100i8), widen(100i8)), 256)
             .map(|(l, r)| l * r)
             .sum();
         assert_eq!(acc, 256 * 100 * 100);
-        // `i16`: a 256-term dot of 1000*1000 = 256_000_000, far past i16's range, exact in i32; the
-        // narrow then wraps `as i16` (256_000_000 mod 2^16).
-        let acc16: i32 = std::iter::repeat_n((widen(1000i16), widen(1000i16)), 256)
-            .map(|(l, r)| l * r)
-            .sum();
-        assert_eq!(acc16, 256_000_000);
-        assert_eq!(narrow::<i16>(acc16), 256_000_000i32 as i16);
-        // `u8`: the i32 accumulator holds the true sum; narrow wraps `as u8`, including the unsigned
-        // wrap of a negative accumulator (`-1 -> 255`) that the in-range round-trip law never exercises.
-        let accu: i32 = std::iter::repeat_n((widen(200u8), widen(200u8)), 8)
-            .map(|(l, r)| l * r)
-            .sum();
-        assert_eq!(accu, 8 * 200 * 200);
-        assert_eq!(narrow::<u8>(accu), (8 * 200 * 200i32) as u8);
-        assert_eq!(narrow::<u8>(-1i32), 255u8);
+        assert_eq!(narrow::<i8>(acc), 2_560_000i32 as i8);
         // The accumulator type is exactly `i32` (not a wider `i64`) for the whole integer family.
         let _: <i8 as ContractionCast>::Output = acc;
         let _: <i4 as ContractionCast>::Output = 0i32;
-        let _: <i16 as ContractionCast>::Output = acc16;
-        let _: <u8 as ContractionCast>::Output = accu;
+        let _: <i5 as ContractionCast>::Output = 0i32;
+        let _: <i9 as ContractionCast>::Output = 0i32;
     }
 
     /// Pins the `f32 -> bf16` narrow `Cast` as round-to-nearest-even (RNE), the rounding the wide `f32`

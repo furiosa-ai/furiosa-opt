@@ -4,7 +4,7 @@
 //! profiled run produced spans. Gated to the `npu` backend, so it runs under:
 //!
 //!   TUC_PROFILE_LEVEL=info \
-//!     cargo furiosa-opt --backend npu test -p furiosa-opt-examples --test test_profile
+//!     cargo furiosa-opt test -p furiosa-opt-examples --test test_profile
 #![cfg(backend = "npu")]
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

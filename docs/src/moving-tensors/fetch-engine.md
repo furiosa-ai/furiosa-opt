@@ -1,13 +1,16 @@
 # Fetch Engine
 
-The Fetch Engine reads a DM tensor and produces a packet stream for the Tensor Unit, a [mathematical tensor move](../mapping-tensors/tensor-semantics.md#mathematical-tensor-move) that reads DM with per-slice sequencers and emits a `FetchTensor`.
+The Fetch Engine reads a DM tensor and produces a packet stream for the Tensor Unit, with `OutTime` and `OutPacket` choosing the stream consumed by later stages.
+
+Choose Fetch when data in DM must enter the Tensor Unit stream with a specific temporal and packet order.
 
 ## Interface
 
 `BeginTensor` represents a tensor resident in DM, at the entry of the Tensor Unit pipeline.
 Its `Time` is `m![1]` (no temporal iteration before the pipeline starts) and `Packet` is the element layout in DM.
 
-`BeginTensor::fetch()` runs the sequencer and produces a `FetchTensor` packet stream that feeds the [Fetch Adapter](../computing-tensors/fetch-adapter.md), the [Switch Engine](../computing-tensors/switch-engine.md), or the [Collect Engine](../computing-tensors/collect-engine.md).
+`BeginTensor::fetch()` runs the sequencer and produces a `FetchTensor` packet stream.
+The stream can feed the [Fetch Adapter](../computing-tensors/fetch-adapter.md), [Switch Engine](../computing-tensors/switch-engine.md), or [Collect Engine](../computing-tensors/collect-engine.md).
 The `assert_eq!` calls enforce hardware constraints on `Cluster::SIZE`, `Slice::SIZE`, and packet alignment (see [Constraints](#constraints)).
 
 ```rust,ignore
@@ -41,7 +44,8 @@ fn fetch_matrix_example<'l, const T: Tu>(
 
 `Chip`, `Cluster`, and `Slice` are the hardware spatial parallelism dimensions.
 A Fetch Sequencer runs independently in every slice, each operating on its own local DM partition.
-In the example above, `Chip = m![CH]`, `Cluster = m![CL]`, and `Slice = m![S]` (with `CH = 4`, `CL = 2`, `S = 256`) reflect a 4-chip RNGD system with 2 clusters per chip and 256 slices per cluster (2,048 slices total), each running the same sequencer pattern on its own `A×B` sub-tensor.
+In this example, `CH = 4`, `CL = 2`, and `S = 256` describe a 4-chip system with two clusters per chip and 256 slices per cluster.
+Each slice runs the same sequencer over its own `A×B` sub-tensor.
 
 
 ## Constraints
@@ -51,9 +55,11 @@ In the example above, `Chip = m![CH]`, `Cluster = m![CL]`, and `Slice = m![S]` (
 ## Multi-Read Packet
 
 Preparing a packet may require multiple hardware reads because packet axes may not be contiguous in DM, and the hardware reads at most 32 bytes at once.
-In the [main-context](../computing-tensors/index.md#execution-context), `read_size` is the largest divisor of the sequencer's `max_access_size` (see [Sequencer Architecture](./sequencer.md#access-size) for `max_access_size`) such that `D[read_size]` is 1, 2, 4, 8, 16, or 32 bytes.
+In the [main-context](../computing-tensors/index.md#execution-context), `read_size` is the largest divisor of `max_access_size` for which `D[read_size]` is 1, 2, 4, 8, 16, or 32 bytes.
+See [Sequencer Architecture](./sequencer.md#access-size) for `max_access_size`.
 In the [sub-context](../computing-tensors/index.md#execution-context), `read_size` is fixed at 8 bytes.
-The compiler derives `read_size` from the input element type of `fetch()` (and from any downstream [Fetch Adapter](../computing-tensors/fetch-adapter.md) cast) and users do not set it directly.
+The compiler derives `read_size` from the input element type and any [Fetch Adapter](../computing-tensors/fetch-adapter.md) cast.
+Users do not set it directly.
 Multi-read occurs whenever `Packet::SIZE > read_size`.
 For example, a 24-byte packet in the main-context forces `read_size = 8` and 3 reads per packet.
 The total cycle count is `Time::SIZE * (Packet::SIZE / read_size)`.
@@ -155,7 +161,8 @@ Three factors determine Fetch Sequencer throughput.
   A packet smaller than the contiguous run also limits `read_size`.
   Padding to a larger power-of-two raises it (see [Packet padding](#example-packet-padding)).
 
-  Furthermore, access patterns that hit the same bank 64 or more times consecutively starve the lower-priority [Commit Engine](./commit-engine.md) and [DMA Engine](./dma-engine.md) and can cause catastrophic NoC timeouts.
+  Repeated access to the same bank can starve lower-priority [Commit Engine](./commit-engine.md) and [DMA Engine](./dma-engine.md) operations.
+The limit is 64 consecutive accesses; exceeding it can cause a NoC timeout.
 
   See [Memory Performance](./memory-performance.md) for details.
 - **Output bandwidth**: the downstream [Collect Engine](../computing-tensors/collect-engine.md) converts Fetch's packets to 32-byte *flits*, so packet sizes that don't align to 32 bytes waste bandwidth.
@@ -207,3 +214,15 @@ fn fetch_packet_ABC<'l, const T: Tu>(
 
 In these examples, padding reads beyond the actual data, but this is safe because padding values do not affect computation.
 Different padding strategies produce different `FetchTensor` mappings, which may affect downstream components.
+
+The same `A = 3`, `B = 5`, `C = 2` `f8e4m3` tensor can use these packet mappings:
+
+| Function | Fetch `Time` | Fetch `Packet` | Fetch work | Collect padding |
+|----------|--------------|----------------|------------|-----------------|
+| `fetch_packet_c` | `A, B` | `C # 8` | 15 packets of 8 bytes | 24 bytes for each packet. |
+| `fetch_packet_bc` | `A` | `[B, C] # 16` | 3 packets of 16 bytes | 16 bytes for each packet. |
+| `fetch_packet_abc` | `1` | `[A, B, C] # 32` | 1 packet of 32 bytes | None. |
+
+The 8-byte and 16-byte candidates require Collect to pad each packet to a 32-byte flit.
+The 32-byte candidate reaches Collect as one full flit, but its extra physical capacity can increase DM usage.
+The schedule comparison decides whether fewer fetches outweigh the padding and downstream layout cost for the fixed workload.

@@ -21,7 +21,7 @@ pub fn unevaluated_const(
     input: HbmTensorView<'_, i8, m![1], m![A, B]>,
 ) -> HbmTensor<i8, m![1], m![B, A]> {
     const { assert!(<m![B]>::SIZE % 32 == 0, "B must be a multiple of 32") };
-    let mut output = unsafe { HbmTensor::<i8, m![1], m![B, A]>::from_addr(0x3000) };
+    let mut output = HbmTensor::<i8, m![1], m![B, A]>::new();
     for b in 0..<m![B]>::SIZE {
         let input_slice = input.tile::<m![B], 1, m![A, 1 # 32]>(b);
         let output_slice = output.view_mut().tile::<m![B], 1, m![1 #{!} 32, A]>(b);

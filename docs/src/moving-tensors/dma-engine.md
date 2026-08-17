@@ -1,6 +1,9 @@
 # DMA Engine
 
-The DMA Engine moves tensors directly between memory tiers without engaging the Tensor Unit pipeline.
+The DMA Engine moves tensors directly between memory tiers without engaging the Tensor Unit pipeline, so use it for residency or layout changes that require no compute stage.
+
+Choose DMA for HBM↔HBM, HBM↔DM, or DM↔DM movement when no Fetch, compute, or Commit stage is needed.
+The Interface examples show how source tensors, destination mappings, and `tdma` or `pdma` contexts combine.
 Each transfer pairs two coordinated stages:
 - **[Read Sequencer](#architecture)**: Reads from the source tier.
 - **[Write Sequencer](#architecture)**: Writes to the destination tier, possibly with a layout transformation.
@@ -44,7 +47,7 @@ fn transpose_simple(
 }
 #
 # let mut ctx = Context::acquire();
-# let in_hbm = unsafe { HbmTensor::<f32, m![1], m![A, B, C]>::from_addr(0) };
+# let in_hbm = HbmTensor::<f32, m![1], m![A, B, C]>::new();
 # let _out_hbm = transpose_simple(&mut ctx, &in_hbm);
 ```
 
@@ -64,7 +67,7 @@ fn hbm_to_dm(
 }
 #
 # let mut ctx = Context::acquire();
-# let in_hbm = unsafe { HbmTensor::<i8, m![1], m![A]>::from_addr(0) };
+# let in_hbm = HbmTensor::<i8, m![1], m![A]>::new();
 # let _out_dm = hbm_to_dm(&mut ctx, &in_hbm);
 ```
 
@@ -95,54 +98,6 @@ Any DMA Engine handles any transfer.
 By default the compiler picks the source DM's local DMA Engine, since local DMN access is faster than cross-DMN access.
 The kernel writer can also specify an engine explicitly.
 
-### Sequencer Representation
-
-
-The compiler represents each DMA Engine's work as a `DmaSequencer` paired with source and destination addressing:
-
-```rust,ignore
-struct DmaSequencer {
-    entries: Vec<DmaEntry>,
-    stride0: u16,        // 1..=4096, per-iteration packet size in bytes
-    source_base: usize,
-    dest_base: usize,
-}
-
-struct DmaEntry {
-    axis: AxisName,
-    size: usize,
-    source_stride: isize,
-    dest_stride: isize,
-}
-```
-
-Each entry specifies a loop with a shared `size` but separate `source_stride` and `dest_stride`, since the layout transformation reorders the same logical elements between source and destination memory.
-The innermost-loop stride `stride0` (1 to 4,096 bytes) sets the per-iteration packet size.
-A full DMA command bundles the sequencer with the engine's location and media:
-
-```rust,ignore
-struct DmaDescriptor {
-    sequencer: DmaSequencer,
-    source_media: Media,
-    dest_media: Media,
-}
-
-struct DmnIndex {
-    chip: ChipIndex,
-    cluster_in_chip: ClusterInChipIndex,
-    slice_in_cluster: SliceInClusterIndex,
-}
-
-enum Media {
-    Hbm(ChipIndex),
-    Dm(DmnIndex),
-    Spm(DmnIndex),
-}
-
-enum Dtype {
-    I4, I8, F8E4M3, F8E5M2, I16, Bf16, F16, I32, F32,
-}
-```
 
 A homogeneous aggregate uses one descriptor template parameterized across all participating DMA Engines.
 A heterogeneous aggregate uses a `HashMap<DmnIndex, DmaDescriptor>` that pairs each DMN with its specific descriptor.
@@ -182,7 +137,11 @@ Given source and destination tensor mappings (`In`, `Out`) and a stream shape (`
 - **Packet size**: Infers `stride0` from the consecutive read/write volume.
   When both read and write access 256 consecutive bytes, the optimal `stride0` is 256.
 
-For the layout transformation `m![A, B, C] → m![B, A, C]` over `axes![A=256, B=256, C=256]` with `Stream = m![A, B, C]`, the compiler uses the index relation `m![A, B, C]::map(i) = i![A: i / 65,536, B: (i % 65,536) / 256, C: i % 256]` (see [Mapping Expressions](../mapping-tensors/mapping-expressions.md) for the notation) to derive:
+For `m![A, B, C] → m![B, A, C]` with `A=B=C=256`, the stream is `m![A, B, C]`.
+The compiler maps each linear index to A, B, and C using the relation below.
+It then derives the paired strides.
+
+The relation is `m![A, B, C]::map(i) = i![A: i / 65,536, B: (i % 65,536) / 256, C: i % 256]` (see [Mapping Expressions](../mapping-tensors/mapping-expressions.md) for the notation):
 
 ```text
 read_sequencer  = [
@@ -250,7 +209,6 @@ Each tier has a peak bandwidth that bounds achievable throughput, and the actual
 |------|----------------|
 | HBM | 1.5 TB/s per chip (32 channels × 48 GB/s per channel at 0.75 GHz) |
 | DM | 256 B/cycle per cluster (with DMN interleaving, 128 B/cycle per DMN) |
-| SPM | 128 B/cycle per cluster (same-chip only, not yet exposed in the API) |
 | PCIe | 30 B/cycle for both reads and writes (see [PCIe DMA](#pcie-dma)) |
 
 Each DMA Engine moves up to 256 B/cycle on its own.
@@ -270,7 +228,8 @@ Sustaining peak bandwidth requires interleaving access patterns across the under
 HBM channel selection uses address bits 9 to 28, and address bit 8 is the stack bit.
 Access patterns must toggle all of these bits to spread requests across all 32 channels.
 Missing the stack bit (address bit 8) alone halves effective bandwidth by routing all requests to only 16 of the 32 channels.
-Access patterns that hit the same HBM bank repeatedly (toggling row-address bits 21+ on consecutive accesses) trigger row-conflict penalties of approximately 40 cycles per access, degrading bandwidth by an order of magnitude.
+Repeated access to the same HBM bank can toggle row-address bits 21 and above.
+Each conflict costs about 40 cycles and can reduce bandwidth by an order of magnitude.
 FR-FCFS memory scheduling recovers some throughput, but the fundamental cost remains severe.
 
 DM bandwidth requires alternating between both DMNs (each 128 B/cycle), so a single-DMN access pattern halves DM bandwidth.
@@ -522,7 +481,8 @@ Choose tensor shapes that divide evenly across DMNs to avoid this segmentation c
 ## Shuffle Operations
 
 Shuffle operations redistribute a tensor across clusters or chips according to a per-partition source pattern.
-The methods chain off the source tensor, matching the `to_dm` / `to_hbm` convention: `dm_cluster_shuffle` and `dm_chip_shuffle` live on `DmTensorView`, while `hbm_cluster_shuffle` and `hbm_chip_shuffle` live on `HbmTensor`.
+These methods follow the `to_dm` / `to_hbm` convention.
+`dm_cluster_shuffle` and `dm_chip_shuffle` are methods on `DmTensorView`; `hbm_cluster_shuffle` and `hbm_chip_shuffle` are methods on `HbmTensor`.
 The shuffle pattern specifies, for each destination cluster or chip, which source cluster or chip provides its data.
 
 ```rust
@@ -586,8 +546,8 @@ fn gather_minimal(
 fn gather_unscaled(
     ctx: &mut Context,
     table: &HbmTensor<bf16, m![1], m![K, D]>,
-    // Raw row positions per cluster. The gather reads the index off SPM, so the kernel first
-    // stages it on-chip with `to_dm`; a real per-cluster (`CL`) partition avoids broadcast padding.
+    // Raw row positions per cluster. The kernel stages the index on-chip with `to_dm`;
+    // a real per-cluster (`CL`) partition avoids broadcast padding.
     index: &HbmTensor<i32, m![1], m![CL, G]>,
 ) -> DmTensor<bf16, m![1], m![CL], m![G / 2], m![G % 2, D]> {
     let index_dm: DmTensor<i32, m![1], m![CL], m![G / 2], m![G % 2]> =
@@ -600,8 +560,8 @@ fn gather_unscaled(
 #     let mut ctx = Context::acquire();
 # 
 #     let index = &(HostTensor::<i32, m![K]>::zero().to_hbm(&mut ctx.pdma).await);
-#     let data = unsafe { HbmTensor::<bf16, m![1], m![K, D]>::from_addr(0) };
-#     let mut output_hbm = unsafe { HbmTensor::<bf16, m![1], m![C, D]>::from_addr(0) };
+#     let data = HbmTensor::<bf16, m![1], m![K, D]>::new();
+#     let mut output_hbm = HbmTensor::<bf16, m![1], m![C, D]>::new();
 # 
 #     scatter_minimal(&mut ctx, &data, &index, &mut output_hbm);
 #     gather_minimal(&data, &(HostTensor::<i32, m![G]>::zero().to_hbm(&mut ctx.pdma).await));
@@ -610,10 +570,10 @@ fn gather_unscaled(
 # }
 ```
 
-The scaled variants (`dma_gather_scaled`, `dma_scatter`) take the index from an `HbmTensor` in DRAM and read its values as byte offsets along the gather/scatter axis: to address row `r`, pass `r` times one row's byte size (its element count times the element's byte size; e.g. `128 * 2 = 256` for a 128-wide `bf16` row).
+
+The scaled variants (`dma_gather_scaled`, `dma_scatter`) take the index from an `HbmTensor` in DRAM and read its values as byte offsets along the gather/scatter axis.
+To address row `r`, pass `r` times one row's byte size (its element count times the element's byte size, for example `128 * 2 = 256` for a 128-wide `bf16` row).
 `dma_gather_unscaled` instead takes an on-chip `DmTensor` index, staged from DRAM with `to_dm`, and reads its values as raw row positions, for indices computed on-chip such as paged-attention block tables.
-Note a side effect: the seed reads the index off SPM, so the compiler emits an extra DM to SPM DMA to stage the index (SPM is the on-chip tier noted above, not yet a user-facing type).
-Its scatter counterpart `dma_scatter_unscaled` is not yet implemented.
 
 ## PCIe DMA
 

@@ -182,20 +182,26 @@ pub fn config_contract_lane(
             time: time.clone(),
         })?;
     let time_padding_per_stride = padding_per_stride(pre_reduce_time);
-    let padding_end = |d: &DivideTerm| d.dividend_stride * padded_extent_at(&time_padding_per_stride, d);
-    let inner_time = if division_terms.is_empty() {
+    // A sub-term is dropped before the walk, not skipped inside it: the walk compares adjacent
+    // boundaries, and skipping in place would still compare across the sub-term.
+    let boundaries: Vec<(&DivideTerm, usize)> = division_terms
+        .iter()
+        .filter_map(|term| padded_extent_at(&time_padding_per_stride, term).map(|extent| (term, extent)))
+        .collect();
+    let dividend_end = |&(term, extent): &(&DivideTerm, usize)| term.dividend_stride * extent;
+    let inner_time = if boundaries.is_empty() {
         // All axes reduced.
         1
-    } else if padding_end(&division_terms[0]) < pre_reduce_time.size() {
+    } else if dividend_end(&boundaries[0]) < pre_reduce_time.size() {
         // The outermost axis was reduced, so everything below the top is inner to the reduce.
         time.size()
     } else {
         // The outermost retained factor reaches the top; walk outer-to-inner to the first gap between
         // adjacent retained terms (the reduce boundary), else nothing is inner to the reduce.
-        division_terms
+        boundaries
             .windows(2)
-            .find(|w| padding_end(&w[1]) != w[0].dividend_stride)
-            .map_or(1, |w| w[0].divisor_stride)
+            .find(|w| dividend_end(&w[1]) != w[0].0.dividend_stride)
+            .map_or(1, |w| w[0].0.divisor_stride)
     };
 
     // Each `InnerTime` slot holds one `[Lane, Packet]` chunk; the `LaneMode` pads exactly one of the two

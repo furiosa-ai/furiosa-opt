@@ -62,33 +62,3 @@ memset_kernel!(memset_f8e4m3_one, f8e4m3, const { f8e4m3::from_f32(1.0) });
 memset_kernel!(memset_i4_neg_one, i4, const { i4::from_i32(-1) });
 // Explicit in-place aliasing pin (structurally identical: the relayout consumes the fill).
 memset_kernel!(memset_alias_bf16, bf16, const { bf16::from_f32(3.0) });
-
-/// Sub-view fill: `memset(7.0)` writes only the upper half of the in-slice `B` axis (the `B/2 = 64`
-/// tile at offset `64`); the lower half stays the loaded input.
-///
-/// Device (LIR) translation of a sub-view fill is **rejected** today (see `memset::lower`'s TODO and
-/// `snapshot.toml`, which pins this kernel to fail at the `visa` stage): the tile lowers to a padded
-/// in-slice whose window is one block, and `with_full_padding` would overrun it. The VISA-level
-/// (emulation) calculation is still correct, which the answer-key `test_memset_subview_bf16` pins.
-#[device(chip = 1)]
-pub fn memset_subview_bf16(ctx: &mut Context, input: &In<bf16>) -> Out<bf16> {
-    let mut dm: Dm<bf16> = input.to_dm(&mut ctx.tdma);
-    dm.view_mut()
-        .tile::<m![B], 64, m![B = 64 #{!} 128]>(64)
-        .memset(const { bf16::from_f32(7.0) }, &mut ctx.sub);
-    let relaid: Relaid<bf16> = dm.to_dm(&mut ctx.tdma);
-    relaid.to_hbm(&mut ctx.tdma)
-}
-
-/// Negative fixture: a computed fill passed WITHOUT `const { .. }` is rejected at translation
-/// (`snapshot.toml` pins it to fail at the `mir` stage). Without the const block, `bf16::from_f32(1.0)`
-/// is a runtime call in this position; it has no device-translatable body, so the inline pass reports
-/// it (guiding toward `const { .. }`) instead of the compiler panicking on the unlowered call.
-/// Compiles and runs on emulation; the device translate is what requires the const.
-#[device(chip = 1)]
-pub fn memset_missing_const_bf16(ctx: &mut Context, input: &In<bf16>) -> Out<bf16> {
-    let mut dm: Dm<bf16> = input.to_dm(&mut ctx.tdma);
-    dm.view_mut().memset(bf16::from_f32(1.0), &mut ctx.sub);
-    let relaid: Relaid<bf16> = dm.to_dm(&mut ctx.tdma);
-    relaid.to_hbm(&mut ctx.tdma)
-}

@@ -4,7 +4,7 @@
 use core::fmt;
 
 use abi_stable::StableAbi;
-use furiosa_mapping_types::{Ident, Mapping, SequencerError};
+use furiosa_mapping_types::{Mapping, SequencerError};
 use furiosa_opt_macro::primitive;
 
 /// Configuration for the switch (slice/time topology) engine: the caller picks the topology and its
@@ -147,25 +147,16 @@ pub enum SwitchError {
         /// Slice dimension 0 size.
         slice0: usize,
     },
-    /// `Broadcast01`'s InTime volume is not a multiple of its `time0` split.
-    #[error("Broadcast01 InTime::SIZE must be divisible by time0, got InTime::SIZE {in_time_size} (time0 {time0})")]
-    Broadcast01TimeNotDivisible {
-        /// InTime volume.
-        in_time_size: usize,
-        /// Time dimension 0 size.
-        time0: usize,
-    },
-    /// `InterTranspose`'s InTime volume is not a multiple of its `slice1 * time0` split.
+    /// InTime's volume is not a multiple of the split the config's rule asks for, so the components it
+    /// names do not exist. One variant for every named config, since the divisor is what differs.
     #[error(
-        "InterTranspose InTime::SIZE must be divisible by (slice1 * time0), got InTime::SIZE {in_time_size} (slice1 {slice1}, time0 {time0})"
+        "Switch InTime::SIZE must be divisible by the config's time split, got InTime::SIZE {in_time_size} (split {by})"
     )]
-    InterTransposeTimeNotDivisible {
+    TimeNotDivisible {
         /// InTime volume.
         in_time_size: usize,
-        /// Slice dimension 1 size.
-        slice1: usize,
-        /// Time dimension 0 size.
-        time0: usize,
+        /// The product of the time split the rule asks for.
+        by: usize,
     },
     /// The actual output frame does not match the one the config reassembles from the
     /// input components (a moved/preserved component differs, or a tile slot is not a
@@ -199,11 +190,21 @@ pub enum SwitchError {
     /// trimmed, live data may not).
     #[error("Switch read is not sequenceable: {0:?}")]
     Unsequenceable(SequencerError),
-    /// A broadcast axis re-used an InSlice / InTime identifier.
-    #[error("Switch broadcast axis {offending_ident} must be a new axis (not present in input Slice or Time).")]
+    /// A broadcast tile lands on an output region that must not be written (a `Bottom` hole) or that must
+    /// read zero (a `Zero` hole). Fanning data onto either is wrong whatever axis the tile names; a `Top` hole
+    /// is the one a tile MAY extend into, since it is don't-care.
+    #[error("Switch broadcast tile lands on {region}, which must not be written; only a `Top` hole is don't-care.")]
+    OutputHasUnwritableRegion {
+        /// The output slot the tile would fan data onto.
+        region: Mapping,
+    },
+    /// A broadcast tile is an axis the input frame already carries. Reported by its mapping rather than
+    /// an `Ident`: the check is per AXIS, so a tile may name a symbol the input uses and still be new (a
+    /// different digit of it), and naming one identifier out of the window would point at the wrong thing.
+    #[error("Switch broadcast tile {offending_axis} must be an axis the input Slice/Time does not carry.")]
     BroadcastNotNew {
-        /// The identifier that re-used an input Slice/Time axis.
-        offending_ident: Ident,
+        /// The tile window the input frame already carries.
+        offending_axis: Mapping,
     },
     /// An OutSlice slot is sourced from InTime (a time→slice cross), not from InSlice or a
     /// fresh broadcast tile. Reported by its source mapping rather than an `Ident`, since a
@@ -215,11 +216,12 @@ pub enum SwitchError {
         /// The InTime-sourced axis that appeared in OutSlice.
         offending_axis: Mapping,
     },
-    /// A broadcast axis appeared more than once in OutSlice.
-    #[error("Switch broadcast axis {ident} must be used exactly once in OutSlice")]
+    /// Two broadcast tiles claim the same axis, so one output cell would be sourced twice. Reported by the
+    /// axis rather than an identifier: two DIGITS of one symbol are distinct axes and are allowed.
+    #[error("Switch broadcast tiles both claim {offending_axis}; two tiles may not claim one axis.")]
     BroadcastUsedMoreThanOnce {
-        /// The identifier that appeared on more than one tile.
-        ident: Ident,
+        /// The axis a second tile claimed.
+        offending_axis: Mapping,
     },
     /// Slice→time axes are not at OutTime's innermost positions.
     #[error(

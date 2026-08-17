@@ -194,13 +194,13 @@ impl<
 {
     /// Runs the Fetch Adapter's table-lookup stage (main context only).
     ///
-    /// Each input value indexes a decode table selected by the input type `D`
-    /// (via the `TableLookup` trait), not by a runtime argument. The only decode is
-    /// `f4e2m1 -> f8e4m3`, the RNGD paired-key 4b->8b table for NVFP4 / MXFP4
-    /// weights. Chain a [`fetch_cast`](Self::fetch_cast) to widen `f8e4m3` to
-    /// `bf16`/`f32`; the per-block scale is not applied here, it is a separate
-    /// downstream VE multiply. See the book chapter
-    /// `computing-tensors/fetch-adapter.md` (the "Table Lookup" section).
+    /// Each input value indexes a decode table selected by the `TableLookup` impl,
+    /// not by a runtime argument: `f4e2m1` decodes to either 8-bit float through the
+    /// paired 4b->8b table (the NVFP4 / MXFP4 weight path), and either 8-bit float
+    /// decodes to `bf16` through the non-paired table. Chain a
+    /// [`fetch_cast`](Self::fetch_cast) to widen a paired decode to `f32`; the
+    /// per-block scale is applied downstream in the Vector or Contraction Engine.
+    /// See the book chapter `computing-tensors/fetch-adapter.md` ("Table Lookup").
     ///
     /// Only available on the main context: the lookup table lives in a main Fetch Unit register the
     /// sub context lacks. To feed a decoded weight into a contraction, decode here and commit the
@@ -329,7 +329,7 @@ fn verify_fetch_mask<Time: M, Packet: M, OutTime: M, OutPacket: M>() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::Emulation;
+    use crate::backend::Cpu;
     use crate::cast::TableLookup;
     use crate::scalar::{f4e2m1, f8e4m3};
     use crate::tensor::Tensor;
@@ -366,8 +366,8 @@ mod tests {
     #[test]
     fn table_lookup_tensor_map_matches_spec() {
         let keys: Vec<f4e2m1> = (0..16u8).map(f4e2m1::from_bits).collect();
-        let input = Tensor::<f4e2m1, m![C], Emulation>::from_vec(keys);
-        let decoded: Tensor<f8e4m3, m![C], Emulation> = input.map(|v| v.lookup());
+        let input = Tensor::<f4e2m1, m![C], Cpu>::from_vec(keys);
+        let decoded: Tensor<f8e4m3, m![C], Cpu> = input.map(|v| v.lookup());
         let got: Vec<u32> = decoded.into_vec().into_iter().map(|v| v.to_f32().to_bits()).collect();
         let want: Vec<u32> = E2M1_F32_ORACLE.iter().map(|v| v.to_bits()).collect();
         assert_eq!(got, want);

@@ -9,6 +9,11 @@ use crate::MAX_SEQUENCER_ENTRIES;
 /// Bytes a commit packet may carry — a single flit (32 B) trimmed to one of these.
 pub const COMMIT_VALID_PACKET_SIZES: [usize; 4] = [8, 16, 24, 32];
 
+/// Granularity of one commit write, in bytes (the SRAM access width). A commit that also converts
+/// writes half as many bytes as it reads, so its input width must be a multiple of this times the
+/// conversion ratio.
+pub const COMMIT_BASE_SIZE: usize = 8;
+
 /// Why a commit is not realizable on the Commit engine — one variant per `config_commit` check.
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone, PartialEq, Eq, thiserror::Error)]

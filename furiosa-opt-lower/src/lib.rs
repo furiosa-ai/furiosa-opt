@@ -8,22 +8,22 @@
 //! `furiosa_mapping` terms, with no hidden algorithm. Both the frontend (`furiosa-opt-std`) and the IR
 //! backend (`tu-ops` / `npu-visa-translate`) call all of these.
 
-use abi_stable::std_types::{RResult, RString};
+use abi_stable::std_types::{RResult, RString, RVec};
 use furiosa_mapping::{Mapping, PaddingKind};
-
-use abi_stable::std_types::RVec;
 pub use furiosa_opt_lower_types::{
-    COMMIT_VALID_PACKET_SIZES, CommitError, DivideTerm, FactorLeaf, FetchError, MAX_SEQUENCER_ENTRIES, RelaxedDivision,
-    StreamSequencerConfig, SwitchAxis, SwitchConfig, SwitchError, SwitchFrame, TransposeConfig,
+    COMMIT_VALID_PACKET_SIZES, CommitError, DivideTerm, FactorLeaf, FetchError, MAX_SEQUENCER_ENTRIES, PadError,
+    RelaxedDivision, StreamSequencerConfig, SwitchAxis, SwitchConfig, SwitchError, SwitchFrame, TileError,
+    TransposeConfig, TransposeError,
 };
 
 mod verify;
 pub use verify::{
-    BITS_PER_BYTE, CastError, CollectError, CommitTrimError, ContractLaneError, ContractPacketError, ContractTimeError,
-    FLIT_BYTES, LaneMode, StreamAdapterError, TEMPORAL_ACCUMULATOR_COLS, ToTrfError, VectorError, config_cast,
-    config_collect, config_commit_trim, config_contract_lane, config_contract_packet, config_contract_time,
-    config_reduce_label, config_stream_adapter, config_to_trf, config_vector_narrow_split, config_vector_narrow_trim,
-    config_vector_widen_concat, config_vector_widen_pad,
+    BITS_PER_BYTE, CastError, CollectError, CommitCastError, CommitTrimError, ContractLaneError, ContractPacketError,
+    ContractTimeError, FLIT_BYTES, LaneMode, StreamAdapterError, TEMPORAL_ACCUMULATOR_COLS, ToTrfError, ToVrfError,
+    VRF_BYTES, VectorError, config_cast, config_collect, config_commit_cast, config_commit_trim, config_contract_lane,
+    config_contract_packet, config_contract_time, config_reduce_label, config_stream_adapter, config_to_trf,
+    config_to_vrf, config_vector_narrow_split, config_vector_narrow_trim, config_vector_widen_concat,
+    config_vector_widen_pad,
 };
 
 /// Raw `extern "C-unwind"` decls for the prebuilt impl's exports.
@@ -38,7 +38,7 @@ mod sys {
             out_time: &Mapping,
             out_packet: &Mapping,
             element_bits: usize,
-        ) -> RResult<TransposeConfig, RString>;
+        ) -> RResult<TransposeConfig, TransposeError>;
 
         pub(super) fn config_fetch(
             in_time: &Mapping,
@@ -82,21 +82,21 @@ mod sys {
             expected: &Mapping,
             len: usize,
             hole_fill: PaddingKind,
-        ) -> RResult<(), RString>;
+        ) -> RResult<(), TileError>;
+
+        pub(super) fn config_pad(element: &Mapping, expected: &Mapping) -> RResult<(), PadError>;
     }
 }
 
-/// Resolve transpose-engine hardware parameters, or the rendered error.
+/// Resolve transpose-engine hardware parameters, or the [`TransposeError`].
 pub fn config_transpose(
     time: &Mapping,
     packet: &Mapping,
     out_time: &Mapping,
     out_packet: &Mapping,
     element_bits: usize,
-) -> Result<TransposeConfig, String> {
-    unsafe { sys::config_transpose(time, packet, out_time, out_packet, element_bits) }
-        .into_result()
-        .map_err(String::from)
+) -> Result<TransposeConfig, TransposeError> {
+    unsafe { sys::config_transpose(time, packet, out_time, out_packet, element_bits) }.into_result()
 }
 
 /// Synthesize the fetch read descriptors, or the [`FetchError`].
@@ -171,7 +171,7 @@ pub fn switch_custom_snoop_bitmap(
         .map(|bitmap| bitmap.into_iter().map(Vec::from).collect())
 }
 
-/// Validate a `tile` view (`index` divides `element` into `expected`), or the rendered error.
+/// Validate a `tile` view (`index` divides `element` into `expected`), or the [`TileError`].
 ///
 /// `hole_fill` is the padding kind the out-of-tile cells must carry — Top for a
 /// read `view().tile()`, Bottom (down padding) for a `view_mut().tile()` write
@@ -182,8 +182,13 @@ pub fn config_tile(
     expected: &Mapping,
     len: usize,
     hole_fill: PaddingKind,
-) -> Result<(), String> {
-    unsafe { sys::config_tile(index, element, expected, len, hole_fill) }
-        .into_result()
-        .map_err(String::from)
+) -> Result<(), TileError> {
+    unsafe { sys::config_tile(index, element, expected, len, hole_fill) }.into_result()
+}
+
+/// Validate a `pad` view (`expected` is `element` under one outermost `Top` padding factor), or the
+/// rendered error. The inverse of the read [`config_tile`] that drops such a factor: a `pad` restates
+/// the same cells inside the wider buffer they live in.
+pub fn config_pad(element: &Mapping, expected: &Mapping) -> Result<(), PadError> {
+    unsafe { sys::config_pad(element, expected) }.into_result()
 }

@@ -12,6 +12,14 @@
 //! `gather_paged_kv` gathers over a 4-D DRAM pool whose gather-key label `NBlocks` is reused in
 //! the gathered output. That reused key is what the visa->LIR indirect-key relabeling isolates by
 //! subtracting the index's own labels.
+//!
+//! [`negative::scatter_gather::invalid_gather_unscaled_index_over_spm`](crate::negative::scatter_gather::invalid_gather_unscaled_index_over_spm)
+//! pins the per-PE SPM bound on an unscaled gather's index list, and the two kernels here are the
+//! ways out. `gather_scaled_from_raw_index` takes a RAW row-position index and scales it on-device
+//! into the byte offsets a scaled gather wants, the recommended shape for an index too large for
+//! that list. `gather_unscaled_split_index` answers the same limit without leaving the unscaled
+//! gather, by splitting the index into SPM-sized chunks and writing each chunk's gathered block
+//! into its slot of one output.
 
 use furiosa_opt_std::prelude::*;
 
@@ -22,6 +30,15 @@ axes![
     G = 512, // Slice-aligned gather count (G / 2 = 256)
     U = 768, // Unaligned gather count (non-power-of-2, > K: 3 rows/slice, U / 3 = 256)
     CL = 2   // Real cluster partition (hardware has 2 clusters/chip): placed, not broadcast
+];
+
+// Raw-index scaled-gather axes, sized like an index the unscaled gather cannot take: `IdxRows *
+// Indices = 2048` i32 entries is 8 KiB, twice the SPM one PE holds the unscaled index list in.
+axes![
+    Rows = 12,     // table rows the raw index selects (non-power-of-2, coprime to the index's 37)
+    IdxRows = 16,  // index rows; `IdxRows * (Indices / 8) = 256` fills the hardware slices
+    Indices = 128, // indices per index row
+    Width = 8      // bf16 payload ELEMENTS per table row; the row's byte stride is `Width * 2 = 16`
 ];
 
 // Multi-dim DRAM-pool gather axes. `NBlocks * PBlock = 256` fills the slices; the gather remaps
@@ -120,6 +137,95 @@ pub fn gather_aligned_unscaled(
     let values_dm: DmTensor<bf16, Chip, Cluster, m![G / 2], m![G % 2, D]> = table.dma_gather_unscaled(&index_dm);
 
     values_dm.to_hbm(&mut ctx.tdma)
+}
+
+/// Scaled gather fed by a RAW row-position index, scaled on-device: the DRAM index is staged to DM
+/// (`to_dm`), multiplied by the table's row stride in bytes on the vector engine
+/// (`FxpBinaryOp::MulInt`, an i32 multiply), written back to DRAM (`to_hbm`), and handed to
+/// [`HbmTensor::dma_gather_scaled`].
+///
+/// The scale is a BYTE stride, not an element count: the `bf16` payload makes the two differ
+/// (`ROW_BYTES = Width * 2 = 16`, against `Width = 8` elements), so scaling by the element count
+/// would gather every other row's first half and the value oracle would diverge.
+///
+/// This is the recommended shape for a large index. The unscaled gather reads its index list off
+/// ONE PE's SPM, so `IdxRows * Indices = 2048` i32 entries (8 KiB against a 4 KiB per-PE budget)
+/// cannot be scheduled; the scaled gather reads its index from DRAM and has no such bound, and the
+/// scaling the caller would otherwise do on the host is four vISA statements here.
+#[device(chip = 1)]
+pub fn gather_scaled_from_raw_index(
+    ctx: &mut Context,
+    table: &HbmTensor<bf16, Chip, m![Rows, Width]>,
+    index: &HbmTensor<i32, Chip, m![IdxRows, Indices]>,
+) -> HbmTensor<bf16, Chip, m![IdxRows, Indices, Width]> {
+    type Slice = m![IdxRows, Indices / 8];
+    type Packet = m![Indices % 8];
+    const ROW_BYTES: i32 = (<m![Width]>::SIZE * size_of::<bf16>()) as i32;
+
+    let raw: DmTensor<i32, Chip, Cluster, Slice, Packet> = index.to_dm(&mut ctx.tdma);
+    let scaled: DmTensor<i32, Chip, Cluster, Slice, Packet> = ctx
+        .main
+        .begin(raw.view())
+        .fetch::<m![1], Packet>()
+        .fetch_cast::<i32>()
+        .collect::<m![1], m![Indices % 8]>()
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_fxp(FxpBinaryOp::MulInt, ROW_BYTES)
+        .vector_final()
+        .commit_trim::<Packet>()
+        .commit();
+    let offsets: HbmTensor<i32, Chip, m![IdxRows, Indices]> = scaled.to_hbm(&mut ctx.tdma);
+
+    let values: DmTensor<bf16, Chip, Cluster, Slice, m![Indices % 8, Width]> = table.dma_gather_scaled(&offsets);
+
+    values.to_hbm(&mut ctx.tdma)
+}
+
+/// The other way out of the SPM bound
+/// [`crate::negative::scatter_gather::invalid_gather_unscaled_index_over_spm`] hits: keep the
+/// index RAW and the gather UNSCALED, and split the INDEX instead. Each of the `Indices / 32 = 4`
+/// chunks stages its own `IdxRows * (Indices % 32) = 512` i32 entries (2 KiB, inside the 4 KiB
+/// per-PE budget); the four gathered blocks are reassembled by writing each into its
+/// `view_mut().tile()` slot of one HBM output.
+///
+/// The chunk narrows each slice's PACKET (`Indices % 2`, 2 of the whole gather's 8) and keeps all
+/// `IdxRows * (Indices % 32 / 2) = 256` slices, because a DM allocation must span the device's whole
+/// slice extent -- chunking the index by rows (a 64-slice `IdxRows / 4` chunk) is rejected at MIR
+/// ("slice extent 64 does not match the device config"). Trades
+/// [`gather_scaled_from_raw_index`]'s vector-engine scaling pass plus its index round trip through
+/// DRAM for four narrower staged DMAs, keeping the index on-chip.
+///
+/// The output is a kernel-local `HbmTensor::new` that is returned, the same idiom as
+/// [`crate::tile::tile_chunked_output`]: a caller-allocated `&mut` output
+/// parameter (the safe form [`scatter_minimal`] uses) does execute under VISA, but the per-chunk
+/// tiled writeback then reaches LIR with NO registered output -- a tile write resolves against the
+/// returned tensor after the loop closes, and a parameter has no such resolution.
+#[device(chip = 1)]
+pub fn gather_unscaled_split_index(
+    ctx: &mut Context,
+    table: &HbmTensor<bf16, Chip, m![Rows, Width]>,
+    index: &HbmTensor<i32, Chip, m![IdxRows, Indices]>,
+) -> HbmTensor<bf16, Chip, m![IdxRows, Indices, Width]> {
+    type Slice = m![IdxRows, Indices % 32 / 2];
+    type Packet = m![Indices % 2];
+
+    let mut out = HbmTensor::<bf16, Chip, m![IdxRows, Indices, Width]>::new();
+    for c in 0..<m![Indices / 32]>::SIZE {
+        let chunk: DmTensor<i32, Chip, Cluster, Slice, Packet> = index
+            .view()
+            .tile::<m![Indices / 32], 1, m![IdxRows, 1 # 4, Indices % 32]>(c)
+            .to_dm(&mut ctx.tdma);
+        let values: DmTensor<bf16, Chip, Cluster, Slice, m![Indices % 2, Width]> = table.dma_gather_unscaled(&chunk);
+
+        values.view().to_hbm_view(
+            &mut ctx.tdma,
+            out.view_mut()
+                .tile::<m![Indices / 32], 1, m![IdxRows, 1 #{!} 4, Indices % 32, Width]>(c),
+        );
+    }
+
+    out
 }
 
 /// Placed-cluster twin of [`gather_aligned_unscaled`]: the staged SPM index is distributed across

@@ -124,7 +124,7 @@ pub fn stotrf_table_lookup_gemm(
             );
     }
 
-    let mut out = unsafe { HbmTensor::<bf16, Chip, m![Tok, Out]>::from_addr(0x0080_0000) };
+    let mut out = HbmTensor::<bf16, Chip, m![Tok, Out]>::new();
     out_dm.view().to_hbm_view(&mut ctx.tdma, out.view_mut());
     out
 }

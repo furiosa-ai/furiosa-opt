@@ -1,6 +1,6 @@
 [package]
 name = "furiosa-opt-lower"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/furiosa-ai/furiosa-opt"
@@ -9,7 +9,7 @@ description = "Public interface for the furiosa-opt lowering engines."
 
 [dependencies]
 abi_stable = { workspace = true }
-furiosa-mapping = { path = "../furiosa-mapping", version = "0.5" }
-furiosa-opt-lower-types = { path = "../furiosa-opt-lower-types", version = "0.5" }
+furiosa-mapping = { path = "../furiosa-mapping", version = "0.6" }
+furiosa-opt-lower-types = { path = "../furiosa-opt-lower-types", version = "0.6" }
 thiserror = { workspace = true }
 

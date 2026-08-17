@@ -35,7 +35,8 @@ use crate::tensor::tu::TuTensor;
 ///
 /// Two dtype params, related by the `Storage: ContractionCast<Output = D>` bound that pins them:
 /// - `D` is the *widened accumulator* the operands are carried in (`i4`/`i8` -> `i32`, `f8`/`bf16` -> `f32`).
-/// - `Storage` is the pre-widen operand dtype. It is retained only so the Packet Reducer's physical-flit
+/// - `Storage` is the pre-widen operand dtype, one the engine can multiply ([`ContractionCast`]). It is
+///   retained only so the Packet Reducer's physical-flit
 ///   check ([`super::packet::verify_contract_packet`]) can size the DPE *input* packet in storage bytes,
 ///   which the widened `D` no longer encodes (`Storage` is not recoverable from `D` — the widen is
 ///   many-to-one, so this second param is load-bearing, not redundant).
@@ -114,8 +115,11 @@ impl<
 > TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
     /// Runs the Outer stage: stashes the two un-broadcast operands (widened to the accumulator type)
-    /// and the layouts [`super::lane::contract_lane`] needs to fuse them into a [`LazyContraction`]. No
+    /// and the layouts [`super::ContractTimeTensor::contract_lane`] needs to fuse them into a [`LazyContraction`]. No
     /// materializing alternative, no per-backend branch -- every backend fuses the same way.
+    ///
+    /// The impl block binds [`ContractionCast`], so this method does not exist on a `TuTensor` whose
+    /// element type the Multiplier has no MAC for.
     #[primitive(TuTensor::contract_outer)]
     pub fn contract_outer<OutTime: M, OutPacket: M, Lane: M, TrfElement: M, TrfD>(
         self,
@@ -149,18 +153,9 @@ impl<
         // to the old per-cell widen (same `Cast::cast` per element), it just never allocates the
         // pre_reduce-shaped broadcast this stage used to build.
         //
-        // `map_bounded`, NOT the plain `map`: `D` (the stream side) and `TrfD` (the TRF side) may each
-        // legitimately be a non-`MaterializableScalar` staging type (`i5`/`i9`, produced by
-        // `fetch_zero_point_sub` -- "an i5/i9 may still be a contraction weight resident in the TRF" per
-        // its own doc). Such a type's storage-native length recovery over-reports (its `BITS` names a
-        // real-hardware wire width, disconnected from its host in-memory size), so a plain `map`'s
-        // internal whole-buffer walk reads/writes past the buffer once the count crosses the true
-        // element count -- this is the ONE place either operand is read back as a whole tensor before
-        // `contract_lane`'s fused `Backend::contraction` (its only other lifetime is written-once by
-        // `fetch_zero_point_sub`, never read back that way), so it is also the one place this matters.
         let contraction = LazyContraction {
-            lhs: self.inner.map_bounded(|v| -> Out<D> { v.cast() }).inner,
-            rhs: trf_tensor.inner.map_bounded(|v| -> Out<D> { v.cast() }).inner,
+            lhs: self.inner.map(|v| -> Out<D> { v.cast() }).inner,
+            rhs: trf_tensor.inner.map(|v| -> Out<D> { v.cast() }).inner,
             lhs_map,
             rhs_map,
             pre_reduce,

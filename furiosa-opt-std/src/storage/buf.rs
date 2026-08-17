@@ -5,7 +5,7 @@ use furiosa_mapping::*;
 use rayon::prelude::*;
 
 use crate::backend::op_prep::{broadcast_axes, gather_params, scatter_params, transpose_broadcast};
-use crate::cast::{Cast, ContractionCast};
+use crate::cast::{Cast, ContractionAccumulator, ContractionCast};
 use crate::scalar::*;
 use crate::storage::par_iters::MappingPositions;
 use crate::storage::{PAR_MIN_JOB, min_cells_per_job};
@@ -14,7 +14,7 @@ pub trait Buf: From<Vec<u8>> + Into<Vec<u8>> + AsRef<[u8]> + AsMut<[u8]> + Clone
 
 impl<T> Buf for T where T: From<Vec<u8>> + Into<Vec<u8>> + AsRef<[u8]> + AsMut<[u8]> + Clone + std::fmt::Debug {}
 
-/// Emulation / Npu tensor: the dense device image as one packed `Vec<u8>`. Element `i` sits at position
+/// Cpu / Npu tensor: the dense device image as one packed `Vec<u8>`. Element `i` sits at position
 /// `i` (padding included, zero-initialized); a byte-multiple `D` takes its own byte run, a sub-byte `D`
 /// (`f4e2m1` / `i4`) packs two per byte. Only [`Scalar::load`] / [`Scalar::store`] know the width, so the
 /// generic-over-`D` ops address elements by logical index. The element count is byte-aligned (enforced by
@@ -52,23 +52,23 @@ impl<D: Scalar, B: Buf> From<B> for BufStorage<D, B> {
 }
 
 impl<D: Scalar, B: Buf> BufStorage<D, B> {
-    /// The packed byte length for `n` elements (`n * BITS / 8`, exact: `n` is byte-aligned by the
+    /// The host buffer byte length for `n` elements (exact: `n` is byte-aligned by the
     /// [`Self::from_vec`] invariant). A byte-multiple width divides evenly for any `n`; a 4-bit width
     /// needs an even `n`.
     fn byte_len(n: usize) -> usize {
-        n * D::BITS / 8
+        n * D::STAGING_BITS / 8
     }
 
-    /// Packs a logical `Vec<D>` on `D::BITS` via [`Scalar::store`]. The single constructor and sole
+    /// Packs a logical `Vec<D>` on `D::STAGING_BITS` via [`Scalar::store`]. The single constructor and sole
     /// byte-alignment enforcement point. No `mapping`-size check here (`BufStorage` is layout-free); the
     /// `data.len() == Mapping::SIZE` gate lives in the `Tensor::from_vec` wrapper, matching `MathStorage`.
     pub(crate) fn from_vec(data: impl IntoIterator<Item = D>) -> Self {
         let vals: Vec<D> = data.into_iter().collect();
         assert!(
-            (vals.len() * D::BITS).is_multiple_of(8),
+            (vals.len() * D::STAGING_BITS).is_multiple_of(8),
             "BufStorage<D>: a sub-byte element count must be byte-aligned (got {} elements at {} bits)",
             vals.len(),
-            D::BITS,
+            D::STAGING_BITS,
         );
         // `Scalar::to_buf` is the single packer: a byte-multiple width memcpys the whole slice, a
         // sub-byte width packs two codes per byte (zero-initializing first, since each nibble store is a
@@ -95,10 +95,10 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// lowers to `alloc_zeroed` (calloc), skipping the eager `Vec<D>` memset + pack that `from_vec` does.
     pub(crate) fn zeroed(n: usize) -> Self {
         assert!(
-            (n * D::BITS).is_multiple_of(8),
+            (n * D::STAGING_BITS).is_multiple_of(8),
             "BufStorage<D>: a sub-byte element count must be byte-aligned (got {} elements at {} bits)",
             n,
-            D::BITS,
+            D::STAGING_BITS,
         );
         Self {
             // We only need an uninit alloc here (zero cost): relayouts write only the live cells.
@@ -108,53 +108,11 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         }
     }
 
-    /// The element count, recovered from the byte length (exact: the count is byte-aligned).
-    ///
-    /// Sound only if `D::BITS` actually matches what `D`'s own `to_buf`/`load`/`store` pack per
-    /// element -- true for every [`crate::scalar::MaterializableScalar`] (a byte-aligned type's `BITS`
-    /// IS `size_of::<D>() * 8` by construction; a sub-byte one, `i4`/`f4e2m1`, overrides all three to
-    /// pack exactly `BITS` bits). A non-materializable staging type (`i5`/`i9`) does NOT hold this: its
-    /// `BITS` names a real-hardware wire width, while its (unoverridden, default) `to_buf`/`load`/
-    /// `store` pack its full host `size_of` -- for `i9` (an `i16`) that's double `BITS`'s 8-bit claim.
-    /// Such a type is architecturally meant to be read/written only through a Mapping-bounded op
-    /// (transpose, reduce, [`crate::tensor::Tensor::map_bounded`]) or as the WRITE target of a widen,
-    /// never through this (or `par_iter`/`map`/`zip_with`/`zip3_with`/`to_vec`/`into_vec`, every one of
-    /// which derives its element count from this method) -- calling any of them on such a type is not
-    /// merely wrong, it silently reads/writes past the buffer once the (over-reported) count crosses
-    /// the true element count. The debug-only check below catches that class of mistake at its very
-    /// first `len()` call rather than downstream as a confusing out-of-range panic (or, worse, a
-    /// same-length sibling silently masking it, as `zip_with` did for i9 until #18934's `map` exposed
-    /// it -- see that PR's fix commit). Cached per-monomorphization (one real `to_buf` probe per `D`
-    /// ever used, not per call) since `len()` sits on the hot path.
-    pub(crate) fn len(&self) -> usize
-    where
-        D: MaterializableScalar,
-    {
-        #[cfg(debug_assertions)]
-        {
-            use std::sync::OnceLock;
-            static CHECKED: OnceLock<()> = OnceLock::new();
-            CHECKED.get_or_init(|| {
-                let bits_based = Self::byte_len(8);
-                let actual: [D; 8] = [num_traits::Zero::zero(); 8];
-                let real = D::to_buf(&actual).len();
-                assert_eq!(
-                    bits_based,
-                    real,
-                    "BufStorage<{}>: `Scalar::BITS` ({}) disagrees with `to_buf`'s own packed byte \
-                     width for 8 elements ({bits_based} vs {real} bytes). This type's whole-buffer \
-                     host ops (`len`/`par_iter`/`map`/`zip_with`/`zip3_with`/`to_vec`/`into_vec`) are \
-                     unsound: `BITS` does not describe what `to_buf`/`load`/`store` actually pack per \
-                     element (a hardware-only staging type, e.g. `i5`/`i9`, has a `BITS` naming a \
-                     real-device wire width that its host in-memory form does not match). Route this \
-                     type through a Mapping-bounded op instead (`Tensor::map_bounded`, transpose, \
-                     reduce), never a bare whole-buffer one.",
-                    std::any::type_name::<D>(),
-                    D::BITS,
-                );
-            });
-        }
-        self.bytes.as_ref().len() * 8 / D::BITS
+    /// The element count, recovered from the byte length on `D::STAGING_BITS` (exact: the count is
+    /// byte-aligned). `STAGING_BITS`, not `BITS`: a staging type (`i5`/`i9`) sits in its wider backing
+    /// integer here, and `BITS` names only the wire width.
+    pub(crate) fn len(&self) -> usize {
+        self.bytes.as_ref().len() * 8 / D::STAGING_BITS
     }
 
     /// Reads element `i` via [`Scalar::load`].
@@ -166,10 +124,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// Reads element `i` if in range, else `None` (the guarded `get` the fold paths use for a
     /// split-then-padded out-of-range read).
     #[inline]
-    pub(crate) fn try_get(&self, i: usize) -> Option<D>
-    where
-        D: MaterializableScalar,
-    {
+    pub(crate) fn try_get(&self, i: usize) -> Option<D> {
         (i < self.len()).then(|| self.get(i))
     }
 
@@ -182,10 +137,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// The logical element values as a `Vec<D>`, decoded without consuming the buffer (one `D` per
     /// element). Borrowing readback peer of `from_vec`; consuming callers move through `into_vec` /
     /// `into_buf`.
-    pub(crate) fn to_vec(&self) -> Vec<D>
-    where
-        D: MaterializableScalar,
-    {
+    pub(crate) fn to_vec(&self) -> Vec<D> {
         (0..self.len()).map(|i| self.get(i)).collect()
     }
 
@@ -195,7 +147,6 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// [`Self::par_chunks_mut`] (its mutable, byte-owning peer). Backs [`Self::map`] and the zips.
     pub(crate) fn par_iter(&self) -> impl IndexedParallelIterator<Item = D> + '_
     where
-        D: MaterializableScalar,
         B: Sync,
     {
         (0..self.len()).into_par_iter().map(move |i| self.get(i))
@@ -214,11 +165,11 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         &mut self,
         min_elems: usize,
     ) -> impl IndexedParallelIterator<Item = BufChunkMut<'_, D>> {
-        // The alignment quantum `align = lcm(8, BITS) / BITS` is the fewest elements that fill a whole
+        // The alignment quantum `align = lcm(8, STAGING_BITS) / STAGING_BITS` is the fewest elements that fill a whole
         // number of bytes (2 for a 4-bit width, 1 for a byte-multiple width); round `min_elems` up to it so
         // each chunk owns a whole number of elements, byte-aligned on both ends.
         const CACHE_LINE: usize = 64;
-        let align = lcm(8, D::BITS) / D::BITS;
+        let align = lcm(8, D::STAGING_BITS) / D::STAGING_BITS;
         let elems_per_chunk = min_elems.next_multiple_of(align).max(align);
         // Round the chunk up to a cache line so two adjacent chunks never share one: byte-disjoint already
         // guarantees correctness, but a `bytes_per_chunk` off a 64B boundary leaves neighbours sharing a
@@ -226,8 +177,8 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         // quantum (1 / 2 / 4B), so the whole-byte invariant is preserved.
         let bytes_per_chunk = Self::byte_len(elems_per_chunk).next_multiple_of(CACHE_LINE);
         // Recompute elems from the rounded byte count so `lo = c * elems_per_chunk` stays exact: `64 * 8`
-        // is divisible by every `D::BITS` (4 / 8 / 16 / 32), so the division is lossless.
-        let elems_per_chunk = bytes_per_chunk * 8 / D::BITS;
+        // is divisible by every `D::STAGING_BITS` (4 / 8 / 16 / 32), so the division is lossless.
+        let elems_per_chunk = bytes_per_chunk * 8 / D::STAGING_BITS;
         self.bytes
             .as_mut()
             .par_chunks_mut(bytes_per_chunk)
@@ -236,7 +187,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
                 // Each chunk owns the element range starting at `c * elems_per_chunk`; the last chunk may be
                 // short, so its length is what its own bytes hold.
                 let lo = c * elems_per_chunk;
-                let hi = lo + bytes.len() * 8 / D::BITS;
+                let hi = lo + bytes.len() * 8 / D::STAGING_BITS;
                 BufChunkMut {
                     bytes,
                     lo,
@@ -251,22 +202,10 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// [`crate::backend::Backend::map`].
     pub(crate) fn map<D2: Scalar>(&self, f: impl Fn(D) -> D2 + Sync) -> BufStorage<D2, B>
     where
-        D: MaterializableScalar,
         B: Sync,
     {
         // Pass `&f` (a moved `f` would demand `f: Send`); this keeps `f` `Sync`-only with no closure.
         BufStorage::from_vec(self.par_iter().map(&f).collect::<Vec<_>>())
-    }
-
-    /// [`Self::map`], but walks an explicit `len` range instead of [`Self::par_iter`] (so it never
-    /// calls [`Self::len`]). Backs [`crate::backend::Backend::map_bounded`]; see
-    /// [`crate::tensor::Tensor::map_bounded`] for why plain `map` is unsound for a non-`MaterializableScalar`
-    /// staging type (`i5`/`i9`), whose own `self.len()` over-reports.
-    pub(crate) fn map_bounded<D2: Scalar>(&self, len: usize, f: impl Fn(D) -> D2 + Sync) -> BufStorage<D2, B>
-    where
-        B: Sync,
-    {
-        BufStorage::from_vec((0..len).into_par_iter().map(|i| f(self.get(i))).collect::<Vec<_>>())
     }
 
     /// Element-wise zip of two same-layout physical buffers, bare `D`, offset-aligned. Backs
@@ -385,8 +324,8 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// REASSOCIATES: one output cell's residue block is folded left-to-right in `residue` order, which is
     /// the physical (wire) order of the reduced axes, not necessarily the serial-`iter` stream order, so
     /// `reduce_fn` runs in an implementation-defined order. For an associative `reduce_fn` the result
-    /// equals the serial one; for a non-associative one (e.g. `f32` add/mul) the Emulation result can
-    /// differ from serial. Accepted: Emulation is not bit-reproducible for non-associative reductions.
+    /// equals the serial one; for a non-associative one (e.g. `f32` add/mul) the Cpu result can
+    /// differ from serial. Accepted: Cpu is not bit-reproducible for non-associative reductions.
     /// The order is still deterministic across runs regardless of rayon's split, since each cell folds
     /// its whole block alone.
     pub(crate) fn reduce<Src: M, Dst: M, R: Fn(D, D) -> D + Sync>(
@@ -415,7 +354,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         let out_size = dst.size();
         let plan = ReadPlan::new(&src, &dst, &reduce_residue);
         // Fold each independent output cell across the rayon pool into a logical `Vec<D>`, then pack the
-        // result on `D::BITS` via `from_vec`. `with_min_len` holds each job at >= `PAR_MIN_JOB` work
+        // result on `D::STAGING_BITS` via `from_vec`. `with_min_len` holds each job at >= `PAR_MIN_JOB` work
         // (cells x live residue) so small reduces stay one job. A dead (padding) cell has no reads and
         // keeps its `identity`. A split-then-padded reduced axis can land a read past the physical
         // buffer, so `try_get` skips an out-of-range one.
@@ -438,19 +377,17 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
 
     /// Fused contraction (generalized matmul) for the physical buffer: each output cell independently
     /// sums `lhs * rhs` over the contracted axes (those in `Union` but absent from `Out`). O(`Out`)
-    /// memory, no `Union` outer product. Backs [`crate::backend::Backend::contraction`] for Emulation.
+    /// memory, no `Union` outer product. The one fold behind [`Self::contraction`] and
+    /// [`Self::contraction_prewidened`], which pick `Acc` so no caller names it.
     ///
     /// Per-output-cell: each operand offset splits into the output
     /// cell's read base plus a contracted-coordinate delta, and each output cell folds that block into
     /// its own slot (`par_iter_mut`), no shared accumulator. An operand axis absent from `Out` (a
     /// contracted axis) is a residue delta; an axis the operand lacks broadcasts (its base / delta is 0).
     ///
-    /// Accumulates in `<D as ContractionCast>::Output`: each operand
-    /// widens on load via [`Cast`] (`D -> Output`), the contracted block sums in the wider type, and the
-    /// sum narrows via [`Cast`] (`Output -> D`) into the slot. So an `i8` matmul accumulates in `i32` and
-    /// a `bf16` matmul in `f32`, instead of overflowing the narrow dtype. The bf16 test below
-    /// (`contraction_bf16_recovers_...`) pins this; the i8 fold shares this code and is deferred to
-    /// dedicated coverage (#176 int-GEMM).
+    /// Widens each operand on load (`D -> Acc`), sums in `Acc`, and narrows once into the slot, so an
+    /// `i8` matmul accumulates in `i32` without a widened copy of either operand. `D` may be a staging
+    /// type: an `i9` stream folds here without ever reaching memory.
     ///
     /// One `Backend::contraction` is a single within-slice contraction (its `Union`/`Out` carry no
     /// `Slice` axis), so its narrow is the per-slice Lane Folder narrow. A cross-slice reduction is a
@@ -459,9 +396,9 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     ///
     /// REASSOCIATES, like [`Self::reduce`]: one output cell's products are summed in physical (wire)
     /// order of the contracted axes, not the serial-`iter` stream order. Exact for an associative
-    /// combine; for `f32` add/mul the Emulation result can differ from serial. Accepted; the order is
+    /// combine; for `f32` add/mul the Cpu result can differ from serial. Accepted; the order is
     /// still deterministic across runs regardless of rayon's split.
-    pub(crate) fn contraction(
+    fn contraction_in<Acc>(
         lhs: &BufStorage<D, B>,
         rhs: &BufStorage<D, B>,
         lhs_map: &MappingValue,
@@ -470,7 +407,8 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         out_map: &MappingValue,
     ) -> BufStorage<D, B>
     where
-        D: ContractionCast + MaterializableScalar,
+        D: Cast<Acc>,
+        Acc: ContractionAccumulator + Cast<D>,
         B: Sync,
     {
         // A bare `BufStorage` carries no axes of its own, so the operand layouts arrive as
@@ -485,10 +423,8 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         let rhs_plan = ReadPlan::new(rhs_map, out_map, &contracted);
         let mut out = vec![num_traits::Zero::zero(); out_size];
         // Each output cell sums the products over its contracted block (the two plans' reads zip
-        // position-aligned) in `<D as ContractionCast>::Output`: operands widen on load via `Cast`
-        // (`D -> Output`), the sum narrows via `Cast` (`Output -> D`). A dead (padding) cell has no
-        // reads and keeps its zero. A split-then-padded contracted coordinate can land past a buffer,
-        // so skip an out-of-range read.
+        // position-aligned). A dead (padding) cell has no reads and keeps its zero. A split-then-padded
+        // contracted coordinate can land past a buffer, so skip an out-of-range read.
         out.par_iter_mut()
             .with_min_len(min_cells_per_job(lhs_plan.cell_work()))
             .enumerate()
@@ -496,23 +432,52 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
                 let (Some(lhs_reads), Some(rhs_reads)) = (lhs_plan.reads(o), rhs_plan.reads(o)) else {
                     return;
                 };
-                // Sum the products in `ContractionCast::Output`: each MAC widens both operands via
-                // `Cast`, `filter_map` drops a split-then-padded out-of-range read, and the accumulator
-                // narrows via `Cast` after the block folds (`fold` seed = wide zero). The narrow sits
-                // outside the fold, the Lane Folder's narrow-once-after-the-reduction.
+                // The narrow sits outside the fold: one per output cell, as the Lane Folder does.
+                // `filter_map` drops a split-then-padded out-of-range read.
                 let acc = lhs_reads
                     .zip(rhs_reads)
                     .filter_map(|(lp, rp)| match (lhs.try_get(lp), rhs.try_get(rp)) {
                         (Some(l), Some(r)) => Some(Cast::cast(l) * Cast::cast(r)),
                         _ => None,
                     })
-                    .fold(
-                        <<D as ContractionCast>::Output as num_traits::Zero>::zero(),
-                        |acc, prod| acc + prod,
-                    );
+                    .fold(<Acc as num_traits::Zero>::zero(), |acc, prod| acc + prod);
                 *slot = Cast::cast(acc);
             });
         Self::from_vec(out)
+    }
+
+    /// [`Self::contraction_in`] accumulating in [`ContractionCast::Output`], the width the engine's
+    /// Multiplier widens this operand type to. Peer of [`crate::backend::Backend::contraction`].
+    pub(crate) fn contraction(
+        lhs: &BufStorage<D, B>,
+        rhs: &BufStorage<D, B>,
+        lhs_map: &MappingValue,
+        rhs_map: &MappingValue,
+        pre_reduce: &MappingValue,
+        out_map: &MappingValue,
+    ) -> BufStorage<D, B>
+    where
+        D: ContractionCast,
+        B: Sync,
+    {
+        Self::contraction_in::<<D as ContractionCast>::Output>(lhs, rhs, lhs_map, rhs_map, pre_reduce, out_map)
+    }
+
+    /// [`Self::contraction_in`] over operands already at accumulator width, so its casts are the
+    /// identity. Peer of [`crate::backend::Backend::contraction_prewidened`].
+    pub(crate) fn contraction_prewidened(
+        lhs: &BufStorage<D, B>,
+        rhs: &BufStorage<D, B>,
+        lhs_map: &MappingValue,
+        rhs_map: &MappingValue,
+        pre_reduce: &MappingValue,
+        out_map: &MappingValue,
+    ) -> BufStorage<D, B>
+    where
+        D: ContractionAccumulator,
+        B: Sync,
+    {
+        Self::contraction_in::<D>(lhs, rhs, lhs_map, rhs_map, pre_reduce, out_map)
     }
 
     /// Scatters `self` into `dst` at positions read from the `i32` index tensor. Backs
@@ -792,7 +757,7 @@ impl ReadPlan {
 /// mapping, so a tiled offset axis the relayout's `Src` / `Dst` *type* carries as padding is still a
 /// live `Symbol` here and matches; the view shares the base's wire layout, so this position is also the
 /// partial view's start in the buffer.
-fn window_base(base_map: &MappingValue, offset: &Index) -> usize {
+pub(crate) fn window_base(base_map: &MappingValue, offset: &Index) -> usize {
     if *offset == Index::new() {
         return 0;
     }
@@ -907,6 +872,49 @@ mod tests {
         }
     }
 
+    /// `len()` must recover the count that went in, for every dtype: it divides the byte length by
+    /// `STAGING_BITS`, so a staging type whose wire `BITS` is narrower than its host form (`i5` an `i8`,
+    /// `i9` an `i16`) has to round-trip too. Every whole-buffer walk (`par_iter` / `map` / `to_vec`)
+    /// derives its element count from this, and a `BITS`-based count walked past the buffer.
+    #[test]
+    fn len_round_trips_the_element_count_for_every_dtype() {
+        fn check<D: Scalar>(n: usize) {
+            let buf = BufStorage::<D, Vec<u8>>::from_vec(std::iter::repeat_n(<D as num_traits::Zero>::zero(), n));
+            let name = std::any::type_name::<D>();
+            assert_eq!(buf.len(), n, "{name}: len() lost the count");
+            assert_eq!(
+                D::buf_bytes(n),
+                buf.as_bytes().len(),
+                "{name}: buf_bytes disagrees with the packer"
+            );
+        }
+        for n in [2usize, 8, 128] {
+            for check in [
+                check::<i8>,
+                check::<i16>,
+                check::<i32>,
+                check::<bf16>,
+                check::<f32>,
+                check::<i4>,
+                check::<f4e2m1>,
+                check::<i5>,
+                check::<i9>,
+            ] {
+                check(n);
+            }
+        }
+    }
+
+    /// The walk a staging type could not take before: `map` over an `i9` buffer visits its four
+    /// elements, where a `BITS`-derived count would have claimed eight and read past the buffer. This
+    /// is the widen `contract_outer` runs on a zero-point-subtracted stream.
+    #[test]
+    fn map_walks_a_staging_type_within_its_buffer() {
+        let buf = BufStorage::<_, Vec<u8>>::from_vec([1, -1, 255, -256].map(i9::from_i32));
+        assert_eq!(buf.len(), 4);
+        assert_eq!(buf.map(|v| v.to_i32()).to_vec(), vec![1, -1, 255, -256]);
+    }
+
     /// `BufStorage::contraction` reproduces a plain matmul. `[M,K] · [K,N] -> [M,N]` with no padding,
     /// so the wire buffers are row-major and the result is hand-checkable.
     #[test]
@@ -915,7 +923,7 @@ mod tests {
         // lhs row-major: [[1,2,3],[4,5,6]]; rhs row-major: [[1,2],[3,4],[5,6]].
         let lhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let rhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        let out = BufStorage::<_, Vec<u8>>::contraction(
+        let out = BufStorage::<_, Vec<u8>>::contraction_prewidened(
             &lhs,
             &rhs,
             &<m![M, K]>::to_value(),
@@ -1002,7 +1010,7 @@ mod tests {
         axes![M = 128, K = 4, N = 512]; // 65536 output cells >> 16384 floor
         let lhs: Vec<i32> = (0..128 * 4).map(|i| i % 5).collect();
         let rhs: Vec<i32> = (0..4 * 512).map(|i| i % 3).collect();
-        let out = BufStorage::<_, Vec<u8>>::contraction(
+        let out = BufStorage::<_, Vec<u8>>::contraction_prewidened(
             &BufStorage::<_, Vec<u8>>::from_vec(lhs.clone()),
             &BufStorage::<_, Vec<u8>>::from_vec(rhs.clone()),
             &<m![M, K]>::to_value(),
@@ -1058,7 +1066,7 @@ mod tests {
         axes![M = 2, K = 3, N = 2];
         let lhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1i32, 2, 3, 4, 5, 6]); // [M,K] row-major
         let rhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1i32, 2, 3, 4, 5, 6]); // [K,N] row-major
-        let out = BufStorage::<_, Vec<u8>>::contraction(
+        let out = BufStorage::<_, Vec<u8>>::contraction_prewidened(
             &lhs,
             &rhs,
             &<m![M, K]>::to_value(),
@@ -1081,7 +1089,7 @@ mod tests {
         let lhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1i32, 2, 0, 0, 3, 4, 0, 0]);
         // rhs m![K = 2 # 4, N]: each of the 4 K wire rows holds [n0, n1]; rows 2,3 are pad (size 4*2 = 8).
         let rhs = BufStorage::<_, Vec<u8>>::from_vec(vec![1i32, 2, 3, 4, 0, 0, 0, 0]);
-        let out = BufStorage::<_, Vec<u8>>::contraction(
+        let out = BufStorage::<_, Vec<u8>>::contraction_prewidened(
             &lhs,
             &rhs,
             &<m![M, K = 2 # 4]>::to_value(),
@@ -1102,7 +1110,7 @@ mod tests {
         axes![M = 2, K = 3, N = 2];
         let lhs_data = vec![1i32, 2, 3, 4, 5, 6]; // [M,K] row-major
         let rhs_data = vec![1i32, 2, 3, 4, 5, 6]; // [K,N] row-major, broadcasts over M
-        let out = BufStorage::<_, Vec<u8>>::contraction(
+        let out = BufStorage::<_, Vec<u8>>::contraction_prewidened(
             &BufStorage::<_, Vec<u8>>::from_vec(lhs_data.clone()),
             &BufStorage::<_, Vec<u8>>::from_vec(rhs_data.clone()),
             &<m![M, K]>::to_value(),
@@ -1119,6 +1127,22 @@ mod tests {
             }
         }
         assert_eq!(out.to_vec(), expected);
+    }
+
+    /// The integer half: an `i8` `K = 100` dot of `100 * 100` holds `1_000_000` in `i32` and wraps
+    /// `as i8` only at the final narrow, where an `i8`-wide fold would overflow on the first product.
+    #[test]
+    fn contraction_i8_accumulates_wide_then_wraps_once() {
+        axes![M = 1, K = 100, N = 1];
+        let out = BufStorage::<_, Vec<u8>>::contraction(
+            &BufStorage::<_, Vec<u8>>::from_vec(vec![100i8; 100]),
+            &BufStorage::<_, Vec<u8>>::from_vec(vec![100i8; 100]),
+            &<m![M, K]>::to_value(),
+            &<m![K, N]>::to_value(),
+            &<m![M, K, N]>::to_value(),
+            &<m![M, N]>::to_value(),
+        );
+        assert_eq!(out.get(0), 1_000_000i32 as i8);
     }
 
     /// A `bf16` `K = 256` contraction accumulates in `f32`, recovering small addends a narrow per-step
@@ -1151,30 +1175,11 @@ mod tests {
         );
     }
 
-    /// The integer counterpart, end-to-end through the buffer fold: an `i16` `K = 256` dot of
-    /// `1000 * 1000` sums to `256_000_000`, far past `i16`'s range. The `i32` `ContractionCast::Output`
-    /// accumulator holds the true sum and wraps `as i16` once at the narrow (a narrow-typed fold would
-    /// wrap at every step), so the output equals `256_000_000 as i16`. No padding, so the wire buffers
-    /// are the raw vecs.
-    #[test]
-    fn contraction_i16_accumulates_wide_then_wraps_once() {
-        axes![M = 1, K = 256, N = 1];
-        let out = BufStorage::<_, Vec<u8>>::contraction(
-            &BufStorage::<_, Vec<u8>>::from_vec(vec![1000i16; 256]),
-            &BufStorage::<_, Vec<u8>>::from_vec(vec![1000i16; 256]),
-            &<m![M, K]>::to_value(),
-            &<m![K, N]>::to_value(),
-            &<m![M, K, N]>::to_value(),
-            &<m![M, N]>::to_value(),
-        );
-        assert_eq!(out.get(0), 256_000_000i32 as i16);
-    }
-
-    /// The `Output -> D` narrow happens once per within-slice `contraction` (the Lane Folder narrow), so
-    /// a cross-slice reduction over the narrowed per-slice partials differs from one global wide fold.
-    /// The hardware narrows each per-slice partial at its own Lane Folder and the Vector Engine sums the
-    /// narrowed partials; the sim composes that as three per-slice `BufStorage::contraction`s feeding a
-    /// downstream `BufStorage::reduce`.
+    /// The `Acc -> D` narrow happens once per `contraction` (the Lane Folder narrow), so a cross-slice
+    /// reduction over the narrowed per-slice partials differs from one global wide fold. The hardware
+    /// narrows each per-slice partial at its own Lane Folder and the Vector Engine sums the narrowed
+    /// partials; the sim composes that as three per-slice `BufStorage::contraction`s feeding a downstream
+    /// `BufStorage::reduce`.
     ///
     /// Each per-slice dot is `[1.0, 2^-8] . [1.0, 1.0] = 1.0 + 2^-8`, which the per-slice narrow rounds
     /// to `1.0` (`2^-8` is half a bf16 ulp at magnitude 1, ties-to-even). The cross-slice `reduce` over
@@ -1227,7 +1232,7 @@ mod tests {
     }
 
     /// f32 reduce over a `> PAR_MIN_JOB` split: `f32` add is non-associative, so the reassociated parallel
-    /// fold need only AGREE WITH SERIAL TO TOLERANCE, not bit-exactly (the documented Emulation
+    /// fold need only AGREE WITH SERIAL TO TOLERANCE, not bit-exactly (the documented Cpu
     /// non-reproducibility). The tolerance is tight (`1e-4` relative): reassociating 256 well-conditioned
     /// positive adds drifts only ~`n·eps ≈ 1.5e-5`, so `1e-4` passes genuine reassociation yet still
     /// catches a dropped / double-counted term (~0.4%+), which the associative `i32` tests cannot.

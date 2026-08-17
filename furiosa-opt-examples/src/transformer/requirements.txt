@@ -1,0 +1,5 @@
+# Pinned until a release carries this; the newest one (2026.3.0) is two months behind.
+# It pins furiosa-kernels to a version available only on the internal index for now.
+furiosa-torch @ git+https://github.com/furiosa-ai/furiosa-torch.git@aa18e64042bd30a557ecdbf39cf7a8353a9e62df#subdirectory=furiosa-torch
+safetensors
+tokenizers

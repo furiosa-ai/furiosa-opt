@@ -1,15 +1,15 @@
 # Memory Performance
 
-Memory performance is critical to kernel throughput.
+Memory performance often limits kernel throughput.
+Compare fixed schedules before changing compute mappings.
 The Fetch, Commit, and DMA Engines each expose API choices (such as `Packet` size and access ordering) that map directly to performance outcomes.
-This page documents the hardware specifications and constraint rationale that connect those choices to measured throughput.
+This section explains the hardware constraints behind those choices and how they affect measured throughput.
 
 Each memory type has a peak bandwidth per chip:
 
 | Memory | Peak Bandwidth |
 |--------|---------------|
 | DM | 2 TB/s per chip |
-| SPM | 2 TB/s per chip |
 | HBM | 1.5 TB/s per chip |
 
 Reaching these peaks requires specific access patterns.
@@ -20,9 +20,12 @@ The following table lists rules whose violation degrades throughput, and the sec
 | DM | Bank starvation | < 64 consecutive same-bank accesses | NoC timeout → hardware reset |
 | DM | DMN interleaving | Alternate across 2 DMNs per cluster | 50% bandwidth loss |
 | DM | Slice interleaving | Spread across 32 slices per DMN | Command queue contention |
-| HBM | Alignment | 256-byte aligned access | Unaligned read: 2× penalty; unaligned write: ~50× penalty (RMW) |
+| HBM | Alignment | 256-byte aligned access | Unaligned read: 2× penalty. Unaligned write: ~50× penalty (RMW) |
 | HBM | Bank conflicts | Avoid row switches within same bank | 30–40× degradation |
 | HBM | Channel interleaving | Spread across 32 channels | Reduced parallelism |
+
+Use the tables first to choose alignment, interleaving, and packet sizes, then use the detailed sections to diagnose bank starvation or HBM conflicts.
+The rule table identifies the limiting resource for a candidate mapping, and the DM, SPM, or HBM section explains it.
 
 
 ## Data Memory (DM)
@@ -99,13 +102,15 @@ The DM controller prioritizes requests in this order:
 - DMA Engine
 
 DMA has the lowest priority among all memory engines because computation engines must get first access to data during normal operation.
-However, this creates a dangerous scenario when high-priority engines continuously access the same bank: the DMA Engine's request sits in the queue, unable to make progress, while the higher-priority engines monopolize that bank.
+High-priority engines can continuously use the same bank.
+A queued DMA request then waits while those engines retain the bank.
 Tensor DMA communicates with DRAM and DMN through a NoC hub where each port (DMA, DRAM, DMN) must acknowledge requests within 4,096 cycles.
 After 4,096 cycles without a response, the NoC protocol declares the transaction dead and enters an exception state as a safety mechanism to detect deadlocks and indefinitely hung transactions.
 When the timeout triggers, the hardware lacks a graceful recovery mechanism.
 The only recovery is a full cluster domain reset, losing all computation state and requiring complete reinitialization.
 
-The 64-access rule prevents this catastrophe: the Fetch and Commit Engines must not access the same bank for 64 or more consecutive operations while DMA is active.
+The limit is 64 consecutive accesses.
+Fetch and Commit must not retain the same bank for 64 or more operations while DMA is active.
 Why 64?
 The constraint is `(TDMA_IO_BYTE / DMN_IO_BYTE) * Max_Consecutive_Access * DMN_SIZE < 4096` (with `TDMA_IO_BYTE = 256`, `DMN_IO_BYTE = 128`, `DMN_SIZE = 32`), which yields `Max_Consecutive_Access < 64`.
 This ensures DMA requests complete before the NoC timeout even in the worst case.
@@ -114,56 +119,10 @@ This ensures DMA requests complete before the NoC timeout even in the worst case
 For example, suppose the DMA Engine issues a request to bank 0 (along with 15 other banks), but the main-context's Fetch Engine continuously requests bank 0.
 The DMA request stalls, and if this exceeds 4,096 cycles, a NoC timeout forces a hardware reset.
 
-- **Scheduling model**: The scheduler uses context occupancy information: if operation A occupies a context (e.g., main-context), the next operation B using that context waits until A completes.
-  Understanding which contexts operations occupy enables predicting parallel execution.
-- **Compiler scheduling behavior**: When Tensor Unit operations would violate the 64-access limit, the compiler schedules them as if they occupy DMA, preventing concurrent DMA operations.
-  This sacrifices the TCP architecture's inherent main/sub/DMA context parallelism where data preparation and computation occur in parallel, but avoids catastrophic hardware resets.
-  Treat this as a hard constraint: never use patterns with 64+ consecutive same-bank accesses.
-- **The 64-access limit details**:
-  - The limit is cumulative: total accesses from all engines to the same bank must stay below 64, since even interleaved accesses across commands accumulate toward this total.
-    For example, main: 30, sub: 20, DMA: 1 totals 51 (safe), but main: 30, sub: 35, DMA: 1 totals 66 (triggers starvation).
-  - The compiler keeps each individual command below 64 consecutive same-bank accesses, but cannot prevent the total from reaching 64 when multiple commands run concurrently.
-  - In practice, sub-context rarely accesses the same bank consecutively (`StoTrf`, `StoVrf` operations typically use sequential addresses and tiling prevents same-bank access).
-  - Sub-context operations that would exceed the limit are also not scheduled concurrently with DMA.
-- **Main/sub-context contention**: Main-context can starve sub-context, but this is less severe:
-  - Unlike DMA starvation, sub-context starvation does not cause NoC timeout or hardware reset and only increases processing time.
-  - Collision probability is lower: DMA Engine occupies 16 banks at once, while sub fetch/commit engines occupy only one bank.
-  - Starvation does not occur between fetch and commit engines within the same context due to pipeline back-pressure.
-  - **Performance impact example**: If main-context exec command continuously accesses a specific bank while sub-context stos command is scheduled, sub-context processing is delayed.
-    Worst case: total time = main-context time + sub-context time.
-    Ideal case: main and sub access different banks, achieving total time = max(main-context time, sub-context time).
-
-See [Schedule Viewer](../appendix/schedule-viewer.md) for a scheduling visualization utility that shows which operations run in parallel and verifies actual context assignments.
+See [Scheduling: Resource and bank contention](../scheduling/schedule.md#resource-and-bank-contention) for context occupancy, the 64-access rule, and main/sub bank contention.
+See [Schedule Viewer](../tools/schedule-viewer.md) for a scheduling visualization utility that shows which operations run in parallel and verifies actual context assignments.
 
 
-## Scratchpad Memory (SPM)
-
-
-DM and SPM are both on-chip SRAM.
-They are distinguished by *intended use* (and corresponding compiler allocation policy) rather than by any documented latency or capacity difference.
-
-**DM (Data Memory)** is the main working memory for tensor data flowing through the Tensor Unit pipeline.
-The DMA Engine populates DM from HBM (or other tiers), the Fetch Engine streams data from DM into the Tensor Unit, and the Commit Engine writes the pipeline's results back to DM.
-DM allocation follows general-purpose policies driven by the program's tensor lifetimes.
-
-**SPM (Scratchpad Memory)** is a compiler-managed staging tier.
-The compiler explicitly chooses what lives in SPM, reserving it for small, frequently reused values that should not have to be refetched from DM on every access:
-
-- scalar constants and configuration data,
-- activation function lookup tables,
-- small per-DMN working sets that are read many times.
-
-SPM is most useful for per-DMN state that would otherwise force repeated DM reads through the Fetch or DMA Engines.
-
-DM and SPM are both distinct from the per-slice **register files** that feed the Tensor Unit's compute engines directly (see [Computing Tensors](../computing-tensors/index.md)):
-
-- **TRF (Tensor Register File)** is a per-slice register file populated via [`.to_trf()`](../computing-tensors/collect-engine.md#to-trf); the Contraction Engine reads it each cycle.
-- **VRF (Vector Register File)** is a per-slice register file populated via [`.to_vrf()`](../computing-tensors/collect-engine.md#to-vrf); the Vector Engine reads it each cycle.
-
-The pipeline's data flow is therefore: DMA populates **DM** from HBM → Fetch streams data from DM into the Tensor Unit → Collect writes the stream into **TRF / VRF** → Contraction / Vector read directly from TRF / VRF → Commit writes results back into DM.
-**SPM** sits to the side as a compiler-controlled staging area for the small, high-locality data the kernel needs but does not want to refetch.
-
-Each DMN contains SPM with a bandwidth of 128 B/cycle, and because each DMN has dedicated SPM there are no inter-DMN contention issues.
 
 
 ## High-Bandwidth Memory (HBM)
@@ -279,7 +238,8 @@ The `tCCD` value depends on which memory resources consecutive commands target:
 | Different Slice | `3` | `2/3` | Data path switching |
 | Same Slice, Same Bank Group | `4` | `1/2` | Shared I/O buffer among four banks |
 
-The optimal case is interleaving between different bank groups within the same slice (`tCCD = 2` cycles at `1.5GHz`), allowing a new `64B` command to be issued every cycle at `0.75GHz`, achieving back-to-back transmission and full channel speed.
+Interleaving bank groups within one slice gives `tCCD = 2` cycles at `1.5GHz`.
+It allows a new `64B` command each `0.75GHz` cycle and reaches full channel speed.
 Any `tCCD` greater than `2` reduces the command rate and channel utilization.
 
 Compared to bank conflicts, `tCCD` degradation is less severe because the worst-case patterns either coincide with bank conflicts (making `tCCD` the secondary effect) or are masked by channel interleaving:

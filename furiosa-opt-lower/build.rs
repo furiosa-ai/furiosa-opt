@@ -1,4 +1,10 @@
 fn main() {
+    // docs.rs sandbox blocks network, so the prebuilt fetch below can never
+    // succeed there. Rustdoc compiles deps to rlib only and never performs a
+    // final native link, so skipping the fetch and link directives is safe.
+    if std::env::var_os("DOCS_RS").is_some() {
+        return;
+    }
     link_furiosa_opt_lower_impl();
 }
 
@@ -34,10 +40,15 @@ fn link_furiosa_opt_lower_impl() {
         // to pin past a yanked release.
         let version = std::env::var("FURIOSA_OPT_LOWER_IMPL_VERSION")
             .unwrap_or_else(|_| format!("v{}", std::env::var("CARGO_PKG_VERSION").unwrap()));
+        // Snapshot versions carry the source sha: v0.5.1+gbfabe686 was released as snapshot-bfabe686.
+        let tag = match version.split_once("+g") {
+            Some((_, sha)) => format!("snapshot-{sha}"),
+            None => version.clone(),
+        };
         let asset_name = format!("lib{lib_name}-{version}-{target}.a");
         let licenses_name = format!("lib{lib_name}-{version}-{target}.LICENSES.txt");
         let repo = std::env::var("FURIOSA_OPT_GITHUB_REPO").unwrap_or("furiosa-ai/furiosa-opt".to_string());
-        let base = format!("https://github.com/{repo}/releases/download/{version}");
+        let base = format!("https://github.com/{repo}/releases/download/{tag}");
         let asset_url = format!("{base}/{asset_name}");
         let licenses_url = format!("{base}/{licenses_name}");
         let sums_url = format!("{base}/SHA256SUMS");

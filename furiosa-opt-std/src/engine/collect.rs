@@ -20,7 +20,7 @@ use crate::engine::{CanApplyCollect, CanApplyToTrf, CanApplyToVrf};
 use crate::runtime::CurrentBackend;
 use crate::scalar::*;
 use crate::tensor::Tensor;
-use crate::tensor::memory::{Address, TrfAddress, TrfTensor, VrfTensor};
+use crate::tensor::memory::{TrfTensor, VrfTensor};
 use crate::tensor::tu::{Position, TuTensor};
 
 /// After the switch engine's collect engine (32-byte packet normalized).
@@ -78,18 +78,8 @@ impl<'l, const T: Tu, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M
     /// Stores to the tensor register file.
     #[primitive(TuTensor::to_trf)]
     pub fn to_trf<Lane: M, Element: M>(self) -> TrfTensor<D, Chip, Cluster, Slice, Lane, Element, B> {
-        verify_to_trf::<D, Lane, Time, Packet, Element>(&TrfAddress::Full);
-        TrfTensor::new(self.inner.transpose(false), None)
-    }
-
-    /// Stores to the tensor register file at `address`.
-    #[primitive(TuTensor::to_trf_at)]
-    pub fn to_trf_at<Lane: M, Element: M>(
-        self,
-        address: TrfAddress,
-    ) -> TrfTensor<D, Chip, Cluster, Slice, Lane, Element, B> {
-        verify_to_trf::<D, Lane, Time, Packet, Element>(&address);
-        TrfTensor::new(self.inner.transpose(false), Some(address))
+        verify_to_trf::<D, Lane, Time, Packet, Element>();
+        TrfTensor::from_parts(self.inner.transpose(false))
     }
 }
 // ANCHOR_END: collect_to_trf
@@ -101,13 +91,8 @@ impl<'l, const T: Tu, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice:
     /// Stores to the vector register file.
     #[primitive(TuTensor::to_vrf)]
     pub fn to_vrf<Element: M>(self) -> VrfTensor<D, Chip, Cluster, Slice, Element, B> {
-        VrfTensor::new(self.inner.transpose(false), None)
-    }
-
-    /// Stores to the vector register file at `address`.
-    #[primitive(TuTensor::to_vrf_at)]
-    pub fn to_vrf_at<Element: M>(self, address: Address) -> VrfTensor<D, Chip, Cluster, Slice, Element, B> {
-        VrfTensor::new(self.inner.transpose(false), Some(address))
+        constraints::assert_vrf_capacity::<D, Element>();
+        VrfTensor::from_parts(self.inner.transpose(false))
     }
 }
 // ANCHOR_END: collect_to_vrf
@@ -125,21 +110,23 @@ pub(crate) fn verify_collect<D: Scalar, Time: M, Packet: M, Time2: M, Packet2: M
     .unwrap_or_else(|message| panic!("{message}"));
 }
 
+/// Total TRF capacity in bytes: 8 lanes x 2 banks x 128 rows x 32 bytes. Where a tensor lands in the
+/// register file is the compiler's to decide, so this is the only capacity the frontend checks.
+pub const TRF_CAPACITY_BYTES: usize = 65_536;
+
 /// Validates `to_trf` via [`furiosa_opt_lower::config_to_trf`] (lane / capacity / element rules
 /// documented there).
-pub(crate) fn verify_to_trf<D: Scalar, Lane: M, Time: M, Packet: M, Element: M>(address: &TrfAddress) {
+pub(crate) fn verify_to_trf<D: Scalar, Lane: M, Time: M, Packet: M, Element: M>() {
     use furiosa_opt_lower::ToTrfError;
     furiosa_opt_lower::config_to_trf(
         &Lane::to_value(),
         &Time::to_value(),
         &Packet::to_value(),
         &Element::to_value(),
-        address.capacity(),
+        TRF_CAPACITY_BYTES,
         D::BITS,
     )
     .unwrap_or_else(|error| match error {
-        // `config_to_trf` cannot name the frontend-only `TrfAddress`, so it reports the bare capacity;
-        // name the region here, where the address is known, so the message says which TRF was overrun.
         ToTrfError::ExceedsCapacity {
             total_bytes,
             lanes,
@@ -147,7 +134,7 @@ pub(crate) fn verify_to_trf<D: Scalar, Lane: M, Time: M, Packet: M, Element: M>(
             capacity,
         } => panic!(
             "TRF data ({total_bytes} bytes = {lanes} lanes x {per_lane_bytes} bytes) \
-             exceeds register file capacity ({capacity} bytes for {address})"
+             exceeds the tensor register file capacity ({capacity} bytes)"
         ),
         other => panic!("{other}"),
     });

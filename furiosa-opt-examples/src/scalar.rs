@@ -30,8 +30,8 @@ type Cluster = m![1 # 2];
 
 /// Emits one `src -> dst` fetch-cast fixture in its own module: the `src` element threads through
 /// the parameter and DM staging, the fetch cast maps `src -> dst`, and the `dst` result is stored
-/// transposed. An at-width identity relayout passes the same type for `$src` and `$dst`; a widen
-/// passes a narrower `$src` and a wider `$dst`. The innermost `B` is both the DMA tail
+/// transposed. Passing the same type for `$src` and `$dst` is an at-width identity relayout, a
+/// narrower `$src` a widen, a wider `$src` a narrowing. The innermost `B` is both the DMA tail
 /// (>= min_align = 8 bytes) and one collect flit (= 32 bytes in `$dst`), so the caller picks `$b`
 /// to satisfy `$b * size_of::<$dst>() == 32`.
 macro_rules! scalar_fixture {
@@ -74,6 +74,62 @@ scalar_fixture!(u8_relayout, relayout_u8, u8, u8, 32);
 // >= 8 bytes).
 scalar_fixture!(bf16_widen, widen_bf16, bf16, f32, 8);
 scalar_fixture!(f8e4m3_widen, widen_f8e4m3, f8e4m3, f32, 8);
+scalar_fixture!(f8e5m2_widen, widen_f8e5m2, f8e5m2, f32, 8);
+scalar_fixture!(i16_widen, widen_i16, i16, i32, 8);
+
+// The one narrowing fetch conversion; 16 x 2-byte `bf16` is one flit.
+scalar_fixture!(f32_narrow, narrow_f32, f32, bf16, 16);
+
+/// The same `f32 -> bf16` narrowing folded into the commit path instead of the fetch, so the Cast
+/// Engine stays free for sub-context work. `commit_trim` runs first and its packet is the commit
+/// unit's input width, which a converting commit needs to be a multiple of 16 B: 8 `f32` is 32 B.
+pub mod f32_commit_narrow {
+    use super::*;
+
+    axes![A = 4096, B = 8];
+
+    #[device(chip = 1)]
+    pub fn commit_narrow_f32(
+        ctx: &mut Context,
+        input: &HbmTensor<f32, m![1], m![A, B]>,
+    ) -> HbmTensor<bf16, m![1], m![B, A]> {
+        let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma);
+
+        let result: DmTensor<bf16, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = ctx
+            .main
+            .begin(input_dm.view())
+            .fetch::<m![A / 8 % 2], m![A % 8, B]>()
+            .fetch_cast::<f32>()
+            .collect::<m![A / 8 % 2, A % 8], m![B]>()
+            .commit_trim::<m![B]>()
+            .commit_cast::<bf16>()
+            .commit();
+
+        result.to_hbm(&mut ctx.tdma)
+    }
+
+    /// The ReLU-fused conversion, a separate hardware conversion rather than a mode of the one
+    /// above.
+    #[device(chip = 1)]
+    pub fn commit_narrow_relu_f32(
+        ctx: &mut Context,
+        input: &HbmTensor<f32, m![1], m![A, B]>,
+    ) -> HbmTensor<bf16, m![1], m![B, A]> {
+        let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma);
+
+        let result: DmTensor<bf16, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = ctx
+            .main
+            .begin(input_dm.view())
+            .fetch::<m![A / 8 % 2], m![A % 8, B]>()
+            .fetch_cast::<f32>()
+            .collect::<m![A / 8 % 2, A % 8], m![B]>()
+            .commit_trim::<m![B]>()
+            .commit_cast_relu::<bf16>()
+            .commit();
+
+        result.to_hbm(&mut ctx.tdma)
+    }
+}
 
 // `i4 -> i32` has no fixture: `i4` is sub-byte, so a host-buffer execute-compare is infeasible (see
 // the module doc). `i4` translation is still covered by the `eval_scalar_type` match arm.

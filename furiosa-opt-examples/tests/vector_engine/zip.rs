@@ -1,7 +1,8 @@
-use crate::common::assert_f32_vec_eq;
+use crate::common::{assert_f32_bits_eq, assert_f32_vec_eq};
 use furiosa_opt_examples::vector_engine::{
     A, ve_group_pair_add, ve_group_pair_chain, ve_group_pair_fp, ve_group_pair_fxp, ve_group_pair_logic,
-    ve_group_pair_preprocess_both, ve_group_pair_preprocess_g0, ve_group_pair_preprocess_g1, ve_group_pair_ternary,
+    ve_group_pair_logic_abs_add_f32, ve_group_pair_preprocess_both, ve_group_pair_preprocess_g0,
+    ve_group_pair_preprocess_g1, ve_group_pair_reinterpret_scale_f32, ve_group_pair_ternary,
     ve_group_pair_ternary_selective, ve_group_pair_unary, ve_group_pair_unary_selective,
 };
 use furiosa_opt_std::prelude::*;
@@ -168,6 +169,74 @@ async fn test_ve_group_pair_logic() {
     let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |x, y| x ^ y);
 
     assert_eq!(expected.into_vec(), result.into_vec());
+}
+
+/// `(lhs, rhs)` pairs and the `scale(lhs, 1) + scale(rhs, 2)` the pair kernel must produce, where
+/// `scale(x, n)` adds `n` to the exponent field. Worked out from the bit layout, not from the
+/// kernel's arithmetic. The signed-zero pairs are the reason the two groups are paired this way: a
+/// zero scales into `±f32::MIN_POSITIVE` rather than staying `0.0`, and pairing it against another
+/// zero keeps that visible in the sum instead of being swamped by a normal-sized term.
+const PAIR_SCALE_CASES: [(f32, f32, f32); 4] = [
+    (0.0, -0.0, -f32::MIN_POSITIVE), // MIN_POSITIVE + (-2 * MIN_POSITIVE)
+    (-0.0, 0.0, f32::MIN_POSITIVE),  // -MIN_POSITIVE + 2 * MIN_POSITIVE
+    (1.0, 1.0, 6.0),                 // 2.0 + 4.0
+    (-1.0, -0.5, -4.0),              // -2.0 + (-2.0)
+];
+
+#[tokio::test]
+async fn test_ve_group_pair_reinterpret_scale_f32() {
+    let mut ctx = Context::acquire();
+
+    let pick = |f: fn(&(f32, f32, f32)) -> f32| {
+        (0..A::SIZE)
+            .map(|i| f(&PAIR_SCALE_CASES[i % PAIR_SCALE_CASES.len()]))
+            .collect::<Vec<_>>()
+    };
+    let lhs = HostTensor::<f32, m![A]>::from_vec(pick(|case| case.0));
+    let rhs = HostTensor::<f32, m![A]>::from_vec(pick(|case| case.1));
+
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
+
+    let out_hbm = launch(ve_group_pair_reinterpret_scale_f32, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
+
+    let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
+
+    assert_f32_bits_eq(&pick(|case| case.2), &result.into_vec());
+}
+
+/// `|a| + |b|` with the sign bit cleared per group. Bitwise, so a `-0.0` surviving the mask fails,
+/// and `-0.0 + 0.0` must come out `0.0`.
+#[tokio::test]
+async fn test_ve_group_pair_logic_abs_add_f32() {
+    let mut ctx = Context::acquire();
+
+    let cases: [(f32, f32); 5] = [
+        (0.0, -0.0),
+        (-0.0, -0.0),
+        (-1.0, 2.5),
+        (3.25, -80.0),
+        (-f32::MIN_POSITIVE, 1.0),
+    ];
+    let pick = |f: fn(&(f32, f32)) -> f32| (0..A::SIZE).map(|i| f(&cases[i % cases.len()])).collect::<Vec<_>>();
+    let lhs = HostTensor::<f32, m![A]>::from_vec(pick(|case| case.0));
+    let rhs = HostTensor::<f32, m![A]>::from_vec(pick(|case| case.1));
+
+    let lhs_hbm = lhs.to_hbm(&mut ctx.pdma).await;
+    let rhs_hbm = rhs.to_hbm(&mut ctx.pdma).await;
+
+    let out_hbm = launch(ve_group_pair_logic_abs_add_f32, (&mut *ctx, &lhs_hbm, &rhs_hbm)).await;
+
+    let result = out_hbm.to_host::<m![A]>(&mut ctx.pdma).await;
+
+    let expected: Vec<f32> = (0..A::SIZE)
+        .map(|i| {
+            let (a, b) = cases[i % cases.len()];
+            f32::abs(a) + f32::abs(b)
+        })
+        .collect();
+
+    assert_f32_bits_eq(&expected, &result.into_vec());
 }
 
 #[tokio::test]

@@ -64,57 +64,41 @@
 //!     ├── cast                     →  CastTensor
 //!     ├── transpose                →  TransposeTensor
 //!     ├── vector_init              →  VectorInitTensor   (handed to `crate::engine::vector`)
-//!     ├── commit_trim              →  CommitTrimTensor
-//!     ├── commit_cast              →  CommitCastTensor
-//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
-//!     ├── commit                   →  DmTensor
-//!     └── commit_view              →  (writes to existing view)
+//!     └── commit_trim              →  CommitTrimTensor
 //!
 //! ContractTensor           (PositionContraction)
 //!     ├── cast                     →  CastTensor
 //!     ├── transpose                →  TransposeTensor
 //!     ├── vector_init              →  VectorInitTensor
-//!     ├── commit_trim              →  CommitTrimTensor
-//!     ├── commit_cast              →  CommitCastTensor
-//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
-//!     ├── commit                   →  DmTensor
-//!     └── commit_view              →  (writes to existing view)
+//!     └── commit_trim              →  CommitTrimTensor
 //!
 //! VectorFinalTensor        (PositionVectorFinal — produced by `VectorTensor::vector_final`)
 //!     ├── cast                     →  CastTensor
 //!     ├── transpose                →  TransposeTensor
 //!     ├── to_vrf                   →  VrfTensor
-//!     ├── commit_trim              →  CommitTrimTensor
-//!     ├── commit_cast              →  CommitCastTensor
-//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
-//!     ├── commit                   →  DmTensor
-//!     └── commit_view              →  (writes to existing view)
+//!     └── commit_trim              →  CommitTrimTensor
 //!
 //! CastTensor               (PositionCast)
 //!     ├── transpose                →  TransposeTensor
-//!     ├── commit_trim              →  CommitTrimTensor
-//!     ├── commit_cast              →  CommitCastTensor
-//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
-//!     ├── commit                   →  DmTensor
-//!     └── commit_view              →  (writes to existing view)
+//!     └── commit_trim              →  CommitTrimTensor
 //!
 //! TransposeTensor          (PositionTranspose)
-//!     ├── commit_trim              →  CommitTrimTensor
-//!     ├── commit_cast              →  CommitCastTensor
-//!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
-//!     ├── commit                   →  DmTensor
-//!     └── commit_view              →  (writes to existing view)
+//!     └── commit_trim              →  CommitTrimTensor
 //!
 //! CommitTrimTensor         (PositionCommitTrim)
 //!     ├── commit_cast              →  CommitCastTensor
+//!     ├── commit_cast_relu         →  CommitCastTensor   (the same cast, ReLU fused)
 //!     ├── commit_valid_count_pack  →  CommitValidCountPackTensor
-//!     └── commit                   →  DmTensor
+//!     ├── commit                   →  DmTensor
+//!     └── commit_view              →  (writes to existing view)
 //!
 //! CommitCastTensor         (PositionCommitCast)
-//!     └── commit                   →  DmTensor
+//!     ├── commit                   →  DmTensor
+//!     └── commit_view              →  (writes to existing view)
 //!
 //! CommitValidCountPackTensor   (PositionCommitValidCountPack)
-//!     └── commit                   →  DmTensor
+//!     ├── commit                   →  DmTensor
+//!     └── commit_view              →  (writes to existing view)
 //! ```
 
 pub mod cast;
@@ -133,7 +117,7 @@ pub mod vector;
 pub use cast::*;
 pub use collect::*;
 pub use commit_adapter::{
-    Activation, CommitCastTensor, CommitTrimTensor, CommitValidCountPackTensor, PositionCommitCast, PositionCommitTrim,
+    CommitCastTensor, CommitTrimTensor, CommitValidCountPackTensor, PositionCommitCast, PositionCommitTrim,
     PositionCommitValidCountPack,
 };
 pub use contraction::*;

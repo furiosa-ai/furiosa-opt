@@ -23,10 +23,12 @@ axes![
     W = 64
 ];
 
+mod branch;
 mod normal;
 mod reduce;
 mod zip;
 
+pub use branch::*;
 pub use normal::*;
 pub use reduce::*;
 pub use zip::*;

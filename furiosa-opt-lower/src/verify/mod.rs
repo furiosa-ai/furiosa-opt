@@ -25,16 +25,19 @@ use crate::DivideTerm;
 pub mod engine;
 
 pub use engine::{
-    CastError, CollectError, CommitTrimError, ContractLaneError, ContractPacketError, ContractTimeError, LaneMode,
-    StreamAdapterError, ToTrfError, VectorError, config_cast, config_collect, config_commit_trim, config_contract_lane,
-    config_contract_packet, config_contract_time, config_reduce_label, config_stream_adapter, config_to_trf,
-    config_vector_narrow_split, config_vector_narrow_trim, config_vector_widen_concat, config_vector_widen_pad,
+    CastError, CollectError, CommitCastError, CommitTrimError, ContractLaneError, ContractPacketError,
+    ContractTimeError, LaneMode, StreamAdapterError, ToTrfError, ToVrfError, VectorError, config_cast, config_collect,
+    config_commit_cast, config_commit_trim, config_contract_lane, config_contract_packet, config_contract_time,
+    config_reduce_label, config_stream_adapter, config_to_trf, config_to_vrf, config_vector_narrow_split,
+    config_vector_narrow_trim, config_vector_widen_concat, config_vector_widen_pad,
 };
 
 /// Bits in a byte.
 pub const BITS_PER_BYTE: usize = 8;
 /// Size of a single flit in bytes; the switching network moves data in flit-sized units.
 pub const FLIT_BYTES: usize = 32;
+/// Vector register file capacity in bytes, per slice. One `to_vrf` operand must fit this.
+pub const VRF_BYTES: usize = 8 * 1024;
 /// Columns of the temporal accumulator (the packet reducer's output-width bound).
 pub const TEMPORAL_ACCUMULATOR_COLS: usize = 32;
 /// Elements of the lane-folder / packet-reducer output packet (one flit of `i32`/`f32`).
@@ -80,13 +83,12 @@ pub(crate) fn padding_per_stride(m: &Mapping) -> BTreeMap<usize, usize> {
     map
 }
 
-/// Padded extent of a division term's axis: the `padding_per_stride` entry at the term's
-/// `dividend_stride`, falling back to the term's own `resize` when that stride is absent.
-pub(crate) fn padded_extent_at(padding_per_stride: &BTreeMap<usize, usize>, term: &DivideTerm) -> usize {
-    padding_per_stride
-        .get(&term.dividend_stride)
-        .copied()
-        .unwrap_or(term.resize)
+/// Padded extent of a division term's axis, or `None` when the term is not an axis boundary.
+///
+/// Only an axis carries a padded extent. Dividing can split a padded axis into intra-axis sub-terms
+/// when an axis between its digits is reduced, and such a sub-term owns no extent to report.
+pub(crate) fn padded_extent_at(padding_per_stride: &BTreeMap<usize, usize>, term: &DivideTerm) -> Option<usize> {
+    padding_per_stride.get(&term.dividend_stride).copied()
 }
 
 /// Pushes each axis's padded extent (`size()`), innermost (right) first, down the normalized `Pair`

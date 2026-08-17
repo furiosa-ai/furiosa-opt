@@ -1,0 +1,16 @@
+[package]
+name = "furiosa-opt-common-ir"
+version = "0.6.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/furiosa-ai/furiosa-opt"
+description = "Common IR that furiosa-opt-std and the translator share."
+
+[dependencies]
+furiosa-opt-macro = { path = "../furiosa-opt-macro", version = "0.6" }
+serde = { workspace = true }
+serde-lite = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

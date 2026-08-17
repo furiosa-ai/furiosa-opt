@@ -165,3 +165,29 @@ pub fn custom_broadcast_transpose(
 
     result.to_hbm::<m![Qt, Pt, B, V]>(&mut ctx.tdma)
 }
+
+// ── custom_broadcast_split_tile (ring 256) ──────────────────────────────────────────
+// TWO tiles out of one symbol: the padding slots either side of the kept `Ps` become `Ls / 2` and
+// `Ls % 2`, two digits of `Ls` that select disjoint cells; slice volume 2*64*2 = 256. The ring is the
+// full extent, since the outermost digit disagrees (an input dummy against a live `Ls / 2`).
+axes![Ps = 64, Ls = 4];
+
+#[device(chip = 1)]
+pub fn custom_broadcast_split_tile(
+    ctx: &mut Context,
+    input: &HbmTensor<bf16, Chip, m![Ps, B, V]>,
+) -> HbmTensor<bf16, Chip, m![Ls / 2, Ps, Ls % 2, B, V]> {
+    let dm: DmTensor<bf16, Chip, Cluster, m![1 # 2, Ps, 1 # 2], m![B, V]> =
+        input.to_dm::<Cluster, m![1 # 2, Ps, 1 # 2], m![B, V]>(&mut ctx.tdma);
+
+    let result: DmTensor<bf16, Chip, Cluster, m![Ls / 2, Ps, Ls % 2], m![B, V]> = ctx
+        .main
+        .begin(dm.view())
+        .fetch::<m![B], m![V]>()
+        .switch::<m![Ls / 2, Ps, Ls % 2], m![B]>(SwitchConfig::CustomBroadcast { ring_size: 256 })
+        .collect::<m![B], m![V]>()
+        .commit_trim::<m![V]>()
+        .commit();
+
+    result.to_hbm::<m![Ls / 2, Ps, Ls % 2, B, V]>(&mut ctx.tdma)
+}

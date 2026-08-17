@@ -5,7 +5,7 @@ use std::slice;
 use furiosa_mapping::M;
 
 use crate::prelude::HostTensor;
-use crate::scalar::MaterializableScalar;
+use crate::scalar::{MaterializableScalar, Scalar};
 use crate::storage::BufStorage;
 use crate::tensor::Tensor;
 use crate::tensor::memory::HbmTensor;
@@ -215,6 +215,18 @@ impl Kernel {
         Buffer::alloc(size)
     }
 
+    /// Wraps a device allocation as the tensor that owns it, so the handle names real HBM and frees it
+    /// on drop. The single place an `Npu` tensor gets its address.
+    fn place<D: Scalar, Chip: M, Element: M>(buffer: Buffer) -> HbmTensor<D, Chip, Element, Npu> {
+        HbmTensor::from_parts(Tensor::zeroed(), Some(buffer.offset())).owns(buffer)
+    }
+
+    /// Allocates the HBM an `HbmTensor<D, Chip, Element>` needs, returning the tensor that owns it.
+    /// [`Self::write`] is this plus the DMA that fills it.
+    pub(crate) fn alloc_hbm<D: Scalar, Chip: M, Element: M>() -> HbmTensor<D, Chip, Element, Npu> {
+        Self::place(Buffer::alloc(HbmTensor::<D, Chip, Element, Npu>::size()))
+    }
+
     /// Copies a host staging tensor to NPU HBM via DMA.
     ///
     /// This is host-side I/O, not tensor computation. The copied bytes become the device
@@ -232,8 +244,7 @@ impl Kernel {
             unsafe { ffi::furiosa_write(ffi::rt(), src.as_ptr(), dst.as_ptr()) } == 0,
             "DMA write failed"
         );
-        // SAFETY: `addr` names `dst`, whose ownership is attached to the returned tensor.
-        unsafe { HbmTensor::from_addr(addr) }.owns(dst)
+        Self::place(dst)
     }
 
     /// Copies an NPU HBM tensor back into a host staging tensor via DMA.
@@ -244,8 +255,10 @@ impl Kernel {
     ) -> HostTensor<D, Element2, Npu> {
         let count = furiosa_mapping::Pair::<Chip, Element>::SIZE;
         let len = D::size_in_bytes_from_length(count);
-        let hbm_addr = hbm.address();
-        log::debug!("read: addr=0x{:x}, len={len}", hbm_addr);
+        let hbm_addr = hbm
+            .address()
+            .expect("reading a tensor the compiled program never placed");
+        log::debug!("read: addr=0x{hbm_addr:x}, len={len}");
 
         let src = Buffer::npu(hbm_addr, len);
         let cpu = CpuBuffer::alloc(len);

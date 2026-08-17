@@ -10,9 +10,6 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  FURIOSA_OPT_GITHUB_REPO: ${{ github.repository }}
-
 jobs:
   build_mdbook:
     runs-on: ubuntu-latest
@@ -33,6 +30,12 @@ jobs:
         with:
           tool: mdbook-mermaid
 
+      # `make mdbook-build` runs lychee over the rendered HTML.
+      - name: Install lychee
+        uses: taiki-e/install-action@v2
+        with:
+          tool: lychee
+
       - name: Build Book
         run: |
           mdbook-mermaid install docs
@@ -45,53 +48,28 @@ jobs:
           path: docs/book
           retention-days: 1
 
-  build_rustdoc:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: nightly-2026-05-01
-
-      - name: Download Released Libraries
-        id: download
-        uses: ./.github/actions/download-released-libraries
-
-      - name: Set Prebuilt Library Paths
-        shell: bash
-        run: |
-          TARGET=x86_64-unknown-linux-gnu
-          VERSION=${{ steps.download.outputs.version }}
-          PREBUILT_DIR=${{ steps.download.outputs.prebuilt_dir }}
-          echo "FURIOSA_MAPPING_IMPL_LOCAL_PREBUILT=${PREBUILT_DIR}/libfuriosa_mapping_impl-${VERSION}-${TARGET}.a" >> $GITHUB_ENV
-          echo "FURIOSA_OPT_LOWER_IMPL_LOCAL_PREBUILT=${PREBUILT_DIR}/libfuriosa_opt_lower_impl-${VERSION}-${TARGET}.a" >> $GITHUB_ENV
-
-      - name: Generate Documentation
-        run: |
-          cargo doc --no-deps --workspace --target-dir target-rustdoc
-
-      - name: Upload Rustdoc Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustdoc
-          path: target-rustdoc/doc
-          retention-days: 1
-
   deploy:
     runs-on: ubuntu-latest
-    needs: [build_mdbook, build_rustdoc]
+    needs: [build_mdbook]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/snapshot'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download All Docs Artifacts
+      - name: Download Book Artifact
         uses: actions/download-artifact@v4
         with:
-          path: deploy/
+          name: book
+          path: deploy/book
+
+      # Rustdoc is not self-hosted; docs.rs is its canonical home. Keep only
+      # a redirect at the old rustdoc/ location.
+      - name: Render Rustdoc Redirect
+        run: |
+          mkdir -p deploy/rustdoc
+          url=https://docs.rs/furiosa-opt-std
+          printf '<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=%s"><link rel="canonical" href="%s"><a href="%s">%s</a>\n' \
+            "$url" "$url" "$url" "$url" > deploy/rustdoc/index.html
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3

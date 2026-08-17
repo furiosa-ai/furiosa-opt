@@ -165,35 +165,6 @@ pub fn ve_intra_slice_reduce_min_f32(
 // Intra-slice reduce: R split across Slice and Time (ve_intra_slice_reduce_split_*)
 // =============================================================================
 
-/// Intra-slice reduce with reduce axis S split across Slice and Time.
-/// S = 15, padded to 16: Slice gets S # 16 / 4 (=4), Time gets S # 16 % 4 (=4).
-/// Note: only the Time portion of S is reduced; Slice portion (S # 16 / 4) remains.
-#[device(chip = 1)]
-pub fn ve_intra_slice_reduce_split_slice_time(
-    ctx: &mut Context,
-    input: &HbmTensor<i32, Chip, m![S, A]>,
-) -> HbmTensor<i32, Chip, m![S # 16 / 4, A]> {
-    let input_transposed: HbmTensor<i32, Chip, m![S, A]> = input.to_hbm(&mut ctx.tdma);
-    let input_dm = input_transposed.to_dm::<Cluster, m![S # 16 / 4, A / 8], m![S # 16 % 4, A % 8]>(&mut ctx.tdma);
-
-    let result: DmTensor<i32, Chip, Cluster, m![S # 16 / 4, A / 8], m![A % 8]> = ctx
-        .main
-        .begin(input_dm.view())
-        .fetch::<m![S # 16 % 4], m![A % 8]>()
-        .fetch_cast::<i32>()
-        .collect::<m![S # 16 % 4], m![A % 8]>()
-        .vector_init()
-        .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_split::<m![S # 16 % 4, A / 4 % 2], m![A % 4]>()
-        .vector_intra_slice_reduce::<S, m![A / 4 % 2], m![A % 4]>(IntraSliceReduceOpI32::AddSat)
-        .vector_widen_concat::<m![1], m![A % 8]>()
-        .vector_final()
-        .commit_trim::<m![A % 8]>()
-        .commit();
-
-    result.to_hbm(&mut ctx.tdma)
-}
-
 /// Intra-slice reduce with R split across Time and Packet.
 /// R = 4: Time = m![R / 2], Packet = m![R % 2, A % 2 # 8].
 /// C2 satisfied: Packet has no padding on reduce axis (R % 2 = 2, no padding).

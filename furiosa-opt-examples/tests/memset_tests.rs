@@ -1,20 +1,20 @@
-//! Answer-key tests for the `memset` example kernels on the emulation backend.
+//! Answer-key tests for the `memset` example kernels on the CPU backend.
 //!
-//! These pin the VISA-level *calculation*: each kernel is launched on emulation and its readback is
+//! These pin the VISA-level *calculation*: each kernel is launched on the CPU and its readback is
 //! checked against a hand-written answer key. (VISA-vs-LIR *parity*, that device translation matches
-//! this emulation, lives in `npu-visa-test`.) Every kernel overwrites a **non-fill** input, so a
+//! this calculation, lives in `npu-visa-test`.) Every kernel overwrites a **non-fill** input, so a
 //! readback equal to the fill value proves the fill fired (a passthrough would echo the input). The
 //! input is `m![A, B]`; the 2-cluster relayout reads it back as `m![A / 2, A % 2, B]` (`OutMap`).
 
 use furiosa_opt_examples::memset::{
     A, B, memset_alias_bf16, memset_bf16_one, memset_f8e4m3_one, memset_f32_one_half, memset_i4_neg_one,
-    memset_i8_neg_one, memset_i16_300, memset_i32_zero, memset_subview_bf16,
+    memset_i8_neg_one, memset_i16_300, memset_i32_zero,
 };
 use furiosa_opt_std::prelude::*;
 
 type OutMap = m![A / 2, A % 2, B];
 
-/// Launches a whole-region `memset` kernel on emulation over a non-fill `$input` and asserts every
+/// Launches a whole-region `memset` kernel on the CPU over a non-fill `$input` and asserts every
 /// readback cell equals `$fill`: the answer key for a fill that overwrites the whole region.
 macro_rules! whole_region_answer_test {
     ($name:ident, $d:ty, $fn:ident, $input:expr, $fill:expr $(,)?) => {
@@ -96,37 +96,3 @@ whole_region_answer_test!(
     (0..<m![A, B]>::SIZE).map(|_| bf16::from_f32(1.0)).collect(),
     bf16::from_f32(3.0),
 );
-
-/// Sub-view fill: `memset_subview_bf16` fills only the upper half of the in-slice `B` axis (offset
-/// `B/2 = 64`) with `7.0` and leaves the lower half as the input. Device (LIR) translation of a
-/// sub-view fill is a documented follow-up (rejected at translation, pinned via `snapshot.toml`), but
-/// the emulation calculation must be correct. The input is `100 + b` (constant across `A`), so after
-/// the relayout each output cell's answer is fixed by its `B` index: `100 + b` for `b < 64`, else `7.0`.
-#[tokio::test]
-async fn test_memset_subview_bf16() {
-    let b_size = <m![B]>::SIZE;
-    let half = b_size / 2;
-
-    let mut ctx = Context::acquire();
-    let input_vals: Vec<bf16> = (0..<m![A, B]>::SIZE)
-        .map(|i| bf16::from_f32(100.0 + (i % b_size) as f32))
-        .collect();
-    let input = HostTensor::<bf16, m![A, B]>::from_vec(input_vals)
-        .to_hbm::<m![1], m![A, B]>(&mut ctx.pdma)
-        .await;
-
-    let output = launch(memset_subview_bf16, (&mut *ctx, &input)).await;
-
-    let answer: Vec<bf16> = (0..<OutMap>::SIZE)
-        .map(|k| {
-            let b = k % b_size;
-            if b < half {
-                bf16::from_f32(100.0 + b as f32)
-            } else {
-                bf16::from_f32(7.0)
-            }
-        })
-        .collect();
-
-    assert_eq!(output.to_host::<OutMap>(&mut ctx.pdma).await.into_vec(), answer);
-}

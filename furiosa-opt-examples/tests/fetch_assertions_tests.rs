@@ -14,7 +14,7 @@ mod cluster_size {
                 .to_hbm::<m![1], m![A, B]>(&mut ctx.pdma)
                 .await;
 
-        let mut output = unsafe { HbmTensor::<i8, m![1], m![A, B]>::from_addr(0x1000) };
+        let mut output = HbmTensor::<i8, m![1], m![A, B]>::new();
 
         launch(valid_cluster_size, (&mut *ctx, &input, &mut output)).await;
     }
@@ -33,7 +33,7 @@ mod slice_size {
                 .to_hbm::<m![1], m![A, B]>(&mut ctx.pdma)
                 .await;
 
-        let mut output = unsafe { HbmTensor::<i8, m![1], m![A, B]>::from_addr(0x1000) };
+        let mut output = HbmTensor::<i8, m![1], m![A, B]>::new();
 
         launch(valid_slice_size, (&mut *ctx, &input, &mut output)).await;
     }

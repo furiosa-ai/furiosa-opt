@@ -9,7 +9,7 @@ use furiosa_opt_macro::primitive;
 use std::marker::PhantomData;
 
 use crate::backend::Backend;
-use crate::cast::Cast;
+use crate::cast::CastEngineCast;
 use crate::constraints;
 use crate::context::*;
 use crate::engine::CanApplyCast;
@@ -62,7 +62,7 @@ impl<'l, const T: Tu, P: CanApplyCast, D: VeScalar, Chip: M, Cluster: M, Slice: 
     #[primitive(TuTensor::cast)]
     pub fn cast<OutD: Scalar, OutPacket: M>(self) -> CastTensor<'l, T, OutD, Chip, Cluster, Slice, Time, OutPacket, B>
     where
-        D: Cast<OutD>,
+        D: CastEngineCast<OutD>,
     {
         verify_cast::<D, OutD, Packet, OutPacket>();
         CastTensor::new(self.ctx, self.inner.map(|v| v.cast()).transpose(false))

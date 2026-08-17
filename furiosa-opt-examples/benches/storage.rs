@@ -3,8 +3,7 @@
 //! Each bench drives one `Tensor` op straight into the active backend's storage hot loop
 //! (`map` / `zip_with` / `reduce` / `transpose`, plus the fused `contraction`), with no scheduler or
 //! DMA in the path. The op code is backend-agnostic, so it measures whichever backend is compiled in:
-//! the default `emulation` (`BufStorage`), overridable via
-//! `RUSTFLAGS='--cfg backend="emulation"'`.
+//! the CPU backend (`BufStorage`).
 //!
 //! ```sh
 //! cargo bench -p furiosa-opt-examples --bench storage
@@ -26,7 +25,7 @@ axes![A = 512, B = 512, M = 128, K = 128, N = 128];
 // The old per-worker-accumulator `BufStorage::reduce` allocated + combined a `vec![identity; out_size]`
 // per rayon leaf here (`O(out_size × leaves)`), which could run SLOWER than serial; the per-output-cell
 // rewrite writes each cell once. This bench pins that the parallel reduce is not slower than serial in
-// the corner (run it under `--cfg backend="emulation"` to exercise `BufStorage`).
+// the corner (a plain cargo run exercises `BufStorage`).
 axes![Wide = 1048576, Thin = 4];
 
 fn rng() -> SmallRng {
@@ -71,7 +70,9 @@ fn bench_contraction(c: &mut Criterion) {
     let lhs = Tensor::<f32, m![M, K]>::rand(&mut rng());
     let rhs = Tensor::<f32, m![K, N]>::rand(&mut rng());
     c.bench_function("contraction 128x128x128", |b| {
-        b.iter(|| Tensor::<f32, m![M, N]>::contraction::<m![M, K, N], _, _>(black_box(&lhs), black_box(&rhs)))
+        b.iter(|| {
+            Tensor::<f32, m![M, N]>::contraction_prewidened::<m![M, K, N], _, _>(black_box(&lhs), black_box(&rhs))
+        })
     });
 }
 

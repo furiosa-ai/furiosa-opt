@@ -1,7 +1,7 @@
-//! Commit trim: the output packet must be a valid commit width and a trimming of the input packet.
+//! Commit trim and commit cast: the widths one Commit Adapter write may use.
 
 use furiosa_mapping::{Mapping, MappingExt};
-use furiosa_opt_lower_types::COMMIT_VALID_PACKET_SIZES;
+use furiosa_opt_lower_types::{COMMIT_BASE_SIZE, COMMIT_VALID_PACKET_SIZES};
 
 use crate::verify::size_in_bytes;
 
@@ -34,4 +34,40 @@ pub fn config_commit_trim(packet: &Mapping, out_packet: &Mapping, element_bits: 
         });
     }
     Ok(())
+}
+
+/// The post-trim packet is not a width a converting commit can write.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "commit_cast input packet is {commit_in_size} B, not a multiple of {unit} B; re-trim it to one \
+     of {legal:?} B"
+)]
+pub struct CommitCastError {
+    /// Post-trim packet width, in pre-cast bytes.
+    pub commit_in_size: usize,
+    /// Bytes one write covers: the commit unit's granularity times the conversion ratio.
+    pub unit: usize,
+    /// Hardware commit widths this conversion admits.
+    pub legal: Vec<usize>,
+}
+
+/// The packet a commit cast receives, measured in its pre-cast element type, must be a width the
+/// converting commit unit can write: it writes in [`COMMIT_BASE_SIZE`] units and produces
+/// `in_bits / out_bits` times fewer bytes than it reads, so `f32 -> bf16` drops the odd multiples of
+/// the base size. `commit_trim` produces that packet before the cast runs, so only here are both
+/// widths known.
+pub fn config_commit_cast(packet: &Mapping, in_bits: usize, out_bits: usize) -> Result<(), CommitCastError> {
+    let unit = COMMIT_BASE_SIZE * (in_bits / out_bits);
+    let commit_in_size = size_in_bytes(in_bits, packet.size());
+    if commit_in_size.is_multiple_of(unit) {
+        return Ok(());
+    }
+    Err(CommitCastError {
+        commit_in_size,
+        unit,
+        legal: COMMIT_VALID_PACKET_SIZES
+            .into_iter()
+            .filter(|n| n.is_multiple_of(unit))
+            .collect(),
+    })
 }

@@ -362,57 +362,6 @@ For regular configurations the compiler derives `ring_size` from the configurati
                                             wrap-around (links are bidirectional)
 ```
 
-The Switch Engine is configured by a *snoop bitmap*: 256 entries (one per slice), each naming the source slices whose data should arrive at that output slice.
-Regular configurations come with built-in bitmap generators.
-[`CustomBroadcast`](#custom-configurations) instead lets the compiler synthesize an arbitrary bitmap from the kernel writer's input/output mappings.
-
-
-Based on its bitmap entry, every router decides per incoming packet which combination of three actions to take:
-
-- **Output**: deliver the packet to the local slice's downstream pipeline, when the packet's source slice is selected for delivery here.
-- **Forward right**: pass the packet to the right neighbor's router.
-- **Forward left**: pass the packet to the left neighbor's router.
-
-In each sub-ring, the leftmost router sends its own data rightward, and the rightmost router sends its own data leftward.
-When `ring_size > 2`, the intermediate routers output incoming left-neighbor data and forward it rightward.
-Every router also outputs any data that arrives from a neighbor.
-
-The trace below illustrates per-router execution in one 2-slice sub-ring (`ring_size = 2`), running a 2-slice broadcast pattern.
-The remaining 127 sub-rings behave identically and are omitted.
-Each link has a 1-cycle traversal latency, so the leftmost router initiates at cycle 0 while the rightmost begins at cycle 1, once the first packet from its left neighbor arrives.
-With `axes![A = 256, B = 2, C = 32]`, `Slice = m![A]`, `Time = m![B]`, and `Packet = m![C]`, the shown sub-ring contains slices 0 and 1: the leftmost slice holds packets `[0, 1]` and the rightmost slice holds `[2, 3]`.
-Each cell reads as `<packet>: from <source>, to <action>`, where source is `input`/`left`/`right` and action is one or more of `output`/`right`/`left`.
-
-| cycle | Leftmost slice                    | Rightmost slice                                    | Output Data                                                 |
-| ----- | --------------------------------- | -------------------------------------------------- | ----------------------------------------------------------- |
-| 0     | 0: from input, to (output, right) |                                                    | `Leftmost: [0]`<br>`Rightmost: []`                          |
-| 1     | 1: from input, to (output, right) | 0: from left, to output<br> 2: from input, to left | `Leftmost: [0, 1]`<br>`Rightmost: [0]`                      |
-| 2     | 2: from right, to (output, right) | 1: from left, to output<br> 3: from input, to left | `Leftmost: [0, 1, 2]`<br>`Rightmost: [0, 1]`                |
-| 3     | 3: from right, to (output, right) | 2: from left, to output                            | `Leftmost: [0, 1, 2, 3]`<br>`Rightmost: [0, 1, 2]`          |
-| 4     |                                   | 3: from left, to output                            | `Leftmost: [0, 1, 2, 3]`<br>`Rightmost: [0, 1, 2, 3]`       |
-
-After the trace, both slices in the sub-ring hold all four packets, completing the broadcast.
-
-The bitmap encodes transformations through the shape of its entries:
-
-- **Broadcast shape**: multiple output slices receiving the same source data have identical bitmap entries.
-- **`Slice`-to-`Time` shape**: one output slice listing several source slices means that output collects data from all of them across consecutive time steps.
-
-For instance, the bitmap that reproduces the [`Broadcast01` example](#broadcast01) above looks like this:
-
-| Bitmap Index | `(A / 4, A % 4)`                           | `A`                        | Ring Group                 |
-| ------------ | ------------------------------------------ | -------------------------- | -------------------------- |
-| 0            | `(0, 0)`, `(0, 1)`, `(0, 2)`, `(0, 3)`     | `0`, `1`, `2`, `3`         | `0`, `1`, `2`, `3`         |
-| 1            | `(0, 0)`, `(0, 1)`, `(0, 2)`, `(0, 3)`     | `0`, `1`, `2`, `3`         | `0`, `1`, `2`, `3`         |
-| 2            | `(0, 0)`, `(0, 1)`, `(0, 2)`, `(0, 3)`     | `0`, `1`, `2`, `3`         | `0`, `1`, `2`, `3`         |
-| 3            | `(0, 0)`, `(0, 1)`, `(0, 2)`, `(0, 3)`     | `0`, `1`, `2`, `3`         | `0`, `1`, `2`, `3`         |
-| 4            | `(1, 0)`, `(1, 1)`, `(1, 2)`, `(1, 3)`     | `4`, `5`, `6`, `7`         | `4`, `5`, `6`, `7`         |
-| …            | …                                          | …                          | …                          |
-| 255          | `(63, 0)`, `(63, 1)`, `(63, 2)`, `(63, 3)` | `252`, `253`, `254`, `255` | `252`, `253`, `254`, `255` |
-
-Rows 0-3 share identical entries because slices `{0, 1, 2, 3}` all receive data from input slices `{0, 1, 2, 3}` (the broadcast shape), and each row lists all four sources because `slice1` and `slice0` collapse from `Slice` into `Time` (the `Slice`-to-`Time` shape).
-This pattern repeats every 4 rows for the 64 sub-rings.
-`SwitchConfig::Broadcast01` generates this bitmap automatically.
 
 ## Performance
 
@@ -596,7 +545,8 @@ Plugging into the [cycle formula](#performance), `cycles ≈ ring_size × Time::
 - `Time::SIZE = D::SIZE × C::SIZE = 8 × 3 = 24`
 - `flits_per_packet = sizeof(f32) × Packet::SIZE / 32 = 4 × 8 / 32 = 1` (`Packet = m![E]`, `E::SIZE = 8`)
 
-The bitmap shows padding-only extraction directly: `bitmap[0] = {0, 1, 2}` means output slice 0 receives from the 3 valid input slices in its `C # 4` group while skipping index 3, the padding cell. Reading `{0, 1, 2, 3}` would pull that padding in as if it were real data.
+The bitmap shows padding-only extraction directly: `bitmap[0] = {0, 1, 2}` means output slice 0 receives from the 3 valid input slices in its `C # 4` group while skipping index 3, the padding cell.
+Reading `{0, 1, 2, 3}` would pull that padding in as if it were real data.
 
 ### Constraints
 
@@ -655,4 +605,3 @@ Slicing a fully valid axis, for instance `B = 4 → B = 3`, violates this constr
 
 The `ring_size` parameter must be a power of 2.
 The compiler also derives the expected `ring_size` from the input/output mappings (the outermost non-direct-cast boundary) and rejects any user-supplied value that does not match.
-

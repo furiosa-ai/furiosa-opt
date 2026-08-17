@@ -26,8 +26,8 @@ mod sys {
         pub(super) fn mapping_normalize(slf: &Mapping) -> Mapping;
         pub(super) fn mapping_dma_tails(src: &Mapping, dst: &Mapping) -> Tuple3<usize, usize, usize>;
         pub(super) fn mapping_split_at(slf: &Mapping, target: usize) -> Tuple2<Mapping, Mapping>;
-        pub(super) fn mapping_index(slf: &Mapping, position: usize) -> Index;
-        pub(super) fn mapping_indexes(slf: &Mapping) -> RVec<Index>;
+        pub(super) fn mapping_index(slf: &Mapping, position: usize) -> Cell;
+        pub(super) fn mapping_indexes(slf: &Mapping) -> RVec<Cell>;
         pub(super) fn mapping_axes(slf: &Mapping) -> RVec<AxisTerm>;
         pub(super) fn mapping_iter(
             slf: &Mapping,
@@ -65,11 +65,12 @@ pub trait MappingExt: Sized {
     /// divide the size.
     fn split_at(&self, target: usize) -> (Self, Self);
     /// The read at buffer `position`, an [`Index`] of per-axis contributions with composites kept
-    /// WHOLE. Call [`IndexExt::finalize`] to decode them (`mapping.index(i).finalize()`).
-    fn index(&self, position: usize) -> Index;
+    /// WHOLE. Call [`IndexExt::finalize`] on a live index, or [`CellExt::finalize`] on the cell with
+    /// an explicit out-of-bounds fill kind.
+    fn index(&self, position: usize) -> Cell;
     /// The raw read at every buffer position `0..size`, composites kept WHOLE, in one FFI crossing. The
-    /// batch form of `index`; call [`IndexExt::finalize`] on a cell to decode it.
-    fn indexes(&self) -> Vec<Index>;
+    /// batch form of `index`; call [`CellExt::finalize`] with the desired out-of-bounds fill kind.
+    fn indexes(&self) -> Vec<Cell>;
     /// The live axis terms (its [`AxisTerm`]s, resolved symbols), padding excluded.
     fn axes(&self) -> Vec<AxisTerm>;
     /// A lazy iterator over where this mapping's cells land in a buffer laid out by `axes`, each offset
@@ -134,11 +135,11 @@ impl MappingExt for Mapping {
         (outer, inner)
     }
 
-    fn index(&self, position: usize) -> Index {
+    fn index(&self, position: usize) -> Cell {
         unsafe { sys::mapping_index(self, position) }
     }
 
-    fn indexes(&self) -> Vec<Index> {
+    fn indexes(&self) -> Vec<Cell> {
         unsafe { sys::mapping_indexes(self) }.into_iter().collect()
     }
 
@@ -203,21 +204,38 @@ impl SequencerConfigExt for SequencerConfig {
 
 /// Methods for [`Index`].
 pub trait IndexExt: Sized {
-    /// Marks this index as invalid.
-    fn mark_invalid(&mut self);
     /// Adds a mapping to this index.
-    fn add_mapping<I: crate::M>(&mut self, value: usize);
+    fn add_mapping<I: crate::M>(&mut self, value: usize, oob_fill: PaddingKind) -> Result<(), PaddingKind>;
     /// The terminal read: decodes every composite and returns each symbol's absolute coordinate
     /// (`Ident` -> coordinate, coord-0 dropped), or the [`PaddingKind`] a pad cell lands on.
     fn finalize(self) -> RResult<RSortedMap<Ident, usize>, PaddingKind>;
 }
 
-impl IndexExt for Index {
-    fn mark_invalid(&mut self) {
-        self.0 = RResult::RErr(PaddingKind::Bottom);
+/// Finalization helper for a mapped cell. Padding and out-of-bounds cells remain errors.
+pub trait CellExt {
+    /// Decode a live cell's logical coordinates.
+    /// `oob_fill` supplies the fill kind for [`Cell::OutOfBounds`].
+    fn finalize(self, oob_fill: PaddingKind) -> RResult<RSortedMap<Ident, usize>, PaddingKind>;
+}
+
+impl CellExt for Cell {
+    fn finalize(self, oob_fill: PaddingKind) -> RResult<RSortedMap<Ident, usize>, PaddingKind> {
+        match self {
+            Cell::Index(index) => index.finalize(),
+            Cell::Padding(kind) => RResult::RErr(kind),
+            Cell::OutOfBounds => RResult::RErr(oob_fill),
+        }
     }
-    fn add_mapping<I: crate::M>(&mut self, value: usize) {
-        self.add(I::to_value().index(value));
+}
+
+impl IndexExt for Index {
+    fn add_mapping<I: crate::M>(&mut self, value: usize, oob_fill: PaddingKind) -> Result<(), PaddingKind> {
+        match I::to_value().index(value) {
+            Cell::Index(index) => self.add(index),
+            Cell::Padding(kind) => return Err(kind),
+            Cell::OutOfBounds => return Err(oob_fill),
+        }
+        Ok(())
     }
     fn finalize(self) -> RResult<RSortedMap<Ident, usize>, PaddingKind> {
         unsafe { sys::index_finalize(self) }

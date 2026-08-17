@@ -33,3 +33,12 @@ impl FpToFxp {
         self.0
     }
 }
+
+/// Bit-preserving reread of the 32-bit stream as the other VE scalar type, the op-side handle for
+/// [`vector_reinterpret`](crate::prelude::VectorTensor::vector_reinterpret).
+///
+/// Unlike its two siblings above it configures no layer, because a reinterpret has no hardware stage
+/// to configure. It exists so both the single-stream and the pair path read the element semantics from
+/// one `HasConversionOp` impl; the direction comes from that impl's `D` / `D2`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Reinterpret;

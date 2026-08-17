@@ -15,11 +15,13 @@ mod divide;
 mod fetch;
 mod sequencer;
 mod switch;
+mod tile;
 mod transpose;
 
-pub use commit::{COMMIT_VALID_PACKET_SIZES, CommitError};
+pub use commit::{COMMIT_BASE_SIZE, COMMIT_VALID_PACKET_SIZES, CommitError};
 pub use divide::{DivideTerm, FactorLeaf, RelaxedDivision};
 pub use fetch::FetchError;
 pub use sequencer::{MAX_SEQUENCER_ENTRIES, StreamSequencerConfig};
 pub use switch::{SwitchAxis, SwitchConfig, SwitchError, SwitchFrame};
-pub use transpose::TransposeConfig;
+pub use tile::{PadError, TileError};
+pub use transpose::{TransposeConfig, TransposeError};

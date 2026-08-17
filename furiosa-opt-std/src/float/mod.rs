@@ -1,5 +1,6 @@
 //! Hardware numeric type operations for Renegade NPU.
 
+mod bf16;
 mod f8e4;
 mod f8e5;
 
@@ -79,3 +80,5 @@ fn round_to_nearest_even(input: u32, iw: u32, ow: u32) -> u32 {
 
     (interest >> 2) + u32::from(round_up)
 }
+
+pub(crate) use bf16::{bf16_to_f32, f32_to_bf16};

@@ -18,8 +18,8 @@ use furiosa_mapping::M;
 
 use crate::scalar::Scalar;
 
-/// Bits in a byte / flit byte size, single-sourced from the published verifier crate.
-pub(crate) use furiosa_opt_lower::{BITS_PER_BYTE, FLIT_BYTES};
+/// Bits in a byte / flit byte size / VRF capacity, single-sourced from the published verifier crate.
+pub(crate) use furiosa_opt_lower::{BITS_PER_BYTE, FLIT_BYTES, VRF_BYTES};
 
 /// Supported `Cluster` dimension sizes.
 pub(crate) const CLUSTER_SIZES: [usize; 2] = [1, 2];
@@ -101,6 +101,19 @@ pub(crate) fn assert_packet_one_or_two_flit<D: Scalar, Packet: M>() {
     };
 }
 
+/// Asserts one slice's vector register file operand fits [`VRF_BYTES`] (`to_vrf`).
+///
+/// A compile-time check, unlike the TRF's: the VRF is one undivided file per slice, so its capacity
+/// is fixed here, while `to_trf` checks the whole tensor register file.
+pub(crate) fn assert_vrf_capacity<D: Scalar, Element: M>() {
+    const {
+        assert!(
+            size_in_bytes(D::BITS, Element::SIZE) <= VRF_BYTES,
+            "VRF data must fit the vector register file (8192 bytes per slice)"
+        );
+    };
+}
+
 /// Asserts a DM → DM transfer preserves its whole `Chip` / `Cluster` / `Slice` partition.
 ///
 /// Shared by every `DmTensor`(`View`/`ViewMut`) → `DmTensor`(`View`/`ViewMut`) primitive. Each leaf
@@ -112,21 +125,28 @@ pub(crate) fn assert_dm_to_dm_dimension_preserved<Chip: M, Chip2: M, Cluster: M,
     assert_slice_preserved::<Slice, Slice2>();
 }
 
-/// Asserts a `reshape` preserves its whole `Chip` / `Cluster` / `Slice` partition (it relabels the
-/// mapping, it moves no data). Shares the per-axis leaf checks with [`assert_dm_to_dm_dimension_preserved`].
-pub(crate) fn assert_reshape_dimension_preserved<Chip: M, Chip2: M, Cluster: M, Cluster2: M, Slice: M, Slice2: M>() {
+/// Asserts a `reshape` preserves every one of its `Chip` / `Cluster` / `Slice` / `Element` partitions
+/// (it relabels the mapping, it moves no data). Shares the per-axis leaf checks with
+/// [`assert_dm_to_dm_dimension_preserved`].
+pub(crate) fn assert_reshape_dimension_preserved<
+    Chip: M,
+    Chip2: M,
+    Cluster: M,
+    Cluster2: M,
+    Slice: M,
+    Slice2: M,
+    Element: M,
+    Element2: M,
+>() {
     assert_chip_preserved::<Chip, Chip2>();
     assert_cluster_preserved::<Cluster, Cluster2>();
     assert_slice_preserved::<Slice, Slice2>();
-    // TODO: also assert the `Element` size is preserved (add `Element` / `Element2` params and
-    // `assert_element_preserved`). Deferred because some current examples reshape with a
-    // mismatched `Element`; enable once those are fixed.
+    assert_element_preserved::<Element, Element2>();
 }
 
 /// Asserts a HBM `reshape` preserves its whole `Chip` / `Element` partition (it relabels the
-/// mapping, it moves no data). HBM has no `Cluster`/`Slice` axis, and (unlike
-/// [`assert_reshape_dimension_preserved`]'s DM case) no existing example reshapes a mismatched
-/// `Element`, so both axes are checked here.
+/// mapping, it moves no data). HBM has no `Cluster`/`Slice` axis, so those two are the whole
+/// partition here.
 pub(crate) fn assert_hbm_reshape_dimension_preserved<Chip: M, Chip2: M, Element: M, Element2: M>() {
     assert_chip_preserved::<Chip, Chip2>();
     assert_element_preserved::<Element, Element2>();

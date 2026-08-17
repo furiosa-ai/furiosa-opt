@@ -1,8 +1,9 @@
 //! Examples exercising memory-movement primitives that lack dedicated examples
-//! elsewhere: DM↔DM relayout ([`DmTensor::to_dm`]), parallel-copy
-//! ([`DmTensor::to_dm_pcopy`] / `DmTensorView::to_dm_view_pcopy`), HBM chip
-//! shuffle ([`HbmTensorView::hbm_chip_shuffle`]), and a `commit_view` into a
+//! elsewhere: DM↔DM relayout ([`DmTensor::to_dm`]) and a `commit_view` into a
 //! down-padded tiled `view_mut` ([`commit_view_bottom_pad`]).
+//!
+//! Parallel copy and HBM chip shuffle are recognized at MIR but not translated further, so they live
+//! in `npu-opt-examples::unsupported::memory_op`.
 
 #![expect(clippy::type_complexity)]
 
@@ -21,36 +22,6 @@ pub fn dm_relayout(
     let dm: DmTensor<i32, m![1], m![1 # 2], m![A], m![B]> = hbm.to_dm(&mut ctx.tdma);
     let relaid: DmTensor<i32, m![1], m![1 # 2], m![1 # 2, A / 2], m![A % 2, B]> = dm.to_dm(&mut ctx.tdma);
     relaid.to_hbm(&mut ctx.tdma)
-}
-
-/// `DmTensor::to_dm_pcopy`: copy a DM tensor into another DM tensor via parallel
-/// copy (the convenience wrapper over `to_dm_view_pcopy`).
-#[device(chip = 1)]
-pub fn dm_pcopy(ctx: &mut Context, hbm: &HbmTensor<i32, m![1], m![A, B]>) -> HbmTensor<i32, m![1], m![A, B]> {
-    let src: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut ctx.tdma);
-    let dst: DmTensor<i32, m![1], m![1], m![A], m![B]> = src.to_dm_pcopy(&mut ctx.sub);
-    dst.to_hbm(&mut ctx.tdma)
-}
-
-/// `DmTensorView::to_dm_view_pcopy`: copy from a DM view into a DM `view_mut` via
-/// parallel copy.
-#[device(chip = 1)]
-pub fn dm_view_pcopy(ctx: &mut Context, hbm: &HbmTensor<i32, m![1], m![A, B]>) -> HbmTensor<i32, m![1], m![A, B]> {
-    let src: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut ctx.tdma);
-    let mut dst: DmTensor<i32, m![1], m![1], m![A], m![B]> = DmTensor::new();
-    src.view().to_dm_view_pcopy(&mut ctx.sub, dst.view_mut());
-    dst.to_hbm(&mut ctx.tdma)
-}
-
-/// `HbmTensorView::hbm_chip_shuffle`: redistribute data across chips on the HBM
-/// side via DMA.
-#[device(chip = 4)]
-pub fn hbm_chip_shuffle(
-    ctx: &mut Context,
-    hbm: &HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]>,
-) -> HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> {
-    hbm.view()
-        .hbm_chip_shuffle::<4, { Dma::Tensor }>(&mut ctx.tdma, &[1, 2, 3, 0])
 }
 
 type QChip = m![1];

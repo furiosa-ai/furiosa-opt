@@ -18,7 +18,7 @@ pub fn dot_product_kernel(
     let lhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = lhs.to_dm(&mut ctx.tdma);
     let rhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = rhs.to_dm(&mut ctx.tdma);
 
-    // Sub context: load rhs into TRF (TrfAddress::Full dedicates the entire TRF to this tensor)
+    // Sub context: load rhs into TRF
     let rhs: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![A]> = ctx
         .sub
         .begin(rhs.view())

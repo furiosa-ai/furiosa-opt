@@ -19,7 +19,7 @@ pub use furiosa_mapping_macro::{axes, m};
 
 use abi_stable::{
     StableAbi,
-    std_types::{RArc, RBox, ROption, RResult, RVec},
+    std_types::{RArc, RBox, ROption, RVec},
 };
 use std::fmt::{self, Display, Formatter};
 
@@ -694,16 +694,54 @@ impl Display for Term {
     }
 }
 
-/// A buffer cell's read: the per-axis contributions on a live cell, or the [`PaddingKind`] it lands
-/// on otherwise (`Bottom` for an out-of-bounds / over-modulo read with no covering pad). A non-live
-/// cell's kind is decided by the MAJOR (outermost) factor that hits a pad first.
+/// A live buffer cell's logical read: per-axis contributions with composites kept whole.
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone, PartialEq, Eq)]
-pub struct Index(pub RResult<RSortedMap<Term, usize>, PaddingKind>);
+pub struct Index(pub RSortedMap<Term, usize>);
+
+/// The result of mapping one physical buffer cell.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, PartialEq, Eq)]
+pub enum Cell {
+    /// A live cell with its logical index terms.
+    Index(Index),
+    /// A cell in a declared padding region.
+    Padding(PaddingKind),
+    /// A physical position outside the mapping's extent.
+    OutOfBounds,
+}
+
+impl Cell {
+    /// Combine major and minor cell contributions, preserving major padding precedence.
+    pub fn combine(self, other: Self) -> Self {
+        match self {
+            Self::OutOfBounds => Self::OutOfBounds,
+            Self::Padding(kind) => Self::Padding(kind),
+            Self::Index(mut left) => match other {
+                Self::Index(right) => {
+                    left.add(right);
+                    Self::Index(left)
+                }
+                Self::Padding(kind) => Self::Padding(kind),
+                Self::OutOfBounds => Self::OutOfBounds,
+            },
+        }
+    }
+}
+
+impl Display for Cell {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Index(index) => Display::fmt(index, f),
+            Self::Padding(kind) => write!(f, "Padding({kind:?})"),
+            Self::OutOfBounds => f.write_str("OutOfBounds"),
+        }
+    }
+}
 
 impl Default for Index {
     fn default() -> Self {
-        Self(RResult::ROk(RSortedMap::new()))
+        Self(RSortedMap::new())
     }
 }
 
@@ -713,47 +751,27 @@ impl Index {
         Self::default()
     }
 
-    /// Stores a single term (composites kept WHOLE -- `finalize` decodes them). A term whose modulo
-    /// is overshot is an out-of-bounds read (`Bottom`). Pure `Index` arithmetic, so it lives here
-    /// (above the FFI) and is shared by the DSL `M::map`, the public `IndexExt`, and the decode.
+    /// Stores a single term (composites kept WHOLE -- `finalize` decodes them). Terms may overshoot
+    /// their modulo while structural mapping walks are in progress; scalar resolution validates
+    /// the resulting coordinate later. Padding and out-of-bounds state live in [`Cell`].
     pub fn add_term(&mut self, term: Term, value: usize) {
-        let RResult::ROk(map) = &mut self.0 else { return };
-        let modulo = term.modulo;
+        let map = &mut self.0;
         let entry = map.get_or_insert(term, 0);
         *entry += value;
-        if *entry >= modulo {
-            self.0 = RResult::RErr(PaddingKind::Bottom);
-        }
     }
 
-    /// Merges another index into this one. An existing error is kept, major priority. The outer
-    /// factor's pad kind, set first, wins over a later one, like `add_term` no-opping once invalid.
+    /// Merges another live index into this one.
     pub fn add(&mut self, other: Self) {
-        if matches!(self.0, RResult::RErr(_)) {
-            return;
-        }
-        match other.0 {
-            RResult::ROk(terms) => {
-                for (term, value) in terms {
-                    self.add_term(term, value);
-                }
-            }
-            RResult::RErr(kind) => self.0 = RResult::RErr(kind),
+        for (term, value) in other.0 {
+            self.add_term(term, value);
         }
     }
 }
 
 impl Display for Index {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.0 {
-            RResult::ROk(map) => {
-                let terms = map.iter().map(|(k, v)| format!("{k} = {v}")).join(", ");
-                write!(f, "Index[{}]", terms)
-            }
-            RResult::RErr(_) => {
-                write!(f, "Invalid Index")
-            }
-        }
+        let terms = self.0.iter().map(|(k, v)| format!("{k} = {v}")).join(", ");
+        write!(f, "Index[{}]", terms)
     }
 }
 
@@ -766,7 +784,7 @@ pub enum SequencerMode {
     Read,
     /// Stream writes to memory (each memory cell is written exactly once).
     Write,
-    /// A read carve ([`MappingExt::carve`]) that also tolerates a `Bottom` pad in the stream (a
+    /// A read carve (`MappingExt::carve`) that also tolerates a `Bottom` pad in the stream (a
     /// `view_mut` hole, read as a `Top` don't-care). TRANSIENT (PROG-480): a stopgap until the sequencer
     /// can carve the broadcast from the memory leftover (see `read_carved_down_memory_keeps_broadcast_term`),
     /// at which point this mode can be retired.

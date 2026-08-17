@@ -15,7 +15,6 @@ help:
 	@echo "  make clippy             - Run clippy linter"
 	@echo "  make fmt                - Run code formatter check"
 	@echo "  make test               - Run tests in release mode"
-	@echo "  make test-typecheck     - Run tests in release mode with --cfg backend=\"typecheck\""
 	@echo "  make mdbook-install     - Install mdbook utility and plugins"
 	@echo "  make mdbook-serve       - Serve docs locally"
 	@echo "  make mdbook-build       - Build static HTML documentation"
@@ -42,7 +41,8 @@ fmt:
 
 .PHONY: mdbook-install
 mdbook-install:
-	cargo install mdbook mdbook-mermaid mdbook-pdf
+	# lychee checks the rendered book's links; see the mdbook-build target.
+	cargo install mdbook mdbook-mermaid mdbook-pdf lychee
 	mdbook-mermaid install $(DOCS_DIR)
 
 .PHONY: mdbook-serve
@@ -52,6 +52,7 @@ mdbook-serve:
 .PHONY: mdbook-build
 mdbook-build:
 	mdbook build $(DOCS_DIR)
+	lychee --offline --include-fragments --root-dir $(CURDIR)/$(DOCS_DIR)/book $(DOCS_DIR)/book
 
 .PHONY: test-no-run
 test-no-run:
@@ -64,21 +65,9 @@ mdbook-test:
 	cargo test -p furiosa-opt-std --release --no-run
 	mdbook test $(DOCS_DIR) -L $(CARGO_TARGET_DIR)/release/deps/
 
-.PHONY: mdbook-test-typecheck
-mdbook-test-typecheck: export RUSTUP_TOOLCHAIN = $(RUST_TOOLCHAIN_CHANNEL)
-mdbook-test-typecheck: export CARGO_TARGET_DIR = target/typecheck
-mdbook-test-typecheck:
-	cargo furiosa-opt --backend typecheck test -p furiosa-opt-std --release --no-run
-	RUSTFLAGS='--cfg backend="typecheck"' mdbook test $(DOCS_DIR) -L $(CARGO_TARGET_DIR)/release/deps/
-
 .PHONY: test
 test: test-no-run
 	cargo test --workspace --release
-
-.PHONY: test-typecheck
-test-typecheck:
-	RUSTDOCFLAGS='--cfg backend="typecheck"' CARGO_TARGET_DIR=target/typecheck \
-	  cargo furiosa-opt --backend typecheck test --workspace --release
 
 .PHONY: licenses
 licenses:

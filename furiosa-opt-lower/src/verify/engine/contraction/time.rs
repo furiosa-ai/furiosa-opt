@@ -67,10 +67,14 @@ pub fn config_contract_time(time: &Mapping, out_time: &Mapping) -> Result<(), Co
     // stride must line the retained axes up edge-to-edge.
     let time_padding_per_stride = padding_per_stride(time);
 
-    let mut sorted_divisions: Vec<&DivideTerm> = division_terms.iter().collect();
-    sorted_divisions.sort_by_key(|d| d.divisor_stride);
+    let mut boundaries: Vec<(&DivideTerm, usize)> = division_terms
+        .iter()
+        .filter_map(|term| padded_extent_at(&time_padding_per_stride, term).map(|extent| (term, extent)))
+        .collect();
+    // Edge-to-edge is a claim about the OUTPUT layout, so walk it in divisor order.
+    boundaries.sort_by_key(|(term, _)| term.divisor_stride);
 
-    if let Some(first) = sorted_divisions.first()
+    if let Some((first, _)) = boundaries.first()
         && first.divisor_stride != 1
     {
         return Err(ContractTimeError::LeadingPadding {
@@ -79,12 +83,11 @@ pub fn config_contract_time(time: &Mapping, out_time: &Mapping) -> Result<(), Co
         });
     }
 
-    for (pos, d) in sorted_divisions.iter().enumerate() {
-        let expected_end = d.divisor_stride * padded_extent_at(&time_padding_per_stride, d);
-        let end = sorted_divisions
+    for (pos, (term, extent)) in boundaries.iter().enumerate() {
+        let end = boundaries
             .get(pos + 1)
-            .map_or(out_time.size(), |next| next.divisor_stride);
-        if expected_end != end {
+            .map_or(out_time.size(), |(next, _)| next.divisor_stride);
+        if term.divisor_stride * extent != end {
             return Err(ContractTimeError::PaddingNotPreserved {
                 time: time.clone(),
                 out_time: out_time.clone(),

@@ -1,15 +1,21 @@
 # Sequencer
 
 A sequencer reads a memory buffer as a packet stream and writes a packet stream back to memory.
+Mappings and packet sizes are the author-facing controls.
+
+Sequencer mechanics explain the loops, strides, access sizes, and lifetimes shared by Fetch, Commit, and DMA.
+The pseudo-type examples introduce the model; Access Size and Architecture explain the concrete engine behavior.
 The Fetch and Commit Engines each use one sequencer to address DM.
-The DMA Engine chains a read sequencer and a write sequencer to move data among DM, SPM, and HBM without intermediate buffers.
+The DMA Engine chains a read sequencer and a write sequencer to move data among DM and HBM without intermediate buffers.
 
 ## Interface
 
-`MemTensor` and `StreamTensor` are pedagogical pseudo types that capture the buffer-stream pattern in isolation, so this page can explain sequencer mechanics without dragging in each engine's full type machinery.
+`MemTensor` and `StreamTensor` are teaching-only pseudo types that isolate the buffer-to-stream pattern, so this section can explain sequencer mechanics without introducing every engine type.
 The real engine APIs use different types (`DmTensor`, `HbmTensor`, `TuTensor`, …), but every concrete pair maps onto the same `MemTensor` → `StreamTensor` shape illustrated below.
 
-`MemTensor` holds data in some memory mapping `Buf`, and any concrete buffer tensor (DM, SPM, HBM) plays this role.
+`MemTensor` holds data in some memory mapping `Buf`.
+DM and HBM tensors play this role in the public API.
+
 
 ```rust,ignore
 {{#include ../../../furiosa-opt-std/src/tensor/pseudo.rs:buf_tensor_def}}
@@ -402,7 +408,8 @@ The compiler processes `m![A / 4, A % 4 = 3, B / 4, B % 4 = 2, C]` term by term:
 ### Broadcasting Axes
 
 Broadcasting replicates an element across multiple packets or time steps when the stream visits axes that `Buf` does not carry.
-Any axis (or partial-axis fragment like `N / 512`) present in `Time` or `Packet` but absent from `Buf` becomes a broadcast entry, shown as `: 0` in the stride table (the hardware revisits the same address on each iteration).
+An axis or partial-axis fragment such as `N / 512` can appear in `Time` or `Packet` but not `Buf`.
+The sequencer then emits a broadcast entry `: 0` and revisits the same address.
 
 ```rust
 # extern crate furiosa_opt_std;
@@ -606,11 +613,3 @@ fn read_incompatible<'l>(
 Since `gcd(5, 3) = 1`, neither decomposition refines the other: the compiler cannot consume `A % 3` from a `Buf` that has already committed to a 5-block split.
 
 
-## Indirect Access
-
-
-All entries above use fixed strides: the memory offset between iterations is constant.
-`IndirectLoop` extends this by allowing variable offsets per iteration, enabling gather operations with data-dependent access patterns.
-
-The standard pattern `(limit, stride)` becomes `(limit, [offset0, offset1, ...])`, where each iteration uses a different offset from the provided sequence.
-This supports operations like embedding lookups where indices are determined at runtime.
