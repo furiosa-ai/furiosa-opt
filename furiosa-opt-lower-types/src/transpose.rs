@@ -122,7 +122,6 @@ pub enum TransposeError {
     PacketsPerColDoesNotSplitTime {
         /// The configured packet count per column.
         packets_per_col: usize,
-        /// The input Time mapping.
         time: Mapping,
     },
     /// The configured input row count does not split the remaining Time mapping.
@@ -130,50 +129,45 @@ pub enum TransposeError {
     InRowsDoesNotSplitTime {
         /// The configured input row count.
         in_rows: usize,
-        /// The remaining Time mapping.
         time: Mapping,
     },
     /// No input row placement satisfies both requested output mappings.
     #[error(
-        "Transpose: cannot place in_rows in Time ({time}) consistently with OutTime ({out_time}) | \
+        "Transpose: cannot place in_rows in Time ({in_time}) consistently with OutTime ({out_time}) | \
          OutPacket ({out_packet})"
     )]
     CannotPlaceInRows {
-        /// The input Time mapping.
-        time: RBox<Mapping>,
+        in_time: RBox<Mapping>,
         /// The requested output Time mapping.
         out_time: RBox<Mapping>,
         /// The requested output Packet mapping.
         out_packet: RBox<Mapping>,
     },
     /// The output row evidence cannot be matched in Time.
-    #[error("Transpose row evidence ({row_evidence}) is not present in Time ({time}): {reason:?}")]
+    #[error("Transpose row evidence ({row_evidence}) is not present in Time ({in_time}): {reason:?}")]
     RowEvidenceNotPresent {
         /// The live output row evidence.
         row_evidence: RBox<Mapping>,
-        /// The input Time mapping.
-        time: RBox<Mapping>,
+        in_time: RBox<Mapping>,
         /// The sequencer failure.
         reason: SequencerError,
     },
     /// The output row evidence has a non-integral stride in Time.
-    #[error("Transpose row evidence ({row_evidence}) is not aligned in Time ({time})")]
+    #[error("Transpose row evidence ({row_evidence}) is not aligned in Time ({in_time})")]
     RowEvidenceNotAligned {
         /// The live output row evidence.
         row_evidence: RBox<Mapping>,
-        /// The input Time mapping.
-        time: RBox<Mapping>,
+        in_time: RBox<Mapping>,
     },
     /// Different row terms imply different packet counts per column.
     #[error(
         "Transpose row evidence ({row_evidence}) implies inconsistent packets_per_col sizes in \
-         Time ({time})"
+         Time ({in_time})"
     )]
     InconsistentPacketsPerCol {
         /// The live output row evidence.
         row_evidence: RBox<Mapping>,
-        /// The input Time mapping.
-        time: RBox<Mapping>,
+        in_time: RBox<Mapping>,
     },
     /// The output row evidence contains no live row terms.
     #[error("Transpose row evidence ({row_evidence}) has no live row terms")]

@@ -10,6 +10,8 @@ use furiosa_opt_std::prelude::*;
 
 type Chip = m![1];
 type Cluster = m![1 # 2];
+/// One live slice of the 512 the 8-PE device has, for kernels that keep a whole row in one slice.
+type Slice = m![1 # 256];
 axes![
     A = 512,
     B = 256,

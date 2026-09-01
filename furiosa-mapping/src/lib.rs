@@ -94,6 +94,58 @@ pub trait MappingExt: Sized {
     /// it does not back stays live (the broadcast). Runs in [`SequencerMode::Carve`], so a `Bottom` pad in
     /// `self` (a `view_mut().tile()` hole) is tolerated as padding. Panics unless `piece` is in `self`.
     fn carve(&self, piece: &Self) -> Self;
+    /// Narrows the axis at `stride` x `size` to its first `window` positions, restoring the rest as
+    /// `hole` padding.
+    fn window_axis(
+        &self,
+        stride: usize,
+        size: usize,
+        window: usize,
+        hole: PaddingKind,
+    ) -> Result<Self, WindowAxisError>;
+    /// The cells one position of `axis` advances in this mapping. The axis must lie in one strided run,
+    /// so symbols this mapping holds apart are refused. Sound but not complete: a context a modulo has
+    /// discarded is not checked, so `m![A # 12 % 4]` is located in a 10-cell `m![A]`.
+    fn find_axis(&self, axis: &Self) -> Result<usize, FindAxisError>;
+}
+
+/// Why [`MappingExt::window_axis`] could not narrow an axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum WindowAxisError {
+    /// The window is empty, or reaches past the axis it narrows.
+    #[error("a window of {window} does not fit an axis of {size} positions")]
+    WindowExceedsAxis {
+        /// The requested window.
+        window: usize,
+        /// The axis extent it must fit in.
+        size: usize,
+    },
+    /// The axis's span does not divide the mapping.
+    #[error("an axis of {stride} x {size} does not fit a mapping of {cells} cells")]
+    SpanExceedsMapping {
+        /// Cells one position of the axis advances.
+        stride: usize,
+        /// The axis extent, padding included.
+        size: usize,
+        /// The mapping's extent in cells.
+        cells: usize,
+    },
+}
+
+/// Why [`MappingExt::find_axis`] could not locate an axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum FindAxisError {
+    /// The sequencer matched no term, or matched only part of the axis. Does not prove the axis is
+    /// absent.
+    #[error("this mapping does not step through the whole axis")]
+    NotInMapping,
+    /// The mapping holds every cell of the axis, but in pieces at different strides, so no single
+    /// stride advances it.
+    #[error("this mapping holds the axis in pieces, not in one strided run")]
+    ScatteredInMapping,
+    /// The axis span reaches past the mapping.
+    #[error("the axis span reaches past the mapping")]
+    SpanExceedsMapping,
 }
 
 /// Matches each of `streams` against the `memories`, each its own address space (the fetch engine's
@@ -101,9 +153,8 @@ pub trait MappingExt: Sized {
 /// `memory_index` says which memory it reads. The streams' segments are pooled and carved together
 /// (term priority is global across streams), so a `Broadcast` never claims a pad a `Term` needs.
 ///
-/// Coverage is enforced: every memory must end fully consumed for `mode` (a live cell left unread under
-/// Read / unwritten under Write is [`SequencerError::Unconsumed`], carrying the carved-down memories so
-/// the caller can name the offender). Inputs are read-only; the carving happens on internal copies.
+/// Every mode but [`SequencerMode::Locate`] enforces coverage: a live cell left unread or unwritten
+/// gives [`SequencerError::Unconsumed`]. Inputs are read-only, the carving runs on internal copies.
 pub fn sequence(
     memories: &[&Mapping],
     streams: &[&Mapping],
@@ -113,6 +164,25 @@ pub fn sequence(
     let streams: RVec<Mapping> = streams.iter().map(|m| (*m).clone()).collect();
     let configs = unsafe { sys::mapping_sequence(memories.as_rslice(), streams.as_rslice(), mode) }.into_result()?;
     Ok(configs.into_iter().map(SequencerConfigExt::coalesce).collect())
+}
+
+/// Cuts a power-of-two mapping into outermost-first two-position slots.
+/// Panics when the mapping size is not a power of two.
+pub fn into_slots_of_size_two(mapping: &Mapping) -> Vec<Mapping> {
+    let size = mapping.size();
+    assert!(
+        size.is_power_of_two(),
+        "a mapping counted in size-2 slots must have a power-of-two size, got {size}"
+    );
+    let mut slots = Vec::with_capacity(size.trailing_zeros() as usize);
+    let mut rest = mapping.normalize();
+    while rest.size() > 1 {
+        // Normalize each slot separately so equivalent padded spellings collapse alike.
+        slots.push(rest.clone().modulo(2).normalize());
+        rest = rest.stride(2).normalize();
+    }
+    slots.reverse();
+    slots
 }
 
 impl MappingExt for Mapping {
@@ -164,6 +234,70 @@ impl MappingExt for Mapping {
             acc = seg.pair(acc);
         }
         acc
+    }
+
+    fn window_axis(
+        &self,
+        stride: usize,
+        size: usize,
+        window: usize,
+        hole: PaddingKind,
+    ) -> Result<Self, WindowAxisError> {
+        // `resize` and `split_at` assert on these, so report them before reaching either.
+        if window == 0 || window > size {
+            return Err(WindowAxisError::WindowExceedsAxis { window, size });
+        }
+        let cells = self.size();
+        let span_fits = stride
+            .checked_mul(size)
+            .filter(|span| *span > 0 && cells > 0 && cells.is_multiple_of(*span));
+        let Some(span) = span_fits else {
+            return Err(WindowAxisError::SpanExceedsMapping { stride, size, cells });
+        };
+        let (above, axis_and_below) = self.split_at(span);
+        let (axis, below) = axis_and_below.split_at(stride);
+        Ok(above
+            .pair(axis.resize(window).padding(size, hole))
+            .pair(below)
+            .normalize())
+    }
+
+    fn find_axis(&self, axis: &Self) -> Result<usize, FindAxisError> {
+        // The axis is the stream, this mapping the memory, and only part of it is read, hence `Locate`.
+        // The stream is the axis alone, so the innermost entry (key `1`) holds its step.
+        let config = sequence(&[self], &[axis], SequencerMode::Locate).map_err(|_| FindAxisError::NotInMapping)?;
+        let entries = &config.first().ok_or(FindAxisError::NotInMapping)?.0;
+        let entry = entries.get(&1).ok_or(FindAxisError::NotInMapping)?;
+        // How much of the axis was found, before asking how it is laid out. The entries partition the
+        // axis, and one that reads no memory is a piece this mapping does not hold at all.
+        let located: usize = entries
+            .iter()
+            .filter(|(_key, entry)| entry.memory_stride != 0)
+            .map(|(_key, entry)| entry.mapping.size())
+            .product();
+        if located < axis.size() {
+            return Err(FindAxisError::NotInMapping);
+        }
+        // Every cell is there, so it must be there as one strided run: a second entry means the mapping
+        // holds the axis in pieces, each at its own stride.
+        if entries.len() != 1 {
+            return Err(FindAxisError::ScatteredInMapping);
+        }
+        // A single-position broadcast needs one cell of volume and so passes the check above, and
+        // still has to be refused for reading no memory.
+        let stride = entry.memory_stride;
+        if stride == 0 {
+            return Err(FindAxisError::NotInMapping);
+        }
+        // The sequencer absorbs padding on both sides, so `m![A # 32 / 8]` widened to 8 positions
+        // still reports stride 32, twice the 128 cells present.
+        let span = stride
+            .checked_mul(axis.size())
+            .ok_or(FindAxisError::SpanExceedsMapping)?;
+        if span > self.size() {
+            return Err(FindAxisError::SpanExceedsMapping);
+        }
+        Ok(stride)
     }
 }
 

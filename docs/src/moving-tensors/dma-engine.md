@@ -478,28 +478,27 @@ Performance breakdown:
 Total time: approximately 1,192 cycles, gated by DMN 3.
 Choose tensor shapes that divide evenly across DMNs to avoid this segmentation cost.
 
-## Shuffle Operations
+## Redistribution Operations
 
-Shuffle operations redistribute a tensor across clusters or chips according to a per-partition source pattern.
-These methods follow the `to_dm` / `to_hbm` convention.
-`dm_cluster_shuffle` and `dm_chip_shuffle` are methods on `DmTensorView`; `hbm_cluster_shuffle` and `hbm_chip_shuffle` are methods on `HbmTensor`.
-The shuffle pattern specifies, for each destination cluster or chip, which source cluster or chip provides its data.
+Cluster swap exchanges clusters 0 and 1. Chip shuffle redistributes a tensor according to a
+per-chip source pattern. These methods follow the `to_dm` / `to_hbm` convention.
+`dm_cluster_swap` and `dm_chip_shuffle` are methods on `DmTensorView`; `hbm_cluster_shuffle` and `hbm_chip_shuffle` are methods on `HbmTensor`.
+The chip-shuffle pattern specifies, for each destination chip, which source chip provides its data. A cluster swap exchanges clusters 0 and 1.
 
 ```rust
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
 axes![A = 256, B = 4096];
 
-fn cluster_shuffle(
+fn cluster_swap(
     ctx: &mut Context,
     input: &DmTensor<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]>,
 ) -> DmTensor<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]> {
-    // Shuffle pattern [1, 0]: cluster 0 ↔ cluster 1
-    input.view().dm_cluster_shuffle::<2>(&mut ctx.tdma, &[1, 0])
+    input.view().dm_cluster_swap(&mut ctx.tdma)
 }
 # let mut ctx = Context::acquire();
 # let input_dm = DmTensor::<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]>::new();
-# let _output_dm = cluster_shuffle(&mut ctx, &input_dm);
+# let _output_dm = cluster_swap(&mut ctx, &input_dm);
 ```
 
 Inter-chip shuffles use the system-wide global chip IDs.

@@ -20,6 +20,7 @@ The `assert_eq!` calls enforce hardware constraints on `Cluster::SIZE`, `Slice::
 As introduced in [Mapping Tensors](../mapping-tensors/index.md), the `Chip`, `Cluster`, `Slice`, `Time`, `Packet` mapping distributes data across space and time.
 `.fetch()` preserves the `Chip`, `Cluster`, and `Slice` dimensions unchanged from the input, because each slice independently reads its own DM partition.
 Later the [Switch Engine](../computing-tensors/switch-engine.md) changes the `Slice` mapping by moving data across slices.
+[Axis lifting](#axis-lifting) changes `Chip`, `Cluster`, or `Slice` without transferring data, using different DM read offsets across the selected dimension.
 
 `fetch()` takes `OutTime` and `OutPacket` type parameters that configure the Fetch Sequencer.
 `OutTime` sets the number of time steps in the output stream, and `OutPacket` sets the element layout within each packet.
@@ -47,6 +48,127 @@ A Fetch Sequencer runs independently in every slice, each operating on its own l
 In this example, `CH = 4`, `CL = 2`, and `S = 256` describe a 4-chip system with two clusters per chip and 256 slices per cluster.
 Each slice runs the same sequencer over its own `A×B` sub-tensor.
 
+
+## Axis Lifting
+
+`fetch_chip_lift`, `fetch_cluster_lift`, and `fetch_slice_lift` move axes from `Time` to `Chip`, `Cluster`, or `Slice`.
+A plain `fetch` starts every chip, cluster, and slice at the same DM offset and traverses the axes in `Time`.
+A lift gives each chip, cluster, or slice a different read *base*, so the lifted axes are read in parallel and removed from `Time`.
+
+A lift requires the source region to be replicated across the selected dimension because a read base changes only the starting offset.
+The DM placement represents this replication as a broadcast, which the lift replaces with the lifted axes.
+
+For `Slice`, use [`InterTranspose`](../computing-tensors/switch-engine.md#intertranspose) when data must move between slices or from `Slice` to `Time`.
+For `Chip` and `Cluster`, a [DMA](./dma-engine.md) is the alternative when the source region is not replicated.
+
+| Stage | Dimension | Where the base comes from |
+|-------|------------|---------------------------|
+| `fetch_chip_lift` | `Chip` | the read command encodes a static base, so the lift adds no setup operation |
+| `fetch_cluster_lift` | `Cluster` | the read command encodes a static base, so the lift adds no setup operation |
+| `fetch_slice_lift` | `Slice` | the compiler materializes one runtime base per slice with a DMA, an add in the fetch's execution context, and an SFR store |
+
+Slice bases depend on the source tensor's runtime address and therefore cannot be encoded as static command fields.
+The compiler copies constant relative offsets from DRAM to SRAM, adds the source address in the fetch's execution context, and stores the results in the per-slice base SFRs.
+The fetch waits for this setup, which uses the same SFR-store mechanism as the Switch Engine's [custom bitmap](../computing-tensors/switch-engine.md#configuration-overhead).
+
+For a sub-context fetch, the setup store overwrites SFRs that the fetch itself needs.
+The compiler restores those parameters after writing the bases; both contexts support every lift variant.
+
+```rust,ignore
+{{#include ../../../furiosa-opt-std/src/engine/fetch.rs:fetch_chip_lift}}
+
+{{#include ../../../furiosa-opt-std/src/engine/fetch.rs:fetch_cluster_lift}}
+
+{{#include ../../../furiosa-opt-std/src/engine/fetch.rs:fetch_slice_lift}}
+```
+
+### Example: Lifting `Q` onto `Slice`
+
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![A = 128, Q = 4, V = 16];
+
+fn fetch_halves_per_slice<'l, const T: Tu>(
+    input: BeginTensor<'l, T, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]>,
+) -> FetchSliceLiftTensor<'l, T, bf16, m![1], m![1 # 2], m![A, Q / 2], m![Q % 2], m![V]> {
+    input
+        .fetch::<m![Q], m![V]>()
+        .fetch_slice_lift::<m![A, Q / 2], m![Q % 2]>()
+}
+#
+# let mut ctx = Context::acquire();
+# let b: BeginTensor<'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let _o = fetch_halves_per_slice(b);
+```
+
+With `A = 128`, the slice placement `m![A, 2]` describes 128 pairs of slices; both slices in each pair hold the same `m![Q, V]` data.
+A plain `fetch` reads all four `Q` values on both slices.
+The lift replaces the broadcast `2` with `Q / 2`, leaving `Q % 2` in `Time`: the first slice reads `Q = 0, 1` from base 0, and the second reads `Q = 2, 3` from base 32 elements (64 bytes of `bf16`).
+
+|  | placement | base | reads | time steps |
+| --- | --- | --- | --- | --- |
+| `fetch`, either slice | `m![A, 2]` | 0 | `Q = 0, 1, 2, 3` | 4 |
+| lift, first slice | `m![A, Q / 2]` | 0 | `Q = 0, 1` | 2 |
+| lift, second slice | `m![A, Q / 2]` | 32 elements | `Q = 2, 3` | 2 |
+
+The base for any chip, cluster, or slice is the sum of each lifted-axis value multiplied by its original DM stride.
+Here the second slice has `Q / 2 = 1`, so its base is `1 × (Q % 2) × V = 32` elements.
+
+### Requirements
+
+A lift must satisfy all of the following:
+
+- The input and output sizes of the selected dimension must match.
+- Only broadcasts may change. The verifier compares the mappings in size-2 groups; a changed broadcast `2` must become an axis component of size 2. To replace a broadcast with padding, reshape the DM placement and leave that padding unread. Several groups may change in one lift, but an existing axis or a broadcast of 3 may not.
+- Lifted axes must be removed from `OutTime`. `OutPacket` remains unchanged.
+- Lift methods must be called in `Chip`, `Cluster`, `Slice` order, at most once per dimension.
+- Every calculated base must be a multiple of 8 bytes.
+- If an unsafe `reshape` introduces the broadcast, the data must already be replicated. `reshape` checks element order, not replication; violating this requirement can produce different hardware and CPU results.
+
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![A = 128, H = 2, V = 16, Rep = 2, G = 2];
+
+// Valid: DMA replicates `[H, V]` across `Rep`; reshape exposes `Rep` as a broadcast.
+fn named_broadcast(
+    ctx: &mut Context,
+    input: &HbmTensor<bf16, m![1], m![A, H, V]>,
+) -> DmTensor<bf16, m![1], m![1 # 2], m![A, H], m![V]> {
+    let written: DmTensor<bf16, m![1], m![1 # 2], m![A, Rep], m![H, V]> =
+        input.to_dm::<m![1 # 2], m![A, Rep], m![H, V]>(&mut ctx.tdma);
+    let dm: DmTensor<bf16, m![1], m![1 # 2], m![A, 2], m![H, V]> = unsafe { written.reshape() };
+
+    ctx.main
+        .begin(dm.view())
+        .fetch::<m![H], m![V]>()
+        .fetch_slice_lift::<m![A, H], m![1]>()
+        .collect::<m![1], m![V]>()
+        .commit_trim::<m![V]>()
+        .commit()
+}
+
+// Invalid for lifting: `G` stores different values, but reshape names it as a broadcast.
+fn without_broadcast(
+    ctx: &mut Context,
+    input: &HbmTensor<bf16, m![1], m![A, G, H, V]>,
+) -> DmTensor<bf16, m![1], m![1 # 2], m![A, H], m![V]> {
+    let written: DmTensor<bf16, m![1], m![1 # 2], m![A, G], m![H, V]> =
+        input.to_dm::<m![1 # 2], m![A, G], m![H, V]>(&mut ctx.tdma);
+    let dm: DmTensor<bf16, m![1], m![1 # 2], m![A, 2], m![H, V]> = unsafe { written.reshape() };
+
+    ctx.main
+        .begin(dm.view())
+        .fetch::<m![H], m![V]>()
+        .fetch_slice_lift::<m![A, H], m![1]>()
+        .collect::<m![1], m![V]>()
+        .commit_trim::<m![V]>()
+        .commit()
+}
+```
 
 ## Constraints
 

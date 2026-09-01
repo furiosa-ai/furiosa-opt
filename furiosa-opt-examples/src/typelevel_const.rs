@@ -40,3 +40,22 @@ pub fn typelevel_const(
     transpose_rows::<32>(ctx, input, &mut output);
     output
 }
+
+/// Stage `[A]` into `K`-wide slice groups, driving the partition from the
+/// const-generic parameter through the mapping escape: `m![A / {K}]` splices
+/// `K` into a size position the way a literal would be.
+fn stage<const K: usize>(
+    ctx: &mut Context,
+    input: &HbmTensor<i8, m![1], m![A]>,
+) -> DmTensor<i8, m![1], m![1], m![A / { K }], m![A % { K }]> {
+    input.to_dm(&mut ctx.tdma)
+}
+
+/// Concrete entrypoint instantiating the mapping-escape helper with `K = 8`,
+/// the companion of [`typelevel_const`]: one covers a const read as a loop
+/// bound, this one a const spliced into the mapping itself.
+#[device(chip = 1, pe = 1)]
+pub fn typelevel_mapping(ctx: &mut Context, input: &HbmTensor<i8, m![1], m![A]>) -> HbmTensor<i8, m![1], m![A]> {
+    let staged = stage::<8>(ctx, input);
+    staged.to_hbm(&mut ctx.tdma)
+}

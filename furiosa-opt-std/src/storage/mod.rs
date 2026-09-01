@@ -7,9 +7,13 @@
 
 use abi_stable::std_types::RResult;
 use furiosa_mapping::*;
+use rayon::iter::{FromParallelIterator, ParallelIterator};
+use std::sync::LazyLock;
 
 mod buf;
 mod par_iters;
+#[cfg(test)]
+mod pool_tests;
 
 pub(crate) use buf::Buf;
 pub use buf::BufStorage;
@@ -30,6 +34,54 @@ pub(crate) const PAR_MIN_JOB: usize = 1 << 16;
 /// storages' per-cell `reduce` / `contraction` / `gather`.
 pub(crate) fn min_cells_per_job(inner_block: usize) -> usize {
     (PAR_MIN_JOB / inner_block.max(1)).max(1)
+}
+
+const BUF_WORKER_STACK: usize = 16 << 20;
+const BUF_WORKER_CAP: usize = 32;
+
+static BUF_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
+    let threads = std::env::var("RAYON_NUM_THREADS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|&count| count > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism().map_or(BUF_WORKER_CAP, |count| count.get().min(BUF_WORKER_CAP))
+        });
+    rayon::ThreadPoolBuilder::new()
+        .stack_size(BUF_WORKER_STACK)
+        .thread_name(|index| format!("furiosa-opt-buf-{index}"))
+        .num_threads(threads)
+        .build()
+        .unwrap_or_else(|error| panic!("BufStorage Rayon pool must initialize: {error}"))
+});
+
+struct PoolTerminal<'pool, I> {
+    pool: &'pool rayon::ThreadPool,
+    iter: I,
+}
+
+trait InPool: ParallelIterator + Sized {
+    fn in_pool(self, pool: &rayon::ThreadPool) -> PoolTerminal<'_, Self> {
+        PoolTerminal { pool, iter: self }
+    }
+}
+
+impl<I: ParallelIterator> InPool for I {}
+
+impl<I: ParallelIterator> PoolTerminal<'_, I> {
+    fn collect<C>(self) -> C
+    where
+        C: FromParallelIterator<I::Item> + Send,
+    {
+        self.pool.install(|| self.iter.collect())
+    }
+
+    fn for_each<F>(self, op: F)
+    where
+        F: Fn(I::Item) + Sync,
+    {
+        self.pool.install(|| self.iter.for_each(&op));
+    }
 }
 
 // Concrete per-backend storage types.

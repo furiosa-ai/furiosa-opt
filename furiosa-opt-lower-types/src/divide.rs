@@ -5,6 +5,18 @@ use abi_stable::StableAbi;
 use abi_stable::std_types::{ROption, RVec};
 use furiosa_mapping_types::{Ident, Mapping};
 
+/// Why a mapping division failed.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DivideError {
+    #[error("the divisor has no terms")]
+    NoDivisorTerms,
+    #[error("a divisor term cannot divide the dividend")]
+    DivisorTermCannotDivide,
+    #[error("the mapping extents are misaligned")]
+    ExtentsMisaligned,
+}
+
 /// One factor leaf of a mapping, FMapping-free: a named axis (`ident`) or an untagged run (a composite
 /// the matcher didn't flatten, or a padding over-read), with its live cell count. The IR fetch
 /// projection reads these innermost-first instead of walking the hidden factor list.

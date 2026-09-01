@@ -21,12 +21,30 @@
 //!     └── fetch                    →  FetchTensor
 //!
 //! FetchTensor              (PositionFetch)
+//!     ├── fetch_chip_lift          →  FetchChipLiftTensor
+//!     ├── fetch_cluster_lift       →  FetchClusterLiftTensor
+//!     ├── fetch_slice_lift         →  FetchSliceLiftTensor
 //!     ├── fetch_mask               →  FetchMaskTensor
 //!     ├── fetch_table_lookup       →  FetchTableLookupTensor
 //!     ├── fetch_cast               →  FetchCastTensor
 //!     ├── fetch_zero_point_sub     →  FetchZeroPointSubTensor
 //!     ├── switch                   →  SwitchTensor       (fetch adapter skipped)
 //!     └── collect                  →  CollectTensor      (fetch adapter skipped)
+//!
+//! FetchChipLiftTensor      (PositionFetchChipLift)
+//!     ├── fetch_cluster_lift       →  FetchClusterLiftTensor
+//!     ├── fetch_slice_lift         →  FetchSliceLiftTensor
+//!     └── (every fetch adapter, switch, collect, as FetchTensor)
+//!
+//! FetchClusterLiftTensor   (PositionFetchClusterLift)
+//!     ├── fetch_slice_lift         →  FetchSliceLiftTensor
+//!     └── (every fetch adapter, switch, collect)
+//!
+//! FetchSliceLiftTensor     (PositionFetchSliceLift)
+//!     └── (every fetch adapter, switch, collect)
+//!
+//! Lifts chain outermost dimension first and use each dimension once, so each base is stated once.
+//! Adapters follow the lifts: a lift belongs to the read, an adapter to what was read.
 //!
 //! FetchMaskTensor          (PositionFetchMask)
 //!     ├── fetch_table_lookup       →  FetchTableLookupTensor
@@ -100,6 +118,10 @@
 //!     ├── commit                   →  DmTensor
 //!     └── commit_view              →  (writes to existing view)
 //! ```
+//!
+//! Two edges above carry a fact the graph cannot: `to_vrf` stores what the position it leaves from
+//! holds, so off a `vector_final` the register takes the pass output, and it takes `ctx.sub` as an
+//! argument when the stream runs in the main context, whose write goes through that context.
 
 pub mod cast;
 pub mod collect;
@@ -139,6 +161,30 @@ use crate::tensor::tu::{Position, PositionBegin};
 
 /// Source positions that can enter the Fetch Sequencer stage.
 pub trait CanApplyFetch: Position {}
+
+/// Source positions that can give each chip its own fetch base.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot lift onto `Chip`",
+    label = "lift onto `Chip` here",
+    note = "`fetch_chip_lift` is the outermost lift, so it must come before `fetch_cluster_lift` and `fetch_slice_lift`, and a read lifts onto `Chip` at most once"
+)]
+pub trait CanApplyFetchChipLift: Position {}
+
+/// Source positions that can give each cluster its own fetch base.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot lift onto `Cluster`",
+    label = "lift onto `Cluster` here",
+    note = "`fetch_cluster_lift` comes after `fetch_chip_lift` and before `fetch_slice_lift`, and a read lifts onto `Cluster` at most once"
+)]
+pub trait CanApplyFetchClusterLift: Position {}
+
+/// Source positions that can give each slice its own fetch base.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot lift onto `Slice`",
+    label = "lift onto `Slice` here",
+    note = "`fetch_slice_lift` is the innermost lift, so it comes after `fetch_chip_lift` and `fetch_cluster_lift`, and a read lifts onto `Slice` at most once"
+)]
+pub trait CanApplyFetchSliceLift: Position {}
 
 /// Source positions that can enter the Fetch Adapter's masking stage.
 pub trait CanApplyFetchMask: Position {}
@@ -197,29 +243,57 @@ pub trait CanApplyCommit: Position {}
 
 impl CanApplyFetch for PositionBegin {}
 
+// The lift chain: outermost dimension first, so a dimension is lifted at most once.
+impl CanApplyFetchChipLift for PositionFetch {}
+
+impl CanApplyFetchClusterLift for PositionFetch {}
+impl CanApplyFetchClusterLift for PositionFetchChipLift {}
+
+impl CanApplyFetchSliceLift for PositionFetch {}
+impl CanApplyFetchSliceLift for PositionFetchChipLift {}
+impl CanApplyFetchSliceLift for PositionFetchClusterLift {}
+
 impl CanApplyFetchMask for PositionFetch {}
+impl CanApplyFetchMask for PositionFetchChipLift {}
+impl CanApplyFetchMask for PositionFetchClusterLift {}
+impl CanApplyFetchMask for PositionFetchSliceLift {}
 
 impl CanApplyFetchTableLookup for PositionFetch {}
+impl CanApplyFetchTableLookup for PositionFetchChipLift {}
+impl CanApplyFetchTableLookup for PositionFetchClusterLift {}
+impl CanApplyFetchTableLookup for PositionFetchSliceLift {}
 impl CanApplyFetchTableLookup for PositionFetchMask {}
 
 impl CanApplyFetchCast for PositionFetch {}
+impl CanApplyFetchCast for PositionFetchChipLift {}
+impl CanApplyFetchCast for PositionFetchClusterLift {}
+impl CanApplyFetchCast for PositionFetchSliceLift {}
 impl CanApplyFetchCast for PositionFetchMask {}
 impl CanApplyFetchCast for PositionFetchTableLookup {}
 
 // Zero-point subtraction may follow any fetch-adapter stage (its output i5/i9
 // staging then flows through switch/collect only into `contract_outer`).
 impl CanApplyFetchZeroPointSub for PositionFetch {}
+impl CanApplyFetchZeroPointSub for PositionFetchChipLift {}
+impl CanApplyFetchZeroPointSub for PositionFetchClusterLift {}
+impl CanApplyFetchZeroPointSub for PositionFetchSliceLift {}
 impl CanApplyFetchZeroPointSub for PositionFetchMask {}
 impl CanApplyFetchZeroPointSub for PositionFetchTableLookup {}
 impl CanApplyFetchZeroPointSub for PositionFetchCast {}
 
 impl CanApplySwitch for PositionFetch {}
+impl CanApplySwitch for PositionFetchChipLift {}
+impl CanApplySwitch for PositionFetchClusterLift {}
+impl CanApplySwitch for PositionFetchSliceLift {}
 impl CanApplySwitch for PositionFetchMask {}
 impl CanApplySwitch for PositionFetchTableLookup {}
 impl CanApplySwitch for PositionFetchCast {}
 impl CanApplySwitch for PositionFetchZeroPointSub {}
 
 impl CanApplyCollect for PositionFetch {}
+impl CanApplyCollect for PositionFetchChipLift {}
+impl CanApplyCollect for PositionFetchClusterLift {}
+impl CanApplyCollect for PositionFetchSliceLift {}
 impl CanApplyCollect for PositionFetchMask {}
 impl CanApplyCollect for PositionFetchTableLookup {}
 impl CanApplyCollect for PositionFetchCast {}

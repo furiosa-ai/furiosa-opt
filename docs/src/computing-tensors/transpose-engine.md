@@ -41,18 +41,19 @@ The five transpose stages below are illustrated using the running example from [
 ### Parameters
 
 `valid_size` is the number of valid elements the Transpose Engine reads per cycle from its 32-byte input bus, and every input flit arrives in `bit-width × valid_size` form, with any remaining bytes of the 32-byte flit treated as padding and discarded by the Unpack stage.
+For 8-bit and 16-bit elements, the engine can select doubled input packing and read 16 valid elements from each flit instead of the base 8. Doubled packing is not supported for 4-bit or 32-bit elements.
 Data reaches the Transpose Engine via `CollectTensor::transpose()` (after `Fetch → [Switch →] Collect → [Cast →] Transpose`) or `VectorFinalTensor::transpose()` (directly from the [Vector Engine](./vector-engine/index.md)).
 The [Contraction Engine](./contraction-engine/index.md) emits `32b × 8` only, while the [Vector Engine](./vector-engine/index.md) and [Fetch Engine](../moving-tensors/fetch-engine.md) emit any combination from the table below.
 
 `in_cols`, `in_rows`, and `out_rows` are fixed by the kernel writer's `OutTime` and `OutPacket` choices.
 All four are constrained by the element size:
 
-| Element size | `valid_size` | Max `in_rows` | Valid `in_cols` |
-|--------------|--------------|---------------|-----------------|
-| 4-bit        | 16           | 16            | 16, 32          |
-| 8-bit        | 8            | 8             | 8, 16, 32       |
-| 16-bit       | 8            | 4             | 8, 16, 32       |
-| 32-bit       | 8            | 2             | 8, 16, 32       |
+| Element size | Single `valid_size` | Doubled `valid_size` | Max `in_rows` | Valid `in_cols` |
+|--------------|---------------------|----------------------|---------------|-----------------|
+| 4-bit        | 16                  | unsupported          | 16            | 16, 32          |
+| 8-bit        | 8                   | 16                   | 8             | 8, 16, 32       |
+| 16-bit       | 8                   | 16                   | 4             | 8, 16, 32       |
+| 32-bit       | 8                   | unsupported          | 2             | 8, 16, 32       |
 
 For the running example (`i8`, so `valid_size = 8`), the compiler derives:
 
@@ -76,8 +77,11 @@ For the running example (`i8`, so `valid_size = 8`), the compiler derives:
 ### Unpack
 
 Each 32-byte input packet carries `valid_size` valid elements; the Unpack stage discards the rest of the flit as padding.
+The compiler selects doubled packing when an 8-bit or 16-bit packet has live elements beyond the base 8-element prefix. The selected `valid_size` must still cover the complete live prefix; any remaining lanes must be padding.
 
 In the running example: `[C, D, E # 32]` → `[C, D, E]`.
+
+For example, an `i8` packet `[B=16 # 32]` uses doubled packing and contributes all 16 live elements in one cycle. The equivalent single-packed layout would contribute 8 elements from each of two consecutive packets. An `i4` packet cannot request the doubled form: its only supported `valid_size` is 16.
 
 ### Gather
 

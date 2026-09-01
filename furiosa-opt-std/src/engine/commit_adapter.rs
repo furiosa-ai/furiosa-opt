@@ -16,6 +16,7 @@
 use std::marker::PhantomData;
 
 use furiosa_mapping::*;
+use furiosa_opt_lower::{CommitCastInput, CommitCastKind, CommitTrimInput, config_commit_cast, config_commit_trim};
 use furiosa_opt_macro::primitive;
 
 use crate::backend::Backend;
@@ -175,7 +176,7 @@ impl<
     where
         D: CommitCast<OutD>,
     {
-        verify_commit_cast::<D, OutD, Packet>();
+        verify_commit_cast::<Packet>();
         CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
     }
 
@@ -189,7 +190,7 @@ impl<
     where
         D: CommitCast<OutD>,
     {
-        verify_commit_cast::<D, OutD, Packet>();
+        verify_commit_cast::<Packet>();
         CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast_relu()))
     }
 }
@@ -229,15 +230,21 @@ impl<
 /// Validates the Commit Adapter's trimming stage via [`furiosa_opt_lower::config_commit_trim`]
 /// (width / resize rules documented there).
 pub(crate) fn verify_commit_trim<D: Scalar, Packet: M, OutPacket: M>() {
-    furiosa_opt_lower::config_commit_trim(&Packet::to_value(), &OutPacket::to_value(), D::BITS)
-        .unwrap_or_else(|message| panic!("{message}"));
+    config_commit_trim(CommitTrimInput {
+        in_packet: Packet::to_value(),
+        out_packet: OutPacket::to_value(),
+        element_bits: D::BITS,
+    })
+    .unwrap_or_else(|message| panic!("{message}"));
 }
 
-/// Validates the Commit Adapter's cast via [`furiosa_opt_lower::config_commit_cast`]. `Packet` is
-/// the post-`commit_trim` packet, whose width in the pre-cast type `D` is the commit input width.
-fn verify_commit_cast<D: Scalar, OutD: Scalar, Packet: M>() {
-    furiosa_opt_lower::config_commit_cast(&Packet::to_value(), D::BITS, OutD::BITS)
-        .unwrap_or_else(|message| panic!("{message}"));
+/// Validates the Commit Adapter's `f32` to `bf16` conversion.
+fn verify_commit_cast<Packet: M>() {
+    config_commit_cast(CommitCastInput {
+        in_packet: Packet::to_value(),
+        kind: CommitCastKind::F32ToBf16,
+    })
+    .unwrap_or_else(|message| panic!("{message}"));
 }
 
 #[allow(clippy::extra_unused_type_parameters)]
@@ -249,8 +256,9 @@ fn verify_commit_valid_count_pack<D: Scalar, Time: M, Packet: M>() {
 mod tests {
     use furiosa_mapping::*;
 
-    use super::verify_commit_trim;
+    use super::{CommitTrimInput, config_commit_trim, verify_commit_trim};
     use crate::scalar::bf16;
+    use furiosa_opt_lower::CommitTrimError;
 
     mod valid {
         use super::*;
@@ -295,7 +303,49 @@ mod tests {
 
     mod invalid {
         use super::*;
+        use crate::scalar::Scalar;
 
         axes![N = 8, X = 8];
+
+        #[test]
+        fn out_packet_invalid_size() {
+            assert_eq!(
+                config_commit_trim(CommitTrimInput {
+                    in_packet: <m![N # 32]>::to_value(),
+                    out_packet: <m![N # 13]>::to_value(),
+                    element_bits: <i8 as Scalar>::BITS,
+                }),
+                Err(CommitTrimError::InvalidWidth(13))
+            );
+        }
+
+        #[test]
+        fn extra_padding() {
+            assert_eq!(
+                config_commit_trim(CommitTrimInput {
+                    in_packet: <m![N # 32]>::to_value(),
+                    out_packet: <m![N # 48]>::to_value(),
+                    element_bits: <i8 as Scalar>::BITS,
+                }),
+                Err(CommitTrimError::InvalidWidth(48))
+            );
+        }
+
+        #[test]
+        fn different_packet_axes() {
+            let packet = <m![N # 32]>::to_value();
+            let out_packet = <m![X]>::to_value();
+            assert_eq!(
+                config_commit_trim(CommitTrimInput {
+                    in_packet: packet.clone(),
+                    out_packet: out_packet.clone(),
+                    element_bits: <i8 as Scalar>::BITS,
+                }),
+                Err(CommitTrimError::PacketMismatch {
+                    in_packet: packet,
+                    out_packet,
+                })
+            );
+        }
     }
 }

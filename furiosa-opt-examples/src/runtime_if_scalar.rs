@@ -27,7 +27,8 @@ pub fn runtime_if_scalar_index(
     let input = input_hbm.to_dm::<m![A / 256], m![A % 256], m![B]>(&mut ctx.tdma);
     let mut output = DmTensor::<i8, Chip, m![A / 256], m![A % 256], m![B]>::new();
     for i in 0..2 {
-        let off: usize = if i == 0 { 0 } else { 16 };
+        let half: usize = if i == 0 { 0 } else { 1 };
+        let off = (half + 1) * 16 - 16;
         let src = input.view().tile::<m![B], 16, m![B = 16 # 32]>(off);
         let dst = output.view_mut().tile::<m![B], 16, m![B = 16 #{!} 32]>(off);
         src.to_dm_view(&mut ctx.tdma, dst);

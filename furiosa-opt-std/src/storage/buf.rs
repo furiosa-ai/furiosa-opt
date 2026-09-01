@@ -8,7 +8,7 @@ use crate::backend::op_prep::{broadcast_axes, gather_params, scatter_params, tra
 use crate::cast::{Cast, ContractionAccumulator, ContractionCast};
 use crate::scalar::*;
 use crate::storage::par_iters::MappingPositions;
-use crate::storage::{PAR_MIN_JOB, min_cells_per_job};
+use crate::storage::{BUF_POOL, InPool, PAR_MIN_JOB, min_cells_per_job};
 
 pub trait Buf: From<Vec<u8>> + Into<Vec<u8>> + AsRef<[u8]> + AsMut<[u8]> + Clone + std::fmt::Debug {}
 
@@ -145,7 +145,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// sub-byte read has no aliasing hazard (two threads decoding sibling nibbles of the same byte never
     /// race), so a plain index range suffices; no byte-chunk partitioning needed here, unlike
     /// [`Self::par_chunks_mut`] (its mutable, byte-owning peer). Backs [`Self::map`] and the zips.
-    pub(crate) fn par_iter(&self) -> impl IndexedParallelIterator<Item = D> + '_
+    fn par_iter(&self) -> impl IndexedParallelIterator<Item = D> + '_
     where
         B: Sync,
     {
@@ -161,10 +161,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// own whole bytes, race-free for every width with no `unsafe`. `min_elems` is the per-chunk floor
     /// (rounded up to the byte-alignment quantum). A sub-window writer intersects [`BufChunkMut::range`]
     /// with its window. Backs transpose / gather.
-    pub(crate) fn par_chunks_mut(
-        &mut self,
-        min_elems: usize,
-    ) -> impl IndexedParallelIterator<Item = BufChunkMut<'_, D>> {
+    fn par_chunks_mut(&mut self, min_elems: usize) -> impl IndexedParallelIterator<Item = BufChunkMut<'_, D>> {
         // The alignment quantum `align = lcm(8, STAGING_BITS) / STAGING_BITS` is the fewest elements that fill a whole
         // number of bytes (2 for a 4-bit width, 1 for a byte-multiple width); round `min_elems` up to it so
         // each chunk owns a whole number of elements, byte-aligned on both ends.
@@ -205,7 +202,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         B: Sync,
     {
         // Pass `&f` (a moved `f` would demand `f: Send`); this keeps `f` `Sync`-only with no closure.
-        BufStorage::from_vec(self.par_iter().map(&f).collect::<Vec<_>>())
+        BufStorage::from_vec(self.par_iter().map(&f).in_pool(&BUF_POOL).collect::<Vec<_>>())
     }
 
     /// Element-wise zip of two same-layout physical buffers, bare `D`, offset-aligned. Backs
@@ -221,12 +218,13 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     {
         // Reads never race, so zip the two buffers' parallel element iterators (the physical packing is
         // transparent through `par_iter`). The output repacks on `D3::BITS` via `from_vec`.
-        let data = self
-            .par_iter()
-            .zip(other.par_iter())
-            .map(|(a, b)| f(a, b))
-            .collect::<Vec<_>>();
-        BufStorage::from_vec(data)
+        BufStorage::from_vec(
+            self.par_iter()
+                .zip(other.par_iter())
+                .map(|(a, b)| f(a, b))
+                .in_pool(&BUF_POOL)
+                .collect::<Vec<_>>(),
+        )
     }
 
     /// Element-wise ternary zip over the physical buffer. Ternary peer of [`Self::zip_with`].
@@ -240,13 +238,14 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         D: MaterializableScalar,
         B: Sync,
     {
-        let data = self
-            .par_iter()
-            .zip(b.par_iter())
-            .zip(c.par_iter())
-            .map(|((a, b), c)| f(a, b, c))
-            .collect::<Vec<_>>();
-        BufStorage::from_vec(data)
+        BufStorage::from_vec(
+            self.par_iter()
+                .zip(b.par_iter())
+                .zip(c.par_iter())
+                .map(|((a, b), c)| f(a, b, c))
+                .in_pool(&BUF_POOL)
+                .collect::<Vec<_>>(),
+        )
     }
 
     /// Writes a transposed/broadcast view of `src` into `self` (the destination) via a sequencer
@@ -292,24 +291,26 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         // owns a byte-aligned element range), so the scatter is safe for every width, no branch on packing.
         // The per-chunk position range is bounded by both stream lengths so a seek never runs past either.
         let stream = config.stream_size().min(dst_view.iter_positions().len());
-        self.par_chunks_mut(PAR_MIN_JOB).for_each(|mut chunk| {
-            // The chunk owns the dst elements in `chunk.range()`; the positions it writes are those whose
-            // `dst_base + pos` lands in the chunk (and in range of the stream). Seek both the src offsets
-            // and the liveness to that contiguous position range and walk them position-aligned.
-            let elems = chunk.range();
-            let pos_lo = elems.start.saturating_sub(dst_base);
-            let pos_hi = elems.end.saturating_sub(dst_base).min(stream);
-            if pos_lo >= pos_hi {
-                return;
-            }
-            let src_pos = config.iter_range(pos_lo, pos_hi);
-            let live = dst_view.iter_positions().range(pos_lo, pos_hi);
-            for (i, (src_pos, live)) in src_pos.zip(live).enumerate() {
-                if live.is_some() {
-                    chunk.set(dst_base + pos_lo + i, src.get(src_base + src_pos));
+        self.par_chunks_mut(PAR_MIN_JOB)
+            .in_pool(&BUF_POOL)
+            .for_each(|mut chunk| {
+                // The chunk owns the dst elements in `chunk.range()`; the positions it writes are those whose
+                // `dst_base + pos` lands in the chunk (and in range of the stream). Seek both the src offsets
+                // and the liveness to that contiguous position range and walk them position-aligned.
+                let elems = chunk.range();
+                let pos_lo = elems.start.saturating_sub(dst_base);
+                let pos_hi = elems.end.saturating_sub(dst_base).min(stream);
+                if pos_lo >= pos_hi {
+                    return;
                 }
-            }
-        });
+                let src_pos = config.iter_range(pos_lo, pos_hi);
+                let live = dst_view.iter_positions().range(pos_lo, pos_hi);
+                for (i, (src_pos, live)) in src_pos.zip(live).enumerate() {
+                    if live.is_some() {
+                        chunk.set(dst_base + pos_lo + i, src.get(src_base + src_pos));
+                    }
+                }
+            });
     }
 
     /// Reduces the factors of `self`'s mapping that are absent in `Dst`. `Dst` must be a factor of
@@ -362,6 +363,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         out.par_iter_mut()
             .with_min_len(min_cells_per_job(plan.cell_work()))
             .enumerate()
+            .in_pool(&BUF_POOL)
             .for_each(|(o, slot)| {
                 let Some(reads) = plan.reads(o) else { return };
                 let mut acc = identity;
@@ -428,6 +430,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         out.par_iter_mut()
             .with_min_len(min_cells_per_job(lhs_plan.cell_work()))
             .enumerate()
+            .in_pool(&BUF_POOL)
             .for_each(|(o, slot)| {
                 let (Some(lhs_reads), Some(rhs_reads)) = (lhs_plan.reads(o), rhs_plan.reads(o)) else {
                     return;
@@ -565,6 +568,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         // permuted source through the shared `&` source (a race-free read), and writes only positions it
         // owns. Safe for every width, no branch on packing.
         dst.par_chunks_mut(min_cells_per_job(residue_size).saturating_mul(residue_size))
+            .in_pool(&BUF_POOL)
             .for_each(|mut chunk| {
                 for dst_elem in chunk.range() {
                     let Some(flat) = writer[dst_elem] else { continue };

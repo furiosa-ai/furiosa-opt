@@ -66,6 +66,7 @@
 use std::marker::PhantomData;
 
 use furiosa_mapping::M;
+use furiosa_opt_lower::{VrfOperandInput, config_vrf_operand};
 use furiosa_opt_macro::primitive;
 
 // From the modules that define these, not through this crate's own prelude: the prelude is the
@@ -76,6 +77,7 @@ use crate::engine::vector::scalar::VeScalar;
 use crate::engine::vector::stage::markers::Way;
 use crate::engine::vector::stage::state::VeState;
 use crate::engine::vector::stash_slot::{Occupied, Spent, StashState};
+use crate::engine::vector::tensor::VeTensorShape;
 use crate::tensor::Tensor;
 use crate::tensor::memory::VrfTensor;
 // Straight from the common IR, not through `branch`, which deliberately does not re-export it: a
@@ -634,16 +636,54 @@ pub trait PortArg<D: VeScalar, Mapping: M, Reg: RegPayload<D, Mapping>>: sealed:
     fn into_port(self) -> Reg::Port;
 }
 
-/// A binary register read.
-impl<D: VeScalar, Mapping: M, Chip: M, Cluster: M, Slice: M, Element: M> PortArg<D, Mapping, D>
-    for &VrfTensor<D, Chip, Cluster, Slice, Element>
+/// The two value-level rules of [`IntoBranchedOperand`], checked where an emulated kernel can hit
+/// them. Panicking is a host-side backstop, exactly as [`assert_fill`] is: a `#[device]` body is read
+/// as MIR and never run, so a compiled kernel gets these from the ViSA translator instead.
+#[track_caller]
+fn verify_vrf_operand<Element: M, Time: M, Packet: M>() {
+    // Not `unwrap_or_else`: a closure does not inherit `#[track_caller]`, so panicking inside one
+    // reports this line rather than whatever the chain below forwarded.
+    if let Err(error) = config_vrf_operand(VrfOperandInput {
+        vrf_element: Element::to_value(),
+        stream_time: Time::to_value(),
+        stream_packet: Packet::to_value(),
+    }) {
+        panic!("{error}");
+    }
+}
+
+/// The rf port a `&VrfTensor` drives, transposed to the stream's tensor shape. Every VRF operand form
+/// below goes through here, so [`verify_vrf_operand`] runs in one place.
+///
+/// `#[track_caller]`, as its callers are, though the reported location still stops at the first frame
+/// that does not forward it (a trait default or `fill_rf`), so the panic names this module and not
+/// yet the kernel line.
+#[track_caller]
+fn vrf_rf_port<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, Time: M, Packet: M>(
+    vrf: &VrfTensor<D, Chip, Cluster, Slice, Element>,
+) -> RfPort<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>> {
+    verify_vrf_operand::<Element, Time, Packet>();
+    RfPort::External(
+        vrf.inner
+            .transpose::<VeTensorShape<Chip, Cluster, Slice, Time, Packet>>(true),
+    )
+}
+
+/// A binary register read, under [`IntoBranchedOperand`]'s rules.
+impl<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, Time: M, Packet: M>
+    PortArg<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>, D> for &VrfTensor<D, Chip, Cluster, Slice, Element>
 where
-    D: RegPayload<D, Mapping, Port = RfPort<D, Mapping>>,
+    D: RegPayload<
+            D,
+            VeTensorShape<Chip, Cluster, Slice, Time, Packet>,
+            Port = RfPort<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
+        >,
 {
     type Mark = NoStash;
 
-    fn into_port(self) -> RfPort<D, Mapping> {
-        RfPort::External(self.inner.transpose::<Mapping>(true))
+    #[track_caller]
+    fn into_port(self) -> RfPort<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>> {
+        vrf_rf_port(self)
     }
 }
 
@@ -660,14 +700,16 @@ where
 }
 
 /// A ternary register read, carrying this branch's `operand1` alongside `operand0`.
-impl<Mapping: M, Chip: M, Cluster: M, Slice: M, Element: M> PortArg<f32, Mapping, (f32, f32)>
+impl<Chip: M, Cluster: M, Slice: M, Element: M, Time: M, Packet: M>
+    PortArg<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>, (f32, f32)>
     for (&VrfTensor<f32, Chip, Cluster, Slice, Element>, f32)
 {
     type Mark = NoStash;
 
-    fn into_port(self) -> (RfPort<f32, Mapping>, f32) {
+    #[track_caller]
+    fn into_port(self) -> (RfPort<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>, f32) {
         let (vrf, operand1) = self;
-        (RfPort::External(vrf.inner.transpose::<Mapping>(true)), operand1)
+        (vrf_rf_port(vrf), operand1)
     }
 }
 
@@ -768,6 +810,25 @@ impl<Mapping: M> sealed::SlotSealed for GroupTernaryOperand<Mapping> {}
 /// tensor.vector_fxp(op, Branched::imm(guard, 16384))     // reg0 = (guard, 16384)
 /// ```
 ///
+/// A `&VrfTensor` is the one form with shape rules of its own, and this is where they are stated.
+///
+/// **Its `Chip` / `Cluster` / `Slice` are the stream's own.** The VE runs per slice, so at slice `s`
+/// an op reads the operand slice `s` holds, and one partitioned differently would read another
+/// slice's data. Every VRF impl below names the mapping
+/// [`VeTensorShape<Chip, Cluster, Slice, Time, Packet>`], so a mismatch has no impl at all;
+/// [`VrfTensor::reshape`] restates an operand that describes the same slices under another one.
+///
+/// **Its `Element` must be addressable by the VRF indexer** against the stream's `Time` / `Packet`:
+/// one access reads a single broadcast address, or a run of `Packet` consecutive cells.
+///
+/// **Every named axis of it must be one the stream matches**, regrouped or not. An axis the stream
+/// never reaches leaves the cells it indexes unread, and the operand is refused rather than
+/// half-read; a broadcast or a pad left over is fine, since a read may leave those alone. This one is
+/// the DSL's policy and stricter than the compiler, which never asks the rhs to be fully consumed.
+///
+/// The last two are [`furiosa_opt_lower::config_vrf_operand`]'s, checked where the operand fills the
+/// rf port ([`verify_vrf_operand`]).
+///
 /// Sealed. `fill_slots` hands out the raw slots, so an outside impl could fill one twice or out of
 /// order and walk straight past the builder's typestate. The operand forms are this crate's to
 /// enumerate; see [`sealed::SlotSealed`](self) for what else that covers.
@@ -779,6 +840,13 @@ impl<Mapping: M> sealed::SlotSealed for GroupTernaryOperand<Mapping> {}
 ///     fn fill_slots(self, _operand: &mut furiosa_opt_std::prelude::BinaryBranchedOperand<D, Map>, _guard: TagGuard) {}
 /// }
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be this op's operand",
+    label = "not this op's operand shape",
+    note = "a VRF operand carries the stream's own `Chip` / `Cluster` / `Slice`; when the two describe \
+            the same slices, restate it with `VrfTensor::reshape`",
+    note = "a constant operand carries the stream's scalar: `i32` for logic / fxp, `f32` for fp"
+)]
 pub trait IntoBranchedOperand<D: VeScalar, TargetMapping: M>: Sized + sealed::SlotSealed {
     /// Writes this operand's slot(s) into `operand`, applied where `guard` matches.
     fn fill_slots(self, operand: &mut BinaryBranchedOperand<D, TargetMapping>, guard: TagGuard);
@@ -808,11 +876,17 @@ impl<Mapping: M> IntoBranchedOperand<f32, Mapping> for f32 {
 
 /// A VRF register drives the rf port, transposed to the op's tensor shape. VRF is read-many, so the
 /// same register may feed several ops.
-impl<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, Mapping: M> IntoBranchedOperand<D, Mapping>
+impl<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, Time: M, Packet: M>
+    IntoBranchedOperand<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
     for &VrfTensor<D, Chip, Cluster, Slice, Element>
 {
-    fn fill_slots(self, operand: &mut BinaryBranchedOperand<D, Mapping>, guard: TagGuard) {
-        assert_fill(operand.fill_rf(guard, RfPort::External(self.inner.transpose::<Mapping>(true))));
+    #[track_caller]
+    fn fill_slots(
+        self,
+        operand: &mut BinaryBranchedOperand<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
+        guard: TagGuard,
+    ) {
+        assert_fill(operand.fill_rf(guard, vrf_rf_port(self)));
     }
 }
 
@@ -861,6 +935,13 @@ where
 /// fn ternary_operand<D: VeScalar, Map: M, Op: IntoTernaryOperand<D, Map>>(_op: Op) {}
 /// ternary_operand::<f32, Broadcast<1>, _>(2.0f32);
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be this op's operand",
+    label = "not this op's operand shape",
+    note = "a VRF operand carries the stream's own `Chip` / `Cluster` / `Slice`; when the two describe \
+            the same slices, restate it with `VrfTensor::reshape` (`IntoBranchedOperand` states every \
+            operand rule)"
+)]
 pub trait IntoTernaryOperand<D: VeScalar, TargetMapping: M>: Sized + sealed::SlotSealed {
     /// Writes this operand's slot(s) into `operand`, applied where `guard` matches.
     fn fill_ternary_slots(self, operand: &mut TernaryBranchedOperand<D, TargetMapping>, guard: TagGuard);
@@ -882,13 +963,18 @@ impl<Mapping: M> IntoTernaryOperand<f32, Mapping> for (f32, f32) {
 }
 
 /// A VRF `operand0` drives the rf port, which carries this branch's `operand1` with it.
-impl<Chip: M, Cluster: M, Slice: M, Element: M, Mapping: M> IntoTernaryOperand<f32, Mapping>
+impl<Chip: M, Cluster: M, Slice: M, Element: M, Time: M, Packet: M>
+    IntoTernaryOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
     for (&VrfTensor<f32, Chip, Cluster, Slice, Element>, f32)
 {
-    fn fill_ternary_slots(self, operand: &mut TernaryBranchedOperand<f32, Mapping>, guard: TagGuard) {
+    #[track_caller]
+    fn fill_ternary_slots(
+        self,
+        operand: &mut TernaryBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
+        guard: TagGuard,
+    ) {
         let (vrf, operand1) = self;
-        let port = RfPort::External(vrf.inner.transpose::<Mapping>(true));
-        assert_fill(operand.fill_rf(guard, (port, operand1)));
+        assert_fill(operand.fill_rf(guard, (vrf_rf_port(vrf), operand1)));
     }
 }
 
@@ -949,6 +1035,13 @@ pub type GroupOperand<D, Mapping> = Option<BinaryBranchedOperand<D, Mapping>>;
 /// fn group_operand<D: VeScalar, Map: M, Op: IntoGroupOperand<D, Map>>(_op: Op) {}
 /// group_operand::<f32, Broadcast<1>, _>(Branched::imm::<f32, Broadcast<1>, _>(TagGuard::all(), 1.0));
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be this op's operand",
+    label = "not this op's operand shape",
+    note = "a VRF operand carries the stream's own `Chip` / `Cluster` / `Slice`; when the two describe \
+            the same slices, restate it with `VrfTensor::reshape` (`IntoBranchedOperand` states every \
+            operand rule)"
+)]
 pub trait IntoGroupOperand<D: VeScalar, Mapping: M>: sealed::SlotSealed {
     /// Converts into a [`GroupOperand`]. `None` skips the operation for this group.
     fn into_group_operand(self) -> GroupOperand<D, Mapping>;
@@ -980,11 +1073,14 @@ impl<Mapping: M> IntoGroupOperand<f32, Mapping> for f32 {
     }
 }
 
-/// A VRF register drives the rf port. It is read-many, so both groups may name the same one.
-impl<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, Mapping: M> IntoGroupOperand<D, Mapping>
+/// A VRF register drives the rf port. It is read-many, so both groups may name the same one, and
+/// each group's stream is the pair's own.
+impl<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, Time: M, Packet: M>
+    IntoGroupOperand<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
     for &VrfTensor<D, Chip, Cluster, Slice, Element>
 {
-    fn into_group_operand(self) -> GroupOperand<D, Mapping> {
+    #[track_caller]
+    fn into_group_operand(self) -> GroupOperand<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>> {
         Some(self.into_branched_operand())
     }
 }
@@ -1001,6 +1097,13 @@ pub type GroupTernaryOperand<Mapping> = Option<TernaryBranchedOperand<f32, Mappi
 /// (pass-through), or `()` to skip the operation for this group.
 ///
 /// `(Stash, c)` is excluded, by the `T: Plain` bound below: a pair op reads no stash.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be this op's operand",
+    label = "not this op's operand shape",
+    note = "a VRF operand carries the stream's own `Chip` / `Cluster` / `Slice`; when the two describe \
+            the same slices, restate it with `VrfTensor::reshape` (`IntoBranchedOperand` states every \
+            operand rule)"
+)]
 pub trait IntoGroupTernaryOperand<Mapping: M>: sealed::SlotSealed {
     /// Converts into a [`GroupTernaryOperand`] with the specified mapping.
     fn into_group_ternary_operand(self) -> GroupTernaryOperand<Mapping>;
@@ -1043,6 +1146,15 @@ mod tests {
     use crate::tensor::Tensor;
 
     type Map = Broadcast<1>;
+
+    /// The stream a register operand is read against, spelled out where the immediate tests get by
+    /// with [`Map`]. An 8-element packet is the ALU's access width, and an all-broadcast operand is
+    /// the shape the indexer reads as one address.
+    type VrfStream = VeTensorShape<Map, Map, Map, Map, Broadcast<8>>;
+
+    /// A register operand's `Element`. A `to_vrf` stores whole flits, so it is one access wide even
+    /// where the operand carries no axis at all, which is what [`VrfStream`] reads it as.
+    type VrfElement = Broadcast<8>;
 
     /// The execution id `RAW` names. Every id in these tests is a literal, so the range check is the
     /// compiler's and there is nothing to unwrap.
@@ -1093,15 +1205,18 @@ mod tests {
     /// register's data is what distinguishes it from a stash read on the same slot.
     #[test]
     fn register_fills_the_rf_port_and_leaves_the_rest_unused() {
-        let vrf: VrfTensor<i32, Map, Map, Map, Map> = VrfTensor::from_parts(Tensor::splat(7));
-        let operand: BinaryBranchedOperand<i32, Map> = Branched::rf(TagGuard::all(), &vrf).into_branched_operand();
+        let vrf: VrfTensor<i32, Map, Map, Map, VrfElement> = VrfTensor::new(Tensor::splat(7));
+        let operand: BinaryBranchedOperand<i32, VrfStream> =
+            Branched::rf(TagGuard::all(), &vrf).into_branched_operand();
 
         let (rf_guard, port) = operand.rf_slot().as_ref().unwrap();
         let RfPort::External(rf_data) = port else {
             panic!("a register read is `External`")
         };
         assert_eq!(*rf_guard, TagGuard::all());
-        assert_eq!(rf_data.clone().into_vec(), vec![7]);
+        // One value per stream position: the register has no axis the packet names, so the transpose
+        // spreads its one cell across the 8-element access.
+        assert_eq!(rf_data.clone().into_vec(), vec![7; 8]);
         assert!(!operand.reads_stash());
         assert!(operand.reg_slots().iter().all(|slot| slot.is_none()));
     }
@@ -1123,8 +1238,8 @@ mod tests {
         assert!(!has_rf);
 
         // The rf slot takes such a guard the same way, group 1 this time.
-        let vrf: VrfTensor<f32, Map, Map, Map, Map> = VrfTensor::from_parts(Tensor::splat(9.0));
-        let operand: BinaryBranchedOperand<f32, Map> = Branched::rf(GROUP1, &vrf).into_branched_operand();
+        let vrf: VrfTensor<f32, Map, Map, Map, VrfElement> = VrfTensor::new(Tensor::splat(9.0));
+        let operand: BinaryBranchedOperand<f32, VrfStream> = Branched::rf(GROUP1, &vrf).into_branched_operand();
         let Some((rf_guard, RfPort::External(_))) = operand.rf_slot() else {
             panic!("a register read is `RfPort::External`")
         };
@@ -1205,8 +1320,8 @@ mod tests {
     /// stops one call short of.
     #[test]
     fn three_immediates_and_the_rf_port_fill_the_pass() {
-        let vrf: VrfTensor<f32, Map, Map, Map, Map> = VrfTensor::from_parts(Tensor::splat(9.0));
-        let operand: BinaryBranchedOperand<f32, Map> =
+        let vrf: VrfTensor<f32, Map, Map, Map, VrfElement> = VrfTensor::new(Tensor::splat(9.0));
+        let operand: BinaryBranchedOperand<f32, VrfStream> =
             Branched::imm(TagGuard::matches([One, Ignore, Ignore, Ignore]), 1.0f32)
                 .imm(TagGuard::matches([Zero, One, Ignore, Ignore]), 2.0f32)
                 .imm(TagGuard::matches([Zero, Zero, One, Ignore]), 3.0f32)

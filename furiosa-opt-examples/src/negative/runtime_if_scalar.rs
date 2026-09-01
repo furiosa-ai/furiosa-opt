@@ -43,3 +43,48 @@ pub fn runtime_if_scalar_immediate(
     }
     result.to_hbm(&mut ctx.tdma)
 }
+
+/// An observable overflow flag from `overflowing_add` must not be discarded.
+#[device(chip = 1)]
+pub fn overflowing_add_flag(ctx: &mut Context, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
+    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut ctx.tdma);
+    let mut output = DmTensor::<i8, Chip, m![1], m![N / 4], m![N % 4]>::new();
+    for i in 0..2usize {
+        let (off, overflow) = i.overflowing_add(0);
+        let off = if overflow { 0 } else { off * 128 };
+        let src = input.view().tile::<m![N / 4], 128, m![N = 512 # 1024]>(off);
+        let dst = output.view_mut().tile::<m![N / 4], 128, m![N = 512 #{!} 1024]>(off);
+        src.to_dm_view(&mut ctx.tdma, dst);
+    }
+    output.to_hbm(&mut ctx.tdma)
+}
+
+/// An observable overflow flag from `overflowing_sub` must not be discarded.
+#[device(chip = 1)]
+pub fn overflowing_sub_flag(ctx: &mut Context, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
+    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut ctx.tdma);
+    let mut output = DmTensor::<i8, Chip, m![1], m![N / 4], m![N % 4]>::new();
+    for i in 0..2usize {
+        let (off, overflow) = (i * 128).overflowing_sub(0);
+        let off = if overflow { 0 } else { off };
+        let src = input.view().tile::<m![N / 4], 128, m![N = 512 # 1024]>(off);
+        let dst = output.view_mut().tile::<m![N / 4], 128, m![N = 512 #{!} 1024]>(off);
+        src.to_dm_view(&mut ctx.tdma, dst);
+    }
+    output.to_hbm(&mut ctx.tdma)
+}
+
+/// An observable overflow flag from `overflowing_mul` must not be discarded.
+#[device(chip = 1)]
+pub fn overflowing_mul_flag(ctx: &mut Context, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
+    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut ctx.tdma);
+    let mut output = DmTensor::<i8, Chip, m![1], m![N / 4], m![N % 4]>::new();
+    for i in 0..2usize {
+        let (off, overflow) = i.overflowing_mul(128);
+        let off = if overflow { 0 } else { off };
+        let src = input.view().tile::<m![N / 4], 128, m![N = 512 # 1024]>(off);
+        let dst = output.view_mut().tile::<m![N / 4], 128, m![N = 512 #{!} 1024]>(off);
+        src.to_dm_view(&mut ctx.tdma, dst);
+    }
+    output.to_hbm(&mut ctx.tdma)
+}

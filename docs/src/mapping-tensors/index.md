@@ -152,6 +152,21 @@ Mapping dimensions are assigned explicitly to spatial hardware dimensions (`Chip
 These names describe where a mapping is consumed, not a second representation vocabulary.
 See [Spatial and Temporal Dimensions](./spatial-temporal-dimensions.md) for the tensor declarations and constraints.
 
+An assignment holds for one stage rather than for the whole pipeline, and four routes move an axis between `Time` and a spatial dimension.
+
+| Route | Moves | Available when | Cost |
+| --- | --- | --- | --- |
+| [Switch Engine](../computing-tensors/switch-engine.md) | an axis either way between `Slice` and `Time` | one of its configurations expresses the slice placement | `ring_size × Time::SIZE × flits_per_packet` cycles of ring traversal |
+| [DMA](../moving-tensors/dma-engine.md) | an axis into `Chip`, `Cluster` or `Slice`, by writing the placement it is given | always | a transfer of the whole tensor |
+| [Inter-slice reducer](../computing-tensors/vector-engine/inter-slice-reducer.md#promotion-from-time-into-outslice) | an axis out of `Time` into the `Slice` slot a reduced axis vacates | the stream is reduced over a `Slice` axis anyway | none beyond that reduction |
+| [Axis lifting](../moving-tensors/fetch-engine.md#axis-lifting), at fetch | an axis out of `Time` onto `Chip`, `Cluster` or `Slice` | the selected dimension holds a broadcast | the original read, plus a DMA, a context-local add, and an SFR store for `Slice` |
+
+The Switch Engine is the general route across the `Slice` / `Time` boundary because it can deliver a value to a slice that does not already contain it.
+The Switch Engine operates only across slices, so moving an axis onto `Chip` or `Cluster` requires a DMA that writes the desired placement.
+
+Axis lifting requires a broadcast on the selected dimension, meaning each chip, cluster, or slice already holds the source region.
+Different read offsets then move the axis out of `Time` without a data transfer.
+
 ### Declarative Mapping Context
 
 Declarative mappings state order in terms of logical axes instead of raw strides or offsets.

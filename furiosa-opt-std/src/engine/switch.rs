@@ -7,7 +7,7 @@
 use std::marker::PhantomData;
 
 use furiosa_mapping::*;
-use furiosa_opt_lower::config_switch;
+use furiosa_opt_lower::{SwitchInput, config_switch};
 use furiosa_opt_macro::primitive;
 
 use crate::backend::Backend;
@@ -77,13 +77,13 @@ impl<'l, const T: Tu, P: CanApplySwitch, D: Scalar, Chip: M, Cluster: M, Slice: 
 /// `config_switch`, which runs the topology-specific checks and the `CustomBroadcast` FMapping
 /// divide-algebra inside the impl. The resolved config is discarded; only success/failure matters.
 fn verify_switch<InSlice: M, InTime: M, OutSlice: M, OutTime: M>(config: &SwitchConfig) {
-    config_switch(
-        config,
-        &InSlice::to_value(),
-        &InTime::to_value(),
-        &OutSlice::to_value(),
-        &OutTime::to_value(),
-    )
+    config_switch(SwitchInput {
+        config: *config,
+        in_slice: InSlice::to_value(),
+        in_time: InTime::to_value(),
+        out_slice: OutSlice::to_value(),
+        out_time: OutTime::to_value(),
+    })
     .unwrap_or_else(|err| panic!("{err}"));
 }
 
@@ -94,13 +94,13 @@ mod tests {
     /// The `SwitchError` a rejected switch produces. Rejection tests pin the exact variant
     /// (not the rendered message), so a reworded error can't silently change why it rejects.
     fn switch_error<InSlice: M, InTime: M, OutSlice: M, OutTime: M>(config: &SwitchConfig) -> SwitchError {
-        config_switch(
-            config,
-            &InSlice::to_value(),
-            &InTime::to_value(),
-            &OutSlice::to_value(),
-            &OutTime::to_value(),
-        )
+        config_switch(SwitchInput {
+            config: *config,
+            in_slice: InSlice::to_value(),
+            in_time: InTime::to_value(),
+            out_slice: OutSlice::to_value(),
+            out_time: OutTime::to_value(),
+        })
         .unwrap_err()
     }
 

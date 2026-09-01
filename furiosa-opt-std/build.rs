@@ -1,3 +1,7 @@
+use std::path::PathBuf;
+
+const SIGNED_DEVICE_RUNTIME_ENV: &str = "FURIOSA_OPT_SIGNED_DEVICE_RUNTIME";
+
 fn main() {
     // The `backend` cfg is npu-only: absence means the CPU backend, so nothing is injected.
     println!("cargo:rerun-if-env-changed=CARGO_CFG_BACKEND");
@@ -11,16 +15,25 @@ fn main() {
 
     println!("cargo:rerun-if-changed={header}");
 
-    // Only the NPU backend links the device runtime; other backends never reference
-    // it. Fail early if an npu build is missing the vendored archive.
+    // Only the NPU backend links the device runtime; other backends never reference it.
+    // A caller-provided signed archive takes precedence over the vendored development archive.
     if backend == "npu" {
-        let lib = format!("{manifest}/vendor/{target}/libdevice_runtime.a");
-        assert!(
-            std::path::Path::new(&lib).exists(),
-            "backend=\"npu\" needs the vendored device runtime at {lib}; run `make furiosa-opt-vendor`"
-        );
-        println!("cargo:rerun-if-changed={lib}");
-        println!("cargo:rustc-link-search=native={manifest}/vendor/{target}");
+        println!("cargo:rerun-if-env-changed={SIGNED_DEVICE_RUNTIME_ENV}");
+
+        let lib = std::env::var_os(SIGNED_DEVICE_RUNTIME_ENV)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                let lib = PathBuf::from(format!("{manifest}/vendor/{target}/libdevice_runtime.a"));
+                assert!(
+                    lib.is_file(),
+                    "backend=\"npu\" needs the vendored device runtime at {}; run `make furiosa-opt-vendor`",
+                    lib.display(),
+                );
+                lib
+            });
+        let lib_dir = lib.parent().expect("device runtime path must have a parent");
+        println!("cargo:rerun-if-changed={}", lib.display());
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
         println!("cargo:rustc-link-lib=static=device_runtime");
         println!("cargo:rustc-link-lib=dylib=m");
         println!("cargo:rustc-link-lib=dylib=pthread");

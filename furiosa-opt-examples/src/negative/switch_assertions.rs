@@ -545,22 +545,22 @@ pub mod inter_transpose {
     #[device(chip = 1)]
     pub fn invalid_slice0_mismatch(
         ctx: &mut Context,
-        input: &HbmTensor<i8, Chip, m![B]>,
-        output: &mut HbmTensor<i8, Chip, m![B]>,
+        input: &HbmTensor<i8, Chip, m![A, B]>,
+        output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![D % 2, A, C % 16], m![B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![D % 2, A, B / 2], m![B / 8, B / 4 % 2, B % 2, C / 16 % 8, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, B / 2], m![A / 4, A % 2, C / 16 % 2, B]> = ctx
             .main
             .begin(input_dm.view())
-            .fetch::<m![B], m![B]>()
+            .fetch::<m![A], m![B]>()
             .fetch_cast::<i8>()
-            .switch::<m![D % 2, A, B / 2], m![B / 8, B / 4 % 2, B % 2, C / 16 % 8]>(SwitchConfig::InterTranspose {
-                slice1: 8,
+            .switch::<m![C / 32, A / 2 % 2, B / 2], m![A / 4, A % 2, C / 16 % 2]>(SwitchConfig::InterTranspose {
+                slice1: 2,
                 slice0: 16,
                 time0: 2,
             })
-            .collect::<m![B / 8, B / 4 % 2, B % 2, C / 16 % 8], m![B]>()
+            .collect::<m![A / 4, A % 2, C / 16 % 2], m![B]>()
             .commit_trim::<m![B]>()
             .commit();
 

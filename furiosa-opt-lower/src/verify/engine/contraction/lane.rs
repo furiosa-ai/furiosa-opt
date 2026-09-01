@@ -8,9 +8,9 @@ use std::fmt::{self, Display, Formatter};
 
 use furiosa_mapping::{Mapping, MappingExt, PaddingKind};
 
-use crate::DivideTerm;
+use crate::DivideError;
 use crate::verify::{
-    CONTRACT_LANE_OUT_PACKET_ELEMENTS, TEMPORAL_ACCUMULATOR_COLS, align_up, padded_extent_at, padding_per_stride,
+    CONTRACT_LANE_OUT_PACKET_ELEMENTS, TEMPORAL_ACCUMULATOR_COLS, align_up, inner_reduce_extent, is_valid_lane_size,
 };
 
 /// MAC accumulator element capacity; the reduce buffer (axes inner to the reduce) must fit within it.
@@ -25,18 +25,12 @@ pub enum LaneMode {
     Sequential,
 }
 
-impl Display for LaneMode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Interleaved => "Interleaved",
-            Self::Sequential => "Sequential",
-        })
-    }
-}
-
 /// Why a lane fold is not realizable on the Lane Folder.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ContractLaneError {
+    /// The lane count is unsupported.
+    #[error("contract_lane: Lane::SIZE must be 1, 2, 4, or 8, got {0}")]
+    LaneSize(usize),
     /// The input packet exceeds the accumulator width.
     #[error("contract_lane: Packet::SIZE must be at most {TEMPORAL_ACCUMULATOR_COLS}, got {0}")]
     PacketTooWide(usize),
@@ -77,14 +71,15 @@ pub enum ContractLaneError {
         got: Mapping,
     },
     /// The pre- and post-reduce times are inconsistent (the pre-reduce does not divide by the post).
-    #[error("contract_lane ({mode}): inconsistent pre/post reduce Time: {pre_reduce_time}, {time}")]
+    #[error("contract_lane ({mode}): post-reduce Time {time} must divide pre-reduce Time {pre_reduce_time}: {source}")]
     InconsistentReduceTime {
         /// The fold mode.
         mode: LaneMode,
         /// The pre-reduce time.
         pre_reduce_time: Mapping,
-        /// The post-reduce time.
         time: Mapping,
+        #[source]
+        source: DivideError,
     },
     /// The `[Lane, Packet]` chunks for the inner-reduce positions overflow the accumulator.
     #[error(
@@ -109,111 +104,113 @@ pub enum ContractLaneError {
     },
 }
 
+/// Inputs used to configure a lane contraction.
+pub struct ContractLaneInput {
+    pub in_lane: Mapping,
+    pub in_time: Mapping,
+    pub in_packet: Mapping,
+    pub out_time: Mapping,
+    pub out_packet: Mapping,
+    pub pre_reduce_time: Mapping,
+    pub mode: LaneMode,
+}
+
+impl Display for LaneMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Interleaved => "Interleaved",
+            Self::Sequential => "Sequential",
+        })
+    }
+}
+
 /// `contract_lane` performs no reduction, so the outer portion of `OutTime` must equal `Time`, the
 /// output packet must be one flit, and the axes inner to the outermost reduce must fit the accumulator.
-pub fn config_contract_lane(
-    lane: &Mapping,
-    time: &Mapping,
-    packet: &Mapping,
-    out_time: &Mapping,
-    out_packet: &Mapping,
-    pre_reduce_time: &Mapping,
-    mode: LaneMode,
-) -> Result<(), ContractLaneError> {
-    let interleaved = matches!(mode, LaneMode::Interleaved);
-
-    if packet.size() > TEMPORAL_ACCUMULATOR_COLS {
-        return Err(ContractLaneError::PacketTooWide(packet.size()));
+pub fn config_contract_lane(input: ContractLaneInput) -> Result<(), ContractLaneError> {
+    let ContractLaneInput {
+        in_lane,
+        in_time,
+        in_packet,
+        out_time,
+        out_packet,
+        pre_reduce_time,
+        mode,
+    } = input;
+    if in_packet.size() > TEMPORAL_ACCUMULATOR_COLS {
+        return Err(ContractLaneError::PacketTooWide(in_packet.size()));
     }
     if out_packet.size() != CONTRACT_LANE_OUT_PACKET_ELEMENTS {
         return Err(ContractLaneError::OutPacketSize(out_packet.size()));
     }
 
-    let lane_size = lane.size();
+    let lane_size = in_lane.size();
+    if !is_valid_lane_size(lane_size) {
+        return Err(ContractLaneError::LaneSize(lane_size));
+    }
 
-    let outer_time = if interleaved {
-        // `OutTime = [Time, Packet]`, `OutPacket = [Lane # 8]`.
-        let expected_out_packet = lane
-            .clone()
-            .padding(CONTRACT_LANE_OUT_PACKET_ELEMENTS, PaddingKind::Top)
-            .normalize();
-        if out_packet.normalize() != expected_out_packet {
-            return Err(ContractLaneError::OutPacketMismatch {
-                mode,
-                expected: expected_out_packet,
-                got: out_packet.normalize(),
-            });
+    let (outer_time, padded_lane, padded_packet) = match mode {
+        LaneMode::Interleaved => {
+            let expected_out_packet = in_lane
+                .clone()
+                .padding(CONTRACT_LANE_OUT_PACKET_ELEMENTS, PaddingKind::Top)
+                .normalize();
+            if out_packet.normalize() != expected_out_packet {
+                return Err(ContractLaneError::OutPacketMismatch {
+                    mode,
+                    expected: expected_out_packet,
+                    got: out_packet.normalize(),
+                });
+            }
+
+            (
+                split_inner_time(&out_time, &in_packet, mode)?,
+                align_up(lane_size, CONTRACT_LANE_OUT_PACKET_ELEMENTS),
+                in_packet.size(),
+            )
         }
+        LaneMode::Sequential => {
+            let padded = in_packet.clone().padding(
+                align_up(in_packet.size(), CONTRACT_LANE_OUT_PACKET_ELEMENTS),
+                PaddingKind::Top,
+            );
+            let (packet_outer, packet_inner) = padded.split_at(CONTRACT_LANE_OUT_PACKET_ELEMENTS);
 
-        split_inner_time(out_time, packet, mode)?
-    } else {
-        // `OutTime = [Time, Lane, packet_outer]`, `OutPacket = [packet_inner # 8]`.
-        let padded = packet.clone().padding(
-            align_up(packet.size(), CONTRACT_LANE_OUT_PACKET_ELEMENTS),
-            PaddingKind::Top,
-        );
-        let (packet_outer, packet_inner) = padded.split_at(CONTRACT_LANE_OUT_PACKET_ELEMENTS);
+            if packet_inner.normalize() != out_packet.normalize() {
+                return Err(ContractLaneError::OutPacketMismatch {
+                    mode,
+                    expected: packet_inner,
+                    got: out_packet.normalize(),
+                });
+            }
 
-        if packet_inner.normalize() != out_packet.normalize() {
-            return Err(ContractLaneError::OutPacketMismatch {
-                mode,
-                expected: packet_inner,
-                got: out_packet.normalize(),
-            });
+            (
+                split_inner_time(&out_time, &in_lane.clone().pair(packet_outer), mode)?,
+                lane_size,
+                align_up(in_packet.size(), TEMPORAL_ACCUMULATOR_COLS),
+            )
         }
-
-        split_inner_time(out_time, &lane.clone().pair(packet_outer), mode)?
     };
 
     // The post-split outer portion of `OutTime` must equal `Time` exactly.
-    if outer_time.normalize() != time.normalize() {
+    if outer_time.normalize() != in_time.normalize() {
         return Err(ContractLaneError::OuterTimeMismatch {
             mode,
-            expected: time.clone(),
+            expected: in_time.clone(),
             got: outer_time,
         });
     }
 
-    // Recover the axes inner to the outermost reduce (dividing `pre_reduce_time` by post-reduce `time`).
-    let division_terms =
-        crate::config_divide_exact(pre_reduce_time, time).map_err(|_| ContractLaneError::InconsistentReduceTime {
+    // The axes inner to the outermost reduce, one buffer slot each.
+    let inner_time = inner_reduce_extent(&pre_reduce_time, &in_time).map_err(|source| {
+        ContractLaneError::InconsistentReduceTime {
             mode,
             pre_reduce_time: pre_reduce_time.clone(),
-            time: time.clone(),
-        })?;
-    let time_padding_per_stride = padding_per_stride(pre_reduce_time);
-    // A sub-term is dropped before the walk, not skipped inside it: the walk compares adjacent
-    // boundaries, and skipping in place would still compare across the sub-term.
-    let boundaries: Vec<(&DivideTerm, usize)> = division_terms
-        .iter()
-        .filter_map(|term| padded_extent_at(&time_padding_per_stride, term).map(|extent| (term, extent)))
-        .collect();
-    let dividend_end = |&(term, extent): &(&DivideTerm, usize)| term.dividend_stride * extent;
-    let inner_time = if boundaries.is_empty() {
-        // All axes reduced.
-        1
-    } else if dividend_end(&boundaries[0]) < pre_reduce_time.size() {
-        // The outermost axis was reduced, so everything below the top is inner to the reduce.
-        time.size()
-    } else {
-        // The outermost retained factor reaches the top; walk outer-to-inner to the first gap between
-        // adjacent retained terms (the reduce boundary), else nothing is inner to the reduce.
-        boundaries
-            .windows(2)
-            .find(|w| dividend_end(&w[1]) != w[0].0.dividend_stride)
-            .map_or(1, |w| w[0].0.divisor_stride)
-    };
+            time: in_time.clone(),
+            source,
+        }
+    })?;
 
-    // Each `InnerTime` slot holds one `[Lane, Packet]` chunk; the `LaneMode` pads exactly one of the two
-    // axes to a fixed width (Interleaved pads `Lane` to the 8-wide output bus, Sequential pads `Packet`
-    // to the 32-column accumulator). The chunks for every inner-reduce position must fit the accumulator.
-    let (padded_lane, padded_packet) = if interleaved {
-        // Chunk = `[Lane # 8, Packet]`.
-        (align_up(lane_size, CONTRACT_LANE_OUT_PACKET_ELEMENTS), packet.size())
-    } else {
-        // Chunk = `[Lane, Packet # 32]`.
-        (lane_size, align_up(packet.size(), TEMPORAL_ACCUMULATOR_COLS))
-    };
+    // Every inner-reduce position retains one hardware-padded `[Lane, Packet]` chunk.
     if padded_lane * inner_time * padded_packet > ACCUMULATOR_CAPACITY_ELEMENTS {
         return Err(ContractLaneError::BufferExceeded {
             mode,
@@ -243,4 +240,29 @@ fn split_inner_time(out_time: &Mapping, inner: &Mapping, mode: LaneMode) -> Resu
         return Err(mismatch(inner_time));
     }
     Ok(outer_time)
+}
+
+#[cfg(test)]
+mod tests {
+    use furiosa_mapping::*;
+
+    use super::*;
+
+    axes![Lane = 3, Packet = 8];
+
+    #[test]
+    fn rejects_an_unsupported_lane_size_before_padding() {
+        assert_eq!(
+            config_contract_lane(ContractLaneInput {
+                in_lane: <m![Lane]>::to_value(),
+                in_time: Mapping::identity(),
+                in_packet: <m![Packet]>::to_value(),
+                out_time: Mapping::identity(),
+                out_packet: <m![Packet]>::to_value(),
+                pre_reduce_time: Mapping::identity(),
+                mode: LaneMode::Interleaved,
+            }),
+            Err(ContractLaneError::LaneSize(3))
+        );
+    }
 }

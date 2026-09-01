@@ -83,6 +83,52 @@ fn store_bmatmul_trf<'l, const T: Tu>(
 # let _o = store_bmatmul_trf(c);
 ```
 
+#### From the Vector Engine
+
+A store does not have to happen off the `collect`. A main-context stream can run the Vector Engine first and store what the pass computed:
+
+```rust
+# #![feature(adt_const_params)]
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![B = 64];
+
+fn store_pass(ctx: &mut Context) -> VrfTensor<f32, m![1], m![1 # 2], m![1 # 256], m![B]> {
+    let dm: DmTensor<f32, m![1], m![1 # 2], m![1 # 256], m![B]> = DmTensor::new();
+    ctx.main
+        .begin(dm.view())
+        .fetch::<m![1], m![B]>()
+        .collect::<m![B / 8], m![B % 8]>()
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_narrow_split::<m![B / 8, B % 8 / 4 % 2], m![B % 4]>()
+        .vector_fp_unary(FpUnaryOp::Sqrt)
+        .vector_widen_concat::<m![B / 8], m![B % 8]>()
+        .vector_final()
+        .to_vrf(&mut ctx.sub)
+}
+# 
+# let mut ctx = Context::acquire();
+# let _o = store_pass(&mut ctx);
+```
+
+The two positions are different data paths, not two spellings of one.
+Off the `collect`, the Fetch Network hands the flits to the register file and no engine runs in between.
+Off a `vector_final`, the pass ends at the Vector Engine's own write port, so the value that lands in the register is the one the pass computed: `Element2` flattens the *post-pass* `Time` / `Packet`, which a reduce or a widen may have reshaped along the way.
+
+That is the only way a computed value reaches the VRF, since the [DM-direct](#from-data-memory) store and the collect-position store both read Data Memory.
+Nothing after the Vector Engine can run in the same command, so a store cannot be combined with a cast, a transpose, or a commit.
+
+#### Which context a store occupies
+
+A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes `&mut ctx.sub` as well.
+`ctx.main` and `ctx.sub` are separate fields, so a kernel (which holds `&mut Context`) borrows both at once, as the example above does.
+
+The borrow lasts the statement, which is the extent of the occupancy: the sub context is free again once the command retires.
+How long the *register* stays occupied is a different question with a different answer (until the operand's last read), and it is the compiler's allocation to make, which is why the returned `VrfTensor` carries no borrow.
+
+A store issued from the sub context needs no argument, since it already holds that context.
+
 #### From Data Memory
 
 For completely contiguous input access (no gaps or reordering), TRF supports a *short command* (StoTRF), a compact hardware instruction that loads data from Data Memory directly into the TRF, bypassing the full Fetch → Switch → Collect → `to_trf()` pipeline.
@@ -155,6 +201,11 @@ A `VrfTensor` is a tensor stored in the VRF:
 `Chip` / `Cluster` / `Slice` pass through from the source.
 `Element` holds the per-(slice) layout.
 
+Those three are what a Vector Engine op matches an operand against, so an operand carried under a different partition than the stream it feeds is a compile error rather than a read of another slice's data (see [Operands](./vector-engine/intra-slice-chain.md#operands)).
+`.reshape::<Chip2, Cluster2, Slice2, Element2>()` restates one under another partition of the same slices, which is how an operand replicated under an anonymous broadcast (`m![256]`) feeds a stream partitioned by a named axis.
+It relabels the mapping and moves no data, so it is `unsafe` for the same reason `DmTensor::reshape` is: every physical position must already hold what the new mapping claims of it.
+Regrouping axes and naming a broadcast distribution axis are the two forms that satisfy that; the `# Safety` section on `VrfTensor::reshape` states both.
+
 #### From Collect Engine
 
 `.to_vrf::<Element2>()` on `CollectTensor` stores the flits into the VRF and produces a `VrfTensor`.
@@ -178,17 +229,20 @@ The user picks `Element2`.
 # use furiosa_opt_std::prelude::*;
 axes![B = 64];
 
-fn store_vrf<'l, const T: Tu>(
-    input: CollectTensor<'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]>,
+fn store_vrf<'l>(
+    input: CollectTensor<'l, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]>,
 ) -> VrfTensor<i32, m![1], m![1 # 2], m![1 # 256], m![B]> {
     input.to_vrf()
 }
 # 
 # let mut ctx = Context::acquire();
 # 
-# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]> = CollectTensor::new(&mut ctx.sub, Tensor::zero());
 # let _o = store_vrf(c);
 ```
+
+The store has one signature per context, and the example above takes the sub context's.
+A store issued from the main context takes `ctx.sub` as an argument, because the write registers live in the sub context's register map: see [Which context a store occupies](#which-context-a-store-occupies).
 
 #### From Data Memory
 

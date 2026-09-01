@@ -56,7 +56,7 @@ flowchart TB
 
 | Engine | Function | Key Constraint |
 |--------|----------|----------------|
-| [Fetch](../moving-tensors/fetch-engine.md) | Load data from DM into the pipeline | Packet must be 8-byte aligned. `Slice` is unchanged |
+| [Fetch](../moving-tensors/fetch-engine.md) | Load data from DM into the pipeline | Packet must be 8-byte aligned. `Slice` is preserved unless [axis lifting](../moving-tensors/fetch-engine.md#axis-lifting) replaces a broadcast with an axis from `Time` |
 | [Fetch Adapter](./fetch-adapter.md) | Per-element transforms after fetch (table lookup, cast) | Optional. Identity if skipped |
 | [Switching](./switch-engine.md) | Move data across slices | Ring network, `Slice` can change |
 | [Collect](./collect-engine.md) | Normalize packets to 32-byte flits | Output = exactly one flit |
@@ -73,6 +73,7 @@ Each tensor stream inside the Tensor Unit carries five dimensions, `[Chip, Clust
 The engines above reshape `Time` / `Packet` along the pipeline.
 Most engines preserve the spatial dimensions.
 [Switch](./switch-engine.md) moves data across slices.
+Fetch's [axis lifting](../moving-tensors/fetch-engine.md#axis-lifting) assigns different DM read offsets along `Chip`, `Cluster`, or `Slice`, moving an axis out of `Time`.
 The [Vector inter-slice reducer](./vector-engine/inter-slice-reducer.md) combines the 256 slices in a cluster.
 
 The Contraction and Vector Engines each take one operand from the pipeline stream and the other operand from a dedicated per-slice register file.

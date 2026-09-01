@@ -225,11 +225,10 @@ pub enum SwitchError {
     },
     /// Slice→time axes are not at OutTime's innermost positions.
     #[error(
-        "Switch axes moving from input slice to output time must be at the output time innermost positions (inner to InTime {time}); offending moved axis: {offending_axis}"
+        "Switch axes moving from input slice to output time must be at the output time innermost positions (inner to InTime {in_time}); offending moved axis: {offending_axis}"
     )]
     MovedAxesNotInnermost {
-        /// The InTime layout the moved axes must sit inner to.
-        time: Mapping,
+        in_time: Mapping,
         /// The single InSlice-sourced axis that landed outer to an InTime axis.
         offending_axis: Mapping,
     },

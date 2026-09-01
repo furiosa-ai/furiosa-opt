@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use furiosa_mapping::Mapping as MappingValue;
 use furiosa_mapping::*;
-use furiosa_opt_lower::{config_pad, config_tile};
+use furiosa_opt_lower::{PadInput, TileInput, config_pad, config_tile};
 
 use super::Tensor;
 use crate::backend::Backend;
@@ -95,13 +95,13 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorViewMut<'l, D, E, B> {
     /// the tile must be down padding ([`PaddingKind::Bottom`]) so the commit
     /// sequencer never writes them.
     pub fn tile<I: M, E2: M, const LEN: usize>(self, start: usize) -> TensorViewMut<'l, D, E2, B> {
-        config_tile(
-            &I::to_value(),
-            &E::to_value(),
-            &E2::to_value(),
-            LEN,
-            PaddingKind::Bottom,
-        )
+        config_tile(TileInput {
+            index: I::to_value(),
+            element: E::to_value(),
+            expected: E2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Bottom,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         self.retile::<I, E2>(start)
     }
@@ -192,8 +192,14 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorView<'l, D, E, B> {
     /// Splits the tensor view by tiling. As a read source, the cells outside the
     /// tile stay accessible ([`PaddingKind::Top`]).
     pub fn tile<I: M, E2: M, const LEN: usize>(&self, start: usize) -> TensorView<'l, D, E2, B> {
-        config_tile(&I::to_value(), &E::to_value(), &E2::to_value(), LEN, PaddingKind::Top)
-            .unwrap_or_else(|e| panic!("{e}"));
+        config_tile(TileInput {
+            index: I::to_value(),
+            element: E::to_value(),
+            expected: E2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Top,
+        })
+        .unwrap_or_else(|e| panic!("{e}"));
         self.retile::<I, E2>(start)
     }
 
@@ -250,7 +256,11 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorView<'l, D, E, B> {
     /// Use it where a consumer needs the extent stated and the view's type has dropped it, such as the
     /// two operands of an interleave, which must agree on one `Element`.
     pub fn pad<E2: M>(self) -> TensorView<'l, D, E2, B> {
-        config_pad(&E::to_value(), &E2::to_value()).unwrap_or_else(|e| panic!("{e}"));
+        config_pad(PadInput {
+            element: E::to_value(),
+            expected: E2::to_value(),
+        })
+        .unwrap_or_else(|e| panic!("{e}"));
         self.redeclare()
     }
 
@@ -262,7 +272,11 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorView<'l, D, E, B> {
     /// live rows out: a tile leaves the base buffer as the source, so a fetch from it still spans the
     /// extent. An unpad re-declares the buffer, so the fetch spans the live cells alone.
     pub fn unpad<E2: M>(self) -> TensorView<'l, D, E2, B> {
-        config_pad(&E2::to_value(), &E::to_value()).unwrap_or_else(|e| panic!("{e}"));
+        config_pad(PadInput {
+            element: E2::to_value(),
+            expected: E::to_value(),
+        })
+        .unwrap_or_else(|e| panic!("{e}"));
         self.redeclare()
     }
 

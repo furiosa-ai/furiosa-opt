@@ -21,6 +21,7 @@
 use std::marker::PhantomData;
 
 use furiosa_mapping::*;
+use furiosa_opt_lower::{ReduceLabelInput, config_reduce_label};
 use furiosa_opt_macro::primitive;
 
 use super::VeTensorShape;
@@ -53,7 +54,8 @@ use crate::engine::vector::stage::markers::Way::{self, Way4, Way8};
 use crate::engine::vector::stage::state::VeState;
 use crate::engine::vector::stash_slot::{Fresh, Occupied, StashState};
 use crate::engine::vector::tensor::verify::{
-    verify_vector_narrow_split, verify_vector_narrow_trim, verify_vector_widen_concat, verify_vector_widen_pad,
+    verify_vector_intra_slice_unzip, verify_vector_narrow_split, verify_vector_narrow_trim, verify_vector_widen_concat,
+    verify_vector_widen_pad,
 };
 
 use super::vector_tensor_pair::VectorTensorPair;
@@ -574,6 +576,7 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packe
         self,
     ) -> VectorTensorPair<'l, T, D, stage::Tag, Chip, Cluster, Slice, SplitTime, Packet> {
         // ANCHOR_END: vector_intra_slice_unzip
+        verify_vector_intra_slice_unzip::<I, Time, Packet>();
         VectorTensorPair::new::<I, Time, TileTime>(self.ctx, self.inner)
     }
 }
@@ -1399,8 +1402,14 @@ where
 
 /// Verifies that all reduced axes (quotient of input / output shape) match the expected ident.
 fn verify_reduce_label(time: Mapping, packet: Mapping, out_time: Mapping, out_packet: Mapping, reduce_label: &Ident) {
-    furiosa_opt_lower::config_reduce_label(&time, &packet, &out_time, &out_packet, reduce_label)
-        .unwrap_or_else(|message| panic!("{message}"));
+    config_reduce_label(ReduceLabelInput {
+        in_time: time,
+        in_packet: packet,
+        out_time,
+        out_packet,
+        reduce_label: *reduce_label,
+    })
+    .unwrap_or_else(|message| panic!("{message}"));
 }
 
 /// Reduces tag tensor by keeping the last value (hardware semantics: all reduced
@@ -1412,23 +1421,13 @@ fn reduce_tag<Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, OutTime: M, Out
 }
 
 // ANCHOR: intra_slice_reduce_i32
-impl<
-    'l,
-    const T: Tu,
-    S,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Time: M,
-    Packet: M,
-    Stash: StashState,
-    FS: stage::VeTensorContext,
-    const VE_ORDER: VeOrder,
-> VectorTensor<'l, T, S, i32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, { Way4 }>
+impl<'l, const T: Tu, S, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, Stash: StashState, const VE_ORDER: VeOrder>
+    VectorTensor<'l, T, S, i32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, stage::Standalone, { Way4 }>
 where
     S: stage::Stage + CanTransitionTo<stage::IntraSliceReduce>,
 {
-    /// Intra-slice reduce operation (i32).
+    /// Intra-slice reduce operation (i32). `Standalone` only: the reducer takes no group
+    /// condition, so a stream that went through `vector_intra_slice_unzip` has no reduce.
     #[primitive(VectorTensor::vector_intra_slice_reduce)]
     pub fn vector_intra_slice_reduce<Reduce: AxisName, OutTime: M, OutPacket: M>(
         mut self,
@@ -1469,23 +1468,29 @@ where
 }
 
 // ANCHOR: intra_slice_reduce_f32
-impl<
-    'l,
-    const T: Tu,
-    S,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Time: M,
-    Packet: M,
-    Stash: StashState,
-    FS: stage::VeTensorContext,
-    const VE_ORDER: VeOrder,
-> VectorTensor<'l, T, S, f32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, { Way4 }>
+impl<'l, const T: Tu, S, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, Stash: StashState, const VE_ORDER: VeOrder>
+    VectorTensor<'l, T, S, f32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, stage::Standalone, { Way4 }>
 where
     S: stage::Stage + CanTransitionTo<stage::IntraSliceReduce>,
 {
-    /// Intra-slice reduce operation (f32).
+    /// Intra-slice reduce operation (f32). `Standalone` only: the reducer takes no group
+    /// condition, so a stream that went through `vector_intra_slice_unzip` has no reduce.
+    ///
+    /// ```compile_fail,E0599
+    /// # #![feature(adt_const_params)]
+    /// use furiosa_opt_std::prelude::*;
+    /// axes![A = 2048, B = 2, I = 2, R = 8];
+    /// let mut ctx = Context::acquire();
+    /// let input: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![R, I], m![A % 8]> =
+    ///     CollectTensor::new(&mut ctx.main, Tensor::zero());
+    /// let _zipped_reduce = input
+    ///     .vector_init()
+    ///     .vector_intra_slice_unzip::<I, m![R, 1 # 2], m![R]>()
+    ///     .vector_fxp_to_fp(31)
+    ///     .vector_narrow_split::<m![R, A / 4 % 2], m![A % 4]>()
+    ///     .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))
+    ///     .vector_intra_slice_reduce::<R, m![A / 4 % 2], m![A % 4]>(IntraSliceReduceOpF32::Add);
+    /// ```
     #[primitive(VectorTensor::vector_intra_slice_reduce)]
     pub fn vector_intra_slice_reduce<Reduce: AxisName, OutTime: M, OutPacket: M>(
         mut self,

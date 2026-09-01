@@ -7,6 +7,79 @@ use super::*;
 use crate::engine::vector::layer::{FpToFxp, FxpToFp, Reinterpret};
 use crate::prelude::VeScalar;
 
+fn rounding_divide_by_pot(value: i32, exponent: i32) -> i32 {
+    let exponent = exponent as usize;
+    assert!(exponent < i32::BITS as usize);
+
+    let mask = (1_i32 << exponent).wrapping_sub(1);
+    let remainder = value & mask;
+    let threshold = (mask >> 1) + i32::from(value < 0);
+
+    (value >> exponent) + i32::from(remainder > threshold)
+}
+
+fn normalize_float(value: f32) -> f32 {
+    if value.is_subnormal() {
+        if value.is_sign_positive() { 0.0 } else { -0.0 }
+    } else if value.is_nan() {
+        f32::from_bits(0x7fc0_0000)
+    } else {
+        value
+    }
+}
+
+fn apply_float_operation(value: f32, operation: impl FnOnce(f32) -> f32) -> f32 {
+    normalize_float(operation(normalize_float(value)))
+}
+
+fn erf(value: f32) -> f32 {
+    apply_float_operation(value, f32::erf)
+}
+
+fn exp(value: f32) -> f32 {
+    apply_float_operation(value, f32::exp)
+}
+
+fn neg_exp(value: f32) -> f32 {
+    apply_float_operation(value, |value| (-value).exp())
+}
+
+fn sqrt(value: f32) -> f32 {
+    apply_float_operation(value, f32::sqrt)
+}
+
+fn tanh(value: f32) -> f32 {
+    apply_float_operation(value, f32::tanh)
+}
+
+fn sigmoid(value: f32) -> f32 {
+    apply_float_operation(value, |value| 1.0 / (1.0 + (-value).exp()))
+}
+
+fn log(value: f32) -> f32 {
+    apply_float_operation(value, f32::ln)
+}
+
+fn sin(value: f32) -> f32 {
+    apply_float_operation(value, |value| {
+        if value.to_bits() & 0x7fff_ffff > 0x40c9_0fda {
+            f32::NAN
+        } else {
+            value.sin()
+        }
+    })
+}
+
+fn cos(value: f32) -> f32 {
+    apply_float_operation(value, |value| {
+        if value.to_bits() & 0x7fff_ffff > 0x40c9_0fda {
+            f32::NAN
+        } else {
+            value.cos()
+        }
+    })
+}
+
 // ============================================================================
 // Operation functions - Logic
 // ============================================================================
@@ -65,7 +138,7 @@ impl FxpBinaryOp {
             Self::MulInt => |a, b| a.wrapping_mul(b),
             Self::LogicRightShift => |a, b| ((a as u32) >> (b as u32)) as i32,
             Self::ArithRightShift => |a, b| a >> (b as u32),
-            Self::ArithRightShiftRound => todo!("ArithRightShiftRound not implemented"),
+            Self::ArithRightShiftRound => rounding_divide_by_pot,
         }
     }
 }
@@ -78,15 +151,15 @@ impl FpUnaryOp {
     /// Returns the raw unary operation function.
     pub fn op_fn(&self) -> fn(f32) -> f32 {
         match self {
-            Self::Exp => |x| x.exp(),
-            Self::NegExp => |x| (-x).exp(),
-            Self::Sqrt => |x| x.sqrt(),
-            Self::Tanh => |x| x.tanh(),
-            Self::Sigmoid => |x| 1.0 / (1.0 + (-x).exp()),
-            Self::Erf => |_x| todo!("Erf not implemented"),
-            Self::Log => |x| x.ln(),
-            Self::Sin => |x| x.sin(),
-            Self::Cos => |x| x.cos(),
+            Self::Exp => exp,
+            Self::NegExp => neg_exp,
+            Self::Sqrt => sqrt,
+            Self::Tanh => tanh,
+            Self::Sigmoid => sigmoid,
+            Self::Erf => erf,
+            Self::Log => log,
+            Self::Sin => sin,
+            Self::Cos => cos,
         }
     }
 }
@@ -368,5 +441,155 @@ impl HasBinaryOp<i32> for ClipBinaryOpI32 {
 impl HasBinaryOp<f32> for ClipBinaryOpF32 {
     fn binary_op_fn(self, mode: Option<BinaryArgMode>) -> impl Fn(f32, f32) -> f32 + Sync {
         mode.unwrap_or(BinaryArgMode::Mode01).apply(self.op_fn())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arith_right_shift_round_uses_nearest_with_ties_away_from_zero() {
+        let op = FxpBinaryOp::ArithRightShiftRound.op_fn();
+
+        for (value, expected) in [
+            (0, 0),
+            (1, 0),
+            (2, 1),
+            (3, 1),
+            (4, 1),
+            (5, 1),
+            (6, 2),
+            (7, 2),
+            (-1, 0),
+            (-2, -1),
+            (-3, -1),
+            (-4, -1),
+            (-5, -1),
+            (-6, -2),
+            (-7, -2),
+            (-8, -2),
+        ] {
+            assert_eq!(op(value, 2), expected, "value={value}");
+        }
+    }
+
+    #[test]
+    fn arith_right_shift_round_handles_shift_range_boundaries() {
+        let op = FxpBinaryOp::ArithRightShiftRound.op_fn();
+
+        assert_eq!(op(123, 0), 123);
+        assert_eq!(op(i32::MAX, 31), 1);
+        assert_eq!(op(i32::MIN, 31), -1);
+    }
+
+    #[test]
+    fn erf_matches_reference_values() {
+        let op = FpUnaryOp::Erf.op_fn();
+
+        for (value, expected) in [
+            (-3.0, -0.999_977_9),
+            (-1.0, -0.842_700_8),
+            (-0.5, -0.520_499_9),
+            (0.5, 0.520_499_9),
+            (1.0, 0.842_700_8),
+            (3.0, 0.999_977_9),
+        ] {
+            assert!((op(value) - expected).abs() <= f32::EPSILON, "value={value}");
+        }
+
+        assert_eq!(op(-0.0).to_bits(), (-0.0_f32).to_bits());
+        assert_eq!(op(0.0), 0.0);
+        assert_eq!(op(f32::NEG_INFINITY), -1.0);
+        assert_eq!(op(f32::INFINITY), 1.0);
+    }
+
+    #[test]
+    fn erf_canonicalizes_nan() {
+        let op = FpUnaryOp::Erf.op_fn();
+
+        for bits in [0x7f80_0001, 0x7fc1_2345, 0xff80_0001, 0xffc1_2345] {
+            assert_eq!(op(f32::from_bits(bits)).to_bits(), 0x7fc0_0000);
+        }
+    }
+
+    #[test]
+    fn erf_applies_daz_and_preserves_zero_sign() {
+        let op = FpUnaryOp::Erf.op_fn();
+
+        for bits in [0x0000_0001, 0x007f_ffff, 0x8000_0001, 0x807f_ffff] {
+            let input = f32::from_bits(bits);
+            assert_ne!(f32::erf(input).to_bits() & 0x7fff_ffff, 0, "input={bits:#010x}");
+            assert_eq!(op(input).to_bits(), bits & 0x8000_0000, "input={bits:#010x}");
+        }
+    }
+
+    #[test]
+    fn fp_unary_ops_apply_daz() {
+        let positive = f32::from_bits(0x007f_ffff);
+        let negative = f32::from_bits(0x807f_ffff);
+
+        for (op, expected_positive, expected_negative) in [
+            (FpUnaryOp::Exp, 1.0, 1.0),
+            (FpUnaryOp::NegExp, 1.0, 1.0),
+            (FpUnaryOp::Sqrt, 0.0, -0.0),
+            (FpUnaryOp::Tanh, 0.0, -0.0),
+            (FpUnaryOp::Sigmoid, 0.5, 0.5),
+            (FpUnaryOp::Erf, 0.0, -0.0),
+            (FpUnaryOp::Log, f32::NEG_INFINITY, f32::NEG_INFINITY),
+            (FpUnaryOp::Sin, 0.0, -0.0),
+            (FpUnaryOp::Cos, 1.0, 1.0),
+        ] {
+            let op = op.op_fn();
+            assert_eq!(op(positive).to_bits(), expected_positive.to_bits());
+            assert_eq!(op(negative).to_bits(), expected_negative.to_bits());
+        }
+    }
+
+    #[test]
+    fn fp_unary_ops_canonicalize_nan() {
+        for op in [
+            FpUnaryOp::Exp,
+            FpUnaryOp::NegExp,
+            FpUnaryOp::Sqrt,
+            FpUnaryOp::Tanh,
+            FpUnaryOp::Sigmoid,
+            FpUnaryOp::Erf,
+            FpUnaryOp::Log,
+            FpUnaryOp::Sin,
+            FpUnaryOp::Cos,
+        ] {
+            assert_eq!(op.op_fn()(f32::from_bits(0xffc1_2345)).to_bits(), 0x7fc0_0000);
+        }
+    }
+
+    #[test]
+    fn exp_uses_x86_rounding_within_hardware_bound() {
+        let input = f32::from_bits(0xb54c_da26);
+        let exp = FpUnaryOp::Exp.op_fn()(input);
+        let neg_exp = FpUnaryOp::NegExp.op_fn()(-input);
+
+        assert_eq!(exp.to_bits(), input.exp().to_bits());
+        assert_eq!(neg_exp.to_bits(), input.exp().to_bits());
+        assert_eq!(exp.to_bits().abs_diff(0x3f7f_fff4), 1);
+        assert_eq!(neg_exp.to_bits().abs_diff(0x3f7f_fff4), 1);
+    }
+
+    #[test]
+    fn exp_and_sigmoid_apply_ftz() {
+        assert_eq!(FpUnaryOp::Exp.op_fn()(-90.0).to_bits(), 0);
+        assert_eq!(FpUnaryOp::NegExp.op_fn()(90.0).to_bits(), 0);
+        assert_eq!(FpUnaryOp::Sigmoid.op_fn()(-90.0).to_bits(), 0);
+    }
+
+    #[test]
+    fn sin_and_cos_reject_inputs_outside_hardware_domain() {
+        let last_in_domain = f32::from_bits(0x40c9_0fda);
+        let first_out_of_domain = f32::from_bits(0x40c9_0fdb);
+
+        assert!(!FpUnaryOp::Sin.op_fn()(last_in_domain).is_nan());
+        assert!(!FpUnaryOp::Cos.op_fn()(last_in_domain).is_nan());
+        assert_eq!(FpUnaryOp::Sin.op_fn()(first_out_of_domain).to_bits(), 0x7fc0_0000);
+        assert_eq!(FpUnaryOp::Cos.op_fn()(-first_out_of_domain).to_bits(), 0x7fc0_0000);
     }
 }

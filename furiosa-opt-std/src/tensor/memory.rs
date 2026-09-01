@@ -6,7 +6,7 @@ use std::any::Any;
 use std::marker::PhantomData;
 
 use furiosa_mapping::*;
-use furiosa_opt_lower::{config_pad, config_tile};
+use furiosa_opt_lower::{PadInput, TileInput, config_pad, config_tile};
 use furiosa_opt_macro::primitive;
 
 use crate::backend::Backend;
@@ -69,8 +69,8 @@ fn check_dma_tail<D: Scalar>(src_element: &Mapping, dst_element: &Mapping, min_a
 
 /// The reachable destination tail: the DMA burst packet the source can feed into the destination
 /// element (`dma_tails`'s dst packet over the two element payloads) -- the same in-slice tail the
-/// lowering pins the alignment to (see `DmaCommandArgs::dma_shapes`). Shared by `check_dma_tail` and
-/// its unit tests, which exercise it without the alignment assertion.
+/// lowering pins the alignment to (`RngdShape::padded_tail_size`). Shared by `check_dma_tail` and its
+/// unit tests, which exercise it without the alignment assertion.
 fn reachable_end(src_element: &Mapping, dst_element: &Mapping) -> usize {
     let (_src_packet, dst_packet, _valid) = src_element.dma_tails(dst_element);
     dst_packet
@@ -460,7 +460,7 @@ impl<D: Scalar, Chip: M, Element: M, B: Backend> HbmTensor<D, Chip, Element, B> 
              (only Chip + Element); Cluster distribution is decided at .to_dm() time. \
              No current callers. Either the Element axis is meant to encode a Cluster \
              sub-axis (API needs to take that axis explicitly) or the operation belongs \
-             on DmTensorView::dm_cluster_shuffle. Pending design review; see the doc \
+             on DmTensorView::dm_cluster_swap. Pending design review; see the doc \
              comment on hbm_cluster_shuffle."
         )
     }
@@ -534,13 +534,13 @@ impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorView<'l, D, Chip, 
         &self,
         start: usize,
     ) -> HbmTensorView<'l, D, Chip2, Element, B> {
-        config_tile(
-            &Index::to_value(),
-            &Chip::to_value(),
-            &Chip2::to_value(),
-            LEN,
-            PaddingKind::Top,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Chip::to_value(),
+            expected: Chip2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Top,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         HbmTensorView {
@@ -555,13 +555,13 @@ impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorView<'l, D, Chip, 
         &self,
         start: usize,
     ) -> HbmTensorView<'l, D, Chip, Element2, B> {
-        config_tile(
-            &Index::to_value(),
-            &Element::to_value(),
-            &Element2::to_value(),
-            LEN,
-            PaddingKind::Top,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Element::to_value(),
+            expected: Element2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Top,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         HbmTensorView {
@@ -591,10 +591,14 @@ impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorView<'l, D, Chip, 
     /// outermost padding factor: `m![L1]` as `m![L1 # 256]`. See [`DmTensorView::pad`]; on an HBM
     /// SOURCE this is how a DMA states the extent its destination is staged at, so the two sides carve
     /// the same tail. The read over-reaches the live cells into declared don't-care, which is what a
-    /// read packet is allowed to do (`prepare_dma_shapes`: only a DRAM SINK trims to the common volume).
+    /// read packet is allowed to do -- `Pad::extent` trims to the live cells on the SINK side only.
     #[primitive(HbmTensorView::pad)]
     pub fn pad<Element2: M>(self) -> HbmTensorView<'l, D, Chip, Element2, B> {
-        config_pad(&Element::to_value(), &Element2::to_value()).unwrap_or_else(|e| panic!("{e}"));
+        config_pad(PadInput {
+            element: Element::to_value(),
+            expected: Element2::to_value(),
+        })
+        .unwrap_or_else(|e| panic!("{e}"));
         HbmTensorView {
             inner: self.inner.redeclare::<m![{ Chip }, { Element2 }]>(),
             address: self.address,
@@ -718,13 +722,13 @@ impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorViewMut<'l, D, Chi
         self,
         start: usize,
     ) -> HbmTensorViewMut<'l, D, Chip2, Element, B> {
-        config_tile(
-            &Index::to_value(),
-            &Chip::to_value(),
-            &Chip2::to_value(),
-            LEN,
-            PaddingKind::Bottom,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Chip::to_value(),
+            expected: Chip2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Bottom,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         HbmTensorViewMut {
@@ -739,13 +743,13 @@ impl<'l, D: Scalar, Chip: M, Element: M, B: Backend> HbmTensorViewMut<'l, D, Chi
         self,
         start: usize,
     ) -> HbmTensorViewMut<'l, D, Chip, Element2, B> {
-        config_tile(
-            &Index::to_value(),
-            &Element::to_value(),
-            &Element2::to_value(),
-            LEN,
-            PaddingKind::Bottom,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Element::to_value(),
+            expected: Element2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Bottom,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         HbmTensorViewMut {
@@ -926,17 +930,6 @@ impl<D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend> DmTensor<
         DmTensor::from_parts(self.inner.transpose(true), None)
     }
 
-    /// Copies into a fresh DM tensor via parallel copy. Like [`Self::to_dm`], the `Slice` size is
-    /// preserved (`Slice::SIZE == Slice2::SIZE`).
-    #[primitive(DmTensor::to_dm_pcopy)]
-    pub fn to_dm_pcopy<Slice2: M, Element2: M>(
-        &self,
-        _sub: &mut TuContext<{ Tu::Sub }>,
-    ) -> DmTensor<D, Chip, Cluster, Slice2, Element2, B> {
-        constraints::assert_dm_to_dm_dimension_preserved::<Chip, Chip, Cluster, Cluster, Slice, Slice2>();
-        DmTensor::from_parts(self.inner.transpose(true), None)
-    }
-
     /// Reshapes the tensor to a different mapping at the same address, consuming `self`. Delegates to
     /// [`Tensor::reshape`].
     ///
@@ -1033,17 +1026,6 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         dst.inner.transpose(self.inner, true);
     }
 
-    /// Writes data to a mutable tensor view for data memory.
-    #[primitive(DmTensorView::to_dm_view_pcopy)]
-    pub fn to_dm_view_pcopy<Chip2: M, Cluster2: M, Slice2: M, Element2: M>(
-        self,
-        _sub: &mut TuContext<{ Tu::Sub }>,
-        mut dst: DmTensorViewMut<'l, D, Chip2, Cluster2, Slice2, Element2, B>,
-    ) {
-        constraints::assert_dm_to_dm_dimension_preserved::<Chip, Chip2, Cluster, Cluster2, Slice, Slice2>();
-        dst.inner.transpose(self.inner, false);
-    }
-
     /// Creates immutable views by splitting along a tile expression over Chip.
     #[primitive(DmTensorView::chip_tile)]
     pub fn chip_tile<Index: M, const LEN: usize, Chip2: M>(
@@ -1051,13 +1033,13 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         start: usize,
     ) -> DmTensorView<'l, D, Chip2, Cluster, Slice, Element, B> {
         constraints::assert_dm_to_dm_dimension_preserved::<Chip, Chip2, Cluster, Cluster, Slice, Slice>();
-        config_tile(
-            &Index::to_value(),
-            &Chip::to_value(),
-            &Chip2::to_value(),
-            LEN,
-            PaddingKind::Top,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Chip::to_value(),
+            expected: Chip2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Top,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         DmTensorView { inner }
@@ -1070,13 +1052,13 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         start: usize,
     ) -> DmTensorView<'l, D, Chip, Cluster2, Slice, Element, B> {
         constraints::assert_dm_to_dm_dimension_preserved::<Chip, Chip, Cluster, Cluster2, Slice, Slice>();
-        config_tile(
-            &Index::to_value(),
-            &Cluster::to_value(),
-            &Cluster2::to_value(),
-            LEN,
-            PaddingKind::Top,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Cluster::to_value(),
+            expected: Cluster2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Top,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         DmTensorView { inner }
@@ -1089,13 +1071,13 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         start: usize,
     ) -> DmTensorView<'l, D, Chip, Cluster, Slice2, Element, B> {
         constraints::assert_dm_to_dm_dimension_preserved::<Chip, Chip, Cluster, Cluster, Slice, Slice2>();
-        config_tile(
-            &Index::to_value(),
-            &Slice::to_value(),
-            &Slice2::to_value(),
-            LEN,
-            PaddingKind::Top,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Slice::to_value(),
+            expected: Slice2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Top,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         DmTensorView { inner }
@@ -1107,13 +1089,13 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         &self,
         start: usize,
     ) -> DmTensorView<'l, D, Chip, Cluster, Slice, Element2, B> {
-        config_tile(
-            &Index::to_value(),
-            &Element::to_value(),
-            &Element2::to_value(),
-            LEN,
-            PaddingKind::Top,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Element::to_value(),
+            expected: Element2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Top,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         DmTensorView { inner }
@@ -1159,7 +1141,11 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
     pub fn pad<Element2: M>(self) -> DmTensorView<'l, D, Chip, Cluster, Slice, Element2, B> {
         // `Element` alone: the buffer a pad re-declares is the per-slice region, so the padding is
         // outermost within `Element`. The distribution classes ride through untouched.
-        config_pad(&Element::to_value(), &Element2::to_value()).unwrap_or_else(|e| panic!("{e}"));
+        config_pad(PadInput {
+            element: Element::to_value(),
+            expected: Element2::to_value(),
+        })
+        .unwrap_or_else(|e| panic!("{e}"));
         DmTensorView {
             inner: self
                 .inner
@@ -1172,7 +1158,11 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
     /// [`TensorView::unpad`] for why it is address-preserving and why a `tile` is not a substitute.
     #[primitive(DmTensorView::unpad)]
     pub fn unpad<Element2: M>(self) -> DmTensorView<'l, D, Chip, Cluster, Slice, Element2, B> {
-        config_pad(&Element2::to_value(), &Element::to_value()).unwrap_or_else(|e| panic!("{e}"));
+        config_pad(PadInput {
+            element: Element2::to_value(),
+            expected: Element::to_value(),
+        })
+        .unwrap_or_else(|e| panic!("{e}"));
         DmTensorView {
             inner: self
                 .inner
@@ -1180,25 +1170,21 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         }
     }
 
-    /// Redistributes data across clusters by DMA (DM ↔ DM): `shuffle_pattern[target] = source`
-    /// copies the source cluster to the target cluster — e.g. `[1, 0]` swaps clusters 0 and 1.
-    #[primitive(DmTensorView::dm_cluster_shuffle)]
-    pub fn dm_cluster_shuffle<const CLUSTER_DIM: usize>(
+    /// Swaps clusters 0 and 1 by Tensor DMA (DM ↔ DM).
+    #[primitive(DmTensorView::dm_cluster_swap)]
+    pub fn dm_cluster_swap(
         self,
         dma: &mut DmaContext<{ Dma::Tensor }>,
-        shuffle_pattern: &[usize],
     ) -> DmTensor<D, Chip, Cluster, Slice, Element, B> {
         let mut shuffled: DmTensor<D, Chip, Cluster, Slice, Element, B> = DmTensor::new();
 
-        for (target_cluster_idx, source_cluster_idx) in shuffle_pattern.iter().enumerate() {
-            self.cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM>>(*source_cluster_idx)
+        for (target_cluster_idx, source_cluster_idx) in [1, 0].into_iter().enumerate() {
+            self.cluster_tile::<Cluster, 1, Padding<Identity, 2>>(source_cluster_idx)
                 .to_dm_view(
                     dma,
                     shuffled
                         .view_mut()
-                        .cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM, { PaddingKind::Bottom }>>(
-                            target_cluster_idx,
-                        ),
+                        .cluster_tile::<Cluster, 1, Padding<Identity, 2, { PaddingKind::Bottom }>>(target_cluster_idx),
                 );
         }
 
@@ -1239,13 +1225,13 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         start: usize,
     ) -> DmTensorViewMut<'l, D, Chip2, Cluster, Slice, Element, B> {
         constraints::assert_dm_to_dm_dimension_preserved::<Chip, Chip2, Cluster, Cluster, Slice, Slice>();
-        config_tile(
-            &Index::to_value(),
-            &Chip::to_value(),
-            &Chip2::to_value(),
-            LEN,
-            PaddingKind::Bottom,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Chip::to_value(),
+            expected: Chip2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Bottom,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         DmTensorViewMut { inner }
@@ -1258,13 +1244,13 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         start: usize,
     ) -> DmTensorViewMut<'l, D, Chip, Cluster2, Slice, Element, B> {
         constraints::assert_dm_to_dm_dimension_preserved::<Chip, Chip, Cluster, Cluster2, Slice, Slice>();
-        config_tile(
-            &Index::to_value(),
-            &Cluster::to_value(),
-            &Cluster2::to_value(),
-            LEN,
-            PaddingKind::Bottom,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Cluster::to_value(),
+            expected: Cluster2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Bottom,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         DmTensorViewMut { inner }
@@ -1276,13 +1262,13 @@ impl<'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
         self,
         start: usize,
     ) -> DmTensorViewMut<'l, D, Chip, Cluster, Slice, Element2, B> {
-        config_tile(
-            &Index::to_value(),
-            &Element::to_value(),
-            &Element2::to_value(),
-            LEN,
-            PaddingKind::Bottom,
-        )
+        config_tile(TileInput {
+            index: Index::to_value(),
+            element: Element::to_value(),
+            expected: Element2::to_value(),
+            len: LEN,
+            hole_fill: PaddingKind::Bottom,
+        })
         .unwrap_or_else(|e| panic!("{e}"));
         let inner = self.inner.retile::<Index, _>(start);
         DmTensorViewMut { inner }
@@ -1358,19 +1344,17 @@ impl<D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Element: M, B: Backend>
     /// Logical shape (mapping) of this tensor.
     pub type Mapping = m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Element }];
 
-    pub(crate) fn from_parts(inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub(crate) fn new(inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self {
             inner,
             _marker: PhantomData,
         }
     }
 
-    /// A fresh TRF tensor. Where in the register file it lands is the compiler's to decide, so
-    /// the handle carries no address of its own.
-    // `new()` builds an uninitialized handle, so no `Default`, matching `DmTensor::new`.
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self::from_parts(Tensor::zeroed())
+    /// A fresh TRF tensor, zero-filled. Where in the register file it lands is the compiler's to
+    /// decide, so the handle carries no address of its own.
+    pub fn zero() -> Self {
+        Self::new(Tensor::zeroed())
     }
 }
 
@@ -1409,19 +1393,20 @@ impl<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
     /// Logical shape (mapping) of this tensor.
     pub type Mapping = m![{ Chip }, { Cluster }, { Slice }, { Element }];
 
-    pub(crate) fn from_parts(inner: Tensor<D, Self::Mapping, B>) -> Self {
+    /// Every VRF handle is built here, which is where one slice's `Element` answers to the file it
+    /// has to fit.
+    pub(crate) fn new(inner: Tensor<D, Self::Mapping, B>) -> Self {
+        constraints::assert_vrf_capacity::<D, Element>();
         Self {
             inner,
             _marker: PhantomData,
         }
     }
 
-    /// A fresh VRF tensor. Where in the register file it lands is the compiler's to decide, so
-    /// the handle carries no address of its own.
-    // `new()` builds an uninitialized handle, so no `Default`, matching `DmTensor::new`.
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self::from_parts(Tensor::zeroed())
+    /// A fresh VRF tensor, zero-filled. Where in the register file it lands is the compiler's to
+    /// decide, so the handle carries no address of its own.
+    pub fn zero() -> Self {
+        Self::new(Tensor::zeroed())
     }
 }
 
@@ -1433,6 +1418,54 @@ impl<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
 impl<D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend>
     VrfTensor<D, Chip, Cluster, Slice, Element, B>
 {
+    /// Restates the operand under a different mapping over the same register, consuming `self`. Its
+    /// use is naming the slices a broadcast operand already holds a copy in, so it can feed a stream
+    /// partitioned by a named axis (the operand rule is
+    /// [`IntoBranchedOperand`](crate::engine::vector::operand::IntoBranchedOperand)'s).
+    ///
+    /// The VRF peer of [`DmTensor::reshape`]; both delegate to [`Tensor::reshape`] and relabel rather
+    /// than relayout, so no element moves.
+    ///
+    /// # Safety
+    ///
+    /// Every physical position (chip, cluster, slice, in-slice element) must already hold what the
+    /// new mapping claims of it. Two forms do that, and this call must be one of them:
+    ///
+    /// 1. **Regrouping axes**, `m![W]` -> `m![W / 2, W % 2]`. This is [`Tensor::reshape`]'s own
+    ///    precondition: both mappings lay the SAME live elements out in the SAME wire order.
+    /// 2. **Naming a broadcast distribution axis**, `m![256]` -> `m![W]`. Here the live elements do
+    ///    NOT line up, since a `Broadcast<256>` carries one of them and `m![W]` carries 256. It is
+    ///    sound for the other reason: a broadcast at `Chip` / `Cluster` / `Slice` means those units
+    ///    each hold the same copy, so naming the copies reads no other unit's data. `Element` has no
+    ///    such reading, and a broadcast one relabelled to a named axis invents data.
+    ///
+    /// Permuting axes (`m![A, B]` -> `m![B, A]`) is neither; that is [`Tensor::transpose`]'s job.
+    ///
+    /// Only per-level `SIZE` equality is asserted, so which of the two forms this is stays the
+    /// caller's to know. A violation is not UB but silence: the backend relabel is a volume
+    /// `assert_eq!` plus a copy, so it yields wrong values under emulation and a wrong EDF once
+    /// compiled, with no diagnostic on either path.
+    #[primitive(VrfTensor::reshape)]
+    pub unsafe fn reshape<Chip2: M, Cluster2: M, Slice2: M, Element2: M>(
+        self,
+    ) -> VrfTensor<D, Chip2, Cluster2, Slice2, Element2, B> {
+        constraints::assert_reshape_dimension_preserved::<
+            Chip,
+            Chip2,
+            Cluster,
+            Cluster2,
+            Slice,
+            Slice2,
+            Element,
+            Element2,
+        >();
+        let reshaped = unsafe {
+            self.inner
+                .reshape::<m![{ Chip2 }, { Cluster2 }, { Slice2 }, { Element2 }]>()
+        };
+        VrfTensor::new(reshaped)
+    }
+
     /// Creates a mutable view into the tensor.
     pub fn view_mut<'l>(&'l mut self) -> TensorViewMut<'l, D, Self::Mapping, B> {
         self.inner.view_mut()

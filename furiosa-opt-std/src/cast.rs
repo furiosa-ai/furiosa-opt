@@ -1,5 +1,7 @@
 use std::ops::RangeInclusive;
 
+use furiosa_opt_lower::CastKind;
+
 use crate::scalar::{bf16, f4e2m1, f8e4m3, f8e5m2, i4, i5, i9};
 
 use super::scalar::{MaterializableScalar, Scalar};
@@ -116,14 +118,29 @@ impl FetchZeroPointSub<i9> for i8 {
     label = "not a cast-compaction conversion",
     note = "widenings belong to the Fetch Adapter: `.fetch_cast::<{D}>()`"
 )]
-pub trait CastEngineCast<D: Scalar>: Cast<D> {}
+pub trait CastEngineCast<D: Scalar>: Cast<D> {
+    /// Hardware conversion represented by this scalar pair.
+    const KIND: CastKind;
+}
 
-impl CastEngineCast<i4> for i32 {}
-impl CastEngineCast<i8> for i32 {}
-impl CastEngineCast<i16> for i32 {}
-impl CastEngineCast<f8e4m3> for f32 {}
-impl CastEngineCast<f8e5m2> for f32 {}
-impl CastEngineCast<bf16> for f32 {}
+impl CastEngineCast<i4> for i32 {
+    const KIND: CastKind = CastKind::I32ToI4;
+}
+impl CastEngineCast<i8> for i32 {
+    const KIND: CastKind = CastKind::I32ToI8;
+}
+impl CastEngineCast<i16> for i32 {
+    const KIND: CastKind = CastKind::I32ToI16;
+}
+impl CastEngineCast<f8e4m3> for f32 {
+    const KIND: CastKind = CastKind::F32ToF8E4M3;
+}
+impl CastEngineCast<f8e5m2> for f32 {
+    const KIND: CastKind = CastKind::F32ToF8E5M2;
+}
+impl CastEngineCast<bf16> for f32 {
+    const KIND: CastKind = CastKind::F32ToBf16;
+}
 
 /// The one cast the Commit Adapter folds in on the way to DM: `f32 -> bf16`
 /// (`CommitConversion::CommitF32ToBf16`, ReLU optionally fused). Anything else narrows in

@@ -21,6 +21,29 @@ pub fn ve_elementwise_fxp_const(ctx: &mut Context, input: &HbmTensor<i32, Chip, 
 }
 
 #[device(chip = 1)]
+pub fn ve_elementwise_arith_right_shift_round(
+    ctx: &mut Context,
+    input: &HbmTensor<i32, Chip, m![A]>,
+) -> HbmTensor<i32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+        .main
+        .begin(input_dm.view())
+        .fetch::<m![1], m![A % 2]>()
+        .fetch_cast::<i32>()
+        .collect::<m![1], m![A % 2 # 8]>()
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_fxp(FxpBinaryOp::ArithRightShiftRound, 2)
+        .vector_final()
+        .commit_trim::<m![A % 2]>()
+        .commit();
+
+    result.to_hbm(&mut ctx.tdma)
+}
+
+#[device(chip = 1)]
 pub fn ve_elementwise_full_pipeline(
     ctx: &mut Context,
     input: &HbmTensor<i32, Chip, m![A]>,
@@ -199,27 +222,44 @@ pub fn ve_elementwise_stash_i32(ctx: &mut Context, input: &HbmTensor<i32, Chip, 
     result.to_hbm(&mut ctx.tdma)
 }
 
-#[device(chip = 1)]
-pub fn ve_elementwise_fp_unary(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![A]>) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+macro_rules! define_elementwise_fp_unary {
+    ($name:ident, $op:expr) => {
+        #[device(chip = 1)]
+        pub fn $name(
+            ctx: &mut Context,
+            input: &HbmTensor<f32, Chip, m![A]>,
+        ) -> HbmTensor<f32, Chip, m![A]> {
+            let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
-        .main
-        .begin(input_dm.view())
-        .fetch::<m![1], m![A % 2]>()
-        .fetch_cast::<f32>()
-        .collect::<m![1], m![A % 2 # 8]>()
-        .vector_init()
-        .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_trim::<m![A % 2 # 4]>()
-        .vector_fp_unary(FpUnaryOp::Exp)
-        .vector_widen_pad::<m![A % 2 # 8]>()
-        .vector_final()
-        .commit_trim::<m![A % 2]>()
-        .commit();
+            let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+                .main
+                .begin(input_dm.view())
+                .fetch::<m![1], m![A % 2]>()
+                .fetch_cast::<f32>()
+                .collect::<m![1], m![A % 2 # 8]>()
+                .vector_init()
+                .vector_intra_slice_tag(TagMode::Zero)
+                .vector_narrow_trim::<m![A % 2 # 4]>()
+                .vector_fp_unary($op)
+                .vector_widen_pad::<m![A % 2 # 8]>()
+                .vector_final()
+                .commit_trim::<m![A % 2]>()
+                .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+            result.to_hbm(&mut ctx.tdma)
+        }
+    };
 }
+
+define_elementwise_fp_unary!(ve_elementwise_fp_unary, FpUnaryOp::Exp);
+define_elementwise_fp_unary!(ve_elementwise_neg_exp, FpUnaryOp::NegExp);
+define_elementwise_fp_unary!(ve_elementwise_sqrt, FpUnaryOp::Sqrt);
+define_elementwise_fp_unary!(ve_elementwise_tanh, FpUnaryOp::Tanh);
+define_elementwise_fp_unary!(ve_elementwise_sigmoid, FpUnaryOp::Sigmoid);
+define_elementwise_fp_unary!(ve_elementwise_erf, FpUnaryOp::Erf);
+define_elementwise_fp_unary!(ve_elementwise_log, FpUnaryOp::Log);
+define_elementwise_fp_unary!(ve_elementwise_sin, FpUnaryOp::Sin);
+define_elementwise_fp_unary!(ve_elementwise_cos, FpUnaryOp::Cos);
 
 #[device(chip = 1)]
 pub fn ve_elementwise_fp_binary_with_mode(
@@ -584,3 +624,58 @@ pub fn ve_elementwise_multi_vrf(
 // =============================================================================
 // Group pair operations (ve_group_pair_*)
 // =============================================================================
+
+/// A contraction result stored to the VRF and read back as a scale: the dot product feeds the
+/// vector engine, whose pass ends at the write port, and a second stream consumes the register.
+#[device(chip = 1)]
+pub fn ve_contract_to_vrf(
+    ctx: &mut Context,
+    act: &HbmTensor<f8e4m3, Chip, m![W]>,
+    weight: &HbmTensor<f8e4m3, Chip, m![P, W]>,
+    scale: &HbmTensor<f32, Chip, m![P]>,
+) -> HbmTensor<f32, Chip, m![P]> {
+    let act_dm: DmTensor<f8e4m3, Chip, Cluster, Slice, m![W]> = act.to_dm(&mut ctx.tdma);
+    let weight_dm: DmTensor<f8e4m3, Chip, Cluster, Slice, m![P, W]> = weight.to_dm(&mut ctx.tdma);
+    let scale_dm: DmTensor<f32, Chip, Cluster, Slice, m![P]> = scale.to_dm(&mut ctx.tdma);
+
+    let weight_trf: TrfTensor<f8e4m3, Chip, Cluster, Slice, m![P], m![W]> = ctx
+        .sub
+        .begin(weight_dm.view())
+        .fetch::<m![P], m![W]>()
+        .collect::<m![P, W / 32], m![W % 32]>()
+        .to_trf();
+
+    let dot: VrfTensor<f32, Chip, Cluster, Slice, m![P]> = ctx
+        .main
+        .begin(act_dm.view())
+        .fetch::<m![W / 32], m![W % 32]>()
+        .collect::<m![W / 32], m![W % 32]>()
+        .contract_outer::<m![W / 64], m![W % 64], _, _, _>(&weight_trf)
+        .contract_packet::<m![1]>()
+        .contract_time::<m![1]>()
+        .contract_lane::<m![1], m![P]>(LaneMode::Interleaved)
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_narrow_split::<m![P / 4 % 2], m![P % 4]>()
+        .vector_fp_unary(FpUnaryOp::Sqrt)
+        .vector_widen_concat::<m![1], m![P]>()
+        .vector_final()
+        .to_vrf(&mut ctx.sub);
+
+    let result: DmTensor<f32, Chip, Cluster, Slice, m![P]> = ctx
+        .main
+        .begin(scale_dm.view())
+        .fetch::<m![1], m![P]>()
+        .fetch_cast::<f32>()
+        .collect::<m![1], m![P]>()
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_narrow_split::<m![P / 4 % 2], m![P % 4]>()
+        .vector_fp_binary(FpBinaryOp::MulF(FpMulAlu::Mul0), &dot)
+        .vector_widen_concat::<m![1], m![P]>()
+        .vector_final()
+        .commit_trim::<m![P]>()
+        .commit();
+
+    result.to_hbm(&mut ctx.tdma)
+}

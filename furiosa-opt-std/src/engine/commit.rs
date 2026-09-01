@@ -7,7 +7,7 @@
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
-use furiosa_opt_lower::config_commit;
+use furiosa_opt_lower::{CommitInput, config_commit};
 
 use crate::backend::Backend;
 use crate::context::*;
@@ -41,18 +41,19 @@ impl<'l, const T: Tu, P: CanApplyCommit, D: Scalar, Chip: M, Cluster: M, Slice: 
 /// explicitly discarded. The dual of `verify_fetch`: it writes the time-ordered `(InTime, InPacket)`
 /// stream into the DM `Element` layout.
 pub(crate) fn verify_commit<D: Scalar, InTime: M, InPacket: M, Element: M>() {
-    let _ = config_commit(
-        &InTime::to_value(),
-        &InPacket::to_value(),
-        &Element::to_value(),
-        D::BITS,
-    )
+    let _ = config_commit(CommitInput {
+        in_time: InTime::to_value(),
+        in_packet: InPacket::to_value(),
+        element: Element::to_value(),
+        element_bits: D::BITS,
+    })
     .unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use furiosa_opt_lower::CommitError;
 
     /// Each accepts a commit across an orthogonal phenomenon; the matcher's write synthesis is
     /// exhaustively tested in `furiosa-mapping-impl`.
@@ -85,6 +86,70 @@ mod tests {
         #[test]
         fn interleaved_time_padding_overlaps_into_dm_padding() {
             verify_commit::<i8, m![1 # 2, A, 1 # 2], m![N], m![A, 1 # 3, N]>();
+        }
+    }
+    /// One case per rejection path, checking the typed commit error directly.
+    mod commit_invalid {
+        use super::*;
+        use furiosa_mapping::M as _;
+
+        axes![M = 4, N = 8, X = 8, Y = 4, A = 4, B = 3];
+
+        /// Packet byte size is not a legal flit trim (3 bytes).
+        #[test]
+        fn illegal_packet_size() {
+            assert_eq!(
+                config_commit(CommitInput {
+                    in_time: <m![M]>::to_value(),
+                    in_packet: <m![B]>::to_value(),
+                    element: <m![M, B]>::to_value(),
+                    element_bits: <i8 as Scalar>::BITS,
+                }),
+                Err(CommitError::IllegalPacketBytes { bytes: B::SIZE })
+            );
+        }
+
+        /// Element's innermost chunk is not the input packet.
+        #[test]
+        fn packet_mismatch() {
+            assert!(matches!(
+                config_commit(CommitInput {
+                    in_time: <m![M]>::to_value(),
+                    in_packet: <m![N # 32]>::to_value(),
+                    element: <m![M, X]>::to_value(),
+                    element_bits: <i8 as Scalar>::BITS,
+                }),
+                Err(CommitError::PacketNotInnermost { .. })
+            ));
+        }
+
+        /// Live Time terms do not correspond to the Element outer's terms.
+        #[test]
+        fn time_term_mismatch() {
+            assert!(matches!(
+                config_commit(CommitInput {
+                    in_time: <m![M]>::to_value(),
+                    in_packet: <m![N # 32]>::to_value(),
+                    element: <m![Y, N # 32]>::to_value(),
+                    element_bits: <i8 as Scalar>::BITS,
+                }),
+                Err(CommitError::Unwritable { .. })
+            ));
+        }
+
+        /// The stream's padding over-emits beyond the DM's dummy capacity, so the matcher cannot match
+        /// the over-emitting segment.
+        #[test]
+        fn no_affine_plan() {
+            assert!(matches!(
+                config_commit(CommitInput {
+                    in_time: <m![A, 1 # 5]>::to_value(),
+                    in_packet: <m![N]>::to_value(),
+                    element: <m![A, 1 # 2, N]>::to_value(),
+                    element_bits: <i8 as Scalar>::BITS,
+                }),
+                Err(CommitError::Unwritable { .. })
+            ));
         }
     }
 }

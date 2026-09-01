@@ -239,9 +239,9 @@ impl Mapping {
     pub fn consumed(&self, mode: SequencerMode) -> bool {
         match self {
             Self::Symbol { .. } => false,
-            Self::Broadcast { size } => mode.carving() == CarvingMode::Read || *size == 1,
+            Self::Broadcast { size } => mode.carve_direction() == CarveDirection::Read || *size == 1,
             Self::Padding { inner, kind, .. } => {
-                (mode.carving() == CarvingMode::Read || *kind != PaddingKind::Zero) && inner.consumed(mode)
+                (mode.carve_direction() == CarveDirection::Read || *kind != PaddingKind::Zero) && inner.consumed(mode)
             }
             Self::Stride { inner, .. } | Self::Modulo { inner, .. } | Self::Resize { inner, .. } => {
                 inner.consumed(mode)
@@ -789,33 +789,68 @@ pub enum SequencerMode {
     /// can carve the broadcast from the memory leftover (see `read_carved_down_memory_keeps_broadcast_term`),
     /// at which point this mode can be retired.
     Carve,
+    /// Locates where a partial stream reads: no coverage required, padding equal on both sides.
+    Locate,
 }
 
 impl SequencerMode {
-    /// The two-valued carving direction the matcher branches on; `Carve` shares `Read`'s.
-    pub const fn carving(self) -> CarvingMode {
+    /// Which side must contain the other.
+    pub const fn carve_direction(self) -> CarveDirection {
         match self {
-            SequencerMode::Read | SequencerMode::Carve => CarvingMode::Read,
-            SequencerMode::Write => CarvingMode::Write,
+            Self::Read | Self::Carve | Self::Locate => CarveDirection::Read,
+            Self::Write => CarveDirection::Write,
         }
     }
 
-    /// The pad kind an unbacked memory gap reads or writes as: delegates to [`CarvingMode::gap_kind`].
+    /// Whether padding may be absorbed, or must be equal on both sides.
+    pub const fn padding_rule(self) -> PaddingRule {
+        match self {
+            Self::Read | Self::Write | Self::Carve => PaddingRule::Absorb,
+            Self::Locate => PaddingRule::Exact,
+        }
+    }
+
+    /// How a `Bottom` pad in the stream input is treated.
+    pub const fn stream_bottom_pad(self) -> StreamBottomPad {
+        match self {
+            Self::Read | Self::Write => StreamBottomPad::Reject,
+            Self::Carve => StreamBottomPad::ReadAsTop,
+            Self::Locate => StreamBottomPad::Keep,
+        }
+    }
+
+    /// Whether a `Bottom` pad is valid in the memory input.
+    pub const fn accepts_memory_bottom_pad(self) -> bool {
+        !matches!(self, Self::Read)
+    }
+
+    /// Whether the memory must end fully consumed.
+    pub const fn enforces_coverage(self) -> bool {
+        !matches!(self, Self::Locate)
+    }
+
+    /// The pad kind a memory gap with no backing takes.
     pub const fn gap_kind(self) -> PaddingKind {
-        self.carving().gap_kind()
+        self.carve_direction().gap_kind()
+    }
+
+    /// Whether `order`, memory compared against stream, satisfies this mode.
+    pub fn backs(self, order: Option<std::cmp::Ordering>) -> bool {
+        self.carve_direction().backs(order)
     }
 }
 
-/// The two-valued carving direction the matcher branches on, projected from [`SequencerMode::carving`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CarvingMode {
+/// Which side of a carve must contain the other.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarveDirection {
     /// Stream reads from memory: `memory ⊑ stream`, unmatched stream segments broadcast, gap = `Top`.
     Read,
     /// Stream writes to memory: `stream ⊑ memory`, every cell written once, gap = `Bottom`.
     Write,
 }
 
-impl CarvingMode {
+impl CarveDirection {
     /// The default fill for an unbacked memory gap: `Top` (don't-care) for read, `Bottom` for write.
     pub const fn gap_kind(self) -> PaddingKind {
         match self {
@@ -823,6 +858,72 @@ impl CarvingMode {
             Self::Write => PaddingKind::Bottom,
         }
     }
+
+    /// Whether `order`, memory compared against stream, satisfies this direction.
+    pub fn backs(self, order: Option<std::cmp::Ordering>) -> bool {
+        matches!(
+            (self, order),
+            (Self::Read, Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal))
+                | (
+                    Self::Write,
+                    Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+                )
+        )
+    }
+}
+
+/// How two sides are compared at a position where their padding differs.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaddingRule {
+    /// A pad absorbs the other side's cell. Used by carving.
+    Absorb,
+    /// Padding must be equal at every position and of the same kind.
+    Exact,
+}
+
+impl PaddingRule {
+    /// Orders one position: `mine` and `theirs` are pad kinds (`None` if live), `live` the order for
+    /// two live cells.
+    pub fn cell(
+        self,
+        mine: Option<PaddingKind>,
+        theirs: Option<PaddingKind>,
+        live: Option<std::cmp::Ordering>,
+    ) -> Option<std::cmp::Ordering> {
+        use PaddingKind::{Bottom, Top};
+        use std::cmp::Ordering;
+        match self {
+            // A live cell against a pad is the absorption `Exact` forbids.
+            Self::Exact => match (mine, theirs) {
+                (None, None) => live,
+                (Some(x), Some(y)) if x == y => Some(Ordering::Equal),
+                _ => None,
+            },
+            Self::Absorb => match (mine, theirs) {
+                (None, None) => live,
+                // A live cell is below `Top`, above `Bottom`, incomparable with `Zero`.
+                (None, Some(Top)) | (Some(Bottom), None) => Some(Ordering::Less),
+                (Some(Top), None) | (None, Some(Bottom)) => Some(Ordering::Greater),
+                // Two pads order by kind.
+                (Some(x), Some(y)) => x.partial_cmp(&y),
+                // A live cell against a `Zero` pad.
+                _ => None,
+            },
+        }
+    }
+}
+
+/// How the matcher treats a `Bottom` pad in the stream, which normally marks consumed cells.
+#[repr(C)]
+#[derive(StableAbi, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamBottomPad {
+    /// Invalid input.
+    Reject,
+    /// Read as a `Top` don't-care. A `view_mut` hole reaches a read carve this way.
+    ReadAsTop,
+    /// Compared like any other pad kind.
+    Keep,
 }
 
 /// Error returned by sequencing.

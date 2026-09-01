@@ -2,4 +2,4 @@
 
 mod stream_adapter;
 
-pub use stream_adapter::{StreamAdapterError, config_stream_adapter};
+pub use stream_adapter::{StreamAdapterError, StreamAdapterInput, config_stream_adapter};

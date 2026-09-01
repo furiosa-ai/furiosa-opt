@@ -181,16 +181,14 @@ impl TuContext<{ Tu::Sub }> {
 
         for (cluster_idx, slice_idx) in slice_indices.iter().enumerate() {
             let cluster_slice = tensor.cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM>>(cluster_idx);
-            cluster_slice
-                .tile::<AxisToSlice, 1, AxisSlicedElement>(*slice_idx)
-                .to_dm_view_pcopy(
-                    self,
-                    sliced
-                        .view_mut()
-                        .cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM, { PaddingKind::Bottom }>>(
-                            cluster_idx,
-                        ),
-                );
+            let selected = cluster_slice.tile::<AxisToSlice, 1, AxisSlicedElement>(*slice_idx);
+            // The stos copy is emitted by this primitive's own translation, so the body just moves
+            // the bytes for the CPU backend.
+            sliced
+                .view_mut()
+                .cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM, { PaddingKind::Bottom }>>(cluster_idx)
+                .inner
+                .transpose(selected.inner, false);
         }
 
         sliced
@@ -220,14 +218,14 @@ impl TuContext<{ Tu::Sub }> {
 
         for (chip_idx, slice_idx) in slice_indices.iter().enumerate() {
             let chip_slice = tensor.chip_tile::<Chip, 1, Padding<Identity, CHIP_DIM>>(chip_idx);
-            chip_slice
-                .tile::<AxisToSlice, 1, AxisSlicedElement>(*slice_idx)
-                .to_dm_view_pcopy(
-                    self,
-                    sliced
-                        .view_mut()
-                        .chip_tile::<Chip, 1, Padding<Identity, CHIP_DIM, { PaddingKind::Bottom }>>(chip_idx),
-                );
+            let selected = chip_slice.tile::<AxisToSlice, 1, AxisSlicedElement>(*slice_idx);
+            // The stos copy is emitted by this primitive's own translation, so the body just moves
+            // the bytes for the CPU backend.
+            sliced
+                .view_mut()
+                .chip_tile::<Chip, 1, Padding<Identity, CHIP_DIM, { PaddingKind::Bottom }>>(chip_idx)
+                .inner
+                .transpose(selected.inner, false);
         }
 
         sliced

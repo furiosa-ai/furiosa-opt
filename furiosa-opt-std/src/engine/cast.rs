@@ -5,6 +5,7 @@
 //! to 32 bytes. Time passes through unchanged.
 
 use furiosa_mapping::*;
+use furiosa_opt_lower::{CastInput, config_cast};
 use furiosa_opt_macro::primitive;
 use std::marker::PhantomData;
 
@@ -72,7 +73,11 @@ impl<'l, const T: Tu, P: CanApplyCast, D: VeScalar, Chip: M, Cluster: M, Slice: 
 
 /// Validates the Cast engine via [`furiosa_opt_lower::config_cast`] (one-flit in / recast one-flit out
 /// rules documented there).
-fn verify_cast<D: Scalar, OutD: Scalar, InPacket: M, OutPacket: M>() {
-    furiosa_opt_lower::config_cast(&InPacket::to_value(), &OutPacket::to_value(), D::BITS, OutD::BITS)
-        .unwrap_or_else(|message| panic!("{message}"));
+fn verify_cast<D: CastEngineCast<OutD>, OutD: Scalar, InPacket: M, OutPacket: M>() {
+    config_cast(CastInput {
+        in_packet: InPacket::to_value(),
+        out_packet: OutPacket::to_value(),
+        kind: D::KIND,
+    })
+    .unwrap_or_else(|message| panic!("{message}"));
 }

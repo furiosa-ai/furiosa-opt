@@ -25,6 +25,37 @@ pub fn ve_group_pair_add(
     result.to_hbm(&mut ctx.tdma)
 }
 
+/// `a + b` over two whole slice-resident rows, with the group axis read inside the row.
+///
+/// The group axis is the FETCH's innermost time axis, so a group is one flit: the stream reads one flit
+/// of `lhs`, one of `rhs`, and repeats. Writing `m![I, A / 8]` instead makes a group the whole row, over
+/// what the VE register-file cache holds
+/// ([`ve_group_pair_over_cache`](crate::negative::vector_engine::ve_group_pair_over_cache)).
+#[device(chip = 1)]
+pub fn ve_group_pair_add_group_axis_inner(
+    ctx: &mut Context,
+    lhs: &HbmTensor<i32, Chip, m![A]>,
+    rhs: &HbmTensor<i32, Chip, m![A]>,
+) -> HbmTensor<i32, Chip, m![A]> {
+    let lhs_dm = lhs.to_dm::<Cluster, Slice, m![A]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, Slice, m![A]>(&mut ctx.tdma);
+
+    let result: DmTensor<i32, Chip, Cluster, Slice, m![A]> = ctx
+        .main
+        .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
+        .fetch::<m![A / 8, I], m![A % 8]>()
+        .fetch_cast::<i32>()
+        .collect::<m![A / 8, I], m![A % 8]>()
+        .vector_init()
+        .vector_intra_slice_unzip::<I, m![A / 8, 1 # 2], m![A / 8]>()
+        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+        .vector_final()
+        .commit_trim::<m![A % 8]>()
+        .commit();
+
+    result.to_hbm(&mut ctx.tdma)
+}
+
 /// `2a + 4b` on interleaved `f32` inputs, with each doubling done as `exponent += 1` on the bit
 /// pattern instead of a float multiply.
 ///

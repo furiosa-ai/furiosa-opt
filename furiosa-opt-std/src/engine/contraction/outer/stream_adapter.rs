@@ -6,6 +6,7 @@
 //! longer materializes the expansion.
 
 use furiosa_mapping::*;
+use furiosa_opt_lower::{StreamAdapterInput, config_stream_adapter};
 
 use crate::scalar::Scalar;
 
@@ -19,13 +20,13 @@ use crate::scalar::Scalar;
 /// - `OutTime = [outer, broadcast]`, where `outer` is the rest of `Time` and the
 ///   broadcast (tiling) axes occupy the innermost positions.
 pub(super) fn verify_stream_adapter<D: Scalar, Lane: M, Time: M, Packet: M, OutTime: M, OutPacket: M>() {
-    furiosa_opt_lower::config_stream_adapter(
-        &Lane::to_value(),
-        &Time::to_value(),
-        &Packet::to_value(),
-        &OutTime::to_value(),
-        &OutPacket::to_value(),
-        D::BITS,
-    )
+    config_stream_adapter(StreamAdapterInput {
+        in_lane: Lane::to_value(),
+        in_time: Time::to_value(),
+        in_packet: Packet::to_value(),
+        out_time: OutTime::to_value(),
+        out_packet: OutPacket::to_value(),
+        element_bits: D::BITS,
+    })
     .unwrap_or_else(|message| panic!("{message}"));
 }

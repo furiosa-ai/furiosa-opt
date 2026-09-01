@@ -233,6 +233,11 @@ Sub-dimensions resolve to `slice2 = A / 64`, `slice1 = A / 2 % 32`, `slice0 = A 
 
 `InterTranspose` swaps a dimension between `Slice` and `Time`: `slice1` moves into `Time` and `time1` moves into `Slice` (regular `Transpose` stays within `Slice`).
 
+> [!NOTE]
+> [Axis lifting](../moving-tensors/fetch-engine.md#axis-lifting) can replace `InterTranspose` when every destination slice already holds a copy of the source region.
+> It assigns a different read offset to each slice and performs no sub-ring traversal.
+> Use `InterTranspose` when data must move between slices or from `Slice` to `Time`.
+
 The input dimension structure (outermost to innermost, left to right):
 
 ```text

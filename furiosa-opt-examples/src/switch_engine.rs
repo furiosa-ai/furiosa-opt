@@ -37,6 +37,36 @@ pub fn custom_broadcast(
     result.to_hbm::<m![A, Y, B, V]>(&mut ctx.tdma)
 }
 
+#[device(chip = 1)]
+pub fn custom_broadcast_twice(
+    ctx: &mut Context,
+    input: &HbmTensor<bf16, Chip, m![A, B, V]>,
+) -> (
+    HbmTensor<bf16, Chip, m![A, Y, B, V]>,
+    HbmTensor<bf16, Chip, m![A, Y, B, V]>,
+) {
+    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![B, V]> = input.to_dm::<Cluster, Slice, m![B, V]>(&mut ctx.tdma);
+    let output0: DmTensor<bf16, Chip, Cluster, OutSlice, m![B, V]> = ctx
+        .main
+        .begin(dm.view())
+        .fetch::<m![B], m![V]>()
+        .switch::<OutSlice, m![B]>(SwitchConfig::CustomBroadcast { ring_size: 4 })
+        .collect::<m![B], m![V]>()
+        .commit_trim::<m![V]>()
+        .commit();
+    let output1: DmTensor<bf16, Chip, Cluster, OutSlice, m![B, V]> = ctx
+        .main
+        .begin(dm.view())
+        .fetch::<m![B], m![V]>()
+        .switch::<OutSlice, m![B]>(SwitchConfig::CustomBroadcast { ring_size: 4 })
+        .collect::<m![B], m![V]>()
+        .commit_trim::<m![V]>()
+        .commit();
+    let output0 = output0.to_hbm::<m![A, Y, B, V]>(&mut ctx.tdma);
+    let output1 = output1.to_hbm::<m![A, Y, B, V]>(&mut ctx.tdma);
+    (output0, output1)
+}
+
 // ── custom_broadcast_ring2 ──────────────────────────────────────────────────────────
 // Same padding-slot → tile pattern at ring 2; slice volume 128*2 = 256.
 axes![A2 = 128, Y2 = 2];

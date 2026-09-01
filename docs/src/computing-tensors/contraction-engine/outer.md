@@ -98,7 +98,7 @@ fn stream_adapter_example<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]> = TrfTensor::new();
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]> = TrfTensor::zero();
 # let _o = stream_adapter_example(a, &b);
 ```
 
@@ -170,7 +170,7 @@ fn trf_sequencer_full_read<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]> = TrfTensor::new();
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]> = TrfTensor::zero();
 # let _o = trf_sequencer_full_read(a, &b);
 ```
 
@@ -197,7 +197,7 @@ fn trf_sequencer_partial_read<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]> = TrfTensor::new();
+# let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]> = TrfTensor::zero();
 # let _o = trf_sequencer_partial_read(a, &b);
 ```
 

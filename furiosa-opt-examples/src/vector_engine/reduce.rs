@@ -298,6 +298,41 @@ pub fn ve_vru_then_vau_i32(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![R,
 }
 
 // =============================================================================
+// intra-slice chain → inter-slice reducer (vector_intra_slice_tag → chain ops → vector_inter_slice_reduce)
+// =============================================================================
+
+/// intra-slice chain first (add constant, then fixed-point to float), then inter-slice reducer.
+///
+/// The mirror of [`ve_vru_then_vau_i32`], and the case where the VRU is the *second* unit: it is
+/// entered with what the VAU emitted, not with what entered the VE. `vector_fxp_to_fp` has made the
+/// stream `f32` by then, so the inter-slice reduce is the `f32` one and the VRU's declared input
+/// element type is `f32` rather than the `i32` the fetch produced.
+///
+/// Input [R, A] with R in Slice → intra-slice chain adds 100 and converts to f32
+/// → inter-slice reducer reduces R across slices → Output [A]
+#[device(chip = 1)]
+pub fn ve_vau_then_vru_f32(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![R, A]>) -> HbmTensor<f32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 8, R], m![A % 8]>(&mut ctx.tdma);
+
+    let result: DmTensor<f32, Chip, Cluster, m![A / 8, 1 # 4], m![A % 8]> = ctx
+        .main
+        .begin(input_dm.view())
+        .fetch::<m![1], m![A % 8]>()
+        .fetch_cast::<i32>()
+        .collect::<m![1], m![A % 8]>()
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_fxp(FxpBinaryOp::AddFxp, 100)
+        .vector_fxp_to_fp(31)
+        .vector_inter_slice_reduce::<m![A / 8, 1 # 4], m![1]>(InterSliceReduceOpF32::Add)
+        .vector_final()
+        .commit_trim::<m![A % 8]>()
+        .commit();
+
+    result.to_hbm(&mut ctx.tdma)
+}
+
+// =============================================================================
 // Axis promotion: InSlice axis moves to Partitioning after inter-slice reducer reduce
 // =============================================================================
 

@@ -18,7 +18,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup mdBook
         uses: peaceiris/actions-mdbook@v2
@@ -54,7 +54,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/snapshot'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download Book Artifact
         uses: actions/download-artifact@v4

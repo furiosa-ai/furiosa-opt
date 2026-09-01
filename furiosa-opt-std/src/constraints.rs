@@ -19,17 +19,13 @@ use furiosa_mapping::M;
 use crate::scalar::Scalar;
 
 /// Bits in a byte / flit byte size / VRF capacity, single-sourced from the published verifier crate.
-pub(crate) use furiosa_opt_lower::{BITS_PER_BYTE, FLIT_BYTES, VRF_BYTES};
+pub(crate) use furiosa_opt_lower::{
+    BITS_PER_BYTE, FETCH_VALID_CLUSTER_SIZES as CLUSTER_SIZES, FETCH_VALID_SLICE_SIZES as SLICE_SIZES, FLIT_BYTES,
+    VRF_BYTES,
+};
 
-/// Supported `Cluster` dimension sizes.
-pub(crate) const CLUSTER_SIZES: [usize; 2] = [1, 2];
-
-/// Byte granularity a packet must align to in the [`Fetch`](crate::engine) and
-/// [`Switch`](crate::engine) engines, which pass packets through unchanged.
+/// Byte width of one SRAM access word.
 pub(crate) const PACKET_ALIGN_BYTES: usize = 8;
-
-/// Supported `Slice` dimension sizes, in bytes.
-pub(crate) const SLICE_SIZES: [usize; 3] = [64, 128, 256];
 
 /// Asserts the `Cluster` dimension is one of the [`CLUSTER_SIZES`].
 pub(crate) fn assert_cluster_size<Cluster: M>() {
@@ -40,7 +36,7 @@ pub(crate) fn assert_cluster_size<Cluster: M>() {
             ok |= CLUSTER_SIZES[i] == Cluster::SIZE;
             i += 1;
         }
-        assert!(ok, "Cluster size must be 1 or 2");
+        assert!(ok, "Cluster::SIZE must be 1 or 2");
     };
 }
 
@@ -53,7 +49,7 @@ pub(crate) fn assert_slice_size<Slice: M>() {
             ok |= SLICE_SIZES[i] == Slice::SIZE;
             i += 1;
         }
-        assert!(ok, "Slice size must be one of 64 | 128 | 256");
+        assert!(ok, "Slice::SIZE must be 64, 128, or 256");
     };
 }
 
@@ -101,7 +97,7 @@ pub(crate) fn assert_packet_one_or_two_flit<D: Scalar, Packet: M>() {
     };
 }
 
-/// Asserts one slice's vector register file operand fits [`VRF_BYTES`] (`to_vrf`).
+/// Asserts one slice's vector register file operand fits [`VRF_BYTES`] (every `VrfTensor::new`).
 ///
 /// A compile-time check, unlike the TRF's: the VRF is one undivided file per slice, so its capacity
 /// is fixed here, while `to_trf` checks the whole tensor register file.
@@ -152,18 +148,55 @@ pub(crate) fn assert_hbm_reshape_dimension_preserved<Chip: M, Chip2: M, Element:
     assert_element_preserved::<Element, Element2>();
 }
 
-/// Asserts the `Chip` size is preserved across a transfer / reshape.
-fn assert_chip_preserved<Chip: M, Chip2: M>() {
+/// Asserts the size-level half of the lift rule: the lifted axes leave `Time`, so `Time` shrinks by a
+/// power-of-two product that divides the dimension's size. Which broadcast is filled, and by what, is a
+/// mapping value, so `config_fetch_lift` checks that at run time.
+pub(crate) fn assert_lift_factor<Placement: M, Time: M, OutTime: M>() {
+    const {
+        assert!(OutTime::SIZE != 0, "a lift's output `Time` must not be empty");
+    };
+    const {
+        if OutTime::SIZE != 0 {
+            assert!(
+                Time::SIZE.is_multiple_of(OutTime::SIZE),
+                "a lift's output `Time` must divide its input `Time`"
+            );
+        }
+    };
+    const {
+        if OutTime::SIZE != 0 && Time::SIZE.is_multiple_of(OutTime::SIZE) {
+            let lifted = Time::SIZE / OutTime::SIZE;
+            assert!(
+                lifted == 1 || lifted.is_power_of_two(),
+                "a lift fills broadcasts of the dimension, so the axes it takes out of `Time` must multiply \
+                 to a power of two"
+            );
+        }
+    };
+    const {
+        if OutTime::SIZE != 0 && Time::SIZE.is_multiple_of(OutTime::SIZE) {
+            let lifted = Time::SIZE / OutTime::SIZE;
+            assert!(
+                Placement::SIZE.is_multiple_of(lifted),
+                "a lift fills broadcasts of the dimension, so the axes it takes out of `Time` must divide \
+                 the dimension's size"
+            );
+        }
+    };
+}
+
+/// Asserts the `Chip` size is preserved across a transfer, reshape or fetch lift.
+pub(crate) fn assert_chip_preserved<Chip: M, Chip2: M>() {
     const { assert!(Chip::SIZE == Chip2::SIZE, "Chip size must be preserved") };
 }
 
-/// Asserts the `Cluster` size is preserved across a transfer / reshape.
-fn assert_cluster_preserved<Cluster: M, Cluster2: M>() {
+/// Asserts the `Cluster` size is preserved across a transfer, reshape or fetch lift.
+pub(crate) fn assert_cluster_preserved<Cluster: M, Cluster2: M>() {
     const { assert!(Cluster::SIZE == Cluster2::SIZE, "Cluster size must be preserved") };
 }
 
-/// Asserts the `Slice` size is preserved across a transfer / reshape.
-fn assert_slice_preserved<Slice: M, Slice2: M>() {
+/// Asserts the `Slice` size is preserved across a transfer, reshape or fetch lift.
+pub(crate) fn assert_slice_preserved<Slice: M, Slice2: M>() {
     const { assert!(Slice::SIZE == Slice2::SIZE, "Slice size must be preserved") };
 }
 

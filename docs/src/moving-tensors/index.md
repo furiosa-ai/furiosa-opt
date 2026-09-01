@@ -19,7 +19,7 @@ It gives the operation and context for each public boundary.
 | `HbmTensor` | `DmTensor` | `HbmTensor::to_dm` with `Context::tdma`; see [DMA Engine](./dma-engine.md) |
 | `DmTensor` | `HbmTensor` | `DmTensor::to_hbm` with `Context::tdma`; see [DMA Engine](./dma-engine.md) |
 | `HbmTensor` | `HbmTensor` | `HbmTensor::to_hbm` with the DMA context required by the call; see [DMA Engine](./dma-engine.md) |
-| `DmTensor` | `DmTensor` | `DmTensor::to_dm` with `Context::tdma`, or `to_dm_pcopy` with the sub context; see [Collect Engine](../computing-tensors/collect-engine.md) |
+| `DmTensor` | `DmTensor` | `DmTensor::to_dm` with `Context::tdma`, or a fetch/commit round trip through the Tensor Unit; see [DMA Engine](./dma-engine.md) and [Commit Engine](./commit-engine.md) |
 | `DmTensorView` | Tensor Unit stream | `TuContext::begin`, then [`fetch`](./fetch-engine.md) |
 | Tensor Unit stream | `DmTensor` | [`commit`](./commit-engine.md), or [`commit_view`](./commit-engine.md) for an existing mutable view |
 
@@ -82,6 +82,7 @@ Do not read a destination before its producing transfer or commit has completed,
 
 * **[Fetch](./fetch-engine.md)** reads DM with one per-slice sequencer and emits a packet stream for the Tensor Unit.
   Its output mapping chooses the stream `Time` and `Packet` axes.
+  [Axis lifting](./fetch-engine.md#axis-lifting) can also move an axis from `Time` to `Chip`, `Cluster`, or `Slice` when the selected dimension contains a broadcast.
 * **[Commit](./commit-engine.md)** writes a Tensor Unit stream to DM.
   Its `Element` mapping chooses the destination layout and can transpose stream axes during the write.
 * **[DMA](./dma-engine.md)** pairs read and write sequencers for memory-to-memory movement.

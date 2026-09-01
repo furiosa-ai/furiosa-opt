@@ -123,7 +123,7 @@ fn bmatmul_k_in_time<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::new();
+# let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::zero();
 # let _o = bmatmul_k_in_time(a, &b);
 ```
 
@@ -176,7 +176,7 @@ fn bmatmul_m_in_time<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::new();
+# let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::zero();
 # let _o = bmatmul_m_in_time(a, &b);
 ```
 
@@ -222,6 +222,6 @@ fn bmatmul_v_in_time<'l, const T: Tu>(
 # let mut ctx = Context::acquire();
 # 
 # let a: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
-# let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::new();
+# let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::zero();
 # let _o = bmatmul_v_in_time(a, &b);
 ```

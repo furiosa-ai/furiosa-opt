@@ -1,7 +1,6 @@
 //! Device-function execution runtime: [`launch`] dispatches a [`DeviceFn`] over its arguments,
-//! [`DeviceSend`] marks the types that may cross to a device function, and [`TupleApply`] adapts
-//! tuple arguments to positional calls. This layer sits above the [`crate::backend`] abstraction
-//! and drives it.
+//! [`Launch::output`] binds caller-owned output storage, [`DeviceSend`] marks types that may cross
+//! to a device function, and [`TupleApply`] adapts tuple arguments to positional calls.
 
 use cfg_if::cfg_if;
 
@@ -163,15 +162,114 @@ pub trait DeviceFn<Args: DeviceSend> {
     type Output: DeviceSend;
     /// Execute the device function.
     fn execute(args: Args) -> impl std::future::Future<Output = Self::Output>;
+    /// Execute the device function into caller-owned output buffers.
+    fn execute_into(args: Args, output: &mut Self::Output) -> impl std::future::Future<Output = ()> {
+        async move {
+            *output = Self::execute(args).await;
+        }
+    }
 }
 
-/// Launches a device function. Takes `F` by value so callers can pass the snake_case const emitted by
-/// `#[device]` (`launch(my_fn, args)`) rather than turbofishing the generated PascalCase unit struct
-/// (`<MyFn as DeviceFn<_>>::execute(args)`). The value is discarded; only its type drives trait dispatch.
-pub async fn launch<F, P>(_f: F, args: P) -> F::Output
+/// A device-function launch that returns its allocated output when awaited.
+#[must_use = "launches do nothing unless awaited"]
+#[derive(Debug)]
+pub struct Launch<F, Args> {
+    function: F,
+    args: Args,
+}
+
+impl<F, Args> Launch<F, Args>
 where
-    F: DeviceFn<P>,
-    P: DeviceSend,
+    F: DeviceFn<Args>,
+    Args: DeviceSend,
 {
-    F::execute(args).await
+    /// Bind this launch to caller-owned output buffers.
+    pub fn output(self, output: &mut F::Output) -> LaunchInto<'_, F, Args> {
+        LaunchInto {
+            function: self.function,
+            args: self.args,
+            output,
+        }
+    }
+}
+
+impl<F, Args> std::future::IntoFuture for Launch<F, Args>
+where
+    F: DeviceFn<Args>,
+    Args: DeviceSend,
+{
+    type Output = F::Output;
+    type IntoFuture = impl std::future::Future<Output = Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        async move {
+            let _ = self.function;
+            F::execute(self.args).await
+        }
+    }
+}
+
+/// A device-function launch bound to caller-owned output buffers.
+#[must_use = "launches do nothing unless awaited"]
+#[derive(Debug)]
+pub struct LaunchInto<'output, F, Args>
+where
+    F: DeviceFn<Args>,
+    Args: DeviceSend,
+{
+    function: F,
+    args: Args,
+    output: &'output mut F::Output,
+}
+
+impl<F, Args> std::future::IntoFuture for LaunchInto<'_, F, Args>
+where
+    F: DeviceFn<Args>,
+    Args: DeviceSend,
+{
+    type Output = ();
+    type IntoFuture = impl std::future::Future<Output = Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        async move {
+            let _ = self.function;
+            F::execute_into(self.args, self.output).await;
+        }
+    }
+}
+
+/// Prepares a device-function launch.
+///
+/// Takes `F` by value so callers can pass the snake_case const emitted by `#[device]` without
+/// turbofishing the generated PascalCase unit struct. The value is only used for trait dispatch.
+pub fn launch<F, Args>(function: F, args: Args) -> Launch<F, Args>
+where
+    F: DeviceFn<Args>,
+    Args: DeviceSend,
+{
+    Launch { function, args }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Manual;
+
+    impl DeviceFn<i32> for Manual {
+        type Output = i32;
+
+        fn execute(value: i32) -> impl std::future::Future<Output = i32> {
+            std::future::ready(value + 1)
+        }
+    }
+
+    #[tokio::test]
+    async fn manual_device_fn_uses_default_output() {
+        let mut output = 0;
+
+        launch(Manual, 1).output(&mut output).await;
+
+        assert_eq!(output, 2);
+    }
 }

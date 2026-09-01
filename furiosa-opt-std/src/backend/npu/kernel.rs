@@ -1,6 +1,11 @@
 use std::fmt;
 use std::ptr;
 use std::slice;
+use std::sync::OnceLock;
+
+use super::registry::{self, Key};
+
+use tokio::sync::OnceCell;
 
 use furiosa_mapping::M;
 
@@ -190,7 +195,7 @@ impl Drop for Kernel {
 }
 
 impl Kernel {
-    /// Load a kernel from bytes embedded in the binary (see the `#[device]` macro).
+    /// Load a kernel from its registry entry's bytes (see the `#[device]` macro).
     pub async fn load(data: &[u8]) -> Self {
         assert!(!data.is_empty(), "attempted to load an uncompiled NPU kernel");
         log::debug!("load: {} bytes", data.len());
@@ -270,4 +275,25 @@ impl Kernel {
         let storage = BufStorage::<D, CpuBuffer>::from(cpu);
         Tensor::from_inner(storage).into()
     }
+}
+
+/// A `#[device]` fn's slice of the registry, one `static` declared by the macro per fn: the
+/// fn's entries, read once, each with its parsed kernel. A `static` in a generic fn is shared
+/// by every monomorphization, which is the sharing a per-fn cache needs.
+pub type Kernels = OnceLock<Vec<(&'static Key, OnceCell<Kernel>, registry::Bytes)>>;
+
+/// The kernel for one launch: `path` names the fn's registry entries (loaded once), the launch's
+/// `key` selects among them (parsed once). A missing entry means the binary was built without
+/// the driver seeing this launch.
+pub async fn kernel(kernels: &'static Kernels, path: &str, key: &[usize]) -> &'static Kernel {
+    let entries = kernels.get_or_init(|| {
+        registry::entries(path)
+            .map(|(key, bytes)| (key, OnceCell::new(), bytes))
+            .collect()
+    });
+    let (_, kernel, bytes) = entries
+        .iter()
+        .find(|(entry, ..)| entry.iter().copied().eq(key.iter().map(|&key| key as u64)))
+        .unwrap_or_else(|| panic!("no kernel in the registry for `{path}` with generic arguments {key:?}"));
+    kernel.get_or_init(|| Kernel::load(bytes)).await
 }

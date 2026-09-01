@@ -1,8 +1,9 @@
-# The furiosa-opt CLI: docker run -v "$PWD":/work ghcr.io/furiosa-ai/furiosa-opt:<tag> --backend npu build
+# The CLI: docker run -v "$PWD":/work asia-northeast3-docker.pkg.dev/next-gen-infra/furiosa-ai/furiosa-opt:<tag> --backend npu build
 FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git build-essential libclang-dev gcc-aarch64-linux-gnu \
+    ca-certificates curl git build-essential libclang-dev \
+    gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
  && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
