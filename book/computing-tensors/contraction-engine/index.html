@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-b78bfe2e.js"></script>
@@ -293,7 +293,7 @@ fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_k_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <p>To avoid this pathological case, keep K in <code>Packet</code> (parallel reduction via the Packet Reducer’s tree) and spread the surviving axes (V, M, N) across <code>Cluster</code>, <code>Slice</code>, and <code>Lane</code> to maximize spatial parallelism.
@@ -343,7 +343,7 @@ fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_m_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="v-in-time"><a class="header" href="#v-in-time">V in Time</a></h3>
@@ -387,7 +387,7 @@ fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_v_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 

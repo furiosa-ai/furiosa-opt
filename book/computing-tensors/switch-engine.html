@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -377,6 +377,12 @@ fn transpose&lt;'l, const T: Tu&gt;(
 <p><a href="#performance">Cycle estimate</a>: <code>ring_size × Time::SIZE × flits_per_packet = 64 × 64 × 2 = 8192</code>, where <code>Time::SIZE = 64</code> and <code>flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 64 / 32 = 2</code>.</p>
 <h3 id="intertranspose"><a class="header" href="#intertranspose">InterTranspose</a></h3>
 <p><code>InterTranspose</code> swaps a dimension between <code>Slice</code> and <code>Time</code>: <code>slice1</code> moves into <code>Time</code> and <code>time1</code> moves into <code>Slice</code> (regular <code>Transpose</code> stays within <code>Slice</code>).</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p><a href="../moving-tensors/fetch-engine.html#axis-lifting">Axis lifting</a> can replace <code>InterTranspose</code> when every destination slice already holds a copy of the source region.
+It assigns a different read offset to each slice and performs no sub-ring traversal.
+Use <code>InterTranspose</code> when data must move between slices or from <code>Slice</code> to <code>Time</code>.</p>
+</blockquote>
 <p>The input dimension structure (outermost to innermost, left to right):</p>
 <pre><code class="language-text">┌──────────────────────────┬───────────────────────┐
 │           Slice          │         Time          │
