@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-b78bfe2e.js"></script>
@@ -191,10 +191,7 @@
     pub fn contract_time&lt;OutTime: M&gt;(
         self,
     ) -&gt; ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, OutTime, Packet, B&gt; {
-        verify_contract_time(ContractTimeInput {
-            in_time: Time::to_value(),
-            out_time: OutTime::to_value(),
-        });
+        verify_contract_time(Time::to_value(), OutTime::to_value());
         // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
         // performs this Time reduction too. This stage only re-types the carrier to `OutTime`.
         ContractTimeTensor::new(self.ctx, self.inner, Time::to_value())
@@ -234,7 +231,7 @@ fn reduce_b&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt; = TrfTensor::zero();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = reduce_b(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>

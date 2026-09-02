@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -314,7 +314,7 @@ Sub-context itself does not support type casting (consistent with the support ma
     where
         D: CommitCast&lt;OutD&gt;,
     {
-        verify_commit_cast::&lt;Packet&gt;();
+        verify_commit_cast::&lt;D, OutD, Packet&gt;();
         CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
     }
 
@@ -328,7 +328,7 @@ Sub-context itself does not support type casting (consistent with the support ma
     where
         D: CommitCast&lt;OutD&gt;,
     {
-        verify_commit_cast::&lt;Packet&gt;();
+        verify_commit_cast::&lt;D, OutD, Packet&gt;();
         CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast_relu()))
     }
 }</code></pre>

@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -229,7 +229,6 @@ fn basic_transpose&lt;'l, const T: Tu&gt;(
 <p>The five transpose stages below are illustrated using the running example from <a href="#interface">Interface</a>.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <p><code>valid_size</code> is the number of valid elements the Transpose Engine reads per cycle from its 32-byte input bus, and every input flit arrives in <code>bit-width × valid_size</code> form, with any remaining bytes of the 32-byte flit treated as padding and discarded by the Unpack stage.
-For 8-bit and 16-bit elements, the engine can select doubled input packing and read 16 valid elements from each flit instead of the base 8. Doubled packing is not supported for 4-bit or 32-bit elements.
 Data reaches the Transpose Engine via <code>CollectTensor::transpose()</code> (after <code>Fetch → [Switch →] Collect → [Cast →] Transpose</code>) or <code>VectorFinalTensor::transpose()</code> (directly from the <a href="./vector-engine/index.html">Vector Engine</a>).
 The <a href="./contraction-engine/index.html">Contraction Engine</a> emits <code>32b × 8</code> only, while the <a href="./vector-engine/index.html">Vector Engine</a> and <a href="../moving-tensors/fetch-engine.html">Fetch Engine</a> emit any combination from the table below.</p>
 <p><code>in_cols</code>, <code>in_rows</code>, and <code>out_rows</code> are fixed by the kernel writer’s <code>OutTime</code> and <code>OutPacket</code> choices.
@@ -237,13 +236,13 @@ All four are constrained by the element size:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Element size</th><th>Single <code>valid_size</code></th><th>Doubled <code>valid_size</code></th><th>Max <code>in_rows</code></th><th>Valid <code>in_cols</code></th></tr>
+<tr><th>Element size</th><th><code>valid_size</code></th><th>Max <code>in_rows</code></th><th>Valid <code>in_cols</code></th></tr>
 </thead>
 <tbody>
-<tr><td>4-bit</td><td>16</td><td>unsupported</td><td>16</td><td>16, 32</td></tr>
-<tr><td>8-bit</td><td>8</td><td>16</td><td>8</td><td>8, 16, 32</td></tr>
-<tr><td>16-bit</td><td>8</td><td>16</td><td>4</td><td>8, 16, 32</td></tr>
-<tr><td>32-bit</td><td>8</td><td>unsupported</td><td>2</td><td>8, 16, 32</td></tr>
+<tr><td>4-bit</td><td>16</td><td>16</td><td>16, 32</td></tr>
+<tr><td>8-bit</td><td>8</td><td>8</td><td>8, 16, 32</td></tr>
+<tr><td>16-bit</td><td>8</td><td>4</td><td>8, 16, 32</td></tr>
+<tr><td>32-bit</td><td>8</td><td>2</td><td>8, 16, 32</td></tr>
 </tbody>
 </table>
 </div>
@@ -270,10 +269,8 @@ All four are constrained by the element size:</p>
                 data_in                      data_out
 </code></pre>
 <h3 id="unpack"><a class="header" href="#unpack">Unpack</a></h3>
-<p>Each 32-byte input packet carries <code>valid_size</code> valid elements; the Unpack stage discards the rest of the flit as padding.
-The compiler selects doubled packing when an 8-bit or 16-bit packet has live elements beyond the base 8-element prefix. The selected <code>valid_size</code> must still cover the complete live prefix; any remaining lanes must be padding.</p>
+<p>Each 32-byte input packet carries <code>valid_size</code> valid elements; the Unpack stage discards the rest of the flit as padding.</p>
 <p>In the running example: <code>[C, D, E # 32]</code> → <code>[C, D, E]</code>.</p>
-<p>For example, an <code>i8</code> packet <code>[B=16 # 32]</code> uses doubled packing and contributes all 16 live elements in one cycle. The equivalent single-packed layout would contribute 8 elements from each of two consecutive packets. An <code>i4</code> packet cannot request the doubled form: its only supported <code>valid_size</code> is 16.</p>
 <h3 id="gather"><a class="header" href="#gather">Gather</a></h3>
 <p>One row of the input matrix is <code>in_cols = packets_per_col × valid_size</code> elements wide, assembled from <code>packets_per_col</code> consecutive packets — the innermost time steps.
 The Gather stage concatenates those packets into a single row, and <code>in_rows</code> further time steps stack into the <code>[in_rows × in_cols]</code> input matrix.

@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-b78bfe2e.js"></script>
@@ -310,7 +310,7 @@ fn stream_adapter_example&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt; = TrfTensor::zero();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = stream_adapter_example(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
@@ -367,7 +367,7 @@ fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt; = TrfTensor::zero();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = trf_sequencer_full_read(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <p>In this example, <code>ReadSize</code> covers only part of <code>Element</code>, so <code>Element / ReadSize</code> is non-trivial and the sequencer iterates the outer <code>Element</code> factor alongside a broadcast:</p>
@@ -393,7 +393,7 @@ fn trf_sequencer_partial_read&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt; = TrfTensor::zero();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt; = TrfTensor::new();
 </span><span class="boring">let _o = trf_sequencer_partial_read(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="constraints-1"><a class="header" href="#constraints-1">Constraints</a></h3>

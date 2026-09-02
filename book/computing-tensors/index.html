@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -237,7 +237,7 @@ See the linked engine pages for <a href="./contraction-engine/index.html">Contra
 <tr><th>Engine</th><th>Function</th><th>Key Constraint</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="../moving-tensors/fetch-engine.html">Fetch</a></td><td>Load data from DM into the pipeline</td><td>Packet must be 8-byte aligned. <code>Slice</code> is preserved unless <a href="../moving-tensors/fetch-engine.html#axis-lifting">axis lifting</a> replaces a broadcast with an axis from <code>Time</code></td></tr>
+<tr><td><a href="../moving-tensors/fetch-engine.html">Fetch</a></td><td>Load data from DM into the pipeline</td><td>Packet must be 8-byte aligned. <code>Slice</code> is unchanged</td></tr>
 <tr><td><a href="./fetch-adapter.html">Fetch Adapter</a></td><td>Per-element transforms after fetch (table lookup, cast)</td><td>Optional. Identity if skipped</td></tr>
 <tr><td><a href="./switch-engine.html">Switching</a></td><td>Move data across slices</td><td>Ring network, <code>Slice</code> can change</td></tr>
 <tr><td><a href="./collect-engine.html">Collect</a></td><td>Normalize packets to 32-byte flits</td><td>Output = exactly one flit</td></tr>
@@ -256,7 +256,6 @@ See the linked engine pages for <a href="./contraction-engine/index.html">Contra
 The engines above reshape <code>Time</code> / <code>Packet</code> along the pipeline.
 Most engines preserve the spatial dimensions.
 <a href="./switch-engine.html">Switch</a> moves data across slices.
-Fetch’s <a href="../moving-tensors/fetch-engine.html#axis-lifting">axis lifting</a> assigns different DM read offsets along <code>Chip</code>, <code>Cluster</code>, or <code>Slice</code>, moving an axis out of <code>Time</code>.
 The <a href="./vector-engine/inter-slice-reducer.html">Vector inter-slice reducer</a> combines the 256 slices in a cluster.</p>
 <p>The Contraction and Vector Engines each take one operand from the pipeline stream and the other operand from a dedicated per-slice register file.
 TRF (Tensor Register File) feeds the Contraction Engine, and VRF (Vector Register File) feeds the Vector Engine.

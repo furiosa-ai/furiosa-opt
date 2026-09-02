@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-b78bfe2e.js"></script>
@@ -279,24 +279,12 @@ Each operand comes from one of three sources.</p>
 </table>
 </div>
 <p>Ternary ops (<code>FmaF</code>) take a pair <code>(operand0, operand1)</code>.</p>
-<p>A VRF operand is read per slice by an indexer, which puts three rules on it.</p>
-<p>First, its <code>Chip</code> / <code>Cluster</code> / <code>Slice</code> are the stream’s own: at slice <code>s</code> the op reads what slice <code>s</code> holds, so an operand under a different partition is a compile error instead of a silent read of another slice’s data.
-<a href="../register-files.html#vector-register-file"><code>VrfTensor::reshape</code></a> restates one under the stream’s partition when the two describe the same slices, e.g. an operand replicated under an anonymous <code>m![256]</code> feeding a stream partitioned by a named axis.</p>
-<p>Second, one access (the <code>Packet</code>: 8 lanes in 8-way, 4 in 4-way) is one indexer step, and the indexer offers just two read options.
-<strong>Broadcast</strong> feeds every lane from one address; <strong>contiguous</strong> reads <code>Packet</code> consecutive <code>Element</code> cells.
-So the packet axes must be the operand’s innermost, contiguous ones, or absent from it entirely; a packet that walks an outer axis of the operand, or mixes broadcast and live lanes inside one access, has no encoding and is rejected.</p>
-<p>Third, the two directions of an axis mismatch are not the same.
-An axis the operand has and the stream does not is refused, with <code>the stream leaves operand axes unmatched</code>, because the cells it indexes would never be read.
-An axis the stream has and the operand does not is a broadcast, which is how one operand feeds every row of the stream.</p>
 <p>The same op method picks up different sources by the argument type:</p>
 <pre><code class="language-rust ignore">.vector_fxp(FxpBinaryOp::AddFxp, 100)         // operand from constant
 .vector_fxp(FxpBinaryOp::MulInt, &amp;vrf)        // operand from VRF tensor
 .vector_clip(ClipBinaryOpI32::Max, Stash)     // operand from stash (set earlier)</code></pre>
 <p>The <code>Stash</code> source comes from <code>vector_stash()</code>, which snapshots the running tensor so a later binary or ternary op can read it back as the <code>Stash</code> operand.
 The typical use is a residual or skip-connection like <code>max(f(x), x)</code>, where the original <code>x</code> must survive across intermediate stages.
-Although stash is presented as a separate operand source, it is backed by the VRF: part of the current running tensor is stored in the VRF and read back from there.
-Whenever a Tensor Unit invocation uses stash, the compiler conservatively reserves 1,024 B of VRF capacity per slice for it, regardless of the actual amount of data stashed.
-If that invocation also reads a pre-loaded VRF tensor as an RHS operand, size the operand with this reservation in mind: stash and the RHS share the 8 KiB VRF, so at most 7 KiB per slice remains for the RHS.
 Call <code>vector_stash()</code> at any <code>Stashable</code> stage (<code>Branch</code>, <code>Logic</code>, <code>Fxp</code>, <code>Narrow</code>, <code>Fp</code>, <code>FpDiv</code>, <code>Clip</code>); the snapshot stays live until the Tensor Unit invocation ends and feeds any later binary or ternary call that takes <code>Stash</code>.
 The slot is single-use (a second <code>vector_stash()</code> is a compile-time error) and typed, so an <code>f32</code> stash only feeds <code>f32</code> ops: a conversion or reinterpret between the write and the read has to be undone first.
 The stash is also read-once: it feeds exactly one later op (reading it moves the slot past <code>Occupied</code>, so a second <code>Stash</code> read is a compile-time error).
@@ -381,7 +369,6 @@ The tag the chain was started with is untouched, which is why this is the suppor
 <p>Pair-mode constraints:</p>
 <ul>
 <li><code>stash()</code> and <code>filter()</code> are unavailable throughout pair mode (both paired and merged phases).</li>
-<li><a href="./intra-slice-reduce.html"><code>vector_intra_slice_reduce()</code></a> is unavailable throughout pair mode as well, before and after the <code>_zip</code>: the reducer takes no group condition.</li>
 <li>Before <code>_zip</code> (the paired phase), the chain cannot transition to the <a href="./inter-slice-reducer.html">inter-slice reducer</a>, since <code>vector_inter_slice_reduce()</code> is not available on per-group tensors.
 After <code>_zip</code> (the merged phase), the result is <code>Commitable</code> again and can call <code>vector_inter_slice_reduce()</code> if the current stage supports the transition.</li>
 <li>ALU usage is shared across the two groups: an ALU used in either group counts as consumed for both.</li>
@@ -913,7 +900,7 @@ fn vrf_add&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![N], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let v: VrfTensor&lt;i32, m![1], m![B], m![A / 8], m![A % 8]&gt; = VrfTensor::zero();
+</span><span class="boring">let v: VrfTensor&lt;i32, m![1], m![B], m![A / 8], m![A % 8]&gt; = VrfTensor::new();
 </span><span class="boring">let _o = vrf_add(i, &amp;v);
 </span><span class="boring">}</span></code></pre>
 <h3 id="stash-on-the-fp-only-path"><a class="header" href="#stash-on-the-fp-only-path">Stash on the Fp-Only Path</a></h3>

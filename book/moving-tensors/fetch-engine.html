@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -189,6 +189,11 @@ The <code>assert_eq!</code> calls enforce hardware constraints on <code>Cluster:
     TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Runs the Fetch Sequencer.
+    ///
+    /// Configures per-slice DM reads and produces a `FetchTensor` with the
+    /// chosen `OutTime` / `OutPacket`. The element type is unchanged. Type
+    /// casts and other adapter transforms are applied by the per-stage
+    /// `fetch_mask` / `fetch_table_lookup` / `fetch_cast` methods.
     #[primitive(TuTensor::fetch)]
     pub fn fetch&lt;OutTime: M, OutPacket: M&gt;(self) -&gt; FetchTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
         verify_fetch::&lt;Cluster, Slice, Time, Packet, OutTime, OutPacket&gt;();
@@ -197,8 +202,7 @@ The <code>assert_eq!</code> calls enforce hardware constraints on <code>Cluster:
 }</code></pre>
 <p>As introduced in <a href="../mapping-tensors/index.html">Mapping Tensors</a>, the <code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, <code>Time</code>, <code>Packet</code> mapping distributes data across space and time.
 <code>.fetch()</code> preserves the <code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> dimensions unchanged from the input, because each slice independently reads its own DM partition.
-Later the <a href="../computing-tensors/switch-engine.html">Switch Engine</a> changes the <code>Slice</code> mapping by moving data across slices.
-<a href="#axis-lifting">Axis lifting</a> changes <code>Chip</code>, <code>Cluster</code>, or <code>Slice</code> without transferring data, using different DM read offsets across the selected dimension.</p>
+Later the <a href="../computing-tensors/switch-engine.html">Switch Engine</a> changes the <code>Slice</code> mapping by moving data across slices.</p>
 <p><code>fetch()</code> takes <code>OutTime</code> and <code>OutPacket</code> type parameters that configure the Fetch Sequencer.
 <code>OutTime</code> sets the number of time steps in the output stream, and <code>OutPacket</code> sets the element layout within each packet.
 For performance implications of <code>OutPacket</code> choices, see <a href="#optimizations">Optimizations</a>.</p>
@@ -222,147 +226,6 @@ fn fetch_matrix_example&lt;'l, const T: Tu&gt;(
 A Fetch Sequencer runs independently in every slice, each operating on its own local DM partition.
 In this example, <code>CH = 4</code>, <code>CL = 2</code>, and <code>S = 256</code> describe a 4-chip system with two clusters per chip and 256 slices per cluster.
 Each slice runs the same sequencer over its own <code>A×B</code> sub-tensor.</p>
-<h2 id="axis-lifting"><a class="header" href="#axis-lifting">Axis Lifting</a></h2>
-<p><code>fetch_chip_lift</code>, <code>fetch_cluster_lift</code>, and <code>fetch_slice_lift</code> move axes from <code>Time</code> to <code>Chip</code>, <code>Cluster</code>, or <code>Slice</code>.
-A plain <code>fetch</code> starts every chip, cluster, and slice at the same DM offset and traverses the axes in <code>Time</code>.
-A lift gives each chip, cluster, or slice a different read <em>base</em>, so the lifted axes are read in parallel and removed from <code>Time</code>.</p>
-<p>A lift requires the source region to be replicated across the selected dimension because a read base changes only the starting offset.
-The DM placement represents this replication as a broadcast, which the lift replaces with the lifted axes.</p>
-<p>For <code>Slice</code>, use <a href="../computing-tensors/switch-engine.html#intertranspose"><code>InterTranspose</code></a> when data must move between slices or from <code>Slice</code> to <code>Time</code>.
-For <code>Chip</code> and <code>Cluster</code>, a <a href="./dma-engine.html">DMA</a> is the alternative when the source region is not replicated.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Stage</th><th>Dimension</th><th>Where the base comes from</th></tr>
-</thead>
-<tbody>
-<tr><td><code>fetch_chip_lift</code></td><td><code>Chip</code></td><td>the read command encodes a static base, so the lift adds no setup operation</td></tr>
-<tr><td><code>fetch_cluster_lift</code></td><td><code>Cluster</code></td><td>the read command encodes a static base, so the lift adds no setup operation</td></tr>
-<tr><td><code>fetch_slice_lift</code></td><td><code>Slice</code></td><td>the compiler materializes one runtime base per slice with a DMA, an add in the fetch’s execution context, and an SFR store</td></tr>
-</tbody>
-</table>
-</div>
-<p>Slice bases depend on the source tensor’s runtime address and therefore cannot be encoded as static command fields.
-The compiler copies constant relative offsets from DRAM to SRAM, adds the source address in the fetch’s execution context, and stores the results in the per-slice base SFRs.
-The fetch waits for this setup, which uses the same SFR-store mechanism as the Switch Engine’s <a href="../computing-tensors/switch-engine.html#configuration-overhead">custom bitmap</a>.</p>
-<p>For a sub-context fetch, the setup store overwrites SFRs that the fetch itself needs.
-The compiler restores those parameters after writing the bases; both contexts support every lift variant.</p>
-<pre><code class="language-rust ignore">    /// Gives each chip its own fetch base, lifting a DM axis onto `Chip`.
-    #[primitive(TuTensor::fetch_chip_lift)]
-    pub fn fetch_chip_lift&lt;OutChip: M, OutTime: M&gt;(
-        self,
-    ) -&gt; FetchChipLiftTensor&lt;'l, T, D, OutChip, Cluster, Slice, OutTime, Packet, B&gt;
-    where
-        P: CanApplyFetchChipLift,
-    {
-
-    /// Gives each cluster its own fetch base, lifting a DM axis onto `Cluster`.
-    #[primitive(TuTensor::fetch_cluster_lift)]
-    pub fn fetch_cluster_lift&lt;OutCluster: M, OutTime: M&gt;(
-        self,
-    ) -&gt; FetchClusterLiftTensor&lt;'l, T, D, Chip, OutCluster, Slice, OutTime, Packet, B&gt;
-    where
-        P: CanApplyFetchClusterLift,
-    {
-
-    /// Gives each slice its own fetch base, lifting a DM axis onto `Slice`.
-    #[primitive(TuTensor::fetch_slice_lift)]
-    pub fn fetch_slice_lift&lt;OutSlice: M, OutTime: M&gt;(
-        self,
-    ) -&gt; FetchSliceLiftTensor&lt;'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B&gt;
-    where
-        P: CanApplyFetchSliceLift,
-    {</code></pre>
-<h3 id="example-lifting-q-onto-slice"><a class="header" href="#example-lifting-q-onto-slice">Example: Lifting <code>Q</code> onto <code>Slice</code></a></h3>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 128, Q = 4, V = 16];
-
-fn fetch_halves_per_slice&lt;'l, const T: Tu&gt;(
-    input: BeginTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]&gt;,
-) -&gt; FetchSliceLiftTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![A, Q / 2], m![Q % 2], m![V]&gt; {
-    input
-        .fetch::&lt;m![Q], m![V]&gt;()
-        .fetch_slice_lift::&lt;m![A, Q / 2], m![Q % 2]&gt;()
-}
-<span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let b: BeginTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let _o = fetch_halves_per_slice(b);
-</span><span class="boring">}</span></code></pre>
-<p>With <code>A = 128</code>, the slice placement <code>m![A, 2]</code> describes 128 pairs of slices; both slices in each pair hold the same <code>m![Q, V]</code> data.
-A plain <code>fetch</code> reads all four <code>Q</code> values on both slices.
-The lift replaces the broadcast <code>2</code> with <code>Q / 2</code>, leaving <code>Q % 2</code> in <code>Time</code>: the first slice reads <code>Q = 0, 1</code> from base 0, and the second reads <code>Q = 2, 3</code> from base 32 elements (64 bytes of <code>bf16</code>).</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th></th><th>placement</th><th>base</th><th>reads</th><th>time steps</th></tr>
-</thead>
-<tbody>
-<tr><td><code>fetch</code>, either slice</td><td><code>m![A, 2]</code></td><td>0</td><td><code>Q = 0, 1, 2, 3</code></td><td>4</td></tr>
-<tr><td>lift, first slice</td><td><code>m![A, Q / 2]</code></td><td>0</td><td><code>Q = 0, 1</code></td><td>2</td></tr>
-<tr><td>lift, second slice</td><td><code>m![A, Q / 2]</code></td><td>32 elements</td><td><code>Q = 2, 3</code></td><td>2</td></tr>
-</tbody>
-</table>
-</div>
-<p>The base for any chip, cluster, or slice is the sum of each lifted-axis value multiplied by its original DM stride.
-Here the second slice has <code>Q / 2 = 1</code>, so its base is <code>1 × (Q % 2) × V = 32</code> elements.</p>
-<h3 id="requirements"><a class="header" href="#requirements">Requirements</a></h3>
-<p>A lift must satisfy all of the following:</p>
-<ul>
-<li>The input and output sizes of the selected dimension must match.</li>
-<li>Only broadcasts may change. The verifier compares the mappings in size-2 groups; a changed broadcast <code>2</code> must become an axis component of size 2. To replace a broadcast with padding, reshape the DM placement and leave that padding unread. Several groups may change in one lift, but an existing axis or a broadcast of 3 may not.</li>
-<li>Lifted axes must be removed from <code>OutTime</code>. <code>OutPacket</code> remains unchanged.</li>
-<li>Lift methods must be called in <code>Chip</code>, <code>Cluster</code>, <code>Slice</code> order, at most once per dimension.</li>
-<li>Every calculated base must be a multiple of 8 bytes.</li>
-<li>If an unsafe <code>reshape</code> introduces the broadcast, the data must already be replicated. <code>reshape</code> checks element order, not replication; violating this requirement can produce different hardware and CPU results.</li>
-</ul>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 128, H = 2, V = 16, Rep = 2, G = 2];
-
-// Valid: DMA replicates `[H, V]` across `Rep`; reshape exposes `Rep` as a broadcast.
-fn named_broadcast(
-    ctx: &amp;mut Context,
-    input: &amp;HbmTensor&lt;bf16, m![1], m![A, H, V]&gt;,
-) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![A, H], m![V]&gt; {
-    let written: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, Rep], m![H, V]&gt; =
-        input.to_dm::&lt;m![1 # 2], m![A, Rep], m![H, V]&gt;(&amp;mut ctx.tdma);
-    let dm: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, 2], m![H, V]&gt; = unsafe { written.reshape() };
-
-    ctx.main
-        .begin(dm.view())
-        .fetch::&lt;m![H], m![V]&gt;()
-        .fetch_slice_lift::&lt;m![A, H], m![1]&gt;()
-        .collect::&lt;m![1], m![V]&gt;()
-        .commit_trim::&lt;m![V]&gt;()
-        .commit()
-}
-
-// Invalid for lifting: `G` stores different values, but reshape names it as a broadcast.
-fn without_broadcast(
-    ctx: &amp;mut Context,
-    input: &amp;HbmTensor&lt;bf16, m![1], m![A, G, H, V]&gt;,
-) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![A, H], m![V]&gt; {
-    let written: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, G], m![H, V]&gt; =
-        input.to_dm::&lt;m![1 # 2], m![A, G], m![H, V]&gt;(&amp;mut ctx.tdma);
-    let dm: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, 2], m![H, V]&gt; = unsafe { written.reshape() };
-
-    ctx.main
-        .begin(dm.view())
-        .fetch::&lt;m![H], m![V]&gt;()
-        .fetch_slice_lift::&lt;m![A, H], m![1]&gt;()
-        .collect::&lt;m![1], m![V]&gt;()
-        .commit_trim::&lt;m![V]&gt;()
-        .commit()
-}
-<span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
 <ul>
 <li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="./sequencer.html#architecture">Sequencer</a>).</li>

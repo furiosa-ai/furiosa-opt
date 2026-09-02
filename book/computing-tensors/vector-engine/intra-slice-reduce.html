@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-b78bfe2e.js"></script>
@@ -190,8 +190,7 @@ For example, if <code>R</code> is split as <code>R / 4</code> in <code>Time</cod
 <li><strong><code>OutTime</code>, <code>OutPacket</code></strong>: The output <code>Time</code> and <code>Packet</code> shape after reduction.
 These match the input <code>Time</code> and <code>Packet</code> with every <code>REDUCE_LABEL</code> factor removed.</li>
 </ul>
-<p>The call is unavailable in <a href="./intra-slice-chain.html#pair-mode">Pair Mode</a>.
-The examples below exercise each parameter combination.</p>
+<p>The examples below exercise each parameter combination.</p>
 <h3 id="reduction-in-time"><a class="header" href="#reduction-in-time">Reduction in <code>Time</code></a></h3>
 <p><code>R</code> exists only in <code>Time</code>, so the stage accumulates across time steps.
 It computes \(output[a] = \sum_{r \in R} input[a, r]\) with saturating addition.</p>
@@ -316,7 +315,7 @@ fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
 A single slot accumulates all <code>R</code> values into the output.</p>
 <p>If <code>InnerTime::SIZE</code> exceeds 8, the API rejects the call.
 For example:</p>
-<pre class="playground"><code class="language-rust should_panic edition2024"><span class="boring">#![allow(unused)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;

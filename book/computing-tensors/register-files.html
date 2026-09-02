@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -203,7 +203,7 @@ Where in the register file it lands is the compiler’s to decide, so the call n
     #[primitive(TuTensor::to_trf)]
     pub fn to_trf&lt;Lane: M, Element: M&gt;(self) -&gt; TrfTensor&lt;D, Chip, Cluster, Slice, Lane, Element, B&gt; {
         verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;();
-        TrfTensor::new(self.inner.transpose(false))
+        TrfTensor::from_parts(self.inner.transpose(false))
     }
 }</code></pre>
 <p><code>.to_trf</code> reshapes the streaming <code>Time</code> / <code>Packet</code> into <code>Lane</code> / <code>Element</code>:</p>
@@ -256,44 +256,6 @@ fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = store_bmatmul_trf(c);
 </span><span class="boring">}</span></code></pre>
-<h4 id="from-the-vector-engine"><a class="header" href="#from-the-vector-engine">From the Vector Engine</a></h4>
-<p>A store does not have to happen off the <code>collect</code>. A main-context stream can run the Vector Engine first and store what the pass computed:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![B = 64];
-
-fn store_pass(ctx: &amp;mut Context) -&gt; VrfTensor&lt;f32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
-    let dm: DmTensor&lt;f32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; = DmTensor::new();
-    ctx.main
-        .begin(dm.view())
-        .fetch::&lt;m![1], m![B]&gt;()
-        .collect::&lt;m![B / 8], m![B % 8]&gt;()
-        .vector_init()
-        .vector_intra_slice_tag(TagMode::Zero)
-        .vector_narrow_split::&lt;m![B / 8, B % 8 / 4 % 2], m![B % 4]&gt;()
-        .vector_fp_unary(FpUnaryOp::Sqrt)
-        .vector_widen_concat::&lt;m![B / 8], m![B % 8]&gt;()
-        .vector_final()
-        .to_vrf(&amp;mut ctx.sub)
-}
-<span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let _o = store_pass(&amp;mut ctx);
-</span><span class="boring">}</span></code></pre>
-<p>The two positions are different data paths, not two spellings of one.
-Off the <code>collect</code>, the Fetch Network hands the flits to the register file and no engine runs in between.
-Off a <code>vector_final</code>, the pass ends at the Vector Engine’s own write port, so the value that lands in the register is the one the pass computed: <code>Element2</code> flattens the <em>post-pass</em> <code>Time</code> / <code>Packet</code>, which a reduce or a widen may have reshaped along the way.</p>
-<p>That is the only way a computed value reaches the VRF, since the <a href="#from-data-memory">DM-direct</a> store and the collect-position store both read Data Memory.
-Nothing after the Vector Engine can run in the same command, so a store cannot be combined with a cast, a transpose, or a commit.</p>
-<h4 id="which-context-a-store-occupies"><a class="header" href="#which-context-a-store-occupies">Which context a store occupies</a></h4>
-<p>A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes <code>&amp;mut ctx.sub</code> as well.
-<code>ctx.main</code> and <code>ctx.sub</code> are separate fields, so a kernel (which holds <code>&amp;mut Context</code>) borrows both at once, as the example above does.</p>
-<p>The borrow lasts the statement, which is the extent of the occupancy: the sub context is free again once the command retires.
-How long the <em>register</em> stays occupied is a different question with a different answer (until the operand’s last read), and it is the compiler’s allocation to make, which is why the returned <code>VrfTensor</code> carries no borrow.</p>
-<p>A store issued from the sub context needs no argument, since it already holds that context.</p>
 <h4 id="from-data-memory"><a class="header" href="#from-data-memory">From Data Memory</a></h4>
 <p>For completely contiguous input access (no gaps or reordering), TRF supports a <em>short command</em> (StoTRF), a compact hardware instruction that loads data from Data Memory directly into the TRF, bypassing the full Fetch → Switch → Collect → <code>to_trf()</code> pipeline.
 The shortcut trades arbitrary-layout support for lower setup overhead.</p>
@@ -351,38 +313,17 @@ pub struct VrfTensor&lt;D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, 
 }</code></pre>
 <p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source.
 <code>Element</code> holds the per-(slice) layout.</p>
-<p>Those three are what a Vector Engine op matches an operand against, so an operand carried under a different partition than the stream it feeds is a compile error rather than a read of another slice’s data (see <a href="./vector-engine/intra-slice-chain.html#operands">Operands</a>).
-<code>.reshape::&lt;Chip2, Cluster2, Slice2, Element2&gt;()</code> restates one under another partition of the same slices, which is how an operand replicated under an anonymous broadcast (<code>m![256]</code>) feeds a stream partitioned by a named axis.
-It relabels the mapping and moves no data, so it is <code>unsafe</code> for the same reason <code>DmTensor::reshape</code> is: every physical position must already hold what the new mapping claims of it.
-Regrouping axes and naming a broadcast distribution axis are the two forms that satisfy that; the <code># Safety</code> section on <code>VrfTensor::reshape</code> states both.</p>
 <h4 id="from-collect-engine-1"><a class="header" href="#from-collect-engine-1">From Collect Engine</a></h4>
 <p><code>.to_vrf::&lt;Element2&gt;()</code> on <code>CollectTensor</code> stores the flits into the VRF and produces a <code>VrfTensor</code>.
 Where in the register file they land is the compiler’s to decide, so the call names no address:</p>
-<pre><code class="language-rust ignore">impl&lt;'l, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
-    TuTensor&lt;'l, { Tu::Sub }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Stores to the vector register file.
     #[primitive(TuTensor::to_vrf)]
     pub fn to_vrf&lt;Element: M&gt;(self) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
-        verify_to_vrf::&lt;D, Time, Packet, Element&gt;();
-        VrfTensor::new(self.inner.transpose(false))
-    }
-}
-
-impl&lt;'l, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
-    TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
-{
-    /// Stores to the vector register file, occupying the sub context the write runs through.
-    ///
-    /// The borrow lasts the statement. How long the *register* stays occupied is the compiler's
-    /// allocation to make, so the returned [`VrfTensor`] keeps no borrow.
-    #[primitive(TuTensor::to_vrf_from_main)]
-    pub fn to_vrf&lt;Element: M&gt;(
-        self,
-        _sub: &amp;mut TuContext&lt;{ Tu::Sub }&gt;,
-    ) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
-        verify_to_vrf::&lt;D, Time, Packet, Element&gt;();
-        VrfTensor::new(self.inner.transpose(false))
+        constraints::assert_vrf_capacity::&lt;D, Element&gt;();
+        VrfTensor::from_parts(self.inner.transpose(false))
     }
 }</code></pre>
 <p><code>.to_vrf</code> flattens the streaming <code>Time</code> / <code>Packet</code> into <code>Element2</code>:</p>
@@ -396,19 +337,17 @@ impl&lt;'l, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: 
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 64];
 
-fn store_vrf&lt;'l&gt;(
-    input: CollectTensor&lt;'l, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt;,
+fn store_vrf&lt;'l, const T: Tu&gt;(
+    input: CollectTensor&lt;'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt;,
 ) -&gt; VrfTensor&lt;i32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
     input.to_vrf()
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt; = CollectTensor::new(&amp;mut ctx.sub, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = store_vrf(c);
 </span><span class="boring">}</span></code></pre>
-<p>The store has one signature per context, and the example above takes the sub context’s.
-A store issued from the main context takes <code>ctx.sub</code> as an argument, because the write registers live in the sub context’s register map: see <a href="#which-context-a-store-occupies">Which context a store occupies</a>.</p>
 <h4 id="from-data-memory-1"><a class="header" href="#from-data-memory-1">From Data Memory</a></h4>
 <p>For completely contiguous input access (no gaps or reordering), VRF supports a <em>short command</em> (StoVRF), a compact hardware instruction that loads data from Data Memory directly into the VRF, bypassing the full Fetch → Switch → Collect → <code>to_vrf()</code> pipeline.
 The shortcut trades arbitrary-layout support for lower setup overhead.</p>
