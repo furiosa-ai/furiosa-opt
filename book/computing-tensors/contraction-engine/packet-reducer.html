@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-b78bfe2e.js"></script>
@@ -203,7 +203,11 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
     pub fn contract_packet&lt;OutPacket: M&gt;(
         self,
     ) -&gt; ContractPacketTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, OutPacket, B&gt; {
-        verify_contract_packet::&lt;Storage, Packet, OutPacket&gt;();
+        verify_contract_packet(ContractPacketInput {
+            in_packet: Packet::to_value(),
+            out_packet: OutPacket::to_value(),
+            element_bits: Storage::BITS,
+        });
         // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
         // performs this Packet reduction too. This stage only re-types the carrier to `OutPacket`.
         ContractPacketTensor::new(self.ctx, self.inner)
@@ -233,7 +237,7 @@ fn matmul&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = matmul(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>

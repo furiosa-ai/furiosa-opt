@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -639,27 +639,26 @@ A single descriptor on DMN 3 would write a fourth element past the valid region,
 </ul>
 <p>Total time: approximately 1,192 cycles, gated by DMN 3.
 Choose tensor shapes that divide evenly across DMNs to avoid this segmentation cost.</p>
-<h2 id="shuffle-operations"><a class="header" href="#shuffle-operations">Shuffle Operations</a></h2>
-<p>Shuffle operations redistribute a tensor across clusters or chips according to a per-partition source pattern.
-These methods follow the <code>to_dm</code> / <code>to_hbm</code> convention.
-<code>dm_cluster_shuffle</code> and <code>dm_chip_shuffle</code> are methods on <code>DmTensorView</code>; <code>hbm_cluster_shuffle</code> and <code>hbm_chip_shuffle</code> are methods on <code>HbmTensor</code>.
-The shuffle pattern specifies, for each destination cluster or chip, which source cluster or chip provides its data.</p>
+<h2 id="redistribution-operations"><a class="header" href="#redistribution-operations">Redistribution Operations</a></h2>
+<p>Cluster swap exchanges clusters 0 and 1. Chip shuffle redistributes a tensor according to a
+per-chip source pattern. These methods follow the <code>to_dm</code> / <code>to_hbm</code> convention.
+<code>dm_cluster_swap</code> and <code>dm_chip_shuffle</code> are methods on <code>DmTensorView</code>; <code>hbm_cluster_shuffle</code> and <code>hbm_chip_shuffle</code> are methods on <code>HbmTensor</code>.
+The chip-shuffle pattern specifies, for each destination chip, which source chip provides its data. A cluster swap exchanges clusters 0 and 1.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 256, B = 4096];
 
-fn cluster_shuffle(
+fn cluster_swap(
     ctx: &amp;mut Context,
     input: &amp;DmTensor&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt;,
 ) -&gt; DmTensor&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt; {
-    // Shuffle pattern [1, 0]: cluster 0 ↔ cluster 1
-    input.view().dm_cluster_shuffle::&lt;2&gt;(&amp;mut ctx.tdma, &amp;[1, 0])
+    input.view().dm_cluster_swap(&amp;mut ctx.tdma)
 }
 <span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">let input_dm = DmTensor::&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt;::new();
-</span><span class="boring">let _output_dm = cluster_shuffle(&amp;mut ctx, &amp;input_dm);
+</span><span class="boring">let _output_dm = cluster_swap(&amp;mut ctx, &amp;input_dm);
 </span><span class="boring">}</span></code></pre>
 <p>Inter-chip shuffles use the system-wide global chip IDs.
 <code>hbm_chip_shuffle</code> is generic over the DMA context (<code>tdma</code> or <code>pdma</code>) because the cross-chip operation is HBM ↔ HBM, and HBM ↔ HBM is the one DMA pair that both Tensor DMA and PCIe DMA support.

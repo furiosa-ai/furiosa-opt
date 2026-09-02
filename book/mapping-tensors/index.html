@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -338,6 +338,24 @@ Elementwise operations belong with that execution API, while this chapter focuse
 <p>Mapping dimensions are assigned explicitly to spatial hardware dimensions (<code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, and <code>Packet</code>) or to the temporal <code>Time</code> loop.
 These names describe where a mapping is consumed, not a second representation vocabulary.
 See <a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> for the tensor declarations and constraints.</p>
+<p>An assignment holds for one stage rather than for the whole pipeline, and four routes move an axis between <code>Time</code> and a spatial dimension.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Route</th><th>Moves</th><th>Available when</th><th>Cost</th></tr>
+</thead>
+<tbody>
+<tr><td><a href="../computing-tensors/switch-engine.html">Switch Engine</a></td><td>an axis either way between <code>Slice</code> and <code>Time</code></td><td>one of its configurations expresses the slice placement</td><td><code>ring_size × Time::SIZE × flits_per_packet</code> cycles of ring traversal</td></tr>
+<tr><td><a href="../moving-tensors/dma-engine.html">DMA</a></td><td>an axis into <code>Chip</code>, <code>Cluster</code> or <code>Slice</code>, by writing the placement it is given</td><td>always</td><td>a transfer of the whole tensor</td></tr>
+<tr><td><a href="../computing-tensors/vector-engine/inter-slice-reducer.html#promotion-from-time-into-outslice">Inter-slice reducer</a></td><td>an axis out of <code>Time</code> into the <code>Slice</code> slot a reduced axis vacates</td><td>the stream is reduced over a <code>Slice</code> axis anyway</td><td>none beyond that reduction</td></tr>
+<tr><td><a href="../moving-tensors/fetch-engine.html#axis-lifting">Axis lifting</a>, at fetch</td><td>an axis out of <code>Time</code> onto <code>Chip</code>, <code>Cluster</code> or <code>Slice</code></td><td>the selected dimension holds a broadcast</td><td>the original read, plus a DMA, a context-local add, and an SFR store for <code>Slice</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The Switch Engine is the general route across the <code>Slice</code> / <code>Time</code> boundary because it can deliver a value to a slice that does not already contain it.
+The Switch Engine operates only across slices, so moving an axis onto <code>Chip</code> or <code>Cluster</code> requires a DMA that writes the desired placement.</p>
+<p>Axis lifting requires a broadcast on the selected dimension, meaning each chip, cluster, or slice already holds the source region.
+Different read offsets then move the axis out of <code>Time</code> without a data transfer.</p>
 <h3 id="declarative-mapping-context"><a class="header" href="#declarative-mapping-context">Declarative Mapping Context</a></h3>
 <p>Declarative mappings state order in terms of logical axes instead of raw strides or offsets.
 The H×W examples above use <code>m![H, W]</code> for H-major order, <code>m![W, H]</code> for W-major order, and <code>m![H / 2, W / 2, H % 2, W % 2]</code> for 2×2 tiles.

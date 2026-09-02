@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-b78bfe2e.js"></script>
@@ -220,6 +220,7 @@ impl&lt;'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Pa
     pub fn vector_intra_slice_unzip&lt;I: AxisName, TileTime: M, SplitTime: M&gt;(
         self,
     ) -&gt; VectorTensorPair&lt;'l, T, D, stage::Tag, Chip, Cluster, Slice, SplitTime, Packet&gt; {
+        verify_vector_intra_slice_unzip::&lt;I, Time, Packet&gt;();
         VectorTensorPair::new::&lt;I, Time, TileTime&gt;(self.ctx, self.inner)
     }
 }

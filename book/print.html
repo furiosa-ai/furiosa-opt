@@ -38,7 +38,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "searchindex-d6997f37.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-b78bfe2e.js"></script>
@@ -1165,6 +1165,24 @@ Elementwise operations belong with that execution API, while this chapter focuse
 <p>Mapping dimensions are assigned explicitly to spatial hardware dimensions (<code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, and <code>Packet</code>) or to the temporal <code>Time</code> loop.
 These names describe where a mapping is consumed, not a second representation vocabulary.
 See <a href="#spatial-and-temporal-dimensions">Spatial and Temporal Dimensions</a> for the tensor declarations and constraints.</p>
+<p>An assignment holds for one stage rather than for the whole pipeline, and four routes move an axis between <code>Time</code> and a spatial dimension.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Route</th><th>Moves</th><th>Available when</th><th>Cost</th></tr>
+</thead>
+<tbody>
+<tr><td><a href="#switch-engine">Switch Engine</a></td><td>an axis either way between <code>Slice</code> and <code>Time</code></td><td>one of its configurations expresses the slice placement</td><td><code>ring_size × Time::SIZE × flits_per_packet</code> cycles of ring traversal</td></tr>
+<tr><td><a href="#dma-engine">DMA</a></td><td>an axis into <code>Chip</code>, <code>Cluster</code> or <code>Slice</code>, by writing the placement it is given</td><td>always</td><td>a transfer of the whole tensor</td></tr>
+<tr><td><a href="#promotion-from-time-into-outslice">Inter-slice reducer</a></td><td>an axis out of <code>Time</code> into the <code>Slice</code> slot a reduced axis vacates</td><td>the stream is reduced over a <code>Slice</code> axis anyway</td><td>none beyond that reduction</td></tr>
+<tr><td><a href="#axis-lifting">Axis lifting</a>, at fetch</td><td>an axis out of <code>Time</code> onto <code>Chip</code>, <code>Cluster</code> or <code>Slice</code></td><td>the selected dimension holds a broadcast</td><td>the original read, plus a DMA, a context-local add, and an SFR store for <code>Slice</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The Switch Engine is the general route across the <code>Slice</code> / <code>Time</code> boundary because it can deliver a value to a slice that does not already contain it.
+The Switch Engine operates only across slices, so moving an axis onto <code>Chip</code> or <code>Cluster</code> requires a DMA that writes the desired placement.</p>
+<p>Axis lifting requires a broadcast on the selected dimension, meaning each chip, cluster, or slice already holds the source region.
+Different read offsets then move the axis out of <code>Time</code> without a data transfer.</p>
 <h3 id="declarative-mapping-context"><a class="header" href="#declarative-mapping-context">Declarative Mapping Context</a></h3>
 <p>Declarative mappings state order in terms of logical axes instead of raw strides or offsets.
 The H×W examples above use <code>m![H, W]</code> for H-major order, <code>m![W, H]</code> for W-major order, and <code>m![H / 2, W / 2, H % 2, W % 2]</code> for 2×2 tiles.
@@ -2024,7 +2042,7 @@ It gives the operation and context for each public boundary.</p>
 <tr><td><code>HbmTensor</code></td><td><code>DmTensor</code></td><td><code>HbmTensor::to_dm</code> with <code>Context::tdma</code>; see <a href="#dma-engine">DMA Engine</a></td></tr>
 <tr><td><code>DmTensor</code></td><td><code>HbmTensor</code></td><td><code>DmTensor::to_hbm</code> with <code>Context::tdma</code>; see <a href="#dma-engine">DMA Engine</a></td></tr>
 <tr><td><code>HbmTensor</code></td><td><code>HbmTensor</code></td><td><code>HbmTensor::to_hbm</code> with the DMA context required by the call; see <a href="#dma-engine">DMA Engine</a></td></tr>
-<tr><td><code>DmTensor</code></td><td><code>DmTensor</code></td><td><code>DmTensor::to_dm</code> with <code>Context::tdma</code>, or <code>to_dm_pcopy</code> with the sub context; see <a href="#collect-engine">Collect Engine</a></td></tr>
+<tr><td><code>DmTensor</code></td><td><code>DmTensor</code></td><td><code>DmTensor::to_dm</code> with <code>Context::tdma</code>, or a fetch/commit round trip through the Tensor Unit; see <a href="#dma-engine">DMA Engine</a> and <a href="#commit-engine">Commit Engine</a></td></tr>
 <tr><td><code>DmTensorView</code></td><td>Tensor Unit stream</td><td><code>TuContext::begin</code>, then <a href="#fetch-engine"><code>fetch</code></a></td></tr>
 <tr><td>Tensor Unit stream</td><td><code>DmTensor</code></td><td><a href="#commit-engine"><code>commit</code></a>, or <a href="#commit-engine"><code>commit_view</code></a> for an existing mutable view</td></tr>
 </tbody>
@@ -2136,7 +2154,8 @@ Do not read a destination before its producing transfer or commit has completed,
 <h2 id="engine-boundaries"><a class="header" href="#engine-boundaries">Engine boundaries</a></h2>
 <ul>
 <li><strong><a href="#fetch-engine">Fetch</a></strong> reads DM with one per-slice sequencer and emits a packet stream for the Tensor Unit.
-Its output mapping chooses the stream <code>Time</code> and <code>Packet</code> axes.</li>
+Its output mapping chooses the stream <code>Time</code> and <code>Packet</code> axes.
+<a href="#axis-lifting">Axis lifting</a> can also move an axis from <code>Time</code> to <code>Chip</code>, <code>Cluster</code>, or <code>Slice</code> when the selected dimension contains a broadcast.</li>
 <li><strong><a href="#commit-engine">Commit</a></strong> writes a Tensor Unit stream to DM.
 Its <code>Element</code> mapping chooses the destination layout and can transpose stream axes during the write.</li>
 <li><strong><a href="#dma-engine">DMA</a></strong> pairs read and write sequencers for memory-to-memory movement.
@@ -2787,11 +2806,6 @@ The <code>assert_eq!</code> calls enforce hardware constraints on <code>Cluster:
     TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Runs the Fetch Sequencer.
-    ///
-    /// Configures per-slice DM reads and produces a `FetchTensor` with the
-    /// chosen `OutTime` / `OutPacket`. The element type is unchanged. Type
-    /// casts and other adapter transforms are applied by the per-stage
-    /// `fetch_mask` / `fetch_table_lookup` / `fetch_cast` methods.
     #[primitive(TuTensor::fetch)]
     pub fn fetch&lt;OutTime: M, OutPacket: M&gt;(self) -&gt; FetchTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
         verify_fetch::&lt;Cluster, Slice, Time, Packet, OutTime, OutPacket&gt;();
@@ -2800,7 +2814,8 @@ The <code>assert_eq!</code> calls enforce hardware constraints on <code>Cluster:
 }</code></pre>
 <p>As introduced in <a href="#mapping-tensors">Mapping Tensors</a>, the <code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, <code>Time</code>, <code>Packet</code> mapping distributes data across space and time.
 <code>.fetch()</code> preserves the <code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> dimensions unchanged from the input, because each slice independently reads its own DM partition.
-Later the <a href="#switch-engine">Switch Engine</a> changes the <code>Slice</code> mapping by moving data across slices.</p>
+Later the <a href="#switch-engine">Switch Engine</a> changes the <code>Slice</code> mapping by moving data across slices.
+<a href="#axis-lifting">Axis lifting</a> changes <code>Chip</code>, <code>Cluster</code>, or <code>Slice</code> without transferring data, using different DM read offsets across the selected dimension.</p>
 <p><code>fetch()</code> takes <code>OutTime</code> and <code>OutPacket</code> type parameters that configure the Fetch Sequencer.
 <code>OutTime</code> sets the number of time steps in the output stream, and <code>OutPacket</code> sets the element layout within each packet.
 For performance implications of <code>OutPacket</code> choices, see <a href="#optimizations">Optimizations</a>.</p>
@@ -2824,6 +2839,147 @@ fn fetch_matrix_example&lt;'l, const T: Tu&gt;(
 A Fetch Sequencer runs independently in every slice, each operating on its own local DM partition.
 In this example, <code>CH = 4</code>, <code>CL = 2</code>, and <code>S = 256</code> describe a 4-chip system with two clusters per chip and 256 slices per cluster.
 Each slice runs the same sequencer over its own <code>A×B</code> sub-tensor.</p>
+<h2 id="axis-lifting"><a class="header" href="#axis-lifting">Axis Lifting</a></h2>
+<p><code>fetch_chip_lift</code>, <code>fetch_cluster_lift</code>, and <code>fetch_slice_lift</code> move axes from <code>Time</code> to <code>Chip</code>, <code>Cluster</code>, or <code>Slice</code>.
+A plain <code>fetch</code> starts every chip, cluster, and slice at the same DM offset and traverses the axes in <code>Time</code>.
+A lift gives each chip, cluster, or slice a different read <em>base</em>, so the lifted axes are read in parallel and removed from <code>Time</code>.</p>
+<p>A lift requires the source region to be replicated across the selected dimension because a read base changes only the starting offset.
+The DM placement represents this replication as a broadcast, which the lift replaces with the lifted axes.</p>
+<p>For <code>Slice</code>, use <a href="#intertranspose"><code>InterTranspose</code></a> when data must move between slices or from <code>Slice</code> to <code>Time</code>.
+For <code>Chip</code> and <code>Cluster</code>, a <a href="#dma-engine">DMA</a> is the alternative when the source region is not replicated.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stage</th><th>Dimension</th><th>Where the base comes from</th></tr>
+</thead>
+<tbody>
+<tr><td><code>fetch_chip_lift</code></td><td><code>Chip</code></td><td>the read command encodes a static base, so the lift adds no setup operation</td></tr>
+<tr><td><code>fetch_cluster_lift</code></td><td><code>Cluster</code></td><td>the read command encodes a static base, so the lift adds no setup operation</td></tr>
+<tr><td><code>fetch_slice_lift</code></td><td><code>Slice</code></td><td>the compiler materializes one runtime base per slice with a DMA, an add in the fetch’s execution context, and an SFR store</td></tr>
+</tbody>
+</table>
+</div>
+<p>Slice bases depend on the source tensor’s runtime address and therefore cannot be encoded as static command fields.
+The compiler copies constant relative offsets from DRAM to SRAM, adds the source address in the fetch’s execution context, and stores the results in the per-slice base SFRs.
+The fetch waits for this setup, which uses the same SFR-store mechanism as the Switch Engine’s <a href="#configuration-overhead">custom bitmap</a>.</p>
+<p>For a sub-context fetch, the setup store overwrites SFRs that the fetch itself needs.
+The compiler restores those parameters after writing the bases; both contexts support every lift variant.</p>
+<pre><code class="language-rust ignore">    /// Gives each chip its own fetch base, lifting a DM axis onto `Chip`.
+    #[primitive(TuTensor::fetch_chip_lift)]
+    pub fn fetch_chip_lift&lt;OutChip: M, OutTime: M&gt;(
+        self,
+    ) -&gt; FetchChipLiftTensor&lt;'l, T, D, OutChip, Cluster, Slice, OutTime, Packet, B&gt;
+    where
+        P: CanApplyFetchChipLift,
+    {
+
+    /// Gives each cluster its own fetch base, lifting a DM axis onto `Cluster`.
+    #[primitive(TuTensor::fetch_cluster_lift)]
+    pub fn fetch_cluster_lift&lt;OutCluster: M, OutTime: M&gt;(
+        self,
+    ) -&gt; FetchClusterLiftTensor&lt;'l, T, D, Chip, OutCluster, Slice, OutTime, Packet, B&gt;
+    where
+        P: CanApplyFetchClusterLift,
+    {
+
+    /// Gives each slice its own fetch base, lifting a DM axis onto `Slice`.
+    #[primitive(TuTensor::fetch_slice_lift)]
+    pub fn fetch_slice_lift&lt;OutSlice: M, OutTime: M&gt;(
+        self,
+    ) -&gt; FetchSliceLiftTensor&lt;'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B&gt;
+    where
+        P: CanApplyFetchSliceLift,
+    {</code></pre>
+<h3 id="example-lifting-q-onto-slice"><a class="header" href="#example-lifting-q-onto-slice">Example: Lifting <code>Q</code> onto <code>Slice</code></a></h3>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 128, Q = 4, V = 16];
+
+fn fetch_halves_per_slice&lt;'l, const T: Tu&gt;(
+    input: BeginTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]&gt;,
+) -&gt; FetchSliceLiftTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![A, Q / 2], m![Q % 2], m![V]&gt; {
+    input
+        .fetch::&lt;m![Q], m![V]&gt;()
+        .fetch_slice_lift::&lt;m![A, Q / 2], m![Q % 2]&gt;()
+}
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let b: BeginTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let _o = fetch_halves_per_slice(b);
+</span><span class="boring">}</span></code></pre>
+<p>With <code>A = 128</code>, the slice placement <code>m![A, 2]</code> describes 128 pairs of slices; both slices in each pair hold the same <code>m![Q, V]</code> data.
+A plain <code>fetch</code> reads all four <code>Q</code> values on both slices.
+The lift replaces the broadcast <code>2</code> with <code>Q / 2</code>, leaving <code>Q % 2</code> in <code>Time</code>: the first slice reads <code>Q = 0, 1</code> from base 0, and the second reads <code>Q = 2, 3</code> from base 32 elements (64 bytes of <code>bf16</code>).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th>placement</th><th>base</th><th>reads</th><th>time steps</th></tr>
+</thead>
+<tbody>
+<tr><td><code>fetch</code>, either slice</td><td><code>m![A, 2]</code></td><td>0</td><td><code>Q = 0, 1, 2, 3</code></td><td>4</td></tr>
+<tr><td>lift, first slice</td><td><code>m![A, Q / 2]</code></td><td>0</td><td><code>Q = 0, 1</code></td><td>2</td></tr>
+<tr><td>lift, second slice</td><td><code>m![A, Q / 2]</code></td><td>32 elements</td><td><code>Q = 2, 3</code></td><td>2</td></tr>
+</tbody>
+</table>
+</div>
+<p>The base for any chip, cluster, or slice is the sum of each lifted-axis value multiplied by its original DM stride.
+Here the second slice has <code>Q / 2 = 1</code>, so its base is <code>1 × (Q % 2) × V = 32</code> elements.</p>
+<h3 id="requirements"><a class="header" href="#requirements">Requirements</a></h3>
+<p>A lift must satisfy all of the following:</p>
+<ul>
+<li>The input and output sizes of the selected dimension must match.</li>
+<li>Only broadcasts may change. The verifier compares the mappings in size-2 groups; a changed broadcast <code>2</code> must become an axis component of size 2. To replace a broadcast with padding, reshape the DM placement and leave that padding unread. Several groups may change in one lift, but an existing axis or a broadcast of 3 may not.</li>
+<li>Lifted axes must be removed from <code>OutTime</code>. <code>OutPacket</code> remains unchanged.</li>
+<li>Lift methods must be called in <code>Chip</code>, <code>Cluster</code>, <code>Slice</code> order, at most once per dimension.</li>
+<li>Every calculated base must be a multiple of 8 bytes.</li>
+<li>If an unsafe <code>reshape</code> introduces the broadcast, the data must already be replicated. <code>reshape</code> checks element order, not replication; violating this requirement can produce different hardware and CPU results.</li>
+</ul>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![A = 128, H = 2, V = 16, Rep = 2, G = 2];
+
+// Valid: DMA replicates `[H, V]` across `Rep`; reshape exposes `Rep` as a broadcast.
+fn named_broadcast(
+    ctx: &amp;mut Context,
+    input: &amp;HbmTensor&lt;bf16, m![1], m![A, H, V]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![A, H], m![V]&gt; {
+    let written: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, Rep], m![H, V]&gt; =
+        input.to_dm::&lt;m![1 # 2], m![A, Rep], m![H, V]&gt;(&amp;mut ctx.tdma);
+    let dm: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, 2], m![H, V]&gt; = unsafe { written.reshape() };
+
+    ctx.main
+        .begin(dm.view())
+        .fetch::&lt;m![H], m![V]&gt;()
+        .fetch_slice_lift::&lt;m![A, H], m![1]&gt;()
+        .collect::&lt;m![1], m![V]&gt;()
+        .commit_trim::&lt;m![V]&gt;()
+        .commit()
+}
+
+// Invalid for lifting: `G` stores different values, but reshape names it as a broadcast.
+fn without_broadcast(
+    ctx: &amp;mut Context,
+    input: &amp;HbmTensor&lt;bf16, m![1], m![A, G, H, V]&gt;,
+) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![A, H], m![V]&gt; {
+    let written: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, G], m![H, V]&gt; =
+        input.to_dm::&lt;m![1 # 2], m![A, G], m![H, V]&gt;(&amp;mut ctx.tdma);
+    let dm: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, 2], m![H, V]&gt; = unsafe { written.reshape() };
+
+    ctx.main
+        .begin(dm.view())
+        .fetch::&lt;m![H], m![V]&gt;()
+        .fetch_slice_lift::&lt;m![A, H], m![1]&gt;()
+        .collect::&lt;m![1], m![V]&gt;()
+        .commit_trim::&lt;m![V]&gt;()
+        .commit()
+}
+<span class="boring">}</span></code></pre>
 <h2 id="constraints-2"><a class="header" href="#constraints-2">Constraints</a></h2>
 <ul>
 <li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="#architecture">Sequencer</a>).</li>
@@ -3671,27 +3827,26 @@ A single descriptor on DMN 3 would write a fourth element past the valid region,
 </ul>
 <p>Total time: approximately 1,192 cycles, gated by DMN 3.
 Choose tensor shapes that divide evenly across DMNs to avoid this segmentation cost.</p>
-<h2 id="shuffle-operations"><a class="header" href="#shuffle-operations">Shuffle Operations</a></h2>
-<p>Shuffle operations redistribute a tensor across clusters or chips according to a per-partition source pattern.
-These methods follow the <code>to_dm</code> / <code>to_hbm</code> convention.
-<code>dm_cluster_shuffle</code> and <code>dm_chip_shuffle</code> are methods on <code>DmTensorView</code>; <code>hbm_cluster_shuffle</code> and <code>hbm_chip_shuffle</code> are methods on <code>HbmTensor</code>.
-The shuffle pattern specifies, for each destination cluster or chip, which source cluster or chip provides its data.</p>
+<h2 id="redistribution-operations"><a class="header" href="#redistribution-operations">Redistribution Operations</a></h2>
+<p>Cluster swap exchanges clusters 0 and 1. Chip shuffle redistributes a tensor according to a
+per-chip source pattern. These methods follow the <code>to_dm</code> / <code>to_hbm</code> convention.
+<code>dm_cluster_swap</code> and <code>dm_chip_shuffle</code> are methods on <code>DmTensorView</code>; <code>hbm_cluster_shuffle</code> and <code>hbm_chip_shuffle</code> are methods on <code>HbmTensor</code>.
+The chip-shuffle pattern specifies, for each destination chip, which source chip provides its data. A cluster swap exchanges clusters 0 and 1.</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 256, B = 4096];
 
-fn cluster_shuffle(
+fn cluster_swap(
     ctx: &amp;mut Context,
     input: &amp;DmTensor&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt;,
 ) -&gt; DmTensor&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt; {
-    // Shuffle pattern [1, 0]: cluster 0 ↔ cluster 1
-    input.view().dm_cluster_shuffle::&lt;2&gt;(&amp;mut ctx.tdma, &amp;[1, 0])
+    input.view().dm_cluster_swap(&amp;mut ctx.tdma)
 }
 <span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">let input_dm = DmTensor::&lt;i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]&gt;::new();
-</span><span class="boring">let _output_dm = cluster_shuffle(&amp;mut ctx, &amp;input_dm);
+</span><span class="boring">let _output_dm = cluster_swap(&amp;mut ctx, &amp;input_dm);
 </span><span class="boring">}</span></code></pre>
 <p>Inter-chip shuffles use the system-wide global chip IDs.
 <code>hbm_chip_shuffle</code> is generic over the DMA context (<code>tdma</code> or <code>pdma</code>) because the cross-chip operation is HBM ↔ HBM, and HBM ↔ HBM is the one DMA pair that both Tensor DMA and PCIe DMA support.
@@ -4102,7 +4257,7 @@ See the linked engine pages for <a href="#contraction-engine">Contraction</a>, <
 <tr><th>Engine</th><th>Function</th><th>Key Constraint</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="#fetch-engine">Fetch</a></td><td>Load data from DM into the pipeline</td><td>Packet must be 8-byte aligned. <code>Slice</code> is unchanged</td></tr>
+<tr><td><a href="#fetch-engine">Fetch</a></td><td>Load data from DM into the pipeline</td><td>Packet must be 8-byte aligned. <code>Slice</code> is preserved unless <a href="#axis-lifting">axis lifting</a> replaces a broadcast with an axis from <code>Time</code></td></tr>
 <tr><td><a href="#fetch-adapter">Fetch Adapter</a></td><td>Per-element transforms after fetch (table lookup, cast)</td><td>Optional. Identity if skipped</td></tr>
 <tr><td><a href="#switch-engine">Switching</a></td><td>Move data across slices</td><td>Ring network, <code>Slice</code> can change</td></tr>
 <tr><td><a href="#collect-engine">Collect</a></td><td>Normalize packets to 32-byte flits</td><td>Output = exactly one flit</td></tr>
@@ -4121,6 +4276,7 @@ See the linked engine pages for <a href="#contraction-engine">Contraction</a>, <
 The engines above reshape <code>Time</code> / <code>Packet</code> along the pipeline.
 Most engines preserve the spatial dimensions.
 <a href="#switch-engine">Switch</a> moves data across slices.
+Fetch’s <a href="#axis-lifting">axis lifting</a> assigns different DM read offsets along <code>Chip</code>, <code>Cluster</code>, or <code>Slice</code>, moving an axis out of <code>Time</code>.
 The <a href="#inter-slice-reducer">Vector inter-slice reducer</a> combines the 256 slices in a cluster.</p>
 <p>The Contraction and Vector Engines each take one operand from the pipeline stream and the other operand from a dedicated per-slice register file.
 TRF (Tensor Register File) feeds the Contraction Engine, and VRF (Vector Register File) feeds the Vector Engine.
@@ -4579,6 +4735,12 @@ fn transpose&lt;'l, const T: Tu&gt;(
 <p><a href="#performance">Cycle estimate</a>: <code>ring_size × Time::SIZE × flits_per_packet = 64 × 64 × 2 = 8192</code>, where <code>Time::SIZE = 64</code> and <code>flits_per_packet = sizeof(i8) × Packet::SIZE / 32 = 1 × 64 / 32 = 2</code>.</p>
 <h3 id="intertranspose"><a class="header" href="#intertranspose">InterTranspose</a></h3>
 <p><code>InterTranspose</code> swaps a dimension between <code>Slice</code> and <code>Time</code>: <code>slice1</code> moves into <code>Time</code> and <code>time1</code> moves into <code>Slice</code> (regular <code>Transpose</code> stays within <code>Slice</code>).</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p><a href="#axis-lifting">Axis lifting</a> can replace <code>InterTranspose</code> when every destination slice already holds a copy of the source region.
+It assigns a different read offset to each slice and performs no sub-ring traversal.
+Use <code>InterTranspose</code> when data must move between slices or from <code>Slice</code> to <code>Time</code>.</p>
+</blockquote>
 <p>The input dimension structure (outermost to innermost, left to right):</p>
 <pre><code class="language-text">┌──────────────────────────┬───────────────────────┐
 │           Slice          │         Time          │
@@ -5106,7 +5268,7 @@ Where in the register file it lands is the compiler’s to decide, so the call n
     #[primitive(TuTensor::to_trf)]
     pub fn to_trf&lt;Lane: M, Element: M&gt;(self) -&gt; TrfTensor&lt;D, Chip, Cluster, Slice, Lane, Element, B&gt; {
         verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;();
-        TrfTensor::from_parts(self.inner.transpose(false))
+        TrfTensor::new(self.inner.transpose(false))
     }
 }</code></pre>
 <p><code>.to_trf</code> reshapes the streaming <code>Time</code> / <code>Packet</code> into <code>Lane</code> / <code>Element</code>:</p>
@@ -5159,6 +5321,44 @@ fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
 </span><span class="boring">let _o = store_bmatmul_trf(c);
 </span><span class="boring">}</span></code></pre>
+<h4 id="from-the-vector-engine"><a class="header" href="#from-the-vector-engine">From the Vector Engine</a></h4>
+<p>A store does not have to happen off the <code>collect</code>. A main-context stream can run the Vector Engine first and store what the pass computed:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span><span class="boring">#![feature(adt_const_params)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![B = 64];
+
+fn store_pass(ctx: &amp;mut Context) -&gt; VrfTensor&lt;f32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
+    let dm: DmTensor&lt;f32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; = DmTensor::new();
+    ctx.main
+        .begin(dm.view())
+        .fetch::&lt;m![1], m![B]&gt;()
+        .collect::&lt;m![B / 8], m![B % 8]&gt;()
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_narrow_split::&lt;m![B / 8, B % 8 / 4 % 2], m![B % 4]&gt;()
+        .vector_fp_unary(FpUnaryOp::Sqrt)
+        .vector_widen_concat::&lt;m![B / 8], m![B % 8]&gt;()
+        .vector_final()
+        .to_vrf(&amp;mut ctx.sub)
+}
+<span class="boring">
+</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let _o = store_pass(&amp;mut ctx);
+</span><span class="boring">}</span></code></pre>
+<p>The two positions are different data paths, not two spellings of one.
+Off the <code>collect</code>, the Fetch Network hands the flits to the register file and no engine runs in between.
+Off a <code>vector_final</code>, the pass ends at the Vector Engine’s own write port, so the value that lands in the register is the one the pass computed: <code>Element2</code> flattens the <em>post-pass</em> <code>Time</code> / <code>Packet</code>, which a reduce or a widen may have reshaped along the way.</p>
+<p>That is the only way a computed value reaches the VRF, since the <a href="#from-data-memory">DM-direct</a> store and the collect-position store both read Data Memory.
+Nothing after the Vector Engine can run in the same command, so a store cannot be combined with a cast, a transpose, or a commit.</p>
+<h4 id="which-context-a-store-occupies"><a class="header" href="#which-context-a-store-occupies">Which context a store occupies</a></h4>
+<p>A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes <code>&amp;mut ctx.sub</code> as well.
+<code>ctx.main</code> and <code>ctx.sub</code> are separate fields, so a kernel (which holds <code>&amp;mut Context</code>) borrows both at once, as the example above does.</p>
+<p>The borrow lasts the statement, which is the extent of the occupancy: the sub context is free again once the command retires.
+How long the <em>register</em> stays occupied is a different question with a different answer (until the operand’s last read), and it is the compiler’s allocation to make, which is why the returned <code>VrfTensor</code> carries no borrow.</p>
+<p>A store issued from the sub context needs no argument, since it already holds that context.</p>
 <h4 id="from-data-memory"><a class="header" href="#from-data-memory">From Data Memory</a></h4>
 <p>For completely contiguous input access (no gaps or reordering), TRF supports a <em>short command</em> (StoTRF), a compact hardware instruction that loads data from Data Memory directly into the TRF, bypassing the full Fetch → Switch → Collect → <code>to_trf()</code> pipeline.
 The shortcut trades arbitrary-layout support for lower setup overhead.</p>
@@ -5216,17 +5416,38 @@ pub struct VrfTensor&lt;D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, 
 }</code></pre>
 <p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source.
 <code>Element</code> holds the per-(slice) layout.</p>
+<p>Those three are what a Vector Engine op matches an operand against, so an operand carried under a different partition than the stream it feeds is a compile error rather than a read of another slice’s data (see <a href="#operands">Operands</a>).
+<code>.reshape::&lt;Chip2, Cluster2, Slice2, Element2&gt;()</code> restates one under another partition of the same slices, which is how an operand replicated under an anonymous broadcast (<code>m![256]</code>) feeds a stream partitioned by a named axis.
+It relabels the mapping and moves no data, so it is <code>unsafe</code> for the same reason <code>DmTensor::reshape</code> is: every physical position must already hold what the new mapping claims of it.
+Regrouping axes and naming a broadcast distribution axis are the two forms that satisfy that; the <code># Safety</code> section on <code>VrfTensor::reshape</code> states both.</p>
 <h4 id="from-collect-engine-1"><a class="header" href="#from-collect-engine-1">From Collect Engine</a></h4>
 <p><code>.to_vrf::&lt;Element2&gt;()</code> on <code>CollectTensor</code> stores the flits into the VRF and produces a <code>VrfTensor</code>.
 Where in the register file they land is the compiler’s to decide, so the call names no address:</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
-    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, { Tu::Sub }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Stores to the vector register file.
     #[primitive(TuTensor::to_vrf)]
     pub fn to_vrf&lt;Element: M&gt;(self) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
-        constraints::assert_vrf_capacity::&lt;D, Element&gt;();
-        VrfTensor::from_parts(self.inner.transpose(false))
+        verify_to_vrf::&lt;D, Time, Packet, Element&gt;();
+        VrfTensor::new(self.inner.transpose(false))
+    }
+}
+
+impl&lt;'l, P: CanApplyToVrf, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+{
+    /// Stores to the vector register file, occupying the sub context the write runs through.
+    ///
+    /// The borrow lasts the statement. How long the *register* stays occupied is the compiler's
+    /// allocation to make, so the returned [`VrfTensor`] keeps no borrow.
+    #[primitive(TuTensor::to_vrf_from_main)]
+    pub fn to_vrf&lt;Element: M&gt;(
+        self,
+        _sub: &amp;mut TuContext&lt;{ Tu::Sub }&gt;,
+    ) -&gt; VrfTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
+        verify_to_vrf::&lt;D, Time, Packet, Element&gt;();
+        VrfTensor::new(self.inner.transpose(false))
     }
 }</code></pre>
 <p><code>.to_vrf</code> flattens the streaming <code>Time</code> / <code>Packet</code> into <code>Element2</code>:</p>
@@ -5240,17 +5461,19 @@ Where in the register file they land is the compiler’s to decide, so the call 
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 64];
 
-fn store_vrf&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt;,
+fn store_vrf&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt;,
 ) -&gt; VrfTensor&lt;i32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
     input.to_vrf()
 }
 <span class="boring">
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt; = CollectTensor::new(&amp;mut ctx.sub, Tensor::zero());
 </span><span class="boring">let _o = store_vrf(c);
 </span><span class="boring">}</span></code></pre>
+<p>The store has one signature per context, and the example above takes the sub context’s.
+A store issued from the main context takes <code>ctx.sub</code> as an argument, because the write registers live in the sub context’s register map: see <a href="#which-context-a-store-occupies">Which context a store occupies</a>.</p>
 <h4 id="from-data-memory-1"><a class="header" href="#from-data-memory-1">From Data Memory</a></h4>
 <p>For completely contiguous input access (no gaps or reordering), VRF supports a <em>short command</em> (StoVRF), a compact hardware instruction that loads data from Data Memory directly into the VRF, bypassing the full Fetch → Switch → Collect → <code>to_vrf()</code> pipeline.
 The shortcut trades arbitrary-layout support for lower setup overhead.</p>
@@ -5373,7 +5596,7 @@ fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_k_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <p>To avoid this pathological case, keep K in <code>Packet</code> (parallel reduction via the Packet Reducer’s tree) and spread the surviving axes (V, M, N) across <code>Cluster</code>, <code>Slice</code>, and <code>Lane</code> to maximize spatial parallelism.
@@ -5423,7 +5646,7 @@ fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_m_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="v-in-time"><a class="header" href="#v-in-time">V in Time</a></h3>
@@ -5467,7 +5690,7 @@ fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_v_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -5605,7 +5828,7 @@ fn stream_adapter_example&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = stream_adapter_example(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="constraints-6"><a class="header" href="#constraints-6">Constraints</a></h3>
@@ -5662,7 +5885,7 @@ fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = trf_sequencer_full_read(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <p>In this example, <code>ReadSize</code> covers only part of <code>Element</code>, so <code>Element / ReadSize</code> is non-trivial and the sequencer iterates the outer <code>Element</code> factor alongside a broadcast:</p>
@@ -5688,7 +5911,7 @@ fn trf_sequencer_partial_read&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = trf_sequencer_partial_read(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h3 id="constraints-1-1"><a class="header" href="#constraints-1-1">Constraints</a></h3>
@@ -5755,7 +5978,11 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
     pub fn contract_packet&lt;OutPacket: M&gt;(
         self,
     ) -&gt; ContractPacketTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, OutPacket, B&gt; {
-        verify_contract_packet::&lt;Storage, Packet, OutPacket&gt;();
+        verify_contract_packet(ContractPacketInput {
+            in_packet: Packet::to_value(),
+            out_packet: OutPacket::to_value(),
+            element_bits: Storage::BITS,
+        });
         // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
         // performs this Packet reduction too. This stage only re-types the carrier to `OutPacket`.
         ContractPacketTensor::new(self.ctx, self.inner)
@@ -5785,7 +6012,7 @@ fn matmul&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = matmul(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture-6"><a class="header" href="#architecture-6">Architecture</a></h2>
@@ -5824,7 +6051,10 @@ The adder tree is fully pipelined, so depth adds first-output latency but does n
     pub fn contract_time&lt;OutTime: M&gt;(
         self,
     ) -&gt; ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, OutTime, Packet, B&gt; {
-        verify_contract_time(Time::to_value(), OutTime::to_value());
+        verify_contract_time(ContractTimeInput {
+            in_time: Time::to_value(),
+            out_time: OutTime::to_value(),
+        });
         // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
         // performs this Time reduction too. This stage only re-types the carrier to `OutTime`.
         ContractTimeTensor::new(self.ctx, self.inner, Time::to_value())
@@ -5864,7 +6094,7 @@ fn reduce_b&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = reduce_b(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture-7"><a class="header" href="#architecture-7">Architecture</a></h2>
@@ -5939,29 +6169,19 @@ The stage drains the upstream Time Reducer’s buffer through an 8-element-wide 
         self,
         mode: LaneMode,
     ) -&gt; ContractTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
-        verify_contract_lane(
-            Lane::to_value(),
-            Time::to_value(),
-            Packet::to_value(),
-            OutTime::to_value(),
-            OutPacket::to_value(),
-            self.pre_reduce_time,
-            mode,
-        );
-        // Finalize the carried operands with ONE fused contraction onto this stage's input mapping
-        // `[Chip, Cluster, Slice, Lane, Time, Packet]` (Packet/Time were never actually reduced by the
-        // earlier stages, only relabeled to their post-stage extents). The Lane fold relayout
-        // (`transpose(false)`) then runs on the result, exactly as it always has.
-        //
-        // `out` is rebuilt here from this stage's own type params, independently of the `pre_reduce`
-        // stashed by `contract_outer`; `Backend::contraction` reduces `pre_reduce` onto `out` via
-        // `pre_reduce.carve(out)`, the same mapping-algebra carve `reduce` uses elsewhere, which is the
-        // authority on whether `out` is a valid restriction of `pre_reduce` -- NOT a manual re-check here.
-        // A naive per-symbol `.axes()` comparison is unsound for that: a contracted symbol can split
-        // across a spatial slot this fold never touches (e.g. `Cluster`, carrying a `K`-fragment that
-        // survives to `out` unreduced) and the slots that actually get contracted (`Time`/`Packet`,
-        // carrying the rest of `K`); `pre_reduce`'s canonical `K` term then legitimately has a different
-        // shape (wider modulo) than `out`'s, even though `out` is a correct restriction of `pre_reduce`.
+        verify_contract_lane(ContractLaneInput {
+            in_lane: Lane::to_value(),
+            in_time: Time::to_value(),
+            in_packet: Packet::to_value(),
+            out_time: OutTime::to_value(),
+            out_packet: OutPacket::to_value(),
+            pre_reduce_time: self.pre_reduce_time,
+            mode: mode.into(),
+        });
+        // Earlier stages only retype the deferred operands. Perform their fused contraction here,
+        // then apply the lane-fold relayout.
+        // `contraction_prewidened` validates `out` through mapping carve. Symbol-wise comparison is
+        // invalid because one contracted symbol may span spatial and reduced slots.
         let contraction = self.inner;
         let out = &lt;m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Time }, { Packet }]&gt;::to_value();
         let reduced: Tensor&lt;D, m![{ Chip }, { Cluster }, { Slice }, { Lane }, { Time }, { Packet }], B&gt; =
@@ -6002,7 +6222,7 @@ fn lane_interleaved&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::zero();
 </span><span class="boring">
 </span><span class="boring">let i: ContractTimeTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt; = a 
 </span><span class="boring">    .contract_outer::&lt;m![M], m![P], m![N], m![P], _&gt;(&amp;b)
@@ -6038,7 +6258,7 @@ fn lane_sequential&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::new();
+</span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::zero();
 </span><span class="boring">
 </span><span class="boring">let i: ContractTimeTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt; = a 
 </span><span class="boring">    .contract_outer::&lt;m![M], m![P], m![N], m![P], _&gt;(&amp;b)
@@ -6099,6 +6319,7 @@ impl&lt;'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Pa
     pub fn vector_intra_slice_unzip&lt;I: AxisName, TileTime: M, SplitTime: M&gt;(
         self,
     ) -&gt; VectorTensorPair&lt;'l, T, D, stage::Tag, Chip, Cluster, Slice, SplitTime, Packet&gt; {
+        verify_vector_intra_slice_unzip::&lt;I, Time, Packet&gt;();
         VectorTensorPair::new::&lt;I, Time, TileTime&gt;(self.ctx, self.inner)
     }
 }
@@ -6375,12 +6596,24 @@ Each operand comes from one of three sources.</p>
 </table>
 </div>
 <p>Ternary ops (<code>FmaF</code>) take a pair <code>(operand0, operand1)</code>.</p>
+<p>A VRF operand is read per slice by an indexer, which puts three rules on it.</p>
+<p>First, its <code>Chip</code> / <code>Cluster</code> / <code>Slice</code> are the stream’s own: at slice <code>s</code> the op reads what slice <code>s</code> holds, so an operand under a different partition is a compile error instead of a silent read of another slice’s data.
+<a href="#vector-register-file"><code>VrfTensor::reshape</code></a> restates one under the stream’s partition when the two describe the same slices, e.g. an operand replicated under an anonymous <code>m![256]</code> feeding a stream partitioned by a named axis.</p>
+<p>Second, one access (the <code>Packet</code>: 8 lanes in 8-way, 4 in 4-way) is one indexer step, and the indexer offers just two read options.
+<strong>Broadcast</strong> feeds every lane from one address; <strong>contiguous</strong> reads <code>Packet</code> consecutive <code>Element</code> cells.
+So the packet axes must be the operand’s innermost, contiguous ones, or absent from it entirely; a packet that walks an outer axis of the operand, or mixes broadcast and live lanes inside one access, has no encoding and is rejected.</p>
+<p>Third, the two directions of an axis mismatch are not the same.
+An axis the operand has and the stream does not is refused, with <code>the stream leaves operand axes unmatched</code>, because the cells it indexes would never be read.
+An axis the stream has and the operand does not is a broadcast, which is how one operand feeds every row of the stream.</p>
 <p>The same op method picks up different sources by the argument type:</p>
 <pre><code class="language-rust ignore">.vector_fxp(FxpBinaryOp::AddFxp, 100)         // operand from constant
 .vector_fxp(FxpBinaryOp::MulInt, &amp;vrf)        // operand from VRF tensor
 .vector_clip(ClipBinaryOpI32::Max, Stash)     // operand from stash (set earlier)</code></pre>
 <p>The <code>Stash</code> source comes from <code>vector_stash()</code>, which snapshots the running tensor so a later binary or ternary op can read it back as the <code>Stash</code> operand.
 The typical use is a residual or skip-connection like <code>max(f(x), x)</code>, where the original <code>x</code> must survive across intermediate stages.
+Although stash is presented as a separate operand source, it is backed by the VRF: part of the current running tensor is stored in the VRF and read back from there.
+Whenever a Tensor Unit invocation uses stash, the compiler conservatively reserves 1,024 B of VRF capacity per slice for it, regardless of the actual amount of data stashed.
+If that invocation also reads a pre-loaded VRF tensor as an RHS operand, size the operand with this reservation in mind: stash and the RHS share the 8 KiB VRF, so at most 7 KiB per slice remains for the RHS.
 Call <code>vector_stash()</code> at any <code>Stashable</code> stage (<code>Branch</code>, <code>Logic</code>, <code>Fxp</code>, <code>Narrow</code>, <code>Fp</code>, <code>FpDiv</code>, <code>Clip</code>); the snapshot stays live until the Tensor Unit invocation ends and feeds any later binary or ternary call that takes <code>Stash</code>.
 The slot is single-use (a second <code>vector_stash()</code> is a compile-time error) and typed, so an <code>f32</code> stash only feeds <code>f32</code> ops: a conversion or reinterpret between the write and the read has to be undone first.
 The stash is also read-once: it feeds exactly one later op (reading it moves the slot past <code>Occupied</code>, so a second <code>Stash</code> read is a compile-time error).
@@ -6465,6 +6698,7 @@ The tag the chain was started with is untouched, which is why this is the suppor
 <p>Pair-mode constraints:</p>
 <ul>
 <li><code>stash()</code> and <code>filter()</code> are unavailable throughout pair mode (both paired and merged phases).</li>
+<li><a href="#intra-slice-reduce"><code>vector_intra_slice_reduce()</code></a> is unavailable throughout pair mode as well, before and after the <code>_zip</code>: the reducer takes no group condition.</li>
 <li>Before <code>_zip</code> (the paired phase), the chain cannot transition to the <a href="#inter-slice-reducer">inter-slice reducer</a>, since <code>vector_inter_slice_reduce()</code> is not available on per-group tensors.
 After <code>_zip</code> (the merged phase), the result is <code>Commitable</code> again and can call <code>vector_inter_slice_reduce()</code> if the current stage supports the transition.</li>
 <li>ALU usage is shared across the two groups: an ALU used in either group counts as consumed for both.</li>
@@ -6996,7 +7230,7 @@ fn vrf_add&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let mut ctx = Context::acquire();
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![N], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
-</span><span class="boring">let v: VrfTensor&lt;i32, m![1], m![B], m![A / 8], m![A % 8]&gt; = VrfTensor::new();
+</span><span class="boring">let v: VrfTensor&lt;i32, m![1], m![B], m![A / 8], m![A % 8]&gt; = VrfTensor::zero();
 </span><span class="boring">let _o = vrf_add(i, &amp;v);
 </span><span class="boring">}</span></code></pre>
 <h3 id="stash-on-the-fp-only-path"><a class="header" href="#stash-on-the-fp-only-path">Stash on the Fp-Only Path</a></h3>
@@ -7233,7 +7467,8 @@ For example, if <code>R</code> is split as <code>R / 4</code> in <code>Time</cod
 <li><strong><code>OutTime</code>, <code>OutPacket</code></strong>: The output <code>Time</code> and <code>Packet</code> shape after reduction.
 These match the input <code>Time</code> and <code>Packet</code> with every <code>REDUCE_LABEL</code> factor removed.</li>
 </ul>
-<p>The examples below exercise each parameter combination.</p>
+<p>The call is unavailable in <a href="#pair-mode">Pair Mode</a>.
+The examples below exercise each parameter combination.</p>
 <h3 id="reduction-in-time"><a class="header" href="#reduction-in-time">Reduction in <code>Time</code></a></h3>
 <p><code>R</code> exists only in <code>Time</code>, so the stage accumulates across time steps.
 It computes \(output[a] = \sum_{r \in R} input[a, r]\) with saturating addition.</p>
@@ -7358,7 +7593,7 @@ fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
 A single slot accumulates all <code>R</code> values into the output.</p>
 <p>If <code>InnerTime::SIZE</code> exceeds 8, the API rejects the call.
 For example:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
+<pre class="playground"><code class="language-rust should_panic edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
@@ -8585,6 +8820,7 @@ fn basic_transpose&lt;'l, const T: Tu&gt;(
 <p>The five transpose stages below are illustrated using the running example from <a href="#interface-16">Interface</a>.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <p><code>valid_size</code> is the number of valid elements the Transpose Engine reads per cycle from its 32-byte input bus, and every input flit arrives in <code>bit-width × valid_size</code> form, with any remaining bytes of the 32-byte flit treated as padding and discarded by the Unpack stage.
+For 8-bit and 16-bit elements, the engine can select doubled input packing and read 16 valid elements from each flit instead of the base 8. Doubled packing is not supported for 4-bit or 32-bit elements.
 Data reaches the Transpose Engine via <code>CollectTensor::transpose()</code> (after <code>Fetch → [Switch →] Collect → [Cast →] Transpose</code>) or <code>VectorFinalTensor::transpose()</code> (directly from the <a href="#vector-engine">Vector Engine</a>).
 The <a href="#contraction-engine">Contraction Engine</a> emits <code>32b × 8</code> only, while the <a href="#vector-engine">Vector Engine</a> and <a href="#fetch-engine">Fetch Engine</a> emit any combination from the table below.</p>
 <p><code>in_cols</code>, <code>in_rows</code>, and <code>out_rows</code> are fixed by the kernel writer’s <code>OutTime</code> and <code>OutPacket</code> choices.
@@ -8592,13 +8828,13 @@ All four are constrained by the element size:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Element size</th><th><code>valid_size</code></th><th>Max <code>in_rows</code></th><th>Valid <code>in_cols</code></th></tr>
+<tr><th>Element size</th><th>Single <code>valid_size</code></th><th>Doubled <code>valid_size</code></th><th>Max <code>in_rows</code></th><th>Valid <code>in_cols</code></th></tr>
 </thead>
 <tbody>
-<tr><td>4-bit</td><td>16</td><td>16</td><td>16, 32</td></tr>
-<tr><td>8-bit</td><td>8</td><td>8</td><td>8, 16, 32</td></tr>
-<tr><td>16-bit</td><td>8</td><td>4</td><td>8, 16, 32</td></tr>
-<tr><td>32-bit</td><td>8</td><td>2</td><td>8, 16, 32</td></tr>
+<tr><td>4-bit</td><td>16</td><td>unsupported</td><td>16</td><td>16, 32</td></tr>
+<tr><td>8-bit</td><td>8</td><td>16</td><td>8</td><td>8, 16, 32</td></tr>
+<tr><td>16-bit</td><td>8</td><td>16</td><td>4</td><td>8, 16, 32</td></tr>
+<tr><td>32-bit</td><td>8</td><td>unsupported</td><td>2</td><td>8, 16, 32</td></tr>
 </tbody>
 </table>
 </div>
@@ -8625,8 +8861,10 @@ All four are constrained by the element size:</p>
                 data_in                      data_out
 </code></pre>
 <h3 id="unpack"><a class="header" href="#unpack">Unpack</a></h3>
-<p>Each 32-byte input packet carries <code>valid_size</code> valid elements; the Unpack stage discards the rest of the flit as padding.</p>
+<p>Each 32-byte input packet carries <code>valid_size</code> valid elements; the Unpack stage discards the rest of the flit as padding.
+The compiler selects doubled packing when an 8-bit or 16-bit packet has live elements beyond the base 8-element prefix. The selected <code>valid_size</code> must still cover the complete live prefix; any remaining lanes must be padding.</p>
 <p>In the running example: <code>[C, D, E # 32]</code> → <code>[C, D, E]</code>.</p>
+<p>For example, an <code>i8</code> packet <code>[B=16 # 32]</code> uses doubled packing and contributes all 16 live elements in one cycle. The equivalent single-packed layout would contribute 8 elements from each of two consecutive packets. An <code>i4</code> packet cannot request the doubled form: its only supported <code>valid_size</code> is 16.</p>
 <h3 id="gather"><a class="header" href="#gather">Gather</a></h3>
 <p>One row of the input matrix is <code>in_cols = packets_per_col × valid_size</code> elements wide, assembled from <code>packets_per_col</code> consecutive packets — the innermost time steps.
 The Gather stage concatenates those packets into a single row, and <code>in_rows</code> further time steps stack into the <code>[in_rows × in_cols]</code> input matrix.
@@ -9023,7 +9261,7 @@ Sub-context itself does not support type casting (consistent with the support ma
     where
         D: CommitCast&lt;OutD&gt;,
     {
-        verify_commit_cast::&lt;D, OutD, Packet&gt;();
+        verify_commit_cast::&lt;Packet&gt;();
         CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
     }
 
@@ -9037,7 +9275,7 @@ Sub-context itself does not support type casting (consistent with the support ma
     where
         D: CommitCast&lt;OutD&gt;,
     {
-        verify_commit_cast::&lt;D, OutD, Packet&gt;();
+        verify_commit_cast::&lt;Packet&gt;();
         CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast_relu()))
     }
 }</code></pre>

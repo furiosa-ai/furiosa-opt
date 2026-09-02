@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b1fbc386.js";
+            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-b78bfe2e.js"></script>
@@ -197,7 +197,7 @@ It gives the operation and context for each public boundary.</p>
 <tr><td><code>HbmTensor</code></td><td><code>DmTensor</code></td><td><code>HbmTensor::to_dm</code> with <code>Context::tdma</code>; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
 <tr><td><code>DmTensor</code></td><td><code>HbmTensor</code></td><td><code>DmTensor::to_hbm</code> with <code>Context::tdma</code>; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
 <tr><td><code>HbmTensor</code></td><td><code>HbmTensor</code></td><td><code>HbmTensor::to_hbm</code> with the DMA context required by the call; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
-<tr><td><code>DmTensor</code></td><td><code>DmTensor</code></td><td><code>DmTensor::to_dm</code> with <code>Context::tdma</code>, or <code>to_dm_pcopy</code> with the sub context; see <a href="../computing-tensors/collect-engine.html">Collect Engine</a></td></tr>
+<tr><td><code>DmTensor</code></td><td><code>DmTensor</code></td><td><code>DmTensor::to_dm</code> with <code>Context::tdma</code>, or a fetch/commit round trip through the Tensor Unit; see <a href="./dma-engine.html">DMA Engine</a> and <a href="./commit-engine.html">Commit Engine</a></td></tr>
 <tr><td><code>DmTensorView</code></td><td>Tensor Unit stream</td><td><code>TuContext::begin</code>, then <a href="./fetch-engine.html"><code>fetch</code></a></td></tr>
 <tr><td>Tensor Unit stream</td><td><code>DmTensor</code></td><td><a href="./commit-engine.html"><code>commit</code></a>, or <a href="./commit-engine.html"><code>commit_view</code></a> for an existing mutable view</td></tr>
 </tbody>
@@ -309,7 +309,8 @@ Do not read a destination before its producing transfer or commit has completed,
 <h2 id="engine-boundaries"><a class="header" href="#engine-boundaries">Engine boundaries</a></h2>
 <ul>
 <li><strong><a href="./fetch-engine.html">Fetch</a></strong> reads DM with one per-slice sequencer and emits a packet stream for the Tensor Unit.
-Its output mapping chooses the stream <code>Time</code> and <code>Packet</code> axes.</li>
+Its output mapping chooses the stream <code>Time</code> and <code>Packet</code> axes.
+<a href="./fetch-engine.html#axis-lifting">Axis lifting</a> can also move an axis from <code>Time</code> to <code>Chip</code>, <code>Cluster</code>, or <code>Slice</code> when the selected dimension contains a broadcast.</li>
 <li><strong><a href="./commit-engine.html">Commit</a></strong> writes a Tensor Unit stream to DM.
 Its <code>Element</code> mapping chooses the destination layout and can transpose stream axes during the write.</li>
 <li><strong><a href="./dma-engine.html">DMA</a></strong> pairs read and write sequencers for memory-to-memory movement.
