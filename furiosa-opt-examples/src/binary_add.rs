@@ -14,30 +14,31 @@ type Cluster = m![1 # 2];
 /// Data flow: Host -> HBM -> DM with layout Chip: m![1], Cluster: m![1#2],
 /// Slice: [A/8], Element: [A%8]
 fn binary_add_kernel(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: HbmTensorView<'_, i8, Chip, m![A]>,
     rhs: HbmTensorView<'_, i8, Chip, m![A]>,
     out: DmTensorViewMut<'_, i32, Chip, Cluster, m![A / 8], m![A % 8]>,
 ) {
     // Load lhs from HBM to DM with the desired layout
     // Slice: [A/8], Element: [A%8]
-    let lhs = lhs.to_dm::<Cluster, m![A / 8], m![A % 8]>(&mut ctx.tdma);
+    let lhs = lhs.to_dm::<Cluster, m![A / 8], m![A % 8]>(&mut device.tdma);
 
     // Load rhs from HBM to DM with the desired layout
     // Slice: [A/8], Element: [A%8]
-    let rhs = rhs.to_dm::<Cluster, m![A / 8], m![A % 8]>(&mut ctx.tdma);
+    let rhs = rhs.to_dm::<Cluster, m![A / 8], m![A % 8]>(&mut device.tdma);
 
     // Perform element-wise addition using VectorTensorPair API
     // lhs will have Group 0, rhs will have Group 1
     // I=2 axis is reduced by binary add in VE
-    ctx.main
+    device
+        .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs.view(), rhs.view())
         .fetch::<m![I], m![A % 8]>()
         .fetch_cast::<i32>()
         .collect::<m![I], m![A % 8]>()
         // init_unzip: creates VectorTensorPair directly
         .vector_init()
-        .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
+        .vector_intra_slice_unzip::<I, m![1]>()
         // zip operation: group1 + group0 = rhs + lhs
         // After vector_clip_zip, result is implicitly filtered to Group 1 only
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
@@ -49,7 +50,7 @@ fn binary_add_kernel(
 /// Add two tensors of size 2048 element-wise.
 #[device(chip = 1)]
 pub fn binary_add_2048(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: &HbmTensor<i8, m![1], m![A]>,
     rhs: &HbmTensor<i8, m![1], m![A]>,
 ) -> HbmTensor<i32, m![1], m![A]> {
@@ -59,8 +60,8 @@ pub fn binary_add_2048(
     let mut result = ResultDmTensor::new();
 
     // Perform binary addition in DM
-    binary_add_kernel(ctx, lhs.view(), rhs.view(), result.view_mut());
+    binary_add_kernel(device, lhs.view(), rhs.view(), result.view_mut());
 
     // Write result back to HBM
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

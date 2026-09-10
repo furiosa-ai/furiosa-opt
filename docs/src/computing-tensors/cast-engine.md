@@ -33,9 +33,9 @@ fn cast_i32_to_i8<'l, const T: Tu>(
     input.cast()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = cast_i32_to_i8(c);
 ```
 
@@ -54,9 +54,9 @@ fn cast_padded<'l, const T: Tu>(
     input.cast()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = cast_padded(c);
 ```
 

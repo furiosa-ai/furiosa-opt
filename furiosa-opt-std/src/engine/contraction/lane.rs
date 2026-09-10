@@ -75,7 +75,7 @@ impl<'l, const T: Tu, D: ContractionAccumulator, Chip: M, Cluster: M, Slice: M, 
                 &contraction.pre_reduce,
                 &out,
             ));
-        ContractTensor::new(self.ctx, reduced.transpose(false))
+        ContractTensor::new(self.device, reduced.transpose(false))
     }
 }
 // ANCHOR_END: contract_lane_def

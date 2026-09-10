@@ -11,19 +11,19 @@ type Chip = m![1];
 type Cluster = m![1];
 
 fn vrf_add_kernel_segmented(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: HbmTensorView<'_, i32, Chip, m![A, B]>,
     rhs: HbmTensorView<'_, i32, Chip, m![B]>,
     mut out: DmTensor<i32, Chip, Cluster, m![A / 2 # 64], m![A % 2, B]>,
 ) -> DmTensor<i32, Chip, Cluster, m![A / 2 # 64], m![A % 2, B]> {
     // Load lhs into DM (mainstream data)
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2 # 64], m![A % 2, B]>(&mut ctx.tdma);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2 # 64], m![A % 2, B]>(&mut device.tdma);
 
     // Load rhs into DM
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2 # 64], m![B]>(&mut ctx.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2 # 64], m![B]>(&mut device.tdma);
 
     // Prepare rhs data for VRF by committing to DM first
-    let rhs_vrf: VrfTensor<i32, Chip, Cluster, m![A / 2 # 64], m![B]> = ctx
+    let rhs_vrf: VrfTensor<i32, Chip, Cluster, m![A / 2 # 64], m![B]> = device
         .sub
         .begin(rhs_dm.view())
         .fetch::<m![1], m![B]>()
@@ -36,7 +36,8 @@ fn vrf_add_kernel_segmented(
         let out_view = out.view_mut().tile::<m![A % 2], 1, m![A % 2 = 1 #{!} 2, B]>(i);
 
         // Perform addition: lhs_dm + rhs_vrf using vector engine
-        ctx.main
+        device
+            .main
             .begin(lhs_dm_view)
             .fetch::<m![A % 2 = 1], m![B]>()
             .fetch_cast::<i32>()
@@ -55,15 +56,15 @@ fn vrf_add_kernel_segmented(
 /// Add two tensors using VRF, committing the result in tiled segments (1 PE).
 #[device(chip = 1, pe = 1)]
 pub fn vrf_add_segmented(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: &HbmTensor<i32, Chip, m![A, B]>,
     rhs: &HbmTensor<i32, Chip, m![B]>,
 ) -> HbmTensor<i32, Chip, m![A, B]> {
     type ResultDmTensor = DmTensor<i32, Chip, Cluster, m![A / 2 # 64], m![A % 2, B]>;
     let result = ResultDmTensor::new();
 
-    let result = vrf_add_kernel_segmented(ctx, lhs.view(), rhs.view(), result);
+    let result = vrf_add_kernel_segmented(device, lhs.view(), rhs.view(), result);
 
     // Write result back to HBM
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

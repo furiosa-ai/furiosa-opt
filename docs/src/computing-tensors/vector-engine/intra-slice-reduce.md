@@ -43,9 +43,9 @@ fn reduce_time<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time(i);
 ```
 
@@ -73,9 +73,9 @@ fn reduce_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_packet(i);
 ```
 
@@ -105,9 +105,9 @@ fn reduce_time_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_packet(i);
 ```
 
@@ -137,9 +137,9 @@ fn reduce_slice_time_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_slice_time_packet(i);
 ```
 
@@ -177,9 +177,9 @@ fn invalid_too_many_slots<'l, const T: Tu>(
     // Rejected: 12 accumulator slots required, but only 8 are available.
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = invalid_too_many_slots(i);
 ```
 
@@ -197,7 +197,7 @@ Two strategies handle padding exclusion.
 
 - **VCG (Valid Count Generator)**: Preferred when its axis placement is supported.
   The compiler configures the VCG automatically from the mapping, and the VCG tags each flit with a `valid_count` so pad elements are excluded automatically.
-  Not all axis placements across Slice, Time, and Packet are supported.
+  Not all axis placements across `Slice`, `Time`, and `Packet` are supported.
   See [Valid Count Generator](./vcg.md) for details.
 
 - **Identity-element padding**: Fill pad positions with the identity element of the reduce operation before data reaches the [Intra-Slice Chain](./intra-slice-chain.md).

@@ -35,8 +35,8 @@ type Slice = m![1 # 256];
 /// fetch offset (the `index_access_axis_stride_in_bytes` `MultiShape` bug) would
 /// read element `16 / 2 = 8` for bf16 and return the wrong swap.
 #[device(chip = 1)]
-pub fn swap_halves(ctx: &mut Context, x: &HbmTensor<bf16, Chip, m![A, X]>) -> HbmTensor<bf16, Chip, m![A, X]> {
-    let x: DmTensor<bf16, Chip, Cluster, Slice, m![A, X]> = x.to_dm(&mut ctx.tdma);
+pub fn swap_halves(device: &mut Device, x: &HbmTensor<bf16, Chip, m![A, X]>) -> HbmTensor<bf16, Chip, m![A, X]> {
+    let x: DmTensor<bf16, Chip, Cluster, Slice, m![A, X]> = x.to_dm(&mut device.tdma);
 
     let fst_half = x.view().tile::<m![X], 16, m![A, X = 16 # 32]>(0);
     let snd_half = x.view().tile::<m![X], 16, m![A, X = 16 # 32]>(16);
@@ -44,7 +44,8 @@ pub fn swap_halves(ctx: &mut Context, x: &HbmTensor<bf16, Chip, m![A, X]>) -> Hb
     let mut swapped: DmTensor<bf16, Chip, Cluster, Slice, m![A, X]> = DmTensor::new();
 
     // Write 1/2: first half of `x` -> second half of `swapped`.
-    ctx.main
+    device
+        .main
         .begin(fst_half)
         .fetch::<m![A], m![X = 16]>()
         .collect::<m![A], m![X = 16]>()
@@ -52,12 +53,13 @@ pub fn swap_halves(ctx: &mut Context, x: &HbmTensor<bf16, Chip, m![A, X]>) -> Hb
         .commit_view(swapped.view_mut().tile::<m![X], 16, m![A, X = 16 #{!} 32]>(16));
 
     // Write 2/2: second half of `x` -> first half of `swapped`.
-    ctx.main
+    device
+        .main
         .begin(snd_half)
         .fetch::<m![A], m![X = 16]>()
         .collect::<m![A], m![X = 16]>()
         .commit_trim::<m![X = 16]>()
         .commit_view(swapped.view_mut().tile::<m![X], 16, m![A, X = 16 #{!} 32]>(0));
 
-    swapped.to_hbm(&mut ctx.tdma)
+    swapped.to_hbm(&mut device.tdma)
 }

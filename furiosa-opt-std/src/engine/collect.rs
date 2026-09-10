@@ -46,11 +46,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -69,7 +69,7 @@ impl<'l, const T: Tu, P: CanApplyCollect, D: Scalar, Chip: M, Cluster: M, Slice:
     #[primitive(TuTensor::collect)]
     pub fn collect<Time2: M, Packet2: M>(self) -> CollectTensor<'l, T, D, Chip, Cluster, Slice, Time2, Packet2, B> {
         verify_collect::<D, Time, Packet, Time2, Packet2>();
-        CollectTensor::new(self.ctx, self.inner.transpose(false))
+        CollectTensor::new(self.device, self.inner.transpose(false))
     }
 }
 // ANCHOR_END: collect_impl

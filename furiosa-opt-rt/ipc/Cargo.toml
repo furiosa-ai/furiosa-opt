@@ -1,0 +1,18 @@
+[package]
+name = "furiosa-opt-ipc"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+bincode2 = { workspace = true }
+bytemuck = "1"
+furiosa-opt-abi = { path = "../abi", version = "0.1.0", default-features = false }
+thiserror-core = { workspace = true }
+
+[lints]
+workspace = true

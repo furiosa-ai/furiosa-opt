@@ -7,7 +7,7 @@ use crate::transformer::ops::SliceN32;
 type Cluster = m![1 # 2];
 
 pub(crate) fn apply_rope(
-    ctx: &mut Context,
+    device: &mut Device,
     q: &DmTensor<bf16, Chip, Cluster, SliceN32, m![G, D]>,
     k: &DmTensor<bf16, Chip, Cluster, SliceN32, m![D]>,
     kv_offset: &HbmTensor<i32, Chip, m![1]>,
@@ -15,10 +15,10 @@ pub(crate) fn apply_rope(
     sin: &HbmTensor<bf16, Chip, m![D]>,
     k_cache: &mut HbmTensor<bf16, Chip, m![T, N, D]>,
 ) -> DmTensor<bf16, Chip, Cluster, SliceN32, m![G, D]> {
-    let cos: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = cos.to_dm(&mut ctx.tdma);
-    let sin: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = sin.to_dm(&mut ctx.tdma);
+    let cos: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = cos.to_dm(&mut device.tdma);
+    let sin: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = sin.to_dm(&mut device.tdma);
 
-    let cos_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = ctx
+    let cos_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = device
         .sub
         .begin(cos.view())
         .fetch::<m![D / 16], m![D % 16]>()
@@ -26,7 +26,7 @@ pub(crate) fn apply_rope(
         .collect::<m![D / 8], m![D % 8]>()
         .to_vrf();
 
-    let sin_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = ctx
+    let sin_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = device
         .sub
         .begin(sin.view())
         .fetch::<m![D / 16], m![D % 16]>()
@@ -39,14 +39,16 @@ pub(crate) fn apply_rope(
 
     let mut rotate_half_q: DmTensor<bf16, Chip, Cluster, SliceN32, m![G, D]> = DmTensor::new();
 
-    ctx.main
+    device
+        .main
         .begin(fst_half_q)
         .fetch::<m![G], m![D = 64]>()
         .collect::<m![G, D = 64 / 16], m![D = 64 % 16]>()
         .commit_trim::<m![D = 64 % 16]>()
         .commit_view(rotate_half_q.view_mut().tile::<m![D], 64, m![G, D = 64 #{!} 128]>(64));
 
-    ctx.main
+    device
+        .main
         .begin(snd_half_q)
         .fetch::<m![G], m![D = 64]>()
         .collect::<m![G, D = 64 / 16], m![D = 64 % 16]>()
@@ -58,21 +60,23 @@ pub(crate) fn apply_rope(
 
     let mut rotate_half_k: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = DmTensor::new();
 
-    ctx.main
+    device
+        .main
         .begin(fst_half_k)
         .fetch::<m![1], m![D = 64]>()
         .collect::<m![D = 64 / 16], m![D = 64 % 16]>()
         .commit_trim::<m![D = 64 % 16]>()
         .commit_view(rotate_half_k.view_mut().tile::<m![D], 64, m![D = 64 #{!} 128]>(64));
 
-    ctx.main
+    device
+        .main
         .begin(snd_half_k)
         .fetch::<m![1], m![D = 64]>()
         .collect::<m![D = 64 / 16], m![D = 64 % 16]>()
         .commit_trim::<m![D = 64 % 16]>()
         .commit_view(rotate_half_k.view_mut().tile::<m![D], 64, m![D = 64 #{!} 128]>(0));
 
-    let tcq: DmTensor<f32, Chip, Cluster, SliceN32, m![G, D]> = ctx
+    let tcq: DmTensor<f32, Chip, Cluster, SliceN32, m![G, D]> = device
         .main
         .begin(q.view())
         .fetch::<m![G, D / 16], m![D % 16]>()
@@ -87,7 +91,7 @@ pub(crate) fn apply_rope(
         .commit_trim::<m![D % 8]>()
         .commit();
 
-    let tsq: DmTensor<f32, Chip, Cluster, SliceN32, m![G, D]> = ctx
+    let tsq: DmTensor<f32, Chip, Cluster, SliceN32, m![G, D]> = device
         .main
         .begin(rotate_half_q.view())
         .fetch::<m![G, D / 16], m![D % 16]>()
@@ -102,14 +106,14 @@ pub(crate) fn apply_rope(
         .commit_trim::<m![D % 8]>()
         .commit();
 
-    let tsq_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![G, D]> = ctx
+    let tsq_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![G, D]> = device
         .sub
         .begin(tsq.view())
         .fetch::<m![G, D / 8], m![D % 8]>()
         .collect::<m![G, D / 8], m![D % 8]>()
         .to_vrf();
 
-    let result_q: DmTensor<bf16, Chip, Cluster, SliceN32, m![G, D]> = ctx
+    let result_q: DmTensor<bf16, Chip, Cluster, SliceN32, m![G, D]> = device
         .main
         .begin(tcq.view())
         .fetch::<m![G, D / 8], m![D % 8]>()
@@ -122,7 +126,7 @@ pub(crate) fn apply_rope(
         .commit_trim::<m![D % 8]>()
         .commit();
 
-    let tck: DmTensor<f32, Chip, Cluster, SliceN32, m![D]> = ctx
+    let tck: DmTensor<f32, Chip, Cluster, SliceN32, m![D]> = device
         .main
         .begin(k.view())
         .fetch::<m![D / 16], m![D % 16]>()
@@ -137,7 +141,7 @@ pub(crate) fn apply_rope(
         .commit_trim::<m![D % 8]>()
         .commit();
 
-    let tsk: DmTensor<f32, Chip, Cluster, SliceN32, m![D]> = ctx
+    let tsk: DmTensor<f32, Chip, Cluster, SliceN32, m![D]> = device
         .main
         .begin(rotate_half_k.view())
         .fetch::<m![D / 16], m![D % 16]>()
@@ -152,14 +156,14 @@ pub(crate) fn apply_rope(
         .commit_trim::<m![D % 8]>()
         .commit();
 
-    let tsk_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = ctx
+    let tsk_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = device
         .sub
         .begin(tsk.view())
         .fetch::<m![D / 8], m![D % 8]>()
         .collect::<m![D / 8], m![D % 8]>()
         .to_vrf();
 
-    let result_k: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = ctx
+    let result_k: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = device
         .main
         .begin(tck.view())
         .fetch::<m![D / 8], m![D % 8]>()

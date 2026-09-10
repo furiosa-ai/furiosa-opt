@@ -21,7 +21,7 @@ use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
 
 use crate::backend::Backend;
-use crate::cast::{FetchCast, FetchZeroPointSub, TableLookup};
+use crate::cast::{FetchCast, FetchZeroPointSub, TableLookupCast};
 use crate::constraints;
 use crate::context::*;
 use crate::engine::{CanApplyFetchCast, CanApplyFetchMask, CanApplyFetchTableLookup, CanApplyFetchZeroPointSub};
@@ -82,11 +82,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -112,11 +112,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -142,11 +142,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -169,7 +169,7 @@ impl<'l, const T: Tu, P: CanApplyFetchMask, D: Scalar, Chip: M, Cluster: M, Slic
         self,
     ) -> FetchMaskTensor<'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B> {
         verify_fetch_mask::<Time, Packet, OutTime, OutPacket>();
-        FetchMaskTensor::new(self.ctx, self.inner.transpose(true))
+        FetchMaskTensor::new(self.device, self.inner.transpose(true))
     }
 }
 // ANCHOR_END: fetch_mask_impl
@@ -194,7 +194,7 @@ impl<
 {
     /// Runs the Fetch Adapter's table-lookup stage (main context only).
     ///
-    /// Each input value indexes a decode table selected by the `TableLookup` impl,
+    /// Each input value indexes a decode table selected by the `TableLookupCast` impl,
     /// not by a runtime argument: `f4e2m1` decodes to either 8-bit float through the
     /// paired 4b->8b table (the NVFP4 / MXFP4 weight path), and either 8-bit float
     /// decodes to `bf16` through the non-paired table. Chain a
@@ -210,9 +210,9 @@ impl<
         self,
     ) -> FetchTableLookupTensor<'l, { Tu::Main }, OutD, Chip, Cluster, Slice, Time, Packet, B>
     where
-        D: TableLookup<OutD>,
+        D: TableLookupCast<OutD>,
     {
-        FetchTableLookupTensor::new(self.ctx, self.inner.map(|v| v.lookup()))
+        FetchTableLookupTensor::new(self.device, self.inner.map(|v| v.lookup()))
     }
 }
 // ANCHOR_END: fetch_table_lookup_impl
@@ -240,7 +240,7 @@ impl<
     where
         D: FetchCast<OutD>,
     {
-        FetchCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
+        FetchCastTensor::new(self.device, self.inner.map(|v| v.cast()))
     }
 }
 // ANCHOR_END: fetch_cast_impl
@@ -266,11 +266,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -316,7 +316,7 @@ impl<
             zero_point_range.contains(&zero_point),
             "zero_point {zero_point} is outside the source type's quantized range {zero_point_range:?}",
         );
-        FetchZeroPointSubTensor::new(self.ctx, self.inner.map(|v| v.zero_point_sub(zero_point)))
+        FetchZeroPointSubTensor::new(self.device, self.inner.map(|v| v.zero_point_sub(zero_point)))
     }
 }
 // ANCHOR_END: fetch_zero_point_sub_impl
@@ -330,7 +330,7 @@ fn verify_fetch_mask<Time: M, Packet: M, OutTime: M, OutPacket: M>() {
 mod tests {
     use super::*;
     use crate::backend::Cpu;
-    use crate::cast::TableLookup;
+    use crate::cast::TableLookupCast;
     use crate::scalar::{f4e2m1, f8e4m3};
     use crate::tensor::Tensor;
 
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn table_lookup_decodes_e2m1_to_f8e4m3_matching_spec() {
         for code in 0..16u8 {
-            let decoded: f8e4m3 = TableLookup::lookup(f4e2m1::from_bits(code));
+            let decoded: f8e4m3 = TableLookupCast::lookup(f4e2m1::from_bits(code));
             let expected = E2M1_F32_ORACLE[code as usize];
             assert_eq!(
                 decoded.to_f32().to_bits(),

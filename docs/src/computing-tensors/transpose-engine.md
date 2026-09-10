@@ -28,9 +28,9 @@ fn basic_transpose<'l, const T: Tu>(
     input.transpose()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = basic_transpose(c);
 ```
 
@@ -138,9 +138,9 @@ fn small_transpose<'l, const T: Tu>(
     input.transpose()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![P], m![A], m![B # 32]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![P], m![A], m![B # 32]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = small_transpose(c);
 ```
 
@@ -178,9 +178,9 @@ fn large_col_transpose<'l, const T: Tu>(
     input.transpose()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = large_col_transpose(c);
 ```
 
@@ -218,9 +218,9 @@ fn bf16_transpose<'l, const T: Tu>(
     input.transpose()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![P], m![C, D], m![E # 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![P], m![C, D], m![E # 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = bf16_transpose(c);
 ```
 
@@ -258,9 +258,9 @@ fn i4_transpose<'l, const T: Tu>(
     input.transpose()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i4, m![1], m![1 # 2], m![P], m![B, C], m![E # 64]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i4, m![1], m![1 # 2], m![P], m![B, C], m![E # 64]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = i4_transpose(c);
 ```
 
@@ -299,9 +299,9 @@ fn f32_transpose<'l, const T: Tu>(
     input.transpose()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, f32, m![1], m![1 # 2], m![P], m![B, D], m![E # 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, f32, m![1], m![1 # 2], m![P], m![B, D], m![E # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = f32_transpose(c);
 ```
 

@@ -11,18 +11,18 @@ fn input_host() -> HostTensor<i32, m![W]> {
 /// Statement form: the two arms write two separate output tensors, `input + 1` and `input + 2`.
 #[tokio::test]
 async fn test_runtime_if_two_outputs() {
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(runtime_if_two_outputs.topology()).unwrap();
     let input = input_host();
-    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
 
-    let (out_then, out_else) = launch(runtime_if_two_outputs, (&mut *ctx, &input_hbm)).await;
+    let (out_then, out_else) = launch(runtime_if_two_outputs, (&mut device, &input_hbm)).await.unwrap();
 
     assert_eq!(
         input.clone().into_inner().map(|x| x + 1).into_vec(),
-        out_then.to_host::<m![W]>(&mut ctx.pdma).await.into_vec()
+        out_then.to_host::<m![W]>(&mut device.pdma).await.unwrap().into_vec()
     );
     assert_eq!(
         input.clone().into_inner().map(|x| x + 2).into_vec(),
-        out_else.to_host::<m![W]>(&mut ctx.pdma).await.into_vec()
+        out_else.to_host::<m![W]>(&mut device.pdma).await.unwrap().into_vec()
     );
 }

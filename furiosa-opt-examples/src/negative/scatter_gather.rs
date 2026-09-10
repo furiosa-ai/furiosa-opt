@@ -20,14 +20,14 @@ type Cluster = m![1 # 2];
 /// into SPM-sized chunks.
 #[device(chip = 1)]
 pub fn invalid_gather_unscaled_index_over_spm(
-    ctx: &mut Context,
+    device: &mut Device,
     table: &HbmTensor<bf16, Chip, m![Rows, Width]>,
     index: &HbmTensor<i32, Chip, m![IdxRows, Indices]>,
 ) -> HbmTensor<bf16, Chip, m![IdxRows, Indices, Width]> {
     type Slice = m![IdxRows, Indices / 8];
 
-    let index: DmTensor<i32, Chip, Cluster, Slice, m![Indices % 8]> = index.to_dm(&mut ctx.tdma);
+    let index: DmTensor<i32, Chip, Cluster, Slice, m![Indices % 8]> = index.to_dm(&mut device.tdma);
     let values: DmTensor<bf16, Chip, Cluster, Slice, m![Indices % 8, Width]> = table.dma_gather_unscaled(&index);
 
-    values.to_hbm(&mut ctx.tdma)
+    values.to_hbm(&mut device.tdma)
 }

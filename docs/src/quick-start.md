@@ -32,4 +32,5 @@ Use the simplest example route that matches the kernel's next constraint.
 
 - **Fits one pass:** No escalation; the preceding basic patterns apply.
 - **Layout permutation or packet handling:** Read [Case Study: Tensor Unit I/O](./moving-tensors/tensor-unit-io.md) under Moving Tensors.
+- **Reduction axis spans chips or clusters:** Read [Case Study: Chip/Cluster Reduction](./kernel-examples/chip-cluster-reduce.md) under Computing Tensors.
 - **Composed model patterns:** Read the [Case Study: Transformer](./kernel-examples/transformer.md) under End-to-End Cases.

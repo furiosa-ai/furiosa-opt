@@ -56,7 +56,7 @@ pub struct ContractOuterTensor<
     Packet: M,
     B: Backend = CurrentBackend,
 > {
-    pub(crate) ctx: &'l mut TuContext<{ T }>,
+    pub(crate) device: &'l mut TuContext<{ T }>,
     /// The deferred dense-GEMM carrier: the two compact operands (already widened to the contraction
     /// output type) plus the mappings [`super::lane::contract_lane`] fuses them with. `D` is already
     /// the widened accumulator (`Storage: ContractionCast<Output = D>`), so the carrier is keyed on `D`.
@@ -89,10 +89,10 @@ impl<
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: LazyContraction<D, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: LazyContraction<D, B>) -> Self {
         Self::check_constraints();
         Self {
-            ctx,
+            device,
             inner,
             _storage: PhantomData,
             _axes: PhantomData,
@@ -160,7 +160,7 @@ impl<
             rhs_map,
             pre_reduce,
         };
-        ContractOuterTensor::new(self.ctx, contraction)
+        ContractOuterTensor::new(self.device, contraction)
     }
 }
 // ANCHOR_END: contract_outer_def

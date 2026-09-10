@@ -17,14 +17,14 @@ axes![A = 512, B = 32];
 /// loop bound from the const-generic parameter `N` (a type-level constant, read
 /// as a value in `0..N`). `N` is monomorphized to a literal at translation.
 fn transpose_rows<const N: usize>(
-    ctx: &mut Context,
+    device: &mut Device,
     input: HbmTensorView<'_, i8, m![1], m![A, B]>,
     output: &mut HbmTensor<i8, m![1], m![B, A]>,
 ) {
     for b in 0..N {
         let input_slice = input.tile::<m![B], 1, m![A, 1 # 32]>(b);
         let output_slice = output.view_mut().tile::<m![B], 1, m![1 #{!} 32, A]>(b);
-        input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+        input_slice.to_hbm_view(&mut device.tdma, output_slice);
     }
 }
 
@@ -33,11 +33,11 @@ fn transpose_rows<const N: usize>(
 /// literal.
 #[device(chip = 1)]
 pub fn typelevel_const(
-    ctx: &mut Context,
+    device: &mut Device,
     input: HbmTensorView<'_, i8, m![1], m![A, B]>,
 ) -> HbmTensor<i8, m![1], m![B, A]> {
     let mut output = HbmTensor::<i8, m![1], m![B, A]>::new();
-    transpose_rows::<32>(ctx, input, &mut output);
+    transpose_rows::<32>(device, input, &mut output);
     output
 }
 
@@ -45,17 +45,17 @@ pub fn typelevel_const(
 /// const-generic parameter through the mapping escape: `m![A / {K}]` splices
 /// `K` into a size position the way a literal would be.
 fn stage<const K: usize>(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, m![1], m![A]>,
 ) -> DmTensor<i8, m![1], m![1], m![A / { K }], m![A % { K }]> {
-    input.to_dm(&mut ctx.tdma)
+    input.to_dm(&mut device.tdma)
 }
 
 /// Concrete entrypoint instantiating the mapping-escape helper with `K = 8`,
 /// the companion of [`typelevel_const`]: one covers a const read as a loop
 /// bound, this one a const spliced into the mapping itself.
 #[device(chip = 1, pe = 1)]
-pub fn typelevel_mapping(ctx: &mut Context, input: &HbmTensor<i8, m![1], m![A]>) -> HbmTensor<i8, m![1], m![A]> {
-    let staged = stage::<8>(ctx, input);
-    staged.to_hbm(&mut ctx.tdma)
+pub fn typelevel_mapping(device: &mut Device, input: &HbmTensor<i8, m![1], m![A]>) -> HbmTensor<i8, m![1], m![A]> {
+    let staged = stage::<8>(device, input);
+    staged.to_hbm(&mut device.tdma)
 }

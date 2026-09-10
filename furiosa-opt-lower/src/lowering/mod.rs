@@ -80,6 +80,15 @@ pub struct TileInput {
     pub hole_fill: PaddingKind,
 }
 
+/// Inputs used to derive the mapping of a tile view.
+pub struct TileMappingInput {
+    pub index: Mapping,
+    pub element: Mapping,
+    pub len: usize,
+    /// Accessibility of cells outside the live window.
+    pub hole_fill: PaddingKind,
+}
+
 /// Inputs used to validate a padded view.
 pub struct PadInput {
     pub element: Mapping,
@@ -193,25 +202,41 @@ pub fn config_tile(input: TileInput) -> Result<(), TileError> {
         len,
         hole_fill,
     } = input;
-    let size = index.size();
-    let split = if size == 1 {
-        if len != 1 {
-            return Err(TileError::Split);
-        }
-        element.normalize()
-    } else {
-        // A located axis may contain a padded final chunk whose live extent is not divisible by its stride.
-        let stride = element.find_axis(&index).map_err(|_| TileError::Split)?;
-        element
-            .window_axis(stride, size, len, hole_fill)
-            .map_err(|_| TileError::Split)?
-    };
+    let split = tile_mapping(TileMappingInput {
+        index,
+        element,
+        len,
+        hole_fill,
+    })?;
 
     let requested = expected.normalize();
     if split == requested {
         Ok(())
     } else {
         Err(TileError::UnexpectedView { split, requested })
+    }
+}
+
+/// Derives the mapping of an indexed tile view.
+pub fn tile_mapping(input: TileMappingInput) -> Result<Mapping, TileError> {
+    let TileMappingInput {
+        index,
+        element,
+        len,
+        hole_fill,
+    } = input;
+    let size = index.size();
+    if size == 1 {
+        if len != 1 {
+            return Err(TileError::Split);
+        }
+        Ok(element.normalize())
+    } else {
+        // A located axis may contain a padded final chunk whose live extent is not divisible by its stride.
+        let stride = element.find_axis(&index).map_err(|_| TileError::Split)?;
+        element
+            .window_axis(stride, size, len, hole_fill)
+            .map_err(|_| TileError::Split)
     }
 }
 

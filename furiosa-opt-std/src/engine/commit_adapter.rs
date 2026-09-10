@@ -49,11 +49,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -79,11 +79,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -109,11 +109,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -145,7 +145,7 @@ impl<
     pub fn commit_trim<OutPacket: M>(self) -> CommitTrimTensor<'l, T, D, Chip, Cluster, Slice, Time, OutPacket, B> {
         verify_commit_trim::<D, Packet, OutPacket>();
         // `transpose(false)` is type-system filler; real trim lowering lands with the backend wiring.
-        CommitTrimTensor::new(self.ctx, self.inner.transpose(false))
+        CommitTrimTensor::new(self.device, self.inner.transpose(false))
     }
 }
 // ANCHOR_END: commit_trim_impl
@@ -177,7 +177,7 @@ impl<
         D: CommitCast<OutD>,
     {
         verify_commit_cast::<Packet>();
-        CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
+        CommitCastTensor::new(self.device, self.inner.map(|v| v.cast()))
     }
 
     /// The same cast with a ReLU fused in, clamping negative values to zero.
@@ -191,7 +191,7 @@ impl<
         D: CommitCast<OutD>,
     {
         verify_commit_cast::<Packet>();
-        CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast_relu()))
+        CommitCastTensor::new(self.device, self.inner.map(|v| v.cast_relu()))
     }
 }
 // ANCHOR_END: commit_cast_impl
@@ -222,7 +222,7 @@ impl<
         _valid_count: usize,
     ) -> CommitValidCountPackTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B> {
         verify_commit_valid_count_pack::<D, Time, Packet>();
-        CommitValidCountPackTensor::new(self.ctx, self.inner.transpose(false))
+        CommitValidCountPackTensor::new(self.device, self.inner.transpose(false))
     }
 }
 // ANCHOR_END: commit_valid_count_pack_impl

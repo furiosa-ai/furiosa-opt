@@ -21,14 +21,14 @@ type Row = DmTensor<i32, Chip, m![1], m![N / 4], m![N % 4]>;
 /// compile reaches the vector-engine-immediate check that is the point of this negative example.
 #[device(chip = 1, pe = 4)]
 pub fn runtime_if_scalar_immediate(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![N]>,
 ) -> HbmTensor<i32, Chip, m![N]> {
-    let input_dm: Row = input.to_dm(&mut ctx.tdma);
+    let input_dm: Row = input.to_dm(&mut device.tdma);
     let mut result: Row = DmTensor::new();
     for i in 0..2 {
         let c: i32 = if i == 1 { 1 } else { 2 };
-        result = ctx
+        result = device
             .main
             .begin(input_dm.view())
             .fetch::<m![1], m![N % 4]>()
@@ -41,50 +41,50 @@ pub fn runtime_if_scalar_immediate(
             .commit_trim::<m![N % 4]>()
             .commit();
     }
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// An observable overflow flag from `overflowing_add` must not be discarded.
 #[device(chip = 1)]
-pub fn overflowing_add_flag(ctx: &mut Context, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
-    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut ctx.tdma);
+pub fn overflowing_add_flag(device: &mut Device, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
+    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut device.tdma);
     let mut output = DmTensor::<i8, Chip, m![1], m![N / 4], m![N % 4]>::new();
     for i in 0..2usize {
         let (off, overflow) = i.overflowing_add(0);
         let off = if overflow { 0 } else { off * 128 };
         let src = input.view().tile::<m![N / 4], 128, m![N = 512 # 1024]>(off);
         let dst = output.view_mut().tile::<m![N / 4], 128, m![N = 512 #{!} 1024]>(off);
-        src.to_dm_view(&mut ctx.tdma, dst);
+        src.to_dm_view(&mut device.tdma, dst);
     }
-    output.to_hbm(&mut ctx.tdma)
+    output.to_hbm(&mut device.tdma)
 }
 
 /// An observable overflow flag from `overflowing_sub` must not be discarded.
 #[device(chip = 1)]
-pub fn overflowing_sub_flag(ctx: &mut Context, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
-    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut ctx.tdma);
+pub fn overflowing_sub_flag(device: &mut Device, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
+    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut device.tdma);
     let mut output = DmTensor::<i8, Chip, m![1], m![N / 4], m![N % 4]>::new();
     for i in 0..2usize {
         let (off, overflow) = (i * 128).overflowing_sub(0);
         let off = if overflow { 0 } else { off };
         let src = input.view().tile::<m![N / 4], 128, m![N = 512 # 1024]>(off);
         let dst = output.view_mut().tile::<m![N / 4], 128, m![N = 512 #{!} 1024]>(off);
-        src.to_dm_view(&mut ctx.tdma, dst);
+        src.to_dm_view(&mut device.tdma, dst);
     }
-    output.to_hbm(&mut ctx.tdma)
+    output.to_hbm(&mut device.tdma)
 }
 
 /// An observable overflow flag from `overflowing_mul` must not be discarded.
 #[device(chip = 1)]
-pub fn overflowing_mul_flag(ctx: &mut Context, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
-    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut ctx.tdma);
+pub fn overflowing_mul_flag(device: &mut Device, input_hbm: &HbmTensor<i8, Chip, m![N]>) -> HbmTensor<i8, Chip, m![N]> {
+    let input = input_hbm.to_dm::<m![1], m![N / 4], m![N % 4]>(&mut device.tdma);
     let mut output = DmTensor::<i8, Chip, m![1], m![N / 4], m![N % 4]>::new();
     for i in 0..2usize {
         let (off, overflow) = i.overflowing_mul(128);
         let off = if overflow { 0 } else { off };
         let src = input.view().tile::<m![N / 4], 128, m![N = 512 # 1024]>(off);
         let dst = output.view_mut().tile::<m![N / 4], 128, m![N = 512 #{!} 1024]>(off);
-        src.to_dm_view(&mut ctx.tdma, dst);
+        src.to_dm_view(&mut device.tdma, dst);
     }
-    output.to_hbm(&mut ctx.tdma)
+    output.to_hbm(&mut device.tdma)
 }

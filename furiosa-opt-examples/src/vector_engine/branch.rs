@@ -17,14 +17,14 @@ type Cluster = m![1];
 
 #[device(chip = 1, pe = 1)]
 pub fn ve_elementwise_branched(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![BP, BA, BT]>,
     scale: &HbmTensor<f32, Chip, m![BP, BT]>,
 ) -> HbmTensor<f32, Chip, m![BP, BA, BT]> {
-    let input_dm = input.to_dm::<Cluster, m![BP], m![BA, BT]>(&mut ctx.tdma);
-    let scale_dm = scale.to_dm::<Cluster, m![BP], m![BT]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![BP], m![BA, BT]>(&mut device.tdma);
+    let scale_dm = scale.to_dm::<Cluster, m![BP], m![BT]>(&mut device.tdma);
 
-    let scale_vrf: VrfTensor<f32, Chip, Cluster, m![BP], m![BT]> = ctx
+    let scale_vrf: VrfTensor<f32, Chip, Cluster, m![BP], m![BT]> = device
         .sub
         .begin(scale_dm.view())
         .fetch::<m![1], m![BT]>()
@@ -34,7 +34,7 @@ pub fn ve_elementwise_branched(
     let nonzero = TagGuard::not_matches([One, Ignore, Ignore, Ignore]);
     let negative = TagGuard::matches([Zero, Zero, One, Ignore]);
 
-    let result: DmTensor<f32, Chip, Cluster, m![BP], m![BA, BT]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![BP], m![BA, BT]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![BA], m![BT]>()
@@ -58,7 +58,7 @@ pub fn ve_elementwise_branched(
         .commit_trim::<m![BT]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Anchors the bit-order convention end to end: `cmp[i]` sets tag bit `i`, a guard's [`BitReq`] `i`
@@ -76,12 +76,12 @@ pub fn ve_elementwise_branched(
 /// original value -- which also pins that the slot read the stash and not the running stream.
 #[device(chip = 1, pe = 1)]
 pub fn ve_branch_bit_order(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![BP, BA, BT]>,
 ) -> HbmTensor<i32, Chip, m![BP, BA, BT]> {
-    let input_dm = input.to_dm::<Cluster, m![BP], m![BA, BT]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![BP], m![BA, BT]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![BP], m![BA, BT]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![BP], m![BA, BT]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![BA], m![BT]>()
@@ -112,5 +112,5 @@ pub fn ve_branch_bit_order(
         .commit_trim::<m![BT]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

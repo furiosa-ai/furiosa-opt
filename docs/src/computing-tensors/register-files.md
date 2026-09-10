@@ -50,9 +50,9 @@ fn load_trf<'l, const T: Tu>(
     input.to_trf()
 }
 #
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 #
-# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = load_trf(c);
 ```
 
@@ -77,9 +77,9 @@ fn store_bmatmul_trf<'l, const T: Tu>(
     input.to_trf()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = store_bmatmul_trf(c);
 ```
 
@@ -93,9 +93,9 @@ A store does not have to happen off the `collect`. A main-context stream can run
 # use furiosa_opt_std::prelude::*;
 axes![B = 64];
 
-fn store_pass(ctx: &mut Context) -> VrfTensor<f32, m![1], m![1 # 2], m![1 # 256], m![B]> {
+fn store_pass(device: &mut Device) -> VrfTensor<f32, m![1], m![1 # 2], m![1 # 256], m![B]> {
     let dm: DmTensor<f32, m![1], m![1 # 2], m![1 # 256], m![B]> = DmTensor::new();
-    ctx.main
+    device.main
         .begin(dm.view())
         .fetch::<m![1], m![B]>()
         .collect::<m![B / 8], m![B % 8]>()
@@ -105,11 +105,11 @@ fn store_pass(ctx: &mut Context) -> VrfTensor<f32, m![1], m![1 # 2], m![1 # 256]
         .vector_fp_unary(FpUnaryOp::Sqrt)
         .vector_widen_concat::<m![B / 8], m![B % 8]>()
         .vector_final()
-        .to_vrf(&mut ctx.sub)
+        .to_vrf(&mut device.sub)
 }
 # 
-# let mut ctx = Context::acquire();
-# let _o = store_pass(&mut ctx);
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# let _o = store_pass(&mut device);
 ```
 
 The two positions are different data paths, not two spellings of one.
@@ -121,8 +121,8 @@ Nothing after the Vector Engine can run in the same command, so a store cannot b
 
 #### Which context a store occupies
 
-A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes `&mut ctx.sub` as well.
-`ctx.main` and `ctx.sub` are separate fields, so a kernel (which holds `&mut Context`) borrows both at once, as the example above does.
+A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes `&mut device.sub` as well.
+`device.main` and `device.sub` are separate fields, so a kernel (which holds `&mut Device`) borrows both at once, as the example above does.
 
 The borrow lasts the statement, which is the extent of the occupancy: the sub context is free again once the command retires.
 How long the *register* stays occupied is a different question with a different answer (until the operand's last read), and it is the compiler's allocation to make, which is why the returned `VrfTensor` carries no borrow.
@@ -235,14 +235,14 @@ fn store_vrf<'l>(
     input.to_vrf()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]> = CollectTensor::new(&mut ctx.sub, Tensor::zero());
+# let c: CollectTensor<'_, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]> = CollectTensor::new(&mut device.sub, Tensor::zero());
 # let _o = store_vrf(c);
 ```
 
 The store has one signature per context, and the example above takes the sub context's.
-A store issued from the main context takes `ctx.sub` as an argument, because the write registers live in the sub context's register map: see [Which context a store occupies](#which-context-a-store-occupies).
+A store issued from the main context takes `device.sub` as an argument, because the write registers live in the sub context's register map: see [Which context a store occupies](#which-context-a-store-occupies).
 
 #### From Data Memory
 

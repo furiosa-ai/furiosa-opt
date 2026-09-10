@@ -26,31 +26,32 @@ type Row = DmTensor<i32, Chip, Cluster, m![W / 4], m![W % 4]>;
 /// `out_else`. Oracle: `out_then = input + 1`, `out_else = input + 2`.
 #[device(chip = 1, pe = 4)]
 pub fn runtime_if_two_outputs(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![W]>,
 ) -> (HbmTensor<i32, Chip, m![W]>, HbmTensor<i32, Chip, m![W]>) {
-    let input_dm: Row = input.to_dm(&mut ctx.tdma);
+    let input_dm: Row = input.to_dm(&mut device.tdma);
     let mut out_then: Row = DmTensor::new();
     let mut out_else: Row = DmTensor::new();
 
     for i in 0..2 {
         if i == 0 {
-            add_const_view_mut(ctx, &input_dm, 1, out_then.view_mut());
+            add_const_view_mut(device, &input_dm, 1, out_then.view_mut());
         } else {
-            add_const_view_mut(ctx, &input_dm, 2, out_else.view_mut());
+            add_const_view_mut(device, &input_dm, 2, out_else.view_mut());
         }
     }
 
-    (out_then.to_hbm(&mut ctx.tdma), out_else.to_hbm(&mut ctx.tdma))
+    (out_then.to_hbm(&mut device.tdma), out_else.to_hbm(&mut device.tdma))
 }
 
 fn add_const_view_mut(
-    ctx: &mut Context,
+    device: &mut Device,
     input_dm: &Row,
     c: i32,
     output_view_mut: DmTensorViewMut<'_, i32, Chip, Cluster, m![W / 4], m![W % 4]>,
 ) {
-    ctx.main
+    device
+        .main
         .begin(input_dm.view())
         .fetch::<m![1], m![W % 4]>()
         .fetch_cast::<i32>()

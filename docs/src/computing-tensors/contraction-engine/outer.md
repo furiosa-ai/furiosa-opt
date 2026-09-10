@@ -95,9 +95,9 @@ fn stream_adapter_example<'l, const T: Tu>(
     input.contract_outer::<m![M, B], m![L, K], _, _, _>(trf)
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]> = TrfTensor::zero();
 # let _o = stream_adapter_example(a, &b);
 ```
@@ -167,9 +167,9 @@ fn trf_sequencer_full_read<'l, const T: Tu>(
     input.contract_outer::<m![M], m![K], _, _, _>(trf)
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]> = TrfTensor::zero();
 # let _o = trf_sequencer_full_read(a, &b);
 ```
@@ -194,9 +194,9 @@ fn trf_sequencer_partial_read<'l, const T: Tu>(
     input.contract_outer::<m![O, M], m![L, K], _, _, _>(trf)
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]> = TrfTensor::zero();
 # let _o = trf_sequencer_partial_read(a, &b);
 ```

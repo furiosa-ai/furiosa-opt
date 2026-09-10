@@ -15,10 +15,12 @@ pub mod npu;
 
 use std::fmt::Debug;
 
-use furiosa_mapping::Mapping as MappingValue;
 use furiosa_mapping::*;
 
+use crate::Error;
 use crate::cast::{ContractionAccumulator, ContractionCast};
+use crate::context::{Dma, DmaContext};
+use crate::runtime::Topology;
 use crate::scalar::{MaterializableScalar, Scalar};
 use crate::tensor::memory::{HbmTensor, HostTensor};
 
@@ -39,6 +41,14 @@ pub use npu::Npu;
 /// passthrough; `Npu` provides real device transfers. DMA stays a required method (no default) so
 /// each backend states its choice explicitly.
 pub trait Backend: Sized + 'static {
+    /// An opened device: on real chips, the kernels loaded on them as well. The host has
+    /// nothing to open.
+    type Device: Clone;
+
+    /// Opens the device `topology` names. Each call opens one of its own, so two devices of a
+    /// topology hold different PEs and load their kernels apart.
+    fn open(topology: Topology) -> Result<Self::Device, Error>;
+
     /// Concrete per-backend tensor type. Opaque:
     /// only `Clone + Debug + PartialEq` (so the memory-tier `#[derive(Debug)]` structs and the
     /// `Tensor<D, Mapping, B>` wrapper's `Debug`/`PartialEq` resolve without a per-backend `where`
@@ -49,20 +59,20 @@ pub trait Backend: Sized + 'static {
     /// Build a storage from a flat `D` buffer in `mapping`-order, delegating to the concrete
     /// storage's inherent constructor. The runtime `mapping` carries the layout, construction is
     /// the type→runtime boundary, so the wrapper converts its type param to a value here.
-    fn from_vec<D: Scalar>(mapping: &MappingValue, data: impl IntoIterator<Item = D>) -> Self::Storage<D>;
+    fn from_vec<D: Scalar>(mapping: &Mapping, data: impl IntoIterator<Item = D>) -> Self::Storage<D>;
 
     /// Build a storage from its dense physical device byte image (`mapping`-order, packed on `D::BITS`):
     /// the inverse of [`Self::into_buf`]. The default decodes the packed bytes to a logical `Vec<D>` and
     /// packs via [`Self::from_vec`]; a backend whose storage already IS the packed image (Cpu /
     /// Npu's [`crate::storage::BufStorage`]) overrides this to store the bytes directly, no decode / re-pack. Pre-packed
     /// data (fp4 / f4e2m1 weights) enters through here. Backs [`crate::tensor::Tensor::from_buf`].
-    fn from_buf<D: MaterializableScalar>(mapping: &MappingValue, buf: Vec<u8>) -> Self::Storage<D> {
+    fn from_buf<D: MaterializableScalar>(mapping: &Mapping, buf: Vec<u8>) -> Self::Storage<D> {
         Self::from_vec(mapping, (0..mapping.size()).map(|i| D::load(&buf, i)))
     }
 
     /// A zeroed storage of this layout, delegating to the concrete storage's inherent
     /// constructor.
-    fn zeroed<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D>;
+    fn zeroed<D: Scalar>(mapping: &Mapping) -> Self::Storage<D>;
 
     /// A fresh HBM tensor with no source (see [`crate::tensor::memory::HbmTensor::new`]).
     ///
@@ -72,14 +82,14 @@ pub trait Backend: Sized + 'static {
 
     /// Serialize the storage to a flat `D` buffer in `mapping`-order (the physical / wire layout),
     /// consuming the storage, delegating to the concrete storage's inherent serializer.
-    fn into_vec<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &MappingValue) -> Vec<D>;
+    fn into_vec<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &Mapping) -> Vec<D>;
 
     /// Serialize the storage to its dense physical device byte image (`mapping`-order, packed on
     /// `D::BITS`): the exact bytes that sit in HBM / DM, half the logical length for a 4-bit `D`. The
     /// default decodes to a logical `Vec<D>` and re-packs via [`Scalar::to_buf`]; a backend whose
     /// storage already IS the packed image (Cpu / Npu's [`crate::storage::BufStorage`]) overrides this to move the
     /// internal bytes out directly. Backs [`crate::tensor::memory::HbmTensor::to_buf`].
-    fn into_buf<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &MappingValue) -> Vec<u8> {
+    fn into_buf<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &Mapping) -> Vec<u8> {
         D::to_buf(&Self::into_vec(storage, mapping))
     }
 
@@ -123,8 +133,8 @@ pub trait Backend: Sized + 'static {
         src: &Self::Storage<D>,
         src_offset: &Index,
         dst_offset: &Index,
-        src_map: &MappingValue,
-        dst_map: &MappingValue,
+        src_map: &Mapping,
+        dst_map: &Mapping,
         allow_broadcast: bool,
     );
 
@@ -173,10 +183,10 @@ pub trait Backend: Sized + 'static {
     fn contraction<D: ContractionCast + MaterializableScalar>(
         lhs: &Self::Storage<D>,
         rhs: &Self::Storage<D>,
-        lhs_map: &MappingValue,
-        rhs_map: &MappingValue,
-        pre_reduce: &MappingValue,
-        out: &MappingValue,
+        lhs_map: &Mapping,
+        rhs_map: &Mapping,
+        pre_reduce: &Mapping,
+        out: &Mapping,
     ) -> Self::Storage<D>;
 
     /// [`Self::contraction`] over operands already at [`ContractionAccumulator`] width, so its widen and
@@ -184,10 +194,10 @@ pub trait Backend: Sized + 'static {
     fn contraction_prewidened<D: ContractionAccumulator>(
         lhs: &Self::Storage<D>,
         rhs: &Self::Storage<D>,
-        lhs_map: &MappingValue,
-        rhs_map: &MappingValue,
-        pre_reduce: &MappingValue,
-        out: &MappingValue,
+        lhs_map: &Mapping,
+        rhs_map: &Mapping,
+        pre_reduce: &Mapping,
+        out: &Mapping,
     ) -> Self::Storage<D>;
 
     /// Scatters `src` into `dst` at positions read from the same-backend `i32` index tensor.
@@ -227,22 +237,39 @@ pub trait Backend: Sized + 'static {
     /// `dst_map` order, producing a `dst_map.size()`-length buffer (a no-op when no padding is dropped).
     fn transmute<D: MaterializableScalar, Src: M, Dst: M>(
         storage: Self::Storage<D>,
-        src_map: &MappingValue,
-        dst_map: &MappingValue,
+        src_map: &Mapping,
+        dst_map: &Mapping,
     ) -> Self::Storage<D>;
 
     /// Transfer host tensor to HBM. Host-only: invoked from test/setup code over PCIe DMA, never
     /// from device kernel MIR, so no `#[primitive(...)]` annotation is needed.
     fn to_hbm<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
         host: &HostTensor<D, Element, Self>,
-    ) -> impl std::future::Future<Output = HbmTensor<D, Chip, Element2, Self>>;
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+    ) -> impl std::future::Future<Output = Result<HbmTensor<D, Chip, Element2, Self>, Error>>;
 
     /// Transfer HBM tensor to host. Host-only; see the `to_hbm` note above.
     fn from_hbm<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
         hbm: &HbmTensor<D, Chip, Element, Self>,
-    ) -> impl std::future::Future<Output = HostTensor<D, Element2, Self>>;
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+    ) -> impl std::future::Future<Output = Result<HostTensor<D, Element2, Self>, Error>>;
 
-    /// Bind the process to a logical [`Device`](crate::context::Device) before any host I/O. Only the
-    /// NPU backend acts on this; backends without a physical device default to a no-op.
-    fn bind_device(_device: crate::context::Device) {}
+    /// Transfer a host tensor into `hbm`, reusing its device allocation when it has one.
+    fn to_hbm_into<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
+        host: &HostTensor<D, Element, Self>,
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+        hbm: &mut HbmTensor<D, Chip, Element2, Self>,
+    ) -> impl std::future::Future<Output = Result<(), Error>>;
+
+    /// Transfer an HBM tensor into `host`'s own memory: pinned memory is the DMA's destination,
+    /// pageable memory is copied.
+    fn from_hbm_into<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
+        hbm: &HbmTensor<D, Chip, Element, Self>,
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+        host: &mut HostTensor<D, Element2, Self>,
+    ) -> impl std::future::Future<Output = Result<(), Error>>;
+
+    /// Host storage moved to page-locked memory, so transfers use it directly; a backend without
+    /// a device has nothing to pin and returns the storage unchanged.
+    fn pin<D: MaterializableScalar>(storage: Self::Storage<D>) -> Result<Self::Storage<D>, Error>;
 }

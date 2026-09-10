@@ -2,15 +2,21 @@
 
 use furiosa_mapping::*;
 use furiosa_opt_lower::{
-    VectorIntraSliceUnzipInput, VectorNarrowSplitInput, VectorNarrowTrimInput, VectorWidenConcatInput,
+    SliceRequest, VectorIntraSliceUnzipInput, VectorNarrowSplitInput, VectorNarrowTrimInput, VectorWidenConcatInput,
     VectorWidenPadInput,
 };
 
-pub(crate) fn verify_vector_intra_slice_unzip<I: AxisName, Time: M, Packet: M>() {
+pub(crate) fn verify_vector_intra_slice_unzip<I: AxisName, Time: M, SplitTime: M, Packet: M>() {
     furiosa_opt_lower::config_vector_intra_slice_unzip(VectorIntraSliceUnzipInput {
         group_axis: I::NAME,
         in_time: Time::to_value(),
         in_packet: Packet::to_value(),
+    })
+    .unwrap_or_else(|message| panic!("{message}"));
+    furiosa_opt_lower::config_slice(SliceRequest::Layout {
+        axes: vec![Symbol::<I>::to_value()],
+        element: Time::to_value(),
+        output: SplitTime::to_value(),
     })
     .unwrap_or_else(|message| panic!("{message}"));
 }
@@ -49,4 +55,16 @@ pub(crate) fn verify_vector_widen_pad<Packet: M, Packet2: M>() {
         out_packet: Packet2::to_value(),
     })
     .unwrap_or_else(|message| panic!("{message}"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    axes![I = 2, A = 16];
+
+    #[test]
+    fn accepts_unzip_output_with_group_axis_removed() {
+        verify_vector_intra_slice_unzip::<I, m![I, A / 8], m![A / 8], m![A % 8]>();
+    }
 }

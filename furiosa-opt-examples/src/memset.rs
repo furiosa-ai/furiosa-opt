@@ -37,11 +37,11 @@ type Relaid<D> = DmTensor<D, m![1], m![1 # 2], m![1 # 2, A / 2], m![A % 2, B]>;
 macro_rules! memset_kernel {
     ($name:ident, $d:ty, $value:expr) => {
         #[device(chip = 1)]
-        pub fn $name(ctx: &mut Context, input: &In<$d>) -> Out<$d> {
-            let mut dm: Dm<$d> = input.to_dm(&mut ctx.tdma);
-            dm.view_mut().memset($value, &mut ctx.sub);
-            let relaid: Relaid<$d> = dm.to_dm(&mut ctx.tdma);
-            relaid.to_hbm(&mut ctx.tdma)
+        pub fn $name(device: &mut Device, input: &In<$d>) -> Out<$d> {
+            let mut dm: Dm<$d> = input.to_dm(&mut device.tdma);
+            dm.view_mut().memset($value, &mut device.sub);
+            let relaid: Relaid<$d> = dm.to_dm(&mut device.tdma);
+            relaid.to_hbm(&mut device.tdma)
         }
     };
 }

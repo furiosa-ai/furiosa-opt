@@ -14,7 +14,8 @@
 //!
 //! The submodule layout follows `furiosa-opt-std/src/engine`: each verification lives under the matching
 //! engine subtree. The vector engine's five checks are consolidated into one `vector/tensor.rs` rather
-//! than split as they are in the frontend.
+//! than split as they are in the frontend. `slice` sits outside `engine` since it verifies DMA
+//! redistribution (`furiosa-opt-std/src/tensor/memory`), not a Tensor-Unit engine.
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
@@ -24,19 +25,22 @@ use furiosa_mapping::{Mapping, MappingExt};
 use crate::{DivideError, DivideInput, DivideTerm};
 
 pub mod engine;
+mod slice;
 
 pub use engine::{
     CastError, CastInput, CastKind, CollectError, CollectInput, CommitCastError, CommitCastInput, CommitCastKind,
     CommitTrimError, CommitTrimInput, ContractLaneError, ContractLaneInput, ContractPacketError, ContractPacketInput,
-    ContractTimeError, ContractTimeInput, FetchDimensionsInput, FetchLiftDimension, FetchLiftError, FetchLiftInput,
-    LaneMode, ReduceLabelInput, StreamAdapterError, StreamAdapterInput, ToTrfError, ToTrfInput, ToVrfError, ToVrfInput,
-    UnreadableCause, VectorError, VectorIntraSliceUnzipInput, VectorNarrowSplitInput, VectorNarrowTrimInput,
-    VectorWidenConcatInput, VectorWidenPadInput, VrfOperandError, VrfOperandInput, config_cast, config_collect,
-    config_commit_cast, config_commit_trim, config_contract_lane, config_contract_packet, config_contract_time,
-    config_fetch_dimensions, config_fetch_lift, config_reduce_label, config_stream_adapter, config_to_trf,
-    config_to_vrf, config_vector_intra_slice_unzip, config_vector_narrow_split, config_vector_narrow_trim,
-    config_vector_widen_concat, config_vector_widen_pad, config_vrf_operand,
+    ContractTimeError, ContractTimeInput, FetchContext, FetchDimensionsInput, FetchLiftDimension, FetchLiftError,
+    FetchLiftInput, FetchVolumeError, LaneMode, ReduceLabelInput, StreamAdapterError, StreamAdapterInput, ToTrfError,
+    ToTrfInput, ToVrfError, ToVrfInput, UnreadableCause, VectorError, VectorIntraSliceUnzipInput,
+    VectorNarrowSplitInput, VectorNarrowTrimInput, VectorWidenConcatInput, VectorWidenPadInput, VrfOperandError,
+    VrfOperandInput, config_cast, config_collect, config_commit_cast, config_commit_trim, config_contract_lane,
+    config_contract_packet, config_contract_time, config_fetch_dimensions, config_fetch_lift, config_fetch_volume,
+    config_reduce_label, config_stream_adapter, config_to_trf, config_to_vrf, config_vector_intra_slice_unzip,
+    config_vector_narrow_split, config_vector_narrow_trim, config_vector_widen_concat, config_vector_widen_pad,
+    config_vrf_operand,
 };
+pub use slice::*;
 
 /// Why an element count cannot be represented as an exact byte count.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -88,7 +92,8 @@ pub struct OneFlitPacketError {
 
 /// Bits in a byte.
 pub const BITS_PER_BYTE: usize = 8;
-/// Size of a single flit in bytes; the switching network moves data in flit-sized units.
+/// Size of a single flit in bytes; the switching network moves data in flit-sized units, and the
+/// fetch network carries one flit per go.
 pub const FLIT_BYTES: usize = 32;
 /// Vector register file capacity in bytes, per slice. One `to_vrf` operand must fit this.
 pub const VRF_BYTES: usize = 8 * 1024;
@@ -96,6 +101,10 @@ pub const VRF_BYTES: usize = 8 * 1024;
 pub const VRF_CACHE_BYTES: usize = 1024;
 /// Vector-engine element width in bits: the engine computes on 32-bit lanes only.
 pub(crate) const VE_ELEMENT_BITS: usize = 32;
+/// Bytes in one SRAM access word. A fetch reads whole words unless a cast widens it back to them.
+pub const SRAM_ACCESS_BYTES: usize = 8;
+/// Required address alignment for a DMA write into DM.
+pub const DM_WRITE_ALIGN_BYTES: usize = 8;
 /// Columns of the temporal accumulator (the packet reducer's output-width bound).
 pub const TEMPORAL_ACCUMULATOR_COLS: usize = 32;
 /// Elements of the lane-folder / packet-reducer output packet (one flit of `i32`/`f32`).

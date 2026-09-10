@@ -15,12 +15,12 @@ async fn launches() {
     type InputC = HbmTensor<i32, m![1], m![B, C]>;
     type InputD = HbmTensor<i32, m![1], m![B, D]>;
     type InputE = HbmTensor<i32, m![1], m![B, E]>;
-    let (mut ctx, c, d, e): (Context, InputC, InputD, InputE) = missing();
-    launch(bundle_copy, (&mut ctx, &c)).await;
-    launch(bundle_copy, (&mut ctx, &d)).await;
-    launch(bundle_copy, (&mut ctx, &e)).await;
-    launch(pair_copy, (&mut ctx, &c)).await;
-    launch(pair_copy, (&mut ctx, &d)).await;
+    let (mut device, c, d, e): (Device, InputC, InputD, InputE) = missing();
+    launch(bundle_copy, (&mut device, &c)).await.unwrap();
+    launch(bundle_copy, (&mut device, &d)).await.unwrap();
+    launch(bundle_copy, (&mut device, &e)).await.unwrap();
+    launch(pair_copy, (&mut device, &c)).await.unwrap();
+    launch(pair_copy, (&mut device, &d)).await.unwrap();
 }
 
 #[test]

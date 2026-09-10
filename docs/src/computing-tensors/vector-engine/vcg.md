@@ -122,9 +122,9 @@ fn reduce_time_only<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_only(i);
 ```
 
@@ -163,9 +163,9 @@ fn reduce_time_reordered<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_reordered(i);
 ```
 
@@ -218,9 +218,9 @@ fn reduce_slice_time_slicemajor<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_slice_time_slicemajor(i);
 ```
 
@@ -309,9 +309,9 @@ fn reduce_time_slice_timemajor<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_slice_timemajor(i);
 ```
 
@@ -422,9 +422,9 @@ fn reduce_packet_only<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_packet_only(i);
 ```
 
@@ -467,9 +467,9 @@ fn reduce_time_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_packet(i);
 ```
 
@@ -670,9 +670,9 @@ fn reduce_wrong_ordering<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_ordering(i);
 ```
 
@@ -705,9 +705,9 @@ fn reduce_wrong_interleave<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_interleave(i);
 ```
 
@@ -747,9 +747,9 @@ fn reduce_time_major_wrong<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_major_wrong(i);
 ```
 
@@ -782,9 +782,9 @@ fn reduce_wrong_packet_outer<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_packet_outer(i);
 ```
 
@@ -813,8 +813,8 @@ fn reduce_wrong_mixed_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
-# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_mixed_packet(i);
 ```
 
@@ -861,8 +861,8 @@ fn reduce_wrong_slice_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut ctx = Context::acquire();
-# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut ctx.main, Tensor::zero(), TagMode::Zero);
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_slice_packet(i);
 ```
 

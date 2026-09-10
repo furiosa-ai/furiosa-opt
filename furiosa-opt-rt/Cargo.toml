@@ -1,0 +1,26 @@
+[package]
+name = "furiosa-opt-rt"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+include = ["Cargo.toml", "README.md", "DESIGN.md", "build.rs", "src/", "prebuilt/"]
+
+[dependencies]
+bytemuck = "1"
+clap = { workspace = true }
+dma-heap = "0.4"
+env_logger = { workspace = true }
+furiosa-opt-abi = { path = "abi", version = "0.1.0" }
+furiosa-opt-ipc = { path = "ipc", version = "0.1.0" }
+io-uring = { workspace = true }
+log = { workspace = true }
+memmap2 = "0.9"
+nix = { workspace = true, features = ["fs", "ioctl", "mman"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

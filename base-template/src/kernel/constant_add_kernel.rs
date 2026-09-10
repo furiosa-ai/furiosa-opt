@@ -7,11 +7,11 @@ pub type Cluster = m![1 # 2];
 pub type Slice = m![A / 8 # 256];
 
 #[device(chip = 1)]
-pub fn constant_add_kernel(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
+pub fn constant_add_kernel(device: &mut Device, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
     // HBM → DM: split 2048 elements across 256 slices (8 elements per slice)
-    let dm = input.to_dm::<Cluster, Slice, m![A % 8]>(&mut ctx.tdma);
+    let dm = input.to_dm::<Cluster, Slice, m![A % 8]>(&mut device.tdma);
 
-    let result = ctx
+    let result = device
         .main
         .begin(dm.view())
         // Fetch: stream 8-element packets from DM into the pipeline
@@ -30,5 +30,5 @@ pub fn constant_add_kernel(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]
         .commit::<m![A % 8]>();
 
     // DM → HBM
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

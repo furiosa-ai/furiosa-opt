@@ -40,11 +40,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -66,7 +66,7 @@ impl<'l, const T: Tu, P: CanApplyCast, D: VeScalar, Chip: M, Cluster: M, Slice: 
         D: CastEngineCast<OutD>,
     {
         verify_cast::<D, OutD, Packet, OutPacket>();
-        CastTensor::new(self.ctx, self.inner.map(|v| v.cast()).transpose(false))
+        CastTensor::new(self.device, self.inner.map(|v| v.cast()).transpose(false))
     }
 }
 // ANCHOR_END: cast_impl

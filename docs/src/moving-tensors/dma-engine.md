@@ -18,15 +18,16 @@ See [Optimizations](#optimizations) for transfer throughput considerations.
 
 A DMA transfer takes a tensor in one memory tier and produces a tensor in another (or the same) tier.
 The kernel writer calls `.to_dm()`, `.to_hbm()`, or related methods on the source tensor, passing in a `DmaContext`:
-- `Context::tdma`: Tensor DMA context for on-chip transfers (HBM ↔ HBM, HBM ↔ DM, DM ↔ DM).
-- `Context::pdma`: PCIe DMA context for host ↔ HBM transfers (see [PCIe DMA](#pcie-dma)).
+- `Device::tdma`: Tensor DMA context for on-chip transfers (HBM ↔ HBM, HBM ↔ DM, DM ↔ DM).
+- `Device::pdma`: PCIe DMA context for host ↔ HBM transfers (see [PCIe DMA](#pcie-dma)).
 
 ```rust,ignore
 {{#include ../../../furiosa-opt-std/src/tensor/memory.rs:dma_impl}}
 ```
 
 The compiler derives the read and write sequencer configurations from the source and destination tensor types.
-The kernel writer specifies the destination type's `Cluster`, `Slice`, and `Element` (for DM tensors) or `Element` (for HBM tensors), which encode the layout transformation.
+An HBM-to-DM transfer keeps the HBM `Chip` dimension and specifies the destination `Cluster`, `Slice`, and `Element` dimensions.
+A DM-to-DM transfer may specify new `Chip`, `Cluster`, `Slice`, and `Element` dimensions, while an HBM destination specifies `Chip` and `Element`.
 
 The example below transposes a tensor from `[A, B, C]` to `[C, A, B]` using two HBM-to-HBM transfers:
 
@@ -36,19 +37,19 @@ The example below transposes a tensor from `[A, B, C]` to `[C, A, B]` using two 
 axes![A = 8, B = 16, C = 32];
 
 fn transpose_simple(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, m![1], m![A, B, C]>,
 ) -> HbmTensor<f32, m![1], m![C, A, B]> {
     // Step 1: [A, B, C] → [A, C, B]
-    let intermediate: HbmTensor<f32, m![1], m![A, C, B]> = input.to_hbm(&mut ctx.tdma);
+    let intermediate: HbmTensor<f32, m![1], m![A, C, B]> = input.to_hbm(&mut device.tdma);
 
     // Step 2: [A, C, B] → [C, A, B]
-    intermediate.to_hbm(&mut ctx.tdma)
+    intermediate.to_hbm(&mut device.tdma)
 }
 #
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # let in_hbm = HbmTensor::<f32, m![1], m![A, B, C]>::new();
-# let _out_hbm = transpose_simple(&mut ctx, &in_hbm);
+# let _out_hbm = transpose_simple(&mut device, &in_hbm);
 ```
 
 A transfer that crosses tiers also takes a layout transformation through the destination type's mapping.
@@ -60,15 +61,15 @@ For an HBM-to-DM transfer, the destination DM tensor adds `Cluster` and `Slice` 
 axes![A = 2048];
 
 fn hbm_to_dm(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, m![1], m![A]>,
 ) -> DmTensor<i8, m![1], m![1 # 2], m![A / 8], m![A % 8]> {
-    input.to_dm::<m![1 # 2], m![A / 8], m![A % 8]>(&mut ctx.tdma)
+    input.to_dm::<m![1 # 2], m![A / 8], m![A % 8]>(&mut device.tdma)
 }
 #
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # let in_hbm = HbmTensor::<i8, m![1], m![A]>::new();
-# let _out_dm = hbm_to_dm(&mut ctx, &in_hbm);
+# let _out_dm = hbm_to_dm(&mut device, &in_hbm);
 ```
 
 Here the 2,048-element vector is distributed as 256 elements per slice (`Slice = m![A / 8]`) with 8 elements per slice (`Element = m![A % 8]`), spread across 2 clusters.
@@ -480,30 +481,259 @@ Choose tensor shapes that divide evenly across DMNs to avoid this segmentation c
 
 ## Redistribution Operations
 
-Cluster swap exchanges clusters 0 and 1. Chip shuffle redistributes a tensor according to a
-per-chip source pattern. These methods follow the `to_dm` / `to_hbm` convention.
-`dm_cluster_swap` and `dm_chip_shuffle` are methods on `DmTensorView`; `hbm_cluster_shuffle` and `hbm_chip_shuffle` are methods on `HbmTensor`.
-The chip-shuffle pattern specifies, for each destination chip, which source chip provides its data. A cluster swap exchanges clusters 0 and 1.
+SRAM redistribution builds a redistribution plan from `DmTensor` or `DmTensorView` and executes it with `to_dm` or `to_dm_view`.
+Every stage before the terminal method is fused into one DMA operation.
+These operations route partial values between chips or clusters and select the shard needed by each target.
+See [Chip and Cluster Reduction](../kernel-examples/chip-cluster-reduce.md) for complete reduction examples that use these operations to route and select partial values.
+
+### Interface Summary
+
+Choose an operation by the dimension that supplies the source or the selected `Element` coordinate:
+
+| API | Meaning | Shape effect | Execution |
+| --- | --- | --- | --- |
+| `source.chip_shuffle(sources)` | Select one source chip for each target chip | None | Deferred Tensor DMA |
+| `source.cluster_swap()` | Exchange source clusters 0 and 1 within each chip | None | Deferred Tensor DMA |
+| `source.chip_slice::<Axis, Output>(indices)` | Select one `Axis` coordinate for each target chip | Change `Element` to `Output` | Deferred Tensor DMA |
+| `source.cluster_slice::<Axis, Output>(indices)` | Select one `Axis` coordinate for each target cluster | Change `Element` to `Output` | Deferred Tensor DMA |
+| `tensor.asymmetric_chip_slice::<Axis, Output>(...)` | Select one local `Axis` coordinate for each chip | Remove `Axis` from `Element` | Immediate sub-context parallel copy |
+| `tensor.asymmetric_cluster_slice::<Axis, Output>(...)` | Select one local `Axis` coordinate for each cluster | Remove `Axis` from `Element` | Immediate sub-context parallel copy |
+| `source.hbm_chip_shuffle(dma, sources)` | Select one source chip for each target HBM chip | None | Immediate HBM DMA |
+
+In this table, `source` may be a tensor or a view.
+An SRAM view may contain an `Element` tile, while `Chip` and `Cluster` tiles are not supported as redistribution inputs.
+The four SRAM methods return a deferred redistribution plan, so they can be chained before one terminal call.
+`to_dm` materializes that plan into a fresh destination tensor, while `to_dm_view` writes the same logical result into an existing destination view such as a tile.
+Axis permutation comes from the destination mapping and is independent of which terminal is used.
+The result mapping describes the destination layout, but does not record which source placement or slice coordinate supplied each value.
+Read the redistribution stages and their arrays to determine those value semantics.
+The compiler derives synchronization from the completed plan: a source chip change inserts `ChipSync`, a source cluster change inserts `ClusterSync`, and a plan containing both inserts both.
+A plan that only slices local data inserts neither synchronization.
+
+### Tensor DMA Semantics
+
+The examples below use four chips, two clusters, 256 slices, and a local `[B, C, D]` element shape:
 
 ```rust
 # extern crate furiosa_opt_std;
 # use furiosa_opt_std::prelude::*;
-axes![A = 256, B = 4096];
-
-fn cluster_swap(
-    ctx: &mut Context,
-    input: &DmTensor<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]>,
-) -> DmTensor<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]> {
-    input.view().dm_cluster_swap(&mut ctx.tdma)
-}
-# let mut ctx = Context::acquire();
-# let input_dm = DmTensor::<i32, m![A / 4 % 4], m![A / 2 % 2], m![B % 16, B / 16 % 16], m![B / 256, A % 2, A / 16]>::new();
-# let _output_dm = cluster_swap(&mut ctx, &input_dm);
+axes![ChipAxis = 4, ClusterAxis = 2, B = 4, C = 8, D = 8];
 ```
 
+In the tables, `in[p, k, b, c, d]` denotes the input value on source chip `p`, source cluster `k`, at local `Element` coordinate `[b, c, d]`.
+The result is named `out`, and all rows refer to the same live slice.
+
+#### Chip Shuffle
+
+`chip_shuffle(sources)` routes each target chip from the source chip at the same position in `sources`.
+The pattern below means that target chips 0, 1, 2, and 3 read source chips 1, 2, 3, and 0 respectively.
+It changes which chip supplies each value without changing the tensor shape.
+
+For either target cluster `k` and every local coordinate `[b, c, d]`:
+
+| Target chip | Target cluster | Output element | Source chip | Source cluster | Source element | Output value |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | `k` | `[b, c, d]` | 1 | `k` | `[b, c, d]` | `out[0, k, b, c, d] = in[1, k, b, c, d]` |
+| 1 | `k` | `[b, c, d]` | 2 | `k` | `[b, c, d]` | `out[1, k, b, c, d] = in[2, k, b, c, d]` |
+| 2 | `k` | `[b, c, d]` | 3 | `k` | `[b, c, d]` | `out[2, k, b, c, d] = in[3, k, b, c, d]` |
+| 3 | `k` | `[b, c, d]` | 0 | `k` | `[b, c, d]` | `out[3, k, b, c, d] = in[0, k, b, c, d]` |
+
+```rust
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+# axes![ChipAxis = 4, ClusterAxis = 2, B = 4, C = 8, D = 8];
+fn chip_shuffle(
+    device: &mut Device,
+    dm: &DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]>,
+) -> DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]> {
+    dm.chip_shuffle([1, 2, 3, 0]).to_dm(&mut device.tdma)
+}
+```
+
+#### HBM Chip Shuffle
+
+`HbmTensor::hbm_chip_shuffle` and `HbmTensorView::hbm_chip_shuffle` copy each target chip slot from the source chip selected by `sources` and return a fresh `HbmTensor` with the same `Chip` and `Element` mappings.
+The source list follows `sources[target_chip] = source_chip` and must be a permutation of every position in `Chip`.
 Inter-chip shuffles use the system-wide global chip IDs.
-`hbm_chip_shuffle` is generic over the DMA context (`tdma` or `pdma`) because the cross-chip operation is HBM ↔ HBM, and HBM ↔ HBM is the one DMA pair that both Tensor DMA and PCIe DMA support.
-The other shuffle methods, and DMA pairs like HBM ↔ DM and DM ↔ DM in general, are not context-generic.
+
+For every element coordinate `e`, the pattern `[1, 2, 3, 0]` has the following value semantics:
+Here, `in[p, e]` is the input on source chip `p`, and `out[t, e]` is the result on target chip `t`.
+
+| Target chip | Source chip | Output value |
+| --- | --- | --- |
+| 0 | 1 | `out[0, e] = in[1, e]` |
+| 1 | 2 | `out[1, e] = in[2, e]` |
+| 2 | 3 | `out[2, e] = in[3, e]` |
+| 3 | 0 | `out[3, e] = in[0, e]` |
+
+```rust
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+axes![HbmChip = 4, HbmElement = 256];
+
+fn hbm_chip_shuffle(
+    device: &mut Device,
+    hbm: &HbmTensor<i32, m![HbmChip], m![HbmElement]>,
+) -> HbmTensor<i32, m![HbmChip], m![HbmElement]> {
+    hbm.hbm_chip_shuffle(&mut device.tdma, &[1, 2, 3, 0])
+}
+```
+
+The DMA argument may be either `tdma` or `pdma` because both engines support HBM-to-HBM transfers.
+
+#### Cluster Swap
+
+`cluster_swap()` exchanges source clusters 0 and 1 within every chip.
+It changes which cluster supplies each value without changing the tensor shape.
+
+For every target chip `p` and local coordinate `[b, c, d]`:
+
+| Target chip | Target cluster | Output element | Source chip | Source cluster | Source element | Output value |
+| --- | --- | --- | --- | --- | --- | --- |
+| `p` | 0 | `[b, c, d]` | `p` | 1 | `[b, c, d]` | `out[p, 0, b, c, d] = in[p, 1, b, c, d]` |
+| `p` | 1 | `[b, c, d]` | `p` | 0 | `[b, c, d]` | `out[p, 1, b, c, d] = in[p, 0, b, c, d]` |
+
+```rust
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+# axes![ChipAxis = 4, ClusterAxis = 2, B = 4, C = 8, D = 8];
+fn cluster_swap(
+    device: &mut Device,
+    dm: &DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]>,
+) -> DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]> {
+    dm.cluster_swap().to_dm(&mut device.tdma)
+}
+```
+
+#### Chip Slice
+
+`chip_slice::<Axis, Output>(indices)` selects one live `Axis` position for each target chip and declares the remaining `Element` mapping as `Output`.
+With `[0, 1, 2, 3]`, target chip `t` keeps position `t` of `B`, and the result removes `B` from `Element`.
+
+For either target cluster `k` and every result coordinate `[c, d]`:
+
+| Target chip | Target cluster | Output element | Source chip | Source cluster | Source element | Output value |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | `k` | `[c, d]` | 0 | `k` | `[0, c, d]` | `out[0, k, c, d] = in[0, k, 0, c, d]` |
+| 1 | `k` | `[c, d]` | 1 | `k` | `[1, c, d]` | `out[1, k, c, d] = in[1, k, 1, c, d]` |
+| 2 | `k` | `[c, d]` | 2 | `k` | `[2, c, d]` | `out[2, k, c, d] = in[2, k, 2, c, d]` |
+| 3 | `k` | `[c, d]` | 3 | `k` | `[3, c, d]` | `out[3, k, c, d] = in[3, k, 3, c, d]` |
+
+```rust
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+# axes![ChipAxis = 4, ClusterAxis = 2, B = 4, C = 8, D = 8];
+fn chip_slice(
+    device: &mut Device,
+    dm: &DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]>,
+) -> DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![C, D]> {
+    dm.chip_slice::<m![B], m![C, D]>([0, 1, 2, 3])
+        .to_dm(&mut device.tdma)
+}
+```
+
+#### Cluster Slice
+
+`cluster_slice::<Axis, Output>(indices)` selects one live `Axis` position for each target cluster and declares the remaining `Element` mapping as `Output`.
+With `[1, 0]`, target clusters 0 and 1 keep positions 1 and 0 of `B` respectively, and the result removes `B` from `Element`.
+
+For every target chip `p` and result coordinate `[c, d]`:
+
+| Target chip | Target cluster | Output element | Source chip | Source cluster | Source element | Output value |
+| --- | --- | --- | --- | --- | --- | --- |
+| `p` | 0 | `[c, d]` | `p` | 0 | `[1, c, d]` | `out[p, 0, c, d] = in[p, 0, 1, c, d]` |
+| `p` | 1 | `[c, d]` | `p` | 1 | `[0, c, d]` | `out[p, 1, c, d] = in[p, 1, 0, c, d]` |
+
+```rust
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+# axes![ChipAxis = 4, ClusterAxis = 2, B = 4, C = 8, D = 8];
+fn cluster_slice(
+    device: &mut Device,
+    dm: &DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]>,
+) -> DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![C, D]> {
+    dm.cluster_slice::<m![B], m![C, D]>([1, 0])
+        .to_dm(&mut device.tdma)
+}
+```
+
+#### Combining Stages
+
+Redistribution stages follow their physical order: an optional chip shuffle, an optional cluster swap, zero or more chip slices, and then zero or more cluster slices.
+Both terminals combine the completed plan into one DMA operation.
+`to_dm` creates a fresh destination tensor, while `to_dm_view` writes into the supplied destination view.
+Calling a slice method more than once removes multiple axes in that same DMA.
+
+The fused example below produces the following placement and element-coordinate mapping for every remaining `d`:
+
+| Target chip | Target cluster | Output element | Source chip | Source cluster | Source element | Output value |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | `[d]` | 1 | 1 | `[0, 3, d]` | `out[0, 0, d] = in[1, 1, 0, 3, d]` |
+| 0 | 1 | `[d]` | 1 | 0 | `[0, 7, d]` | `out[0, 1, d] = in[1, 0, 0, 7, d]` |
+| 1 | 0 | `[d]` | 2 | 1 | `[1, 3, d]` | `out[1, 0, d] = in[2, 1, 1, 3, d]` |
+| 1 | 1 | `[d]` | 2 | 0 | `[1, 7, d]` | `out[1, 1, d] = in[2, 0, 1, 7, d]` |
+| 2 | 0 | `[d]` | 3 | 1 | `[2, 3, d]` | `out[2, 0, d] = in[3, 1, 2, 3, d]` |
+| 2 | 1 | `[d]` | 3 | 0 | `[2, 7, d]` | `out[2, 1, d] = in[3, 0, 2, 7, d]` |
+| 3 | 0 | `[d]` | 0 | 1 | `[3, 3, d]` | `out[3, 0, d] = in[0, 1, 3, 3, d]` |
+| 3 | 1 | `[d]` | 0 | 0 | `[3, 7, d]` | `out[3, 1, d] = in[0, 0, 3, 7, d]` |
+
+```rust
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+# axes![ChipAxis = 4, ClusterAxis = 2, B = 4, C = 8, D = 8];
+fn fused_redistribution(
+    device: &mut Device,
+    dm: &DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]>,
+) -> DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![D]> {
+    dm.view()
+        .chip_shuffle([1, 2, 3, 0])
+        .cluster_swap()
+        .chip_slice::<m![B], m![C, D]>([0, 1, 2, 3])
+        .cluster_slice::<m![C], m![D]>([3, 7])
+        .to_dm(&mut device.tdma)
+}
+```
+
+### Sub-Context Chip and Cluster Slice
+
+`asymmetric_chip_slice` and `asymmetric_cluster_slice` operate directly on `DmTensor` through the sub-context:
+
+```rust
+# extern crate furiosa_opt_std;
+# use furiosa_opt_std::prelude::*;
+# axes![ChipAxis = 4, ClusterAxis = 2, B = 4, C = 8, D = 8];
+
+fn sub_context_chip_slice(
+    device: &mut Device,
+    dm: &DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]>,
+) -> DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![C, D]> {
+    dm.asymmetric_chip_slice::<m![B], m![C, D]>(&mut device.sub, &[3, 0, 1, 2])
+}
+
+fn sub_context_cluster_slice(
+    device: &mut Device,
+    dm: &DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![B, C, D]>,
+) -> DmTensor<i32, m![ChipAxis], m![ClusterAxis], m![1 # 256], m![C, D]> {
+    dm.asymmetric_cluster_slice::<m![B], m![C, D]>(&mut device.sub, &[1, 0])
+}
+```
+
+Each operation selects one axis through parallel copy without moving data along the `Chip` or `Cluster` dimensions.
+
+### Redistribution Constraints
+
+`cluster_swap()` requires exactly two clusters.
+The source chip list must be a permutation, and every live target must read a live source chip or cluster index.
+Slice arrays must have one live index per target chip or cluster.
+A fused plan must select one source chip per destination chip and one source cluster per destination cluster, matching the available synchronization protocols.
+`chip_slice::<m![B, C]>` treats `m![B, C]` as one contiguous mapping with one linear index.
+To slice separately located axes, chain one method call per axis.
+
+### Performance
+
+SRAM redistribution follows the DMA [alignment and packet constraints](#constraints).
+As a rule of thumb, choose an `Element` mapping with aligned DM writes and long contiguous runs so the compiler can form efficient packets.
+Use a sub-context slice for one local axis, or use the `DmTensorView` chain when a slice must be fused with a shuffle or when several axes must be sliced in one DMA.
 
 ## Scatter and Gather
 
@@ -520,13 +750,13 @@ The two gather variants differ only in where the index lives and how its values 
 axes![K = 512, D = 128, C = 612, G = 512, CL = 2];
 
 fn scatter_minimal(
-    ctx: &mut Context,
+    device: &mut Device,
     data: &HbmTensor<bf16, m![1], m![K, D]>,
     index: &HbmTensor<i32, m![1], m![K]>,
     output: &mut HbmTensor<bf16, m![1], m![C, D]>,
 ) {
     let data_dm: DmTensor<bf16, m![1], m![1 # 2], m![K / 2], m![K % 2, D]> =
-        data.to_dm(&mut ctx.tdma);
+        data.to_dm(&mut device.tdma);
 
     data_dm.dma_scatter::<m![K], _, _>(index, output);
 }
@@ -543,29 +773,29 @@ fn gather_minimal(
 }
 
 fn gather_unscaled(
-    ctx: &mut Context,
+    device: &mut Device,
     table: &HbmTensor<bf16, m![1], m![K, D]>,
     // Raw row positions per cluster. The kernel stages the index on-chip with `to_dm`;
     // a real per-cluster (`CL`) partition avoids broadcast padding.
     index: &HbmTensor<i32, m![1], m![CL, G]>,
 ) -> DmTensor<bf16, m![1], m![CL], m![G / 2], m![G % 2, D]> {
     let index_dm: DmTensor<i32, m![1], m![CL], m![G / 2], m![G % 2]> =
-        index.to_dm(&mut ctx.tdma);
+        index.to_dm(&mut device.tdma);
     table.dma_gather_unscaled(&index_dm)
 }
 #
 # #[tokio::main]
 # async fn main() {
-#     let mut ctx = Context::acquire();
+#     let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-#     let index = &(HostTensor::<i32, m![K]>::zero().to_hbm(&mut ctx.pdma).await);
+#     let index = &(HostTensor::<i32, m![K]>::zero().to_hbm(&mut device.pdma).await.unwrap());
 #     let data = HbmTensor::<bf16, m![1], m![K, D]>::new();
 #     let mut output_hbm = HbmTensor::<bf16, m![1], m![C, D]>::new();
 # 
-#     scatter_minimal(&mut ctx, &data, &index, &mut output_hbm);
-#     gather_minimal(&data, &(HostTensor::<i32, m![G]>::zero().to_hbm(&mut ctx.pdma).await));
-#     let placed_index = &(HostTensor::<i32, m![CL, G]>::zero().to_hbm(&mut ctx.pdma).await);
-#     gather_unscaled(&mut ctx, &data, placed_index);
+#     scatter_minimal(&mut device, &data, &index, &mut output_hbm);
+#     gather_minimal(&data, &(HostTensor::<i32, m![G]>::zero().to_hbm(&mut device.pdma).await.unwrap()));
+#     let placed_index = &(HostTensor::<i32, m![CL, G]>::zero().to_hbm(&mut device.pdma).await.unwrap());
+#     gather_unscaled(&mut device, &data, placed_index);
 # }
 ```
 
@@ -576,7 +806,7 @@ To address row `r`, pass `r` times one row's byte size (its element count times 
 
 ## PCIe DMA
 
-PCIe DMA (`Context::pdma`) moves tensors between host system memory and device HBM.
+PCIe DMA (`Device::pdma`) moves tensors between host system memory and device HBM.
 It is a separate physical engine from the on-chip Tensor DMA.
 PCIe DMA handles only host ↔ HBM, while Tensor DMA handles all on-chip transfers.
 
@@ -589,15 +819,16 @@ Both are async operations.
 # use rand::{rngs::SmallRng, SeedableRng};
 axes![A = 8, B = 512];
 
-async fn upload_and_download(ctx: &mut Context) {
+async fn upload_and_download(device: &mut Device) -> Result<(), Error> {
     let mut rng = SmallRng::seed_from_u64(0);
     let host: HostTensor<i8, m![A, B]> = HostTensor::rand(&mut rng);
 
     // Host → HBM (allocator-assigned address)
-    let hbm: HbmTensor<i8, m![A], m![B]> = host.to_hbm(&mut ctx.pdma).await;
+    let hbm: HbmTensor<i8, m![A], m![B]> = host.to_hbm(&mut device.pdma).await?;
 
     // HBM → host (back to system memory)
-    let _round_tripped: HostTensor<i8, m![A, B]> = hbm.to_host(&mut ctx.pdma).await;
+    let _round_tripped: HostTensor<i8, m![A, B]> = hbm.to_host(&mut device.pdma).await?;
+    Ok(())
 }
 ```
 

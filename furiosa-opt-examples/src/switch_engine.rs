@@ -20,12 +20,12 @@ type OutSlice = m![A, Y];
 
 #[device(chip = 1)]
 pub fn custom_broadcast(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A, B, V]>,
 ) -> HbmTensor<bf16, Chip, m![A, Y, B, V]> {
-    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![B, V]> = input.to_dm::<Cluster, Slice, m![B, V]>(&mut ctx.tdma);
+    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![B, V]> = input.to_dm::<Cluster, Slice, m![B, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, OutSlice, m![B, V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, OutSlice, m![B, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -34,19 +34,19 @@ pub fn custom_broadcast(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![A, Y, B, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![A, Y, B, V]>(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn custom_broadcast_twice(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A, B, V]>,
 ) -> (
     HbmTensor<bf16, Chip, m![A, Y, B, V]>,
     HbmTensor<bf16, Chip, m![A, Y, B, V]>,
 ) {
-    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![B, V]> = input.to_dm::<Cluster, Slice, m![B, V]>(&mut ctx.tdma);
-    let output0: DmTensor<bf16, Chip, Cluster, OutSlice, m![B, V]> = ctx
+    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![B, V]> = input.to_dm::<Cluster, Slice, m![B, V]>(&mut device.tdma);
+    let output0: DmTensor<bf16, Chip, Cluster, OutSlice, m![B, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -54,7 +54,7 @@ pub fn custom_broadcast_twice(
         .collect::<m![B], m![V]>()
         .commit_trim::<m![V]>()
         .commit();
-    let output1: DmTensor<bf16, Chip, Cluster, OutSlice, m![B, V]> = ctx
+    let output1: DmTensor<bf16, Chip, Cluster, OutSlice, m![B, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -62,8 +62,8 @@ pub fn custom_broadcast_twice(
         .collect::<m![B], m![V]>()
         .commit_trim::<m![V]>()
         .commit();
-    let output0 = output0.to_hbm::<m![A, Y, B, V]>(&mut ctx.tdma);
-    let output1 = output1.to_hbm::<m![A, Y, B, V]>(&mut ctx.tdma);
+    let output0 = output0.to_hbm::<m![A, Y, B, V]>(&mut device.tdma);
+    let output1 = output1.to_hbm::<m![A, Y, B, V]>(&mut device.tdma);
     (output0, output1)
 }
 
@@ -73,13 +73,13 @@ axes![A2 = 128, Y2 = 2];
 
 #[device(chip = 1)]
 pub fn custom_broadcast_ring2(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A2, B, V]>,
 ) -> HbmTensor<bf16, Chip, m![A2, Y2, B, V]> {
     let dm: DmTensor<bf16, Chip, Cluster, m![A2, 1 # 2], m![B, V]> =
-        input.to_dm::<Cluster, m![A2, 1 # 2], m![B, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, m![A2, 1 # 2], m![B, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![A2, Y2], m![B, V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![A2, Y2], m![B, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -88,7 +88,7 @@ pub fn custom_broadcast_ring2(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![A2, Y2, B, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![A2, Y2, B, V]>(&mut device.tdma)
 }
 
 // ── custom_broadcast_ring8 ──────────────────────────────────────────────────────────
@@ -97,13 +97,13 @@ axes![A8 = 32, Y8 = 8];
 
 #[device(chip = 1)]
 pub fn custom_broadcast_ring8(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A8, B, V]>,
 ) -> HbmTensor<bf16, Chip, m![A8, Y8, B, V]> {
     let dm: DmTensor<bf16, Chip, Cluster, m![A8, 1 # 8], m![B, V]> =
-        input.to_dm::<Cluster, m![A8, 1 # 8], m![B, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, m![A8, 1 # 8], m![B, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![A8, Y8], m![B, V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![A8, Y8], m![B, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -112,7 +112,7 @@ pub fn custom_broadcast_ring8(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![A8, Y8, B, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![A8, Y8, B, V]>(&mut device.tdma)
 }
 
 // ── custom_broadcast_multi (ring 16) ────────────────────────────────────────────────
@@ -122,13 +122,13 @@ axes![Am = 16, Ym = 4, Zm = 4];
 
 #[device(chip = 1)]
 pub fn custom_broadcast_multi(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![Am, B, V]>,
 ) -> HbmTensor<bf16, Chip, m![Am, Ym, Zm, B, V]> {
     let dm: DmTensor<bf16, Chip, Cluster, m![Am, 1 # 4, 1 # 4], m![B, V]> =
-        input.to_dm::<Cluster, m![Am, 1 # 4, 1 # 4], m![B, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, m![Am, 1 # 4, 1 # 4], m![B, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![Am, Ym, Zm], m![B, V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![Am, Ym, Zm], m![B, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -137,7 +137,7 @@ pub fn custom_broadcast_multi(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![Am, Ym, Zm, B, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![Am, Ym, Zm, B, V]>(&mut device.tdma)
 }
 
 // ── custom_broadcast_moved_axis (multi-bit bitmap) ──────────────────────────────────
@@ -151,13 +151,13 @@ axes![P = 64, Q = 4, Yt = 4];
 
 #[device(chip = 1)]
 pub fn custom_broadcast_moved_axis(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![P, Q, B, V]>,
 ) -> HbmTensor<bf16, Chip, m![P, Yt, B, Q, V]> {
     let dm: DmTensor<bf16, Chip, Cluster, m![P, Q], m![B, V]> =
-        input.to_dm::<Cluster, m![P, Q], m![B, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, m![P, Q], m![B, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![P, Yt], m![B, Q, V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![P, Yt], m![B, Q, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -166,7 +166,7 @@ pub fn custom_broadcast_moved_axis(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![P, Yt, B, Q, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![P, Yt, B, Q, V]>(&mut device.tdma)
 }
 
 // ── custom_broadcast_transpose (relocation) ─────────────────────────────────────────
@@ -178,13 +178,13 @@ axes![Pt = 32, Qt = 8];
 
 #[device(chip = 1)]
 pub fn custom_broadcast_transpose(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![Pt, Qt, B, V]>,
 ) -> HbmTensor<bf16, Chip, m![Qt, Pt, B, V]> {
     let dm: DmTensor<bf16, Chip, Cluster, m![Pt, Qt], m![B, V]> =
-        input.to_dm::<Cluster, m![Pt, Qt], m![B, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, m![Pt, Qt], m![B, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![Qt, Pt], m![B, V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![Qt, Pt], m![B, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -193,7 +193,7 @@ pub fn custom_broadcast_transpose(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![Qt, Pt, B, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![Qt, Pt, B, V]>(&mut device.tdma)
 }
 
 // ── custom_broadcast_split_tile (ring 256) ──────────────────────────────────────────
@@ -204,13 +204,13 @@ axes![Ps = 64, Ls = 4];
 
 #[device(chip = 1)]
 pub fn custom_broadcast_split_tile(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![Ps, B, V]>,
 ) -> HbmTensor<bf16, Chip, m![Ls / 2, Ps, Ls % 2, B, V]> {
     let dm: DmTensor<bf16, Chip, Cluster, m![1 # 2, Ps, 1 # 2], m![B, V]> =
-        input.to_dm::<Cluster, m![1 # 2, Ps, 1 # 2], m![B, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, m![1 # 2, Ps, 1 # 2], m![B, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![Ls / 2, Ps, Ls % 2], m![B, V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![Ls / 2, Ps, Ls % 2], m![B, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![B], m![V]>()
@@ -219,5 +219,5 @@ pub fn custom_broadcast_split_tile(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![Ls / 2, Ps, Ls % 2, B, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![Ls / 2, Ps, Ls % 2, B, V]>(&mut device.tdma)
 }

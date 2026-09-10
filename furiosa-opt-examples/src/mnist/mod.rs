@@ -6,21 +6,22 @@ type Chip = m![1];
 type Cluster = m![1 # 2];
 
 fn fc1_matmul(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![X]>,
     weight: &HbmTensor<bf16, Chip, m![H, X]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![H], m![1 # 16]> {
-    let input_dm: DmTensor<bf16, Chip, Cluster, m![H], m![X]> = input.to_dm(&mut ctx.tdma);
-    let weight_dm: DmTensor<bf16, Chip, Cluster, m![H], m![X]> = weight.to_dm(&mut ctx.tdma);
+    let input_dm: DmTensor<bf16, Chip, Cluster, m![H], m![X]> = input.to_dm(&mut device.tdma);
+    let weight_dm: DmTensor<bf16, Chip, Cluster, m![H], m![X]> = weight.to_dm(&mut device.tdma);
 
-    let input_trf: TrfTensor<bf16, Chip, Cluster, m![H], m![1], m![X]> = ctx
+    let input_trf: TrfTensor<bf16, Chip, Cluster, m![H], m![1], m![X]> = device
         .sub
         .begin(input_dm.view())
         .fetch::<m![1], m![X]>()
         .collect::<m![X / 16], m![X % 16]>()
         .to_trf();
 
-    ctx.main
+    device
+        .main
         .begin(weight_dm.view())
         .fetch::<m![X / 16], m![X % 16]>()
         .collect::<m![X / 16], m![X % 16]>()
@@ -34,11 +35,11 @@ fn fc1_matmul(
 }
 
 fn fc1_bias_prepared(
-    ctx: &mut Context,
+    device: &mut Device,
     bias: &HbmTensor<bf16, Chip, m![H]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![H], m![1 # 16]> {
-    let bias_dm_0: DmTensor<bf16, Chip, Cluster, m![H / 8, 1 # 8], m![H % 8]> = bias.to_dm(&mut ctx.tdma);
-    let bias_dm_1: DmTensor<bf16, Chip, Cluster, m![H / 8, 1 # 8], m![H % 8, 1 # 8]> = ctx
+    let bias_dm_0: DmTensor<bf16, Chip, Cluster, m![H / 8, 1 # 8], m![H % 8]> = bias.to_dm(&mut device.tdma);
+    let bias_dm_1: DmTensor<bf16, Chip, Cluster, m![H / 8, 1 # 8], m![H % 8, 1 # 8]> = device
         .main
         .begin(bias_dm_0.view())
         .fetch::<m![1], m![H % 8]>()
@@ -47,7 +48,7 @@ fn fc1_bias_prepared(
         .commit_trim::<m![1 # 8]>()
         .commit();
     let bias_dm_2: DmTensor<bf16, Chip, Cluster, m![H / 8, Dummy8], m![H % 8, 1 # 8]> = unsafe { bias_dm_1.reshape() };
-    let bias_dm_3: DmTensor<bf16, Chip, Cluster, m![H], m![Dummy8 # 16]> = ctx
+    let bias_dm_3: DmTensor<bf16, Chip, Cluster, m![H], m![Dummy8 # 16]> = device
         .main
         .begin(bias_dm_2.view())
         .fetch::<m![H % 8], m![1 # 8]>()
@@ -65,21 +66,22 @@ fn fc1_bias_prepared(
 }
 
 fn fc1_relu(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![X]>,
     weight: &HbmTensor<bf16, Chip, m![H, X]>,
     bias: &HbmTensor<bf16, Chip, m![H]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![H], m![1 # 4]> {
-    let matmul = fc1_matmul(ctx, input, weight);
-    let bias_dm_4 = fc1_bias_prepared(ctx, bias);
+    let matmul = fc1_matmul(device, input, weight);
+    let bias_dm_4 = fc1_bias_prepared(device, bias);
 
-    ctx.main
+    device
+        .main
         .begin_interleaved::<I, _, _, _, _, _>(matmul.view(), bias_dm_4.view())
         .fetch::<m![I], m![1 # 4]>()
         .fetch_cast::<f32>()
         .collect::<m![I], m![1 # 8]>()
         .vector_init()
-        .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
+        .vector_intra_slice_unzip::<I, m![1]>()
         .vector_clip_zip(ClipBinaryOpF32::Add)
         .vector_clip(ClipBinaryOpF32::Max, 0.0f32)
         .vector_final()
@@ -89,21 +91,22 @@ fn fc1_relu(
 }
 
 fn fc2_matmul(
-    ctx: &mut Context,
+    device: &mut Device,
     input: DmTensor<bf16, Chip, Cluster, m![H], m![1 # 4]>,
     weight: &HbmTensor<bf16, Chip, m![C, H]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1 # 16]> {
-    let input_dm: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![H]> = fc2_input_prepared(ctx, input);
-    let weight_dm: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![H]> = weight.to_dm(&mut ctx.tdma);
+    let input_dm: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![H]> = fc2_input_prepared(device, input);
+    let weight_dm: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![H]> = weight.to_dm(&mut device.tdma);
 
-    let input_trf: TrfTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1], m![H]> = ctx
+    let input_trf: TrfTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1], m![H]> = device
         .sub
         .begin(input_dm.view())
         .fetch::<m![1], m![H]>()
         .collect::<m![H / 16], m![H % 16]>()
         .to_trf();
 
-    ctx.main
+    device
+        .main
         .begin(weight_dm.view())
         .fetch::<m![H / 16], m![H % 16]>()
         .collect::<m![H / 16], m![H % 16]>()
@@ -117,10 +120,11 @@ fn fc2_matmul(
 }
 
 fn fc2_input_prepared(
-    ctx: &mut Context,
+    device: &mut Device,
     input: DmTensor<bf16, Chip, Cluster, m![H], m![1 # 4]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![H]> {
-    ctx.main
+    device
+        .main
         .begin(input.view())
         .fetch::<m![1], m![1 # 4]>()
         .switch::<m![C, 1 # 16], m![H]>(SwitchConfig::Broadcast1 { slice1: 256, slice0: 1 })
@@ -131,12 +135,12 @@ fn fc2_input_prepared(
 }
 
 fn fc2_bias_prepared(
-    ctx: &mut Context,
+    device: &mut Device,
     bias: &HbmTensor<bf16, Chip, m![C]>,
 ) -> DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1 # 16]> {
-    let bias_dm_0: DmTensor<bf16, Chip, Cluster, m![1 # 16, 1 # 16], m![C]> = bias.to_dm(&mut ctx.tdma);
+    let bias_dm_0: DmTensor<bf16, Chip, Cluster, m![1 # 16, 1 # 16], m![C]> = bias.to_dm(&mut device.tdma);
     let bias_dm_1: DmTensor<bf16, Chip, Cluster, m![Dummy16, 1 # 16], m![C]> = unsafe { bias_dm_0.reshape() };
-    let bias_dm_2: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![Dummy16]> = ctx
+    let bias_dm_2: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![Dummy16]> = device
         .main
         .begin(bias_dm_1.view())
         .fetch::<m![C], m![1 # 4]>()
@@ -153,40 +157,40 @@ fn fc2_bias_prepared(
 }
 
 fn fc2(
-    ctx: &mut Context,
+    device: &mut Device,
     input: DmTensor<bf16, Chip, Cluster, m![H], m![1 # 4]>,
     weight: &HbmTensor<bf16, Chip, m![C, H]>,
     bias: &HbmTensor<bf16, Chip, m![C]>,
 ) -> HbmTensor<bf16, Chip, m![C]> {
-    let matmul = fc2_matmul(ctx, input, weight);
-    let bias_dm = fc2_bias_prepared(ctx, bias);
+    let matmul = fc2_matmul(device, input, weight);
+    let bias_dm = fc2_bias_prepared(device, bias);
 
-    let logits: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1 # 16]> = ctx
+    let logits: DmTensor<bf16, Chip, Cluster, m![C, 1 # 16], m![1 # 16]> = device
         .main
         .begin_interleaved::<I, _, _, _, _, _>(matmul.view(), bias_dm.view())
         .fetch::<m![I], m![1 # 4]>()
         .fetch_cast::<f32>()
         .collect::<m![I], m![1 # 8]>()
         .vector_init()
-        .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
+        .vector_intra_slice_unzip::<I, m![1]>()
         .vector_clip_zip(ClipBinaryOpF32::Add)
         .vector_final()
         .cast::<bf16, m![1 # 16]>()
         .commit_trim::<m![1 # 16]>()
         .commit();
 
-    logits.to_hbm(&mut ctx.tdma)
+    logits.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn forward(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![X]>,
     fc1_weight: &HbmTensor<bf16, Chip, m![H, X]>,
     fc1_bias: &HbmTensor<bf16, Chip, m![H]>,
     fc2_weight: &HbmTensor<bf16, Chip, m![C, H]>,
     fc2_bias: &HbmTensor<bf16, Chip, m![C]>,
 ) -> HbmTensor<bf16, Chip, m![C]> {
-    let hidden = fc1_relu(ctx, input, fc1_weight, fc1_bias);
-    fc2(ctx, hidden, fc2_weight, fc2_bias)
+    let hidden = fc1_relu(device, input, fc1_weight, fc1_bias);
+    fc2(device, hidden, fc2_weight, fc2_bias)
 }

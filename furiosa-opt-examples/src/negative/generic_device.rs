@@ -7,12 +7,12 @@ use crate::generic::B;
 type Matrix<A> = HbmTensor<i32, m![1], m![A, B]>;
 
 #[device(chip = 1)]
-pub fn where_bound_copy<A>(ctx: &mut Context, hbm: &Matrix<A>) -> Matrix<A>
+pub fn where_bound_copy<A>(device: &mut Device, hbm: &Matrix<A>) -> Matrix<A>
 where
     A: AxisName,
 {
-    let dm: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut ctx.tdma);
-    dm.to_hbm(&mut ctx.tdma)
+    let dm: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut device.tdma);
+    dm.to_hbm(&mut device.tdma)
 }
 
 pub mod a {
@@ -20,11 +20,11 @@ pub mod a {
 
     #[device(chip = 1)]
     pub fn gen_copy<A: AxisName>(
-        ctx: &mut Context,
+        device: &mut Device,
         hbm: &HbmTensor<i32, m![1], m![A, B]>,
     ) -> HbmTensor<i32, m![1], m![A, B]> {
-        let dm: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut ctx.tdma);
-        dm.to_hbm(&mut ctx.tdma)
+        let dm: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut device.tdma);
+        dm.to_hbm(&mut device.tdma)
     }
 }
 
@@ -33,10 +33,10 @@ pub mod b {
 
     #[device(chip = 1)]
     pub fn gen_copy<A: AxisName>(
-        ctx: &mut Context,
+        device: &mut Device,
         hbm: &HbmTensor<i32, m![1], m![A, B]>,
     ) -> HbmTensor<i32, m![1], m![A, B]> {
-        let dm: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut ctx.tdma);
-        dm.to_hbm(&mut ctx.tdma)
+        let dm: DmTensor<i32, m![1], m![1], m![A], m![B]> = hbm.to_dm(&mut device.tdma);
+        dm.to_hbm(&mut device.tdma)
     }
 }

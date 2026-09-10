@@ -48,7 +48,7 @@ pub struct TuTensor<
     Packet: M,
     B: Backend = CurrentBackend,
 > {
-    pub(crate) ctx: &'l mut TuContext<{ T }>,
+    pub(crate) device: &'l mut TuContext<{ T }>,
     pub(crate) inner: Tensor<D, Pair<Chip, Pair<Cluster, Pair<Slice, Pair<Time, Packet>>>>, B>,
     pub(crate) _position: PhantomData<P>,
 }
@@ -73,11 +73,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }

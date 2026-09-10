@@ -28,7 +28,9 @@
 //! `compile_fail` doctests in that module's docs, so `cargo test --doc` is their whole gate, and they
 //! appear in neither `snapshot.toml` nor the refused / compiled counts.
 
+pub mod array_index;
 pub mod contract_outer_assertions;
+pub mod dm_slice;
 pub mod dma;
 pub mod fetch_lift;
 pub mod generic_device;
@@ -39,4 +41,5 @@ pub mod scalar_cast_diag;
 pub mod scatter_gather;
 pub mod switch_assertions;
 pub mod transpose;
+pub mod unroll_loop;
 pub mod vector_engine;

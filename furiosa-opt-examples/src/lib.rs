@@ -6,16 +6,20 @@
 //! at all: they live in the private `npu-opt-examples` crate under `unsupported`.
 
 #![expect(clippy::type_complexity)] // Necessary for mapping expressions.
+#![feature(proc_macro_hygiene, stmt_expr_attributes)]
 #![feature(register_tool)]
 #![register_tool(furiosa_opt)]
 
 pub mod bias_partition_broadcast;
 pub mod binary_add;
+pub mod chip_reduce;
 pub mod cluster_chip_shuffle_slice;
+pub mod cluster_reduce;
 pub mod commit_view_tile;
 pub mod contract_element_types;
 pub mod contract_outer_assertions;
 pub mod dma;
+pub mod double_buffering;
 pub mod f4_indexing;
 pub mod fetch_assertions;
 pub mod fetch_commit;
@@ -23,6 +27,7 @@ pub mod fetch_lift;
 pub mod fetch_table_lookup;
 pub mod generic;
 pub mod host_tile_view;
+pub mod matmul;
 pub mod memory_op;
 pub mod memset;
 pub mod mnist;
@@ -44,6 +49,7 @@ pub mod transformer;
 pub mod transpose;
 pub mod typelevel_const;
 pub mod unevaluated_const;
+pub mod unroll_loop;
 pub mod vector_engine;
 pub mod view;
 pub mod vrf_add_segmented;

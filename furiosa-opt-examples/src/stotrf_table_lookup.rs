@@ -28,7 +28,7 @@ type TokSlice = m![Tok % 8 # 256];
 /// accumulated in `f32` and rounded to `bf16`.
 #[device(chip = 1)]
 pub fn stotrf_table_lookup_gemm(
-    ctx: &mut Context,
+    device: &mut Device,
     act: &HbmTensor<f8e4m3, Chip, m![Tok, Red]>,
     weight: &HbmTensor<f4e2m1, Chip, m![Out, Red]>,
     w_scale: &HbmTensor<bf16, Chip, m![Out]>,
@@ -46,21 +46,22 @@ pub fn stotrf_table_lookup_gemm(
     }
 
     // Stream operand: the e4m3 activation, tokens on the slices, `Red` in the element.
-    let act_dm: DmTensor<f8e4m3, Chip, GemmCl, TokSlice, m![Red]> = act.to_dm(&mut ctx.tdma);
+    let act_dm: DmTensor<f8e4m3, Chip, GemmCl, TokSlice, m![Red]> = act.to_dm(&mut device.tdma);
 
     // Resident token-major output DM (tokens on slices, `Out` contiguous in the element).
     const OUT_DM_ADDR: Address = 0x0040_0000;
     let mut out_dm: DmTensor<bf16, Chip, GemmCl, TokSlice, m![Out]> = DmTensor::new();
 
     // The full `[Out]` per-output-channel dequant scale, broadcast across the token-slices.
-    let scale_all_dm: DmTensor<bf16, Chip, GemmCl, TokSlice, m![Out]> = w_scale.to_dm(&mut ctx.tdma);
+    let scale_all_dm: DmTensor<bf16, Chip, GemmCl, TokSlice, m![Out]> = w_scale.to_dm(&mut device.tdma);
 
     for g in 0..(Out::SIZE / 8) {
         // This group's 8 packed f4e2m1 weight rows, broadcast across the token-slices.
         let weight_group = weight
             .view()
             .tile::<m![Out / 8], 1, m![1 # { Out::SIZE / 8 }, Out % 8, Red]>(g);
-        let weight_dm: DmTensor<f4e2m1, Chip, GemmCl, TokSlice, m![Out % 8, Red]> = weight_group.to_dm(&mut ctx.tdma);
+        let weight_dm: DmTensor<f4e2m1, Chip, GemmCl, TokSlice, m![Out % 8, Red]> =
+            weight_group.to_dm(&mut device.tdma);
 
         // Table lookup is a main-context fetch stage, so the packed f4e2m1 weight is decoded to
         // f8e4m3 in a main-context fetch that commits the decoded stream to a resident DM. The fetch
@@ -69,7 +70,8 @@ pub fn stotrf_table_lookup_gemm(
         // transient `commit()` scratch) so the sub-context StoTrf below can read it back.
         const WEIGHT_F8_DM_ADDR: Address = 0x0060_0000;
         let mut weight_f8_dm: DmTensor<f8e4m3, Chip, GemmCl, TokSlice, m![Out % 8, Red]> = DmTensor::new();
-        ctx.main
+        device
+            .main
             .begin(weight_dm.view())
             .fetch::<m![Out % 8], m![Red]>()
             .fetch_table_lookup::<f8e4m3>()
@@ -79,7 +81,7 @@ pub fn stotrf_table_lookup_gemm(
 
         // Stage the decoded f8e4m3 weight into the TRF as the weight-stationary filter (a plain
         // convert-only StoTrf, `f8e4m3 -> f8e4m3`, no table lookup on the sub-context fetch).
-        let weight_trf: TrfTensor<f8e4m3, Chip, GemmCl, TokSlice, m![Out % 8], m![Red]> = ctx
+        let weight_trf: TrfTensor<f8e4m3, Chip, GemmCl, TokSlice, m![Out % 8], m![Red]> = device
             .sub
             .begin(weight_f8_dm.view())
             .fetch::<m![Out % 8], m![Red]>()
@@ -90,7 +92,7 @@ pub fn stotrf_table_lookup_gemm(
         let scale_group = scale_all_dm
             .view()
             .tile::<m![Out / 8], 1, m![1 # { Out::SIZE / 8 }, Out % 8]>(g);
-        let scale_vrf: VrfTensor<f32, Chip, GemmCl, TokSlice, m![Out % 8]> = ctx
+        let scale_vrf: VrfTensor<f32, Chip, GemmCl, TokSlice, m![Out % 8]> = device
             .sub
             .begin(scale_group)
             .fetch::<m![1], m![Out % 8]>()
@@ -101,7 +103,8 @@ pub fn stotrf_table_lookup_gemm(
         // Contract the streamed per-token e4m3 activation against the decoded 8-row f8 weight TRF
         // (`mac_width(f8) = 64`, so the contraction OutPacket is `Red % 64`), fold the 8 output
         // features Interleaved into the `OutPacket`, then dequant in the VE tail and round to bf16.
-        ctx.main
+        device
+            .main
             .begin(act_dm.view())
             .fetch::<m![Red / 32], m![Red % 32]>()
             .collect::<m![Red / 32], m![Red % 32]>()
@@ -125,6 +128,6 @@ pub fn stotrf_table_lookup_gemm(
     }
 
     let mut out = HbmTensor::<bf16, Chip, m![Tok, Out]>::new();
-    out_dm.view().to_hbm_view(&mut ctx.tdma, out.view_mut());
+    out_dm.view().to_hbm_view(&mut device.tdma, out.view_mut());
     out
 }

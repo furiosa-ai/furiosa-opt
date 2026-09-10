@@ -8,17 +8,17 @@ pub type Slice = m![A / 8 # 256];
 
 #[device(chip = 1)]
 pub fn elementwise_mul_kernel(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
     // Move both operands from HBM to DM (DM placement is assigned automatically).
-    let lhs_dm = lhs.to_dm::<Cluster, Slice, m![A % 8]>(&mut ctx.tdma);
-    let rhs_dm = rhs.to_dm::<Cluster, Slice, m![A % 8]>(&mut ctx.tdma);
+    let lhs_dm = lhs.to_dm::<Cluster, Slice, m![A % 8]>(&mut device.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, Slice, m![A % 8]>(&mut device.tdma);
 
     // Sub context: load rhs into VRF (runs concurrently with the main context below).
     // VRF holds a per-slice operand that the Vector Engine reads every cycle.
-    let rhs_vrf: VrfTensor<i32, Chip, Cluster, Slice, m![A % 8]> = ctx
+    let rhs_vrf: VrfTensor<i32, Chip, Cluster, Slice, m![A % 8]> = device
         .sub
         .begin(rhs_dm.view())
         .fetch::<m![1], m![A % 8]>()
@@ -26,7 +26,7 @@ pub fn elementwise_mul_kernel(
         .to_vrf();
 
     // Main context: multiply every lhs element by its rhs counterpart from VRF
-    let result = ctx
+    let result = device
         .main
         .begin(lhs_dm.view())
         .fetch::<m![1], m![A % 8]>()
@@ -39,5 +39,5 @@ pub fn elementwise_mul_kernel(
         .commit_trim::<m![A % 8]>()
         .commit::<m![A % 8]>();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

@@ -18,9 +18,9 @@ type Relaid<D> = DmTensor<D, m![1], m![1 # 2], m![1 # 2, A / 2], m![A % 2, B]>;
 /// runtime call in this position; it has no device-translatable body, so the inline pass reports it
 /// (guiding toward `const { .. }`) instead of the compiler panicking on the unlowered call.
 #[device(chip = 1)]
-pub fn memset_missing_const_bf16(ctx: &mut Context, input: &In<bf16>) -> Out<bf16> {
-    let mut dm: Dm<bf16> = input.to_dm(&mut ctx.tdma);
-    dm.view_mut().memset(bf16::from_f32(1.0), &mut ctx.sub);
-    let relaid: Relaid<bf16> = dm.to_dm(&mut ctx.tdma);
-    relaid.to_hbm(&mut ctx.tdma)
+pub fn memset_missing_const_bf16(device: &mut Device, input: &In<bf16>) -> Out<bf16> {
+    let mut dm: Dm<bf16> = input.to_dm(&mut device.tdma);
+    dm.view_mut().memset(bf16::from_f32(1.0), &mut device.sub);
+    let relaid: Relaid<bf16> = dm.to_dm(&mut device.tdma);
+    relaid.to_hbm(&mut device.tdma)
 }

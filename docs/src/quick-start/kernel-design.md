@@ -126,7 +126,7 @@ flowchart TB
     OUT_DM -->|Tensor DMA| OUT_HBM[(HBM)]
 ```
 
-Every device kernel has `ctx.main` and `ctx.sub` execution contexts on separate hardware resources.
+Every device kernel has `device.main` and `device.sub` execution contexts on separate hardware resources.
 `main` runs the primary computation while `sub` commonly prefetches operands.
 `main` waits when it needs data that `sub` has not produced, and both contexts share the flat on-chip SRAM.
 

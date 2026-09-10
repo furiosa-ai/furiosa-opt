@@ -38,8 +38,8 @@ sudo apt install gcc-aarch64-linux-gnu          # only for the NPU build (cargo 
 ```
 
 - `build-essential` — rustc links host binaries with the system `cc`, which the Rust toolchain does not supply.
-- `libclang-dev` — `furiosa-opt-std/build.rs` runs `bindgen`, which loads `libclang.so`.
-- `gcc-aarch64-linux-gnu` — `aarch64-linux-gnu-{gcc,as,ld,objcopy}` are invoked when the compiler produces NPU device binaries (`*.bin`).
+- `libclang-dev` — the compiler toolchain loads `libclang.so`.
+- `gcc-aarch64-linux-gnu` — `aarch64-linux-gnu-{gcc,as,ld,objcopy}` produce NPU ELF programs.
 
 #### macOS (Apple silicon)
 
@@ -77,6 +77,11 @@ make fmt      # cargo fmt --all -- --check
 make clippy   # cargo clippy --workspace --all-targets -- -D warnings
 make test     # cargo test --workspace --release
 ```
+
+## Runtime
+
+See the [`furiosa-opt-rt` runtime guide](furiosa-opt-rt/README.md) for the runtime architecture and
+direct device-function image execution.
 
 ## Documentation
 

@@ -8,40 +8,50 @@ use furiosa_opt_std::prelude::*;
 /// lives as a `compile_fail` example in `negative::vector_engine`'s module docs instead.
 #[tokio::test]
 async fn test_vrf_slice_reshape() {
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(vrf_slice_reshape.topology()).unwrap();
 
     let input = HostTensor::<i32, m![W, B]>::from_vec((0..<m![W, B]>::SIZE as i32).collect::<Vec<_>>());
     let operand = HostTensor::<i32, m![B]>::from_vec((0..<m![B]>::SIZE as i32).map(|x| x * 10).collect::<Vec<_>>());
 
-    let input_hbm = input.to_hbm::<m![1], m![W, B]>(&mut ctx.pdma).await;
-    let operand_hbm = operand.to_hbm::<m![1], m![B]>(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm::<m![1], m![W, B]>(&mut device.pdma).await.unwrap();
+    let operand_hbm = operand.to_hbm::<m![1], m![B]>(&mut device.pdma).await.unwrap();
 
-    let output = launch(vrf_slice_reshape, (&mut *ctx, &input_hbm, &operand_hbm)).await;
+    let output = launch(vrf_slice_reshape, (&mut device, &input_hbm, &operand_hbm))
+        .await
+        .unwrap();
 
     let expected: Vec<i32> = (0..<m![W, B]>::SIZE as i32)
         .map(|x| x + (x % <m![B]>::SIZE as i32) * 10)
         .collect();
-    assert_eq!(output.to_host::<m![W, B]>(&mut ctx.pdma).await.into_vec(), expected);
+    assert_eq!(
+        output.to_host::<m![W, B]>(&mut device.pdma).await.unwrap().into_vec(),
+        expected
+    );
 }
 
 /// [`test_vrf_slice_reshape`] at the 64-slice topology, the one whose `compare_edf` peer runs in a
 /// default config.
 #[tokio::test]
 async fn test_vrf_slice_reshape_64() {
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(vrf_slice_reshape_64.topology()).unwrap();
 
     let input = HostTensor::<i32, m![V, B]>::from_vec((0..<m![V, B]>::SIZE as i32).collect::<Vec<_>>());
     let operand = HostTensor::<i32, m![B]>::from_vec((0..<m![B]>::SIZE as i32).map(|x| x * 10).collect::<Vec<_>>());
 
-    let input_hbm = input.to_hbm::<m![1], m![V, B]>(&mut ctx.pdma).await;
-    let operand_hbm = operand.to_hbm::<m![1], m![B]>(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm::<m![1], m![V, B]>(&mut device.pdma).await.unwrap();
+    let operand_hbm = operand.to_hbm::<m![1], m![B]>(&mut device.pdma).await.unwrap();
 
-    let output = launch(vrf_slice_reshape_64, (&mut *ctx, &input_hbm, &operand_hbm)).await;
+    let output = launch(vrf_slice_reshape_64, (&mut device, &input_hbm, &operand_hbm))
+        .await
+        .unwrap();
 
     let expected: Vec<i32> = (0..<m![V, B]>::SIZE as i32)
         .map(|x| x + (x % <m![B]>::SIZE as i32) * 10)
         .collect();
-    assert_eq!(output.to_host::<m![V, B]>(&mut ctx.pdma).await.into_vec(), expected);
+    assert_eq!(
+        output.to_host::<m![V, B]>(&mut device.pdma).await.unwrap().into_vec(),
+        expected
+    );
 }
 
 /// A composite `Slice` meets the partition rule like a plain one. The regroup decomposes the axis
@@ -49,19 +59,24 @@ async fn test_vrf_slice_reshape_64() {
 /// the reshape could move a row and the answer key would notice.
 #[tokio::test]
 async fn test_vrf_slice_regroup() {
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(vrf_slice_regroup.topology()).unwrap();
 
     let cell = |i: i32| (i / <m![B]>::SIZE as i32) * 1000 + i % <m![B]>::SIZE as i32;
     let input = HostTensor::<i32, m![W, B]>::from_vec((0..<m![W, B]>::SIZE as i32).collect::<Vec<_>>());
     let operand = HostTensor::<i32, m![W, B]>::from_vec((0..<m![W, B]>::SIZE as i32).map(cell).collect::<Vec<_>>());
 
-    let input_hbm = input.to_hbm::<m![1], m![W, B]>(&mut ctx.pdma).await;
-    let operand_hbm = operand.to_hbm::<m![1], m![W, B]>(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm::<m![1], m![W, B]>(&mut device.pdma).await.unwrap();
+    let operand_hbm = operand.to_hbm::<m![1], m![W, B]>(&mut device.pdma).await.unwrap();
 
-    let output = launch(vrf_slice_regroup, (&mut *ctx, &input_hbm, &operand_hbm)).await;
+    let output = launch(vrf_slice_regroup, (&mut device, &input_hbm, &operand_hbm))
+        .await
+        .unwrap();
 
     let expected: Vec<i32> = (0..<m![W, B]>::SIZE as i32).map(|i| i + cell(i)).collect();
-    assert_eq!(output.to_host::<m![W, B]>(&mut ctx.pdma).await.into_vec(), expected);
+    assert_eq!(
+        output.to_host::<m![W, B]>(&mut device.pdma).await.unwrap().into_vec(),
+        expected
+    );
 }
 
 /// The reshape renames the 256 slices from `X` / `Y` onto the stream's `W`, so slice `x * 16 + y`
@@ -69,7 +84,7 @@ async fn test_vrf_slice_regroup() {
 /// axes, or shifting the identity at all, changes the answer instead of hiding behind replication.
 #[tokio::test]
 async fn test_vrf_slice_rename() {
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(vrf_slice_rename.topology()).unwrap();
 
     let cell = |i: i32| (i / <m![B]>::SIZE as i32) * 1000 + i % <m![B]>::SIZE as i32;
     let input = HostTensor::<i32, m![W, B]>::from_vec((0..<m![W, B]>::SIZE as i32).collect::<Vec<_>>());
@@ -78,13 +93,18 @@ async fn test_vrf_slice_rename() {
     let operand =
         HostTensor::<i32, m![X, Y, B]>::from_vec((0..<m![X, Y, B]>::SIZE as i32).map(cell).collect::<Vec<_>>());
 
-    let input_hbm = input.to_hbm::<m![1], m![W, B]>(&mut ctx.pdma).await;
-    let operand_hbm = operand.to_hbm::<m![1], m![X, Y, B]>(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm::<m![1], m![W, B]>(&mut device.pdma).await.unwrap();
+    let operand_hbm = operand.to_hbm::<m![1], m![X, Y, B]>(&mut device.pdma).await.unwrap();
 
-    let output = launch(vrf_slice_rename, (&mut *ctx, &input_hbm, &operand_hbm)).await;
+    let output = launch(vrf_slice_rename, (&mut device, &input_hbm, &operand_hbm))
+        .await
+        .unwrap();
 
     let expected: Vec<i32> = (0..<m![W, B]>::SIZE as i32).map(|i| i + cell(i)).collect();
-    assert_eq!(output.to_host::<m![W, B]>(&mut ctx.pdma).await.into_vec(), expected);
+    assert_eq!(
+        output.to_host::<m![W, B]>(&mut device.pdma).await.unwrap().into_vec(),
+        expected
+    );
 }
 
 /// A coarse operand: each scale covers 16 stream elements, so the four lanes of one access read it
@@ -92,7 +112,7 @@ async fn test_vrf_slice_rename() {
 /// per lane, or per access, lands on the wrong one and the answer key says so.
 #[tokio::test]
 async fn test_vrf_group_scale() {
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(vrf_group_scale.topology()).unwrap();
 
     // Powers of two: the division is exact, so the comparison needs no tolerance.
     let scale_of = |group: usize| (1 << (group % 4)) as f32;
@@ -100,11 +120,16 @@ async fn test_vrf_group_scale() {
     let scale =
         HostTensor::<f32, m![V, N / 16]>::from_vec((0..<m![V, N / 16]>::SIZE).map(scale_of).collect::<Vec<_>>());
 
-    let input_hbm = input.to_hbm::<m![1], m![V, N]>(&mut ctx.pdma).await;
-    let scale_hbm = scale.to_hbm::<m![1], m![V, N / 16]>(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm::<m![1], m![V, N]>(&mut device.pdma).await.unwrap();
+    let scale_hbm = scale.to_hbm::<m![1], m![V, N / 16]>(&mut device.pdma).await.unwrap();
 
-    let output = launch(vrf_group_scale, (&mut *ctx, &input_hbm, &scale_hbm)).await;
+    let output = launch(vrf_group_scale, (&mut device, &input_hbm, &scale_hbm))
+        .await
+        .unwrap();
 
     let expected: Vec<f32> = (0..<m![V, N]>::SIZE).map(|i| i as f32 / scale_of(i / 16)).collect();
-    assert_eq!(output.to_host::<m![V, N]>(&mut ctx.pdma).await.into_vec(), expected);
+    assert_eq!(
+        output.to_host::<m![V, N]>(&mut device.pdma).await.unwrap().into_vec(),
+        expected
+    );
 }

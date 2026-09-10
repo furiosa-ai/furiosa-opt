@@ -7,11 +7,11 @@ use crate::transformer::ops::SliceN32;
 type Cluster = m![1 # 2];
 
 pub(crate) fn forward<Cluster: M, Slice: M>(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &DmTensor<bf16, Chip, Cluster, Slice, m![H]>,
     rms_weight: &HbmTensor<bf16, Chip, m![H]>,
 ) -> DmTensor<bf16, Chip, Cluster, Slice, m![H]> {
-    let ms: DmTensor<f32, Chip, Cluster, Slice, m![1 # 8]> = ctx
+    let ms: DmTensor<f32, Chip, Cluster, Slice, m![1 # 8]> = device
         .main
         .begin(input.view())
         .fetch::<m![H / 16], m![H % 16]>()
@@ -30,7 +30,7 @@ pub(crate) fn forward<Cluster: M, Slice: M>(
         .commit_trim::<m![1 # 8]>()
         .commit();
 
-    let rms: DmTensor<f32, Chip, Cluster, Slice, m![1 # 8]> = ctx
+    let rms: DmTensor<f32, Chip, Cluster, Slice, m![1 # 8]> = device
         .main
         .begin(ms.view())
         .fetch::<m![1], m![1 # 8]>()
@@ -44,8 +44,8 @@ pub(crate) fn forward<Cluster: M, Slice: M>(
         .commit_trim::<m![1 # 8]>()
         .commit();
 
-    let weight: DmTensor<bf16, Chip, Cluster, Slice, m![H]> = rms_weight.to_dm(&mut ctx.tdma);
-    let weight_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![H]> = ctx
+    let weight: DmTensor<bf16, Chip, Cluster, Slice, m![H]> = rms_weight.to_dm(&mut device.tdma);
+    let weight_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![H]> = device
         .sub
         .begin(weight.view())
         .fetch::<m![H / 16], m![H % 16]>()
@@ -53,14 +53,15 @@ pub(crate) fn forward<Cluster: M, Slice: M>(
         .collect::<m![H / 8], m![H % 8]>()
         .to_vrf();
 
-    let rms_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![1 # 8]> = ctx
+    let rms_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![1 # 8]> = device
         .sub
         .begin(rms.view())
         .fetch::<m![1], m![1 # 8]>()
         .collect::<m![1], m![1 # 8]>()
         .to_vrf();
 
-    ctx.main
+    device
+        .main
         .begin(input.view())
         .fetch::<m![H / 16], m![H % 16]>()
         .fetch_cast::<f32>()
@@ -78,11 +79,11 @@ pub(crate) fn forward<Cluster: M, Slice: M>(
 }
 
 pub(crate) fn forward_q(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &DmTensor<bf16, Chip, Cluster, SliceN32, m![G, D]>,
     rms_weight: &HbmTensor<bf16, Chip, m![D]>,
 ) -> DmTensor<bf16, Chip, Cluster, SliceN32, m![G, D]> {
-    let ms: DmTensor<f32, Chip, Cluster, SliceN32, m![G]> = ctx
+    let ms: DmTensor<f32, Chip, Cluster, SliceN32, m![G]> = device
         .main
         .begin(input.view())
         .fetch::<m![G, D / 16], m![D % 16]>()
@@ -102,7 +103,7 @@ pub(crate) fn forward_q(
         .commit_trim::<m![G]>()
         .commit();
 
-    let rms: DmTensor<f32, Chip, Cluster, SliceN32, m![G]> = ctx
+    let rms: DmTensor<f32, Chip, Cluster, SliceN32, m![G]> = device
         .main
         .begin(ms.view())
         .fetch::<m![1], m![G # 8]>()
@@ -116,8 +117,8 @@ pub(crate) fn forward_q(
         .commit_trim::<m![G]>()
         .commit();
 
-    let weight: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = rms_weight.to_dm(&mut ctx.tdma);
-    let weight_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = ctx
+    let weight: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = rms_weight.to_dm(&mut device.tdma);
+    let weight_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = device
         .sub
         .begin(weight.view())
         .fetch::<m![D / 16], m![D % 16]>()
@@ -125,14 +126,15 @@ pub(crate) fn forward_q(
         .collect::<m![D / 8], m![D % 8]>()
         .to_vrf();
 
-    let rms_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![G # 8]> = ctx
+    let rms_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![G # 8]> = device
         .sub
         .begin(rms.view())
         .fetch::<m![1], m![G # 8]>()
         .collect::<m![1], m![G # 8]>()
         .to_vrf();
 
-    ctx.main
+    device
+        .main
         .begin(input.view())
         .fetch::<m![G, D / 16], m![D % 16]>()
         .fetch_cast::<f32>()
@@ -150,11 +152,11 @@ pub(crate) fn forward_q(
 }
 
 pub(crate) fn forward_k(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &DmTensor<bf16, Chip, Cluster, SliceN32, m![D]>,
     rms_weight: &HbmTensor<bf16, Chip, m![D]>,
 ) -> DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> {
-    let ms: DmTensor<f32, Chip, Cluster, SliceN32, m![1 # 8]> = ctx
+    let ms: DmTensor<f32, Chip, Cluster, SliceN32, m![1 # 8]> = device
         .main
         .begin(input.view())
         .fetch::<m![D / 16], m![D % 16]>()
@@ -173,7 +175,7 @@ pub(crate) fn forward_k(
         .commit_trim::<m![1 # 8]>()
         .commit();
 
-    let rms: DmTensor<f32, Chip, Cluster, SliceN32, m![1 # 8]> = ctx
+    let rms: DmTensor<f32, Chip, Cluster, SliceN32, m![1 # 8]> = device
         .main
         .begin(ms.view())
         .fetch::<m![1], m![1 # 8]>()
@@ -187,8 +189,8 @@ pub(crate) fn forward_k(
         .commit_trim::<m![1 # 8]>()
         .commit();
 
-    let weight: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = rms_weight.to_dm(&mut ctx.tdma);
-    let weight_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = ctx
+    let weight: DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> = rms_weight.to_dm(&mut device.tdma);
+    let weight_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![D]> = device
         .sub
         .begin(weight.view())
         .fetch::<m![D / 16], m![D % 16]>()
@@ -196,14 +198,15 @@ pub(crate) fn forward_k(
         .collect::<m![D / 8], m![D % 8]>()
         .to_vrf();
 
-    let rms_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![1 # 8]> = ctx
+    let rms_vrf: VrfTensor<f32, Chip, Cluster, SliceN32, m![1 # 8]> = device
         .sub
         .begin(rms.view())
         .fetch::<m![1], m![1 # 8]>()
         .collect::<m![1], m![1 # 8]>()
         .to_vrf();
 
-    ctx.main
+    device
+        .main
         .begin(input.view())
         .fetch::<m![D / 16], m![D % 16]>()
         .fetch_cast::<f32>()

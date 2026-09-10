@@ -43,7 +43,7 @@ impl<
         });
         // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
         // performs this Packet reduction too. This stage only re-types the carrier to `OutPacket`.
-        ContractPacketTensor::new(self.ctx, self.inner)
+        ContractPacketTensor::new(self.device, self.inner)
     }
 }
 // ANCHOR_END: contract_packet_def

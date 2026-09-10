@@ -1,9 +1,22 @@
 //! Tests for `config_tile`: what a tile view must state, and what it may not.
 
 use furiosa_mapping::*;
-use furiosa_opt_lower::{TileError, TileInput, config_tile};
+use furiosa_opt_lower::{TileError, TileInput, TileMappingInput, config_tile, tile_mapping};
 
 axes![L1 = 192, L2 = 384, L5 = 256, B = 4096, A = 8, I = 3, Z = 24, One = 1];
+
+#[test]
+fn derives_the_tile_mapping_without_an_expected_type() {
+    let mapping = tile_mapping(TileMappingInput {
+        index: <m![I]>::to_value(),
+        element: <m![I, A]>::to_value(),
+        len: 1,
+        hole_fill: PaddingKind::Top,
+    })
+    .unwrap();
+
+    assert_eq!(mapping, <m![I = 1 # 3, A]>::to_value().normalize());
+}
 
 /// A tile must state every padding the split leaves, its own hole and the base layout's alike.
 mod states_the_split_in_full {

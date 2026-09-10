@@ -19,6 +19,11 @@ pub trait Cast<D: Scalar> {
 /// Element-type pairs the Fetch Adapter's type-casting stage converts, one impl per RNGD
 /// conversion. `i4 -> i5` and `i8 -> i9` belong to [`FetchZeroPointSub`] instead. See
 /// `computing-tensors/fetch-adapter.md`.
+#[diagnostic::on_unimplemented(
+    message = "cannot apply `fetch_cast()` from `{Self}` to `{D}`",
+    label = "unsupported Fetch Adapter conversion",
+    note = "supported conversions: same-type identity, i4/i8/i16 -> i32, f8e4m3/f8e5m2/bf16 -> f32, and f32 -> bf16"
+)]
 pub trait FetchCast<D: Scalar>: Cast<D> {}
 
 // Identity: the stage is programmed `TypeConversion::None`.
@@ -36,30 +41,35 @@ impl FetchCast<bf16> for f32 {}
 // No 8-bit float to `bf16`; use `fetch_table_lookup`. `TypeConversion`'s four Renegade-S variants
 // stay out: the trait has no chip-generation axis to hold them.
 
-/// Input scalar types the Fetch Adapter's table-lookup stage can decode to `OutD`.
+/// Input scalar types the Fetch Adapter's fixed table-lookup cast can decode to `OutD`.
 ///
 /// One impl per hardware table: a paired 4b->8b decode of `f4e2m1` into either 8-bit float, and a
 /// non-paired 8-bit decode of either into `bf16`, which is the only route from an 8-bit float to
 /// `bf16` since no [`FetchCast`] does it. Selecting the table by type is what lets
-/// `fetch_table_lookup` take no runtime table argument. See `computing-tensors/fetch-adapter.md`.
-pub trait TableLookup<D: Scalar> {
+/// `fetch_table_lookup` takes no runtime table argument. See `computing-tensors/fetch-adapter.md`.
+#[diagnostic::on_unimplemented(
+    message = "cannot apply `fetch_table_lookup()` from `{Self}` to `{D}`",
+    label = "unsupported fixed table-lookup conversion",
+    note = "supported conversions: f4e2m1 -> f8e4m3/f8e5m2 and f8e4m3/f8e5m2 -> bf16; the table is selected by the source type"
+)]
+pub trait TableLookupCast<D: Scalar> {
     /// Functional model of the hardware decode table.
     fn lookup(self) -> D;
 }
 
-impl TableLookup<f8e4m3> for f4e2m1 {
+impl TableLookupCast<f8e4m3> for f4e2m1 {
     fn lookup(self) -> f8e4m3 {
         self.to_f8e4m3()
     }
 }
 
-impl TableLookup<f8e5m2> for f4e2m1 {
+impl TableLookupCast<f8e5m2> for f4e2m1 {
     fn lookup(self) -> f8e5m2 {
         f8e5m2::from_f32(self.to_f32())
     }
 }
 
-impl TableLookup<bf16> for f8e5m2 {
+impl TableLookupCast<bf16> for f8e5m2 {
     /// Exact for the same reason as the `f8e4m3` decode: 2 mantissa bits leave the `f32`'s low 16
     /// bits zero, so the hardware table's truncation equals `from_f32`.
     fn lookup(self) -> bf16 {
@@ -67,7 +77,7 @@ impl TableLookup<bf16> for f8e5m2 {
     }
 }
 
-impl TableLookup<bf16> for f8e4m3 {
+impl TableLookupCast<bf16> for f8e4m3 {
     /// `f8e4m3 -> f32` is exact and `f8e4m3` has only 3 mantissa bits, so the low 16 bits of the
     /// `f32` are zero and the hardware table's `bf16` truncation equals `from_f32` exactly.
     fn lookup(self) -> bf16 {
@@ -114,9 +124,9 @@ impl FetchZeroPointSub<i9> for i8 {
 /// cast-compaction conversion. No identity impl: a width-preserving cast is not a compaction and
 /// the stage rejects it. See `computing-tensors/cast-engine.md`.
 #[diagnostic::on_unimplemented(
-    message = "the Cast Engine cannot cast `{Self}` to `{D}`",
-    label = "not a cast-compaction conversion",
-    note = "widenings belong to the Fetch Adapter: `.fetch_cast::<{D}>()`"
+    message = "cannot apply `cast()` from `{Self}` to `{D}`",
+    label = "unsupported Cast Engine conversion",
+    note = "supported conversions: i32 -> i4/i8/i16 and f32 -> f8e4m3/f8e5m2/bf16; use `.fetch_cast::<...>()` for widening"
 )]
 pub trait CastEngineCast<D: Scalar>: Cast<D> {
     /// Hardware conversion represented by this scalar pair.
@@ -147,9 +157,9 @@ impl CastEngineCast<bf16> for f32 {
 /// [`CastEngineCast`]; a plain `commit()` is already `NoCommitConversion`. See
 /// `computing-tensors/commit-adapter.md`.
 #[diagnostic::on_unimplemented(
-    message = "the Commit Adapter cannot cast `{Self}` to `{D}`",
-    label = "commit_cast converts only `f32` to `bf16`",
-    note = "narrow to anything else in the Cast Engine: `.cast::<{D}, OutPacket>()`"
+    message = "cannot apply `commit_cast()` from `{Self}` to `{D}`",
+    label = "unsupported Commit Adapter conversion",
+    note = "supported conversion: f32 -> bf16; use `.cast::<..., OutPacket>()` for Cast Engine narrowing"
 )]
 pub trait CommitCast<D: Scalar>: Cast<D> {
     /// The fused-ReLU form of the same conversion: negatives clamp to zero on the way through.
@@ -308,6 +318,11 @@ impl Cast<i9> for i32 {
 /// `i32` and `f32` are what a contraction accumulates *to*, never what it reads;
 /// [`ContractionAccumulator`] names that side. The [`ContractionWeight`] supertrait ties this set to the
 /// weight table. Narrows wrap (`as`); `f32 -> bf16` rounds to nearest-even.
+#[diagnostic::on_unimplemented(
+    message = "cannot use `{Self}` as a Contraction Engine operand",
+    label = "unsupported Contraction Engine operand type",
+    note = "supported operand types: i4, i8, i5, i9, bf16, f8e4m3, and f8e5m2"
+)]
 pub trait ContractionCast: Scalar + ContractionWeight<Self> + Cast<<Self as ContractionCast>::Output> {
     /// The wider type the contraction accumulates in, and casts back to the storage type to narrow.
     type Output: ContractionAccumulator + Cast<Self>;

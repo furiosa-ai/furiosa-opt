@@ -98,12 +98,12 @@ fn fetch_halves_per_slice<'l, const T: Tu>(
         .fetch_slice_lift::<m![A, Q / 2], m![Q % 2]>()
 }
 #
-# let mut ctx = Context::acquire();
-# let b: BeginTensor<'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# let b: BeginTensor<'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_halves_per_slice(b);
 ```
 
-With `A = 128`, the slice placement `m![A, 2]` describes 128 pairs of slices; both slices in each pair hold the same `m![Q, V]` data.
+With `A = 128`, the `Slice` placement `m![A, 2]` describes 128 pairs of slices; both slices in each pair hold the same `m![Q, V]` data.
 A plain `fetch` reads all four `Q` values on both slices.
 The lift replaces the broadcast `2` with `Q / 2`, leaving `Q % 2` in `Time`: the first slice reads `Q = 0, 1` from base 0, and the second reads `Q = 2, 3` from base 32 elements (64 bytes of `bf16`).
 
@@ -121,7 +121,10 @@ Here the second slice has `Q / 2 = 1`, so its base is `1 × (Q % 2) × V = 32` e
 A lift must satisfy all of the following:
 
 - The input and output sizes of the selected dimension must match.
-- Only broadcasts may change. The verifier compares the mappings in size-2 groups; a changed broadcast `2` must become an axis component of size 2. To replace a broadcast with padding, reshape the DM placement and leave that padding unread. Several groups may change in one lift, but an existing axis or a broadcast of 3 may not.
+- Only broadcasts may change.
+  The verifier compares the mappings in size-2 groups; a changed broadcast `2` must become an axis component of size 2.
+  To replace a broadcast with padding, reshape the DM placement and leave that padding unread.
+  Several groups may change in one lift, but an existing axis or a broadcast of 3 may not.
 - Lifted axes must be removed from `OutTime`. `OutPacket` remains unchanged.
 - Lift methods must be called in `Chip`, `Cluster`, `Slice` order, at most once per dimension.
 - Every calculated base must be a multiple of 8 bytes.
@@ -135,14 +138,14 @@ axes![A = 128, H = 2, V = 16, Rep = 2, G = 2];
 
 // Valid: DMA replicates `[H, V]` across `Rep`; reshape exposes `Rep` as a broadcast.
 fn named_broadcast(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, m![1], m![A, H, V]>,
 ) -> DmTensor<bf16, m![1], m![1 # 2], m![A, H], m![V]> {
     let written: DmTensor<bf16, m![1], m![1 # 2], m![A, Rep], m![H, V]> =
-        input.to_dm::<m![1 # 2], m![A, Rep], m![H, V]>(&mut ctx.tdma);
+        input.to_dm::<m![1 # 2], m![A, Rep], m![H, V]>(&mut device.tdma);
     let dm: DmTensor<bf16, m![1], m![1 # 2], m![A, 2], m![H, V]> = unsafe { written.reshape() };
 
-    ctx.main
+    device.main
         .begin(dm.view())
         .fetch::<m![H], m![V]>()
         .fetch_slice_lift::<m![A, H], m![1]>()
@@ -153,14 +156,14 @@ fn named_broadcast(
 
 // Invalid for lifting: `G` stores different values, but reshape names it as a broadcast.
 fn without_broadcast(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, m![1], m![A, G, H, V]>,
 ) -> DmTensor<bf16, m![1], m![1 # 2], m![A, H], m![V]> {
     let written: DmTensor<bf16, m![1], m![1 # 2], m![A, G], m![H, V]> =
-        input.to_dm::<m![1 # 2], m![A, G], m![H, V]>(&mut ctx.tdma);
+        input.to_dm::<m![1 # 2], m![A, G], m![H, V]>(&mut device.tdma);
     let dm: DmTensor<bf16, m![1], m![1 # 2], m![A, 2], m![H, V]> = unsafe { written.reshape() };
 
-    ctx.main
+    device.main
         .begin(dm.view())
         .fetch::<m![H], m![V]>()
         .fetch_slice_lift::<m![A, H], m![1]>()
@@ -225,18 +228,18 @@ fn fetch_batch_4<'l, const T: Tu>(
     input.fetch()
 }
 #
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 #
-# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_batch_1(b);
 #
-# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_batch_2(b);
 #
-# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_batch_3(b);
 #
-# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_batch_4(b);
 ```
 
@@ -260,18 +263,18 @@ axes![A = 16, B = 32, I = 2];
 /// The interleaved BeginTensor is created via Tu.begin_interleaved().
 /// The `I = 2` axis in Time encodes alternation between the two tensors.
 fn fetch_interleaved<'l>(
-    ctx: &'l mut Context,
+    device: &'l mut Device,
     lhs: &'l DmTensor<i8, m![1], m![1 # 2], m![1 # 256], m![A, B]>,
     rhs: &'l DmTensor<i8, m![1], m![1 # 2], m![1 # 256], m![A, B]>,
 ) -> FetchTensor<'l, { Tu::Main }, i8, m![1], m![1 # 2], m![1 # 256], m![A, I], m![B]> {
-    ctx.main.begin_interleaved::<I, _, _, _, _, _>(lhs.view(), rhs.view()).fetch()
+    device.main.begin_interleaved::<I, _, _, _, _, _>(lhs.view(), rhs.view()).fetch()
 }
 #
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 #
 # let lhs = DmTensor::new();
 # let rhs = DmTensor::new();
-# let _o = fetch_interleaved(&mut ctx, &lhs, &rhs);
+# let _o = fetch_interleaved(&mut device, &lhs, &rhs);
 ```
 
 ## Optimizations
@@ -325,12 +328,12 @@ fn fetch_packet_ABC<'l, const T: Tu>(
 }
 
 #
-# let mut ctx = Context::acquire();
-# let x: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# let x: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_packet_C(x);
-# let y: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let y: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_packet_BC(y);
-# let z: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let z: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_packet_ABC(z);
 ```
 

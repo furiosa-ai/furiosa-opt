@@ -1,6 +1,7 @@
-use furiosa_mapping::Mapping as MappingValue;
 use furiosa_mapping::*;
+use std::sync::Arc;
 
+use crate::Error;
 use crate::scalar::{MaterializableScalar, Scalar};
 use crate::storage::BufStorage;
 use crate::tensor::Tensor;
@@ -8,6 +9,8 @@ use crate::tensor::memory::{HbmTensor, HostTensor};
 
 use crate::backend::Backend;
 use crate::cast::{ContractionAccumulator, ContractionCast};
+use crate::context::{Dma, DmaContext};
+use crate::runtime::Topology;
 
 /// Cpu backend: host-side buffer interpreter using `BufStorage` storage.
 ///
@@ -18,31 +21,39 @@ use crate::cast::{ContractionAccumulator, ContractionCast};
 pub struct Cpu;
 
 impl Backend for Cpu {
+    /// The host has no device to hold; a shared unit keeps the runtime's cache uniform across
+    /// backends.
+    type Device = Arc<()>;
+
+    fn open(_: Topology) -> Result<Self::Device, Error> {
+        Ok(Arc::new(()))
+    }
+
     type Storage<D: Scalar> = BufStorage<D, Vec<u8>>;
 
-    fn from_vec<D: Scalar>(_mapping: &MappingValue, data: impl IntoIterator<Item = D>) -> Self::Storage<D> {
+    fn from_vec<D: Scalar>(_mapping: &Mapping, data: impl IntoIterator<Item = D>) -> Self::Storage<D> {
         BufStorage::from_vec(data)
     }
 
-    fn from_buf<D: MaterializableScalar>(_mapping: &MappingValue, buf: Vec<u8>) -> Self::Storage<D> {
+    fn from_buf<D: MaterializableScalar>(_mapping: &Mapping, buf: Vec<u8>) -> Self::Storage<D> {
         BufStorage::from_buf(buf)
     }
 
     /// No device behind this backend, so the tensor is just its bytes; the address stays the
     /// placeholder every host-side handle carries.
     fn alloc_hbm<D: Scalar, Chip: M, Element: M>() -> HbmTensor<D, Chip, Element, Self> {
-        HbmTensor::from_parts(Tensor::zeroed(), None)
+        HbmTensor::from_parts(Tensor::zeroed())
     }
 
-    fn zeroed<D: Scalar>(mapping: &MappingValue) -> Self::Storage<D> {
+    fn zeroed<D: Scalar>(mapping: &Mapping) -> Self::Storage<D> {
         BufStorage::zeroed(mapping.size())
     }
 
-    fn into_vec<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &MappingValue) -> Vec<D> {
+    fn into_vec<D: MaterializableScalar>(storage: Self::Storage<D>, mapping: &Mapping) -> Vec<D> {
         storage.into_vec(mapping)
     }
 
-    fn into_buf<D: Scalar>(storage: Self::Storage<D>, mapping: &MappingValue) -> Vec<u8> {
+    fn into_buf<D: Scalar>(storage: Self::Storage<D>, mapping: &Mapping) -> Vec<u8> {
         storage.into_buf(mapping)
     }
 
@@ -72,8 +83,8 @@ impl Backend for Cpu {
         src: &Self::Storage<D>,
         src_offset: &Index,
         dst_offset: &Index,
-        src_map: &MappingValue,
-        dst_map: &MappingValue,
+        src_map: &Mapping,
+        dst_map: &Mapping,
         allow_broadcast: bool,
     ) {
         dst.transpose::<Src, Dst>(src, src_offset, dst_offset, src_map, dst_map, allow_broadcast);
@@ -91,10 +102,10 @@ impl Backend for Cpu {
     fn contraction<D: ContractionCast + MaterializableScalar>(
         lhs: &Self::Storage<D>,
         rhs: &Self::Storage<D>,
-        lhs_map: &MappingValue,
-        rhs_map: &MappingValue,
-        pre_reduce: &MappingValue,
-        out: &MappingValue,
+        lhs_map: &Mapping,
+        rhs_map: &Mapping,
+        pre_reduce: &Mapping,
+        out: &Mapping,
     ) -> Self::Storage<D> {
         // `BufStorage` is a bare buffer with no layout of its own, so it reads operand strides from
         // `lhs_map`/`rhs_map` (the same reason its `transpose` above takes `src_map`/`dst_map`).
@@ -104,10 +115,10 @@ impl Backend for Cpu {
     fn contraction_prewidened<D: ContractionAccumulator>(
         lhs: &Self::Storage<D>,
         rhs: &Self::Storage<D>,
-        lhs_map: &MappingValue,
-        rhs_map: &MappingValue,
-        pre_reduce: &MappingValue,
-        out: &MappingValue,
+        lhs_map: &Mapping,
+        rhs_map: &Mapping,
+        pre_reduce: &Mapping,
+        out: &Mapping,
     ) -> Self::Storage<D> {
         // `BufStorage` is a bare buffer with no layout of its own, so it reads operand strides from
         // `lhs_map`/`rhs_map` (the same reason its `transpose` above takes `src_map`/`dst_map`).
@@ -138,21 +149,45 @@ impl Backend for Cpu {
 
     fn transmute<D: MaterializableScalar, Src: M, Dst: M>(
         storage: Self::Storage<D>,
-        src_map: &MappingValue,
-        dst_map: &MappingValue,
+        src_map: &Mapping,
+        dst_map: &Mapping,
     ) -> Self::Storage<D> {
         storage.transmute(src_map, dst_map)
     }
 
     async fn to_hbm<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
         host: &HostTensor<D, Element, Self>,
-    ) -> HbmTensor<D, Chip, Element2, Self> {
-        HbmTensor::from_parts(host.inner().transpose(true), None)
+        _dma: &DmaContext<{ Dma::Pcie }, Self>,
+    ) -> Result<HbmTensor<D, Chip, Element2, Self>, Error> {
+        Ok(HbmTensor::from_parts(host.inner().transpose(true)))
     }
 
     async fn from_hbm<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
         hbm: &HbmTensor<D, Chip, Element, Self>,
-    ) -> HostTensor<D, Element2, Self> {
-        hbm.inner().transpose(true).into()
+        _dma: &DmaContext<{ Dma::Pcie }, Self>,
+    ) -> Result<HostTensor<D, Element2, Self>, Error> {
+        Ok(hbm.inner().transpose(true).into())
+    }
+
+    async fn to_hbm_into<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
+        host: &HostTensor<D, Element, Self>,
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+        hbm: &mut HbmTensor<D, Chip, Element2, Self>,
+    ) -> Result<(), Error> {
+        *hbm = Self::to_hbm(host, dma).await?;
+        Ok(())
+    }
+
+    async fn from_hbm_into<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
+        hbm: &HbmTensor<D, Chip, Element, Self>,
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+        host: &mut HostTensor<D, Element2, Self>,
+    ) -> Result<(), Error> {
+        *host = Self::from_hbm(hbm, dma).await?;
+        Ok(())
+    }
+
+    fn pin<D: MaterializableScalar>(storage: Self::Storage<D>) -> Result<Self::Storage<D>, Error> {
+        Ok(storage)
     }
 }

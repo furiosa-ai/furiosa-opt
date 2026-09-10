@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use furiosa_mapping::Mapping as MappingValue;
 use furiosa_mapping::*;
 use rayon::prelude::*;
 
@@ -89,6 +88,21 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
 
     pub(crate) fn inner(&self) -> &B {
         &self.bytes
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut B {
+        &mut self.bytes
+    }
+
+    pub(crate) fn from_inner(bytes: B) -> Self {
+        Self {
+            bytes,
+            _marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn into_inner(self) -> B {
+        self.bytes
     }
 
     /// A zeroed packed buffer for `n` elements — a blank canvas a relayout overwrites. `vec![0u8; _]`
@@ -253,23 +267,23 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// mappings, used only to resolve a partial-view offset's wire base (see [`window_base`]). Backs
     /// [`crate::backend::Backend::transpose`].
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn transpose<Src: M, Mapping: M>(
+    pub(crate) fn transpose<Src: M, Dst: M>(
         &mut self,
         src: &BufStorage<D, B>,
         src_offset: &Index,
         dst_offset: &Index,
-        src_map: &MappingValue,
-        dst_map: &MappingValue,
+        src_map: &Mapping,
+        dst_map: &Mapping,
         allow_broadcast: bool,
     ) where
         B: Sync,
     {
-        // Structural check (also asserts `Src` is contained in `Mapping`); `!allow_broadcast`
+        // Structural check (also asserts `Src` is contained in `Dst`); `!allow_broadcast`
         // rejects a non-padding leftover.
-        let _ = transpose_broadcast::<Src, Mapping>(allow_broadcast);
+        let _ = transpose_broadcast::<Src, Dst>(allow_broadcast);
         let src_view = &Src::to_value();
-        let dst_view = &Mapping::to_value();
-        // Relayout: sequence the `Src` buffer (memory) against the `Mapping` (dst) layout (stream)
+        let dst_view = &Dst::to_value();
+        // Relayout: sequence the `Src` buffer (memory) against the `Dst` layout (stream)
         // under `Carve`. Each dst buffer position reads one Src element; a broadcast axis (in dst, not Src)
         // gets `memory_stride` 0, so one Src element feeds the whole broadcast run. `Carve` (not `Read`)
         // tolerates a `Bottom` pad in the dst stream, a `view_mut().tile()` write hole, read as a `Top`
@@ -403,10 +417,10 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     fn contraction_in<Acc>(
         lhs: &BufStorage<D, B>,
         rhs: &BufStorage<D, B>,
-        lhs_map: &MappingValue,
-        rhs_map: &MappingValue,
-        pre_reduce: &MappingValue,
-        out_map: &MappingValue,
+        lhs_map: &Mapping,
+        rhs_map: &Mapping,
+        pre_reduce: &Mapping,
+        out_map: &Mapping,
     ) -> BufStorage<D, B>
     where
         D: Cast<Acc>,
@@ -454,10 +468,10 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     pub(crate) fn contraction(
         lhs: &BufStorage<D, B>,
         rhs: &BufStorage<D, B>,
-        lhs_map: &MappingValue,
-        rhs_map: &MappingValue,
-        pre_reduce: &MappingValue,
-        out_map: &MappingValue,
+        lhs_map: &Mapping,
+        rhs_map: &Mapping,
+        pre_reduce: &Mapping,
+        out_map: &Mapping,
     ) -> BufStorage<D, B>
     where
         D: ContractionCast,
@@ -471,10 +485,10 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     pub(crate) fn contraction_prewidened(
         lhs: &BufStorage<D, B>,
         rhs: &BufStorage<D, B>,
-        lhs_map: &MappingValue,
-        rhs_map: &MappingValue,
-        pre_reduce: &MappingValue,
-        out_map: &MappingValue,
+        lhs_map: &Mapping,
+        rhs_map: &Mapping,
+        pre_reduce: &Mapping,
+        out_map: &Mapping,
     ) -> BufStorage<D, B>
     where
         D: ContractionAccumulator,
@@ -494,7 +508,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         let key = Key::to_value();
         let (payload, dst_term) = scatter_params(&Src::to_value(), &Dst::to_value(), &key);
         let payload = payload.remove_padding();
-        let scatter_axis = MappingValue::from_terms(std::iter::once(dst_term.to_term()));
+        let scatter_axis = Mapping::from_terms(std::iter::once(dst_term.to_term()));
         // The index tensor's buffer holds exactly one element per `Idx` position, which is why
         // `decode_indices` reads it whole.
         debug_assert_eq!(index.len(), Idx::SIZE);
@@ -535,7 +549,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     {
         let params = gather_params(&Src::to_value(), &Dst::to_value(), &Idx::to_value());
         let payload = params.payload.remove_padding();
-        let gather_axis = MappingValue::from_terms(std::iter::once(params.src_term.to_term()));
+        let gather_axis = Mapping::from_terms(std::iter::once(params.src_term.to_term()));
         // The compact residue axes are exactly the index tensor's mapping.
         let idx_residue = Idx::to_value();
         let indices = decode_indices(index, decode_stride::<D>(&payload, scaled));
@@ -593,7 +607,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// [`crate::backend::Backend::transmute`]. The vector-engine relayout is
     /// `…tile(k).read().transmute()`: the read leaves the buffer padded in `src_map`, the transmute
     /// narrows it to the compact `dst_map`.
-    pub(crate) fn transmute(self, src_map: &MappingValue, dst_map: &MappingValue) -> Self
+    pub(crate) fn transmute(self, src_map: &Mapping, dst_map: &Mapping) -> Self
     where
         D: MaterializableScalar,
     {
@@ -605,7 +619,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     }
 
     /// The source's live elements in wire order, the real data, padding excluded.
-    fn live_elems_in_wire_order(self, src_map: &MappingValue) -> impl Iterator<Item = D>
+    fn live_elems_in_wire_order(self, src_map: &Mapping) -> impl Iterator<Item = D>
     where
         D: MaterializableScalar,
     {
@@ -618,7 +632,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
 
     /// Serialize to a flat logical `Vec<D>` in `mapping`-order (one `D` per element), decoding each packed
     /// element. The mapping is unused (the buffer is already wire-order).
-    pub(crate) fn into_vec(self, _mapping: &MappingValue) -> Vec<D>
+    pub(crate) fn into_vec(self, _mapping: &Mapping) -> Vec<D>
     where
         D: MaterializableScalar,
     {
@@ -628,7 +642,7 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
     /// The dense physical device byte image: the exact packed bytes for the DMA / LIR boundary. The packed
     /// buffer already IS this image (one `Vec<u8>` packed on `D::BITS`), so this is a direct move, no
     /// re-pack.
-    pub(crate) fn into_buf(self, _mapping: &MappingValue) -> Vec<u8> {
+    pub(crate) fn into_buf(self, _mapping: &Mapping) -> Vec<u8> {
         self.bytes.into()
     }
 
@@ -698,7 +712,7 @@ impl ReadPlan {
     /// `memory` is the operand mapping, `out` the output mapping (its cell index `o` is the stream row),
     /// `residue` the operand's reduced / contracted axes (the `carve` leftover, which marks the kept /
     /// broadcast axes as `Top` pads).
-    fn new(memory: &MappingValue, out: &MappingValue, residue: &MappingValue) -> Self {
+    fn new(memory: &Mapping, out: &Mapping, residue: &Mapping) -> Self {
         // The residue carries `Top` pads (the kept / broadcast axes `carve` marked, and any padded
         // operand axis): a padded position re-reads its live sibling (`memory_stride` 0), so folding it
         // would double-count. Walk the residue once to mask the live positions; only those become deltas.
@@ -761,7 +775,7 @@ impl ReadPlan {
 /// mapping, so a tiled offset axis the relayout's `Src` / `Dst` *type* carries as padding is still a
 /// live `Symbol` here and matches; the view shares the base's wire layout, so this position is also the
 /// partial view's start in the buffer.
-pub(crate) fn window_base(base_map: &MappingValue, offset: &Index) -> usize {
+pub(crate) fn window_base(base_map: &Mapping, offset: &Index) -> usize {
     if *offset == Index::new() {
         return 0;
     }
@@ -786,7 +800,7 @@ pub(crate) fn window_base(base_map: &MappingValue, offset: &Index) -> usize {
 
 /// Lays `live` elements into a fresh `dst_map`-sized buffer at its live wire positions (padding stays
 /// zero).
-fn place_live_elems<D: Scalar>(dst_map: &MappingValue, mut live: impl Iterator<Item = D>) -> Vec<D> {
+fn place_live_elems<D: Scalar>(dst_map: &Mapping, mut live: impl Iterator<Item = D>) -> Vec<D> {
     let mut data = vec![D::zero(); dst_map.size()];
     for (elem, offset) in data.iter_mut().zip(dst_map.iter_positions()) {
         if offset.is_some() {
@@ -817,7 +831,7 @@ fn decode_indices<B: Buf>(index: &BufStorage<i32, B>, index_stride: usize) -> Ve
 
 /// The divisor [`decode_indices`] applies: a scaled index tensor holds byte offsets into
 /// payload-sized blocks (divide by the block's byte size); an unscaled one holds element indices.
-fn decode_stride<D>(payload: &MappingValue, scaled: bool) -> usize {
+fn decode_stride<D>(payload: &Mapping, scaled: bool) -> usize {
     if scaled {
         payload.size() * std::mem::size_of::<D>()
     } else {

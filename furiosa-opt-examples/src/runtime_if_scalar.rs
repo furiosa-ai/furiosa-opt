@@ -21,17 +21,17 @@ type Chip = m![1];
 /// Oracle: `output == input`.
 #[device(chip = 1)]
 pub fn runtime_if_scalar_index(
-    ctx: &mut Context,
+    device: &mut Device,
     input_hbm: &HbmTensor<i8, Chip, m![A, B]>,
 ) -> HbmTensor<i8, Chip, m![A, B]> {
-    let input = input_hbm.to_dm::<m![A / 256], m![A % 256], m![B]>(&mut ctx.tdma);
+    let input = input_hbm.to_dm::<m![A / 256], m![A % 256], m![B]>(&mut device.tdma);
     let mut output = DmTensor::<i8, Chip, m![A / 256], m![A % 256], m![B]>::new();
     for i in 0..2 {
         let half: usize = if i == 0 { 0 } else { 1 };
         let off = (half + 1) * 16 - 16;
         let src = input.view().tile::<m![B], 16, m![B = 16 # 32]>(off);
         let dst = output.view_mut().tile::<m![B], 16, m![B = 16 #{!} 32]>(off);
-        src.to_dm_view(&mut ctx.tdma, dst);
+        src.to_dm_view(&mut device.tdma, dst);
     }
-    output.to_hbm(&mut ctx.tdma)
+    output.to_hbm(&mut device.tdma)
 }

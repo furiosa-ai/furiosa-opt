@@ -45,7 +45,7 @@ pub trait Scalar: ndarray::LinalgScalar + Debug + Clone + Copy + PartialEq + Num
     fn load(bytes: &[u8], i: usize) -> Self {
         let n = std::mem::size_of::<Self>();
         // SAFETY: `Self: Copy` with no padding-sensitive byte-image invariant, the same little-endian view
-        // `to_buf` / `Buffer::from_slice` take of a `&[Self]`. `bytes[i*n..(i+1)*n]` is a full
+        // `to_buf` takes of a `&[Self]`. `bytes[i*n..(i+1)*n]` is a full
         // `Self`-sized run, read unaligned into a `Self`.
         unsafe { std::ptr::read_unaligned(bytes[i * n..(i + 1) * n].as_ptr() as *const Self) }
     }

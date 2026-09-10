@@ -70,11 +70,11 @@ fn new_fetch_lift_tensor<
     Packet: M,
     B: Backend,
 >(
-    ctx: &'l mut TuContext<{ T }>,
+    device: &'l mut TuContext<{ T }>,
     inner: Tensor<D, Pair<Chip, Pair<Cluster, Pair<Slice, Pair<Time, Packet>>>>, B>,
 ) -> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B> {
     TuTensor {
-        ctx,
+        device,
         inner,
         _position: PhantomData,
     }
@@ -84,8 +84,8 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     FetchChipLiftTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
 {
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
-        new_fetch_lift_tensor(ctx, inner)
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        new_fetch_lift_tensor(device, inner)
     }
 }
 
@@ -93,8 +93,8 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     FetchClusterLiftTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
 {
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
-        new_fetch_lift_tensor(ctx, inner)
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        new_fetch_lift_tensor(device, inner)
     }
 }
 
@@ -102,8 +102,8 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     FetchSliceLiftTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
 {
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
-        new_fetch_lift_tensor(ctx, inner)
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+        new_fetch_lift_tensor(device, inner)
     }
 }
 
@@ -111,9 +111,9 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     FetchTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, B>
 {
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -128,68 +128,89 @@ impl<'l, const T: Tu, P: CanApplyFetch, D: Scalar, Chip: M, Cluster: M, Slice: M
     #[primitive(TuTensor::fetch)]
     pub fn fetch<OutTime: M, OutPacket: M>(self) -> FetchTensor<'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B> {
         verify_fetch::<Cluster, Slice, Time, Packet, OutTime, OutPacket>();
-        FetchTensor::new(self.ctx, self.inner.transpose(true))
+        FetchTensor::new(self.device, self.inner.transpose(true))
     }
 }
 // ANCHOR_END: fetch_impl
 
-impl<'l, const T: Tu, P: Position, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
-    TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
+// ANCHOR: fetch_chip_lift
+impl<
+    'l,
+    const T: Tu,
+    P: CanApplyFetchChipLift,
+    D: Scalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
-    // ANCHOR: fetch_chip_lift
     /// Gives each chip its own fetch base, lifting a DM axis onto `Chip`.
     #[primitive(TuTensor::fetch_chip_lift)]
     pub fn fetch_chip_lift<OutChip: M, OutTime: M>(
         self,
-    ) -> FetchChipLiftTensor<'l, T, D, OutChip, Cluster, Slice, OutTime, Packet, B>
-    where
-        P: CanApplyFetchChipLift,
-    {
+    ) -> FetchChipLiftTensor<'l, T, D, OutChip, Cluster, Slice, OutTime, Packet, B> {
         // ANCHOR_END: fetch_chip_lift
         constraints::assert_chip_preserved::<Chip, OutChip>();
         constraints::assert_lift_factor::<Chip, Time, OutTime>();
         verify_fetch_lift::<Chip, OutChip, Time, Packet, OutTime>(FetchLiftDimension::Chip);
-        FetchChipLiftTensor::new(self.ctx, self.inner.transpose(true))
+        FetchChipLiftTensor::new(self.device, self.inner.transpose(true))
     }
 }
 
-impl<'l, const T: Tu, P: Position, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
-    TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
+// ANCHOR: fetch_cluster_lift
+impl<
+    'l,
+    const T: Tu,
+    P: CanApplyFetchClusterLift,
+    D: Scalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
-    // ANCHOR: fetch_cluster_lift
     /// Gives each cluster its own fetch base, lifting a DM axis onto `Cluster`.
     #[primitive(TuTensor::fetch_cluster_lift)]
     pub fn fetch_cluster_lift<OutCluster: M, OutTime: M>(
         self,
-    ) -> FetchClusterLiftTensor<'l, T, D, Chip, OutCluster, Slice, OutTime, Packet, B>
-    where
-        P: CanApplyFetchClusterLift,
-    {
+    ) -> FetchClusterLiftTensor<'l, T, D, Chip, OutCluster, Slice, OutTime, Packet, B> {
         // ANCHOR_END: fetch_cluster_lift
         constraints::assert_cluster_preserved::<Cluster, OutCluster>();
         constraints::assert_lift_factor::<Cluster, Time, OutTime>();
         verify_fetch_lift::<Cluster, OutCluster, Time, Packet, OutTime>(FetchLiftDimension::Cluster);
-        FetchClusterLiftTensor::new(self.ctx, self.inner.transpose(true))
+        FetchClusterLiftTensor::new(self.device, self.inner.transpose(true))
     }
 }
 
-impl<'l, const T: Tu, P: Position, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend>
-    TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
+// ANCHOR: fetch_slice_lift
+impl<
+    'l,
+    const T: Tu,
+    P: CanApplyFetchSliceLift,
+    D: Scalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+> TuTensor<'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B>
 {
-    // ANCHOR: fetch_slice_lift
     /// Gives each slice its own fetch base, lifting a DM axis onto `Slice`.
     #[primitive(TuTensor::fetch_slice_lift)]
     pub fn fetch_slice_lift<OutSlice: M, OutTime: M>(
         self,
-    ) -> FetchSliceLiftTensor<'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B>
-    where
-        P: CanApplyFetchSliceLift,
-    {
+    ) -> FetchSliceLiftTensor<'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B> {
         // ANCHOR_END: fetch_slice_lift
         constraints::assert_slice_preserved::<Slice, OutSlice>();
         constraints::assert_lift_factor::<Slice, Time, OutTime>();
         verify_fetch_lift::<Slice, OutSlice, Time, Packet, OutTime>(FetchLiftDimension::Slice);
-        FetchSliceLiftTensor::new(self.ctx, self.inner.transpose(true))
+        FetchSliceLiftTensor::new(self.device, self.inner.transpose(true))
     }
 }
 

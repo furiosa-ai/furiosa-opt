@@ -28,7 +28,7 @@ Sigmoid and GeLU can also be expressed directly in the [Vector Engine](./vector-
 {{#include ../../../furiosa-opt-std/src/engine/fetch_adapter.rs:fetch_table_lookup_impl}}
 ```
 
-The decode table is selected by the input scalar type (via the `TableLookup` trait), not by a runtime argument, exactly as `fetch_cast` selects its conversion by the input type.
+The decode table is selected by the input scalar type (via the `TableLookupCast` trait), not by a runtime argument, exactly as `fetch_cast` selects its conversion by the input type.
 The key width picks the table and the requested output type picks the entry encoding:
 
 | Input | Output |
@@ -109,8 +109,8 @@ fn fetch_with_type_cast<'l, const T: Tu>(
     input.fetch::<m![1], m![A]>().fetch_cast::<i32>()
 }
 #
-# let mut ctx = Context::acquire();
-# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A]> = BeginTensor::new(&mut ctx.main, Tensor::zero());
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_with_type_cast(x);
 ```
 

@@ -21,15 +21,15 @@ pub mod lane_size {
 
     #[device(chip = 1)]
     pub fn invalid_size_3(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         input_trf: &HbmTensor<i8, Chip, m![R, B]>,
         output: &mut HbmTensor<i32, Chip, m![A, R # 8]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut device.tdma);
 
-        let trf: TrfTensor<i8, Chip, Cluster, Slice, m![1 # 3], m![R, B]> = ctx
+        let trf: TrfTensor<i8, Chip, Cluster, Slice, m![1 # 3], m![R, B]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R], m![B]>()
@@ -37,7 +37,7 @@ pub mod lane_size {
             .collect::<m![R, B / 32], m![B % 32]>()
             .to_trf();
 
-        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = ctx
+        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -50,20 +50,20 @@ pub mod lane_size {
             .commit_trim::<m![R # 8]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_size_16(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         input_trf: &HbmTensor<i8, Chip, m![R, B]>,
         output: &mut HbmTensor<i32, Chip, m![A, R # 8]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut device.tdma);
 
-        let trf: TrfTensor<i8, Chip, Cluster, Slice, m![1 # 16], m![R, B]> = ctx
+        let trf: TrfTensor<i8, Chip, Cluster, Slice, m![1 # 16], m![R, B]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R], m![B]>()
@@ -71,7 +71,7 @@ pub mod lane_size {
             .collect::<m![R, B / 32], m![B % 32]>()
             .to_trf();
 
-        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = ctx
+        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -84,7 +84,7 @@ pub mod lane_size {
             .commit_trim::<m![R # 8]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -93,15 +93,15 @@ pub mod cpacket_mapping {
 
     #[device(chip = 1)]
     pub fn invalid_mapping(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         input_trf: &HbmTensor<i8, Chip, m![R, B]>,
         output: &mut HbmTensor<i32, Chip, m![A, R # 8]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut device.tdma);
 
-        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![B]> = ctx
+        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![B]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R], m![B]>()
@@ -109,7 +109,7 @@ pub mod cpacket_mapping {
             .collect::<m![R, B / 32], m![B % 32]>()
             .to_trf();
 
-        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = ctx
+        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -122,20 +122,20 @@ pub mod cpacket_mapping {
             .commit_trim::<m![R # 8]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_one_collect_flit_no_padding(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         input_trf: &HbmTensor<i8, Chip, m![R, B]>,
         output: &mut HbmTensor<i32, Chip, m![A, R # 8]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut device.tdma);
 
-        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![B]> = ctx
+        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![B]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R], m![B]>()
@@ -143,7 +143,7 @@ pub mod cpacket_mapping {
             .collect::<m![R, B / 32], m![B % 32]>()
             .to_trf();
 
-        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = ctx
+        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -156,20 +156,20 @@ pub mod cpacket_mapping {
             .commit_trim::<m![R # 8]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_one_collect_flit_no_padding_reversed(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         input_trf: &HbmTensor<i8, Chip, m![R, B]>,
         output: &mut HbmTensor<i32, Chip, m![A, R # 8]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut device.tdma);
 
-        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![B]> = ctx
+        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![B]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R], m![B]>()
@@ -177,7 +177,7 @@ pub mod cpacket_mapping {
             .collect::<m![R, B / 32], m![B % 32]>()
             .to_trf();
 
-        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = ctx
+        let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R # 8]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -190,7 +190,7 @@ pub mod cpacket_mapping {
             .commit_trim::<m![R # 8]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -199,15 +199,15 @@ pub mod time_broadcast {
 
     #[device(chip = 1)]
     pub fn invalid_time_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, E]>,
         input_trf: &HbmTensor<i8, Chip, m![R, E]>,
         output: &mut HbmTensor<i32, Chip, m![F, R # 8]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, E]>(&mut ctx.tdma);
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, E]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, E]>(&mut device.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, E]>(&mut device.tdma);
 
-        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![E]> = ctx
+        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![E]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R], m![E]>()
@@ -215,7 +215,7 @@ pub mod time_broadcast {
             .collect::<m![R], m![E]>()
             .to_trf();
 
-        let result: DmTensor<i32, Chip, Cluster, Slice, m![F, R # 8]> = ctx
+        let result: DmTensor<i32, Chip, Cluster, Slice, m![F, R # 8]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![E]>()
@@ -228,20 +228,20 @@ pub mod time_broadcast {
             .commit_trim::<m![R # 8]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_swapped_time_axes(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, V, E]>,
         input_trf: &HbmTensor<i8, Chip, m![R, T, V, E]>,
         output: &mut HbmTensor<i32, Chip, m![V, A, T, R # 8]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, V, E]>(&mut ctx.tdma);
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, T, V, E]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, V, E]>(&mut device.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, T, V, E]>(&mut device.tdma);
 
-        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![T, V, E]> = ctx
+        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![T, V, E]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R, T, V], m![E]>()
@@ -249,7 +249,7 @@ pub mod time_broadcast {
             .collect::<m![R, T, V], m![E]>()
             .to_trf();
 
-        let result: DmTensor<i32, Chip, Cluster, Slice, m![V, A, T, R # 8]> = ctx
+        let result: DmTensor<i32, Chip, Cluster, Slice, m![V, A, T, R # 8]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A, V], m![E]>()
@@ -262,20 +262,20 @@ pub mod time_broadcast {
             .commit_trim::<m![R # 8]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_tiling_not_innermost(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, E]>,
         input_trf: &HbmTensor<i8, Chip, m![R, T, E]>,
         output: &mut HbmTensor<i32, Chip, m![T, A, R # 8]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, E]>(&mut ctx.tdma);
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, T, E]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, E]>(&mut device.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, T, E]>(&mut device.tdma);
 
-        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![T, E]> = ctx
+        let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![T, E]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R, T], m![E]>()
@@ -283,7 +283,7 @@ pub mod time_broadcast {
             .collect::<m![R, T], m![E]>()
             .to_trf();
 
-        let result: DmTensor<i32, Chip, Cluster, Slice, m![T, A, R # 8]> = ctx
+        let result: DmTensor<i32, Chip, Cluster, Slice, m![T, A, R # 8]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![E]>()
@@ -296,7 +296,7 @@ pub mod time_broadcast {
             .commit_trim::<m![R # 8]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -305,13 +305,13 @@ pub mod trf_mapping {
 
     #[device(chip = 1)]
     pub fn invalid_lane_mapping(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         _output: &mut HbmTensor<i32, Chip, m![A, 1 # 8]>,
     ) {
-        let trf_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let trf_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let _trf: TrfTensor<i8, Chip, Cluster, Slice, m![E / 4], m![B]> = ctx
+        let _trf: TrfTensor<i8, Chip, Cluster, Slice, m![E / 4], m![B]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![A], m![B]>()
@@ -322,14 +322,14 @@ pub mod trf_mapping {
 
     #[device(chip = 1)]
     pub fn invalid_mapping(
-        ctx: &mut Context,
+        device: &mut Device,
         _input: &HbmTensor<i8, Chip, m![A, B]>,
         input_trf: &HbmTensor<i8, Chip, m![R, B]>,
         _output: &mut HbmTensor<i32, Chip, m![A, 1 # 8]>,
     ) {
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut ctx.tdma);
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, B]>(&mut device.tdma);
 
-        let _trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![A, C]> = ctx
+        let _trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![A, C]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![R], m![B]>()
@@ -339,10 +339,10 @@ pub mod trf_mapping {
     }
 
     #[device(chip = 1)]
-    pub fn invalid_lane_not_divisible_by_time(ctx: &mut Context, input_trf: &HbmTensor<i8, Chip, m![F, E]>) {
-        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![F, E]>(&mut ctx.tdma);
+    pub fn invalid_lane_not_divisible_by_time(device: &mut Device, input_trf: &HbmTensor<i8, Chip, m![F, E]>) {
+        let trf_dm = input_trf.to_dm::<Cluster, Slice, m![F, E]>(&mut device.tdma);
 
-        let _trf: TrfTensor<i8, Chip, Cluster, Slice, m![R / 2], m![F, E]> = ctx
+        let _trf: TrfTensor<i8, Chip, Cluster, Slice, m![R / 2], m![F, E]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![F], m![E]>()
@@ -357,13 +357,13 @@ pub mod trf_lane_time {
 
     #[device(chip = 1)]
     pub fn invalid_lane_exceeds_time(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A / 4, E]>,
         _output: &mut HbmTensor<i8, Chip, m![A / 4, E]>,
     ) {
-        let trf_dm = input.to_dm::<Cluster, Slice, m![A / 4, E]>(&mut ctx.tdma);
+        let trf_dm = input.to_dm::<Cluster, Slice, m![A / 4, E]>(&mut device.tdma);
 
-        let _trf: TrfTensor<i8, Chip, Cluster, Slice, m![R / 2], m![A / 4, E]> = ctx
+        let _trf: TrfTensor<i8, Chip, Cluster, Slice, m![R / 2], m![A / 4, E]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![A / 4], m![E]>()
@@ -378,13 +378,13 @@ pub mod trf_size {
 
     #[device(chip = 1)]
     pub fn invalid_to_trf_full(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         _output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let trf_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let trf_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let _trf: TrfTensor<i8, Chip, Cluster, Slice, m![A], m![A, B, C]> = ctx
+        let _trf: TrfTensor<i8, Chip, Cluster, Slice, m![A], m![A, B, C]> = device
             .sub
             .begin(trf_dm.view())
             .fetch::<m![A], m![B]>()

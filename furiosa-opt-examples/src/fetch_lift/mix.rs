@@ -58,17 +58,17 @@ macro_rules! mix_kernels {
      [$($slice2:tt)*], [$($broadcast:ident),+], { $($lift:ident $lifted:ty, $rest:ty;)+ }) => {
         #[device(chip = $chips)]
         pub fn $kernel(
-            ctx: &mut Context,
+            device: &mut Device,
             input: &HbmTensor<$d, m![$chips], m![$($live)*, $($broadcast),+, $packet]>,
         ) -> HbmTensor<$out_d, m![$($chip2)*], m![$($cluster_dimension)* $($slice2)*, $packet]> {
             let dm: DmTensor<$d, m![$chips], m![$($cluster)*], m![$($slice)*],
                 m![$($broadcast),+, $packet]> =
                 input.to_dm::<m![$($cluster)*], m![$($slice)*], m![$($broadcast),+, $packet]>(
-                    &mut ctx.tdma,
+                    &mut device.tdma,
                 );
 
             let result: DmTensor<$out_d, m![$($chip2)*], m![$($cluster2)*], m![$($slice2)*],
-                $element> = ctx
+                $element> = device
                 .main
                 .begin(dm.view())
                 .fetch::<m![$($broadcast),+], m![$packet]>()
@@ -78,7 +78,7 @@ macro_rules! mix_kernels {
                 .commit_trim::<$trim>()
                 .commit();
 
-            result.to_hbm::<m![$($cluster_dimension)* $($slice2)*, $packet]>(&mut ctx.tdma)
+            result.to_hbm::<m![$($cluster_dimension)* $($slice2)*, $packet]>(&mut device.tdma)
         }
     };
 }

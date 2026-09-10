@@ -140,7 +140,7 @@ impl<'a> TryFrom<&'a str> for Ident {
 
 /// Mapping expression enum.
 #[repr(C)]
-#[derive(StableAbi, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(StableAbi, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Mapping {
     /// Symbol mapping.
     Symbol {
@@ -427,6 +427,12 @@ impl Display for Mapping {
             // A broadcast prints as its size; size 1 is the identity element.
             Self::Broadcast { size } => write!(f, "{size}"),
         }
+    }
+}
+
+impl fmt::Debug for Mapping {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
     }
 }
 

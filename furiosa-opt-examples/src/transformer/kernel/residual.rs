@@ -4,11 +4,11 @@ use crate::transformer::Chip;
 use crate::transformer::axes::H;
 
 pub(crate) fn forward<Cluster: M, Slice: M>(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &DmTensor<bf16, Chip, Cluster, Slice, m![H]>,
     residual: &DmTensor<bf16, Chip, Cluster, Slice, m![H]>,
 ) -> DmTensor<bf16, Chip, Cluster, Slice, m![H]> {
-    let residual_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![H]> = ctx
+    let residual_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![H]> = device
         .sub
         .begin(residual.view())
         .fetch::<m![H / 16], m![H % 16]>()
@@ -16,7 +16,8 @@ pub(crate) fn forward<Cluster: M, Slice: M>(
         .collect::<m![H / 8], m![H % 8]>()
         .to_vrf();
 
-    ctx.main
+    device
+        .main
         .begin(input.view())
         .fetch::<m![H / 16], m![H % 16]>()
         .fetch_cast::<f32>()

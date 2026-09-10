@@ -1,10 +1,10 @@
-use super::{IndexAssignment, Mapping, Num, PaddingKind};
+use super::{Extent, IndexAssignment, Mapping, Num, PaddingKind};
 use crate::parser::lexer::HashFillKind;
 
 grammar;
 
 extern {
-    type Location = usize;
+    type Location = crate::parser::lexer::Location;
     type Error = crate::parser::lexer::LexicalError;
 
     enum crate::parser::lexer::Token {
@@ -45,15 +45,15 @@ Mapping0: Mapping = {
 };
 
 Mapping1: Mapping = {
-    <left:Mapping1> "Slash" <value:Num> => Mapping::Stride { inner: Box::new(left), stride: value },
-    <left:Mapping1> "Percent" <value:Num> => Mapping::Modulo { inner: Box::new(left), modulo: value },
-    <left:Mapping1> "Eq" <value:Num> => Mapping::Resize { inner: Box::new(left), resize: value },
-    <left:Mapping1> "Hash" <value:Num> => Mapping::Padding {
+    <left:Mapping1> "Slash" <value:Extent> => Mapping::Stride { inner: Box::new(left), stride: value },
+    <left:Mapping1> "Percent" <value:Extent> => Mapping::Modulo { inner: Box::new(left), modulo: value },
+    <left:Mapping1> "Eq" <value:Extent> => Mapping::Resize { inner: Box::new(left), resize: value },
+    <left:Mapping1> "Hash" <value:Extent> => Mapping::Padding {
         inner: Box::new(left),
         padding: value,
         kind: PaddingKind::Top,
     },
-    <left:Mapping1> <fill:"HashFill"> <value:Num> =>? match fill {
+    <left:Mapping1> <fill:"HashFill"> <value:Extent> =>? match fill {
         HashFillKind::Star => Ok(Mapping::Padding {
             inner: Box::new(left),
             padding: value,
@@ -98,6 +98,12 @@ Num: Num = {
     "Nat" => Num::Lit(<>),
     "Escaped" => Num::Const(<>),
 };
+
+Extent: Extent = {
+    Num => Extent::Const(<>),
+    "Symbol" => Extent::Axis(<>),
+    "LParen" <mapping:Mapping0> "RParen" => Extent::Mapping(Box::new(mapping)),
+};
 Expr: proc_macro2::TokenStream = "Expr" => <>;
 
 // --- Index Rules ---
@@ -121,15 +127,15 @@ IndexMapping0: Mapping = {
 };
 
 IndexMapping1: Mapping = {
-    <left:IndexMapping1> "Slash" <value:Num> => Mapping::Stride { inner: Box::new(left), stride: value },
-    <left:IndexMapping1> "Percent" <value:Num> => Mapping::Modulo { inner: Box::new(left), modulo: value },
-    <left:IndexMapping1> "Eq" <value:Num> => Mapping::Resize { inner: Box::new(left), resize: value },
-    <left:IndexMapping1> "Hash" <value:Num> => Mapping::Padding {
+    <left:IndexMapping1> "Slash" <value:Extent> => Mapping::Stride { inner: Box::new(left), stride: value },
+    <left:IndexMapping1> "Percent" <value:Extent> => Mapping::Modulo { inner: Box::new(left), modulo: value },
+    <left:IndexMapping1> "Eq" <value:Extent> => Mapping::Resize { inner: Box::new(left), resize: value },
+    <left:IndexMapping1> "Hash" <value:Extent> => Mapping::Padding {
         inner: Box::new(left),
         padding: value,
         kind: PaddingKind::Top,
     },
-    <left:IndexMapping1> <fill:"HashFill"> <value:Num> =>? match fill {
+    <left:IndexMapping1> <fill:"HashFill"> <value:Extent> =>? match fill {
         HashFillKind::Star => Ok(Mapping::Padding {
             inner: Box::new(left),
             padding: value,

@@ -5,15 +5,16 @@ use furiosa_opt_std::prelude::*;
 async fn test_fetch_commit_simple_host() {
     use furiosa_opt_examples::fetch_commit::{A, B};
 
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(fetch_commit_simple.topology()).unwrap();
 
     // Create input tensor with shape (A=4096)(B=8).
     let input = HostTensor::<i8, m![A, B]>::from_vec((0..32768).map(|x| x as i8).collect::<Vec<_>>())
-        .to_hbm::<m![1], m![A, B]>(&mut ctx.pdma)
-        .await;
+        .to_hbm::<m![1], m![A, B]>(&mut device.pdma)
+        .await
+        .unwrap();
 
     // Call the device function.
-    let output = launch(fetch_commit_simple, (&mut *ctx, &input)).await;
+    let output = launch(fetch_commit_simple, (&mut device, &input)).await.unwrap();
 
     let mut expected = vec![0i32; 4096 * 8];
     let mut idx = 0;
@@ -25,7 +26,7 @@ async fn test_fetch_commit_simple_host() {
     }
 
     assert_eq!(
-        output.to_host::<m![B, A]>(&mut ctx.pdma).await.into_inner(),
+        output.to_host::<m![B, A]>(&mut device.pdma).await.unwrap().into_inner(),
         Tensor::<_, m![B, A], CurrentBackend>::from_vec(expected)
     );
 }

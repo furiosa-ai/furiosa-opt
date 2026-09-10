@@ -1,22 +1,17 @@
 use std::fmt::Debug;
 use std::marker::ConstParamTy;
 use std::marker::PhantomData;
-use std::ops::Deref;
-use std::ops::DerefMut;
-use std::sync::LazyLock;
-use std::sync::Mutex;
-use std::sync::MutexGuard;
 
 use furiosa_mapping::*;
 use furiosa_opt_macro::primitive;
-
-use crate::backend::Backend;
-use crate::prelude::DmTensor;
 
 use super::scalar::{MaterializableScalar, Scalar};
 use super::tensor::Tensor;
 use super::tensor::memory::DmTensorView;
 use super::tensor::tu::BeginTensor;
+use crate::Error;
+use crate::backend::Backend;
+use crate::runtime::{Buffers, DeviceSend};
 
 /// Tensor units.
 #[derive(Debug, PartialEq, Eq, ConstParamTy)]
@@ -43,86 +38,49 @@ pub struct TuContext<const T: Tu> {
     _marker: PhantomData<()>,
 }
 
-impl<const T: Tu> crate::runtime::DeviceSend for &mut TuContext<T> {}
+impl<const T: Tu> DeviceSend for TuContext<T> {
+    fn bind(&self, _: &mut Buffers) -> Result<(), Error> {
+        Ok(())
+    }
+}
 
-/// Context for a specific DMA engine.
+/// Context for a DMA engine.
 #[primitive(DmaContext)]
-#[derive(Debug)]
-pub struct DmaContext<const DMA: Dma> {
+pub struct DmaContext<const DMA: Dma, B: Backend = crate::runtime::CurrentBackend> {
+    device: B::Device,
     _marker: PhantomData<()>,
 }
 
-impl<const DMA: Dma> crate::runtime::DeviceSend for &mut DmaContext<DMA> {}
-
-/// Logical device a kernel runs on, declared by `#[device(chip, pe)]`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Device {
-    /// Number of chips.
-    pub chip: u8,
-    /// Number of PEs per chip.
-    pub pe: u8,
-}
-
-/// Device context.
-#[primitive(Context)]
-#[derive(Debug)]
-pub struct Context {
-    /// Tensor unit for the main context.
-    pub main: TuContext<{ Tu::Main }>,
-    /// Tensor unit for the sub context.
-    pub sub: TuContext<{ Tu::Sub }>,
-    /// Tensor DMA context.
-    pub tdma: DmaContext<{ Dma::Tensor }>,
-    /// PCIe DMA context.
-    pub pdma: DmaContext<{ Dma::Pcie }>,
-}
-
-impl crate::runtime::DeviceSend for &mut Context {}
-
-impl Context {
-    /// Acquire the tensor units. Chain [`Acquired::bind`] to fix the NPU device before any host
-    /// I/O (`to_hbm`/`from_hbm`) initializes the runtime.
-    pub fn acquire() -> Acquired {
-        static SINGLETON: LazyLock<Mutex<Context>> = LazyLock::new(|| {
-            Mutex::new(Context {
-                main: TuContext::<{ Tu::Main }> { _marker: PhantomData },
-                sub: TuContext::<{ Tu::Sub }> { _marker: PhantomData },
-                tdma: DmaContext::<{ Dma::Tensor }> { _marker: PhantomData },
-                pdma: DmaContext::<{ Dma::Pcie }> { _marker: PhantomData },
-            })
-        });
-        Acquired(SINGLETON.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
+impl<const DMA: Dma, B: Backend> Debug for DmaContext<DMA, B> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("DmaContext").finish_non_exhaustive()
     }
 }
 
-/// Process-wide [`Context`] handle returned by [`Context::acquire`].
-#[derive(Debug)]
-pub struct Acquired(MutexGuard<'static, Context>);
+impl<const DMA: Dma, B: Backend> DmaContext<DMA, B> {
+    pub(crate) fn on(device: B::Device) -> Self {
+        Self {
+            device,
+            _marker: PhantomData,
+        }
+    }
 
-impl Deref for Acquired {
-    type Target = Context;
-    fn deref(&self) -> &Context {
-        &self.0
+    pub(crate) fn device(&self) -> &B::Device {
+        &self.device
     }
 }
 
-impl DerefMut for Acquired {
-    fn deref_mut(&mut self) -> &mut Context {
-        &mut self.0
-    }
-}
-
-impl Acquired {
-    /// Binds the process to a kernel's logical [`Device`] (`kernel.device()`) before any host I/O
-    /// initializes the runtime. First bind wins; a conflicting one panics. Non-NPU backends ignore
-    /// the device.
-    pub fn bind(self, device: Device) -> Self {
-        crate::runtime::CurrentBackend::bind_device(device);
-        self
+impl<const DMA: Dma, B: Backend> DeviceSend for DmaContext<DMA, B> {
+    fn bind(&self, _: &mut Buffers) -> Result<(), Error> {
+        Ok(())
     }
 }
 
 impl<const T: Tu> TuContext<{ T }> {
+    pub(crate) const fn on() -> Self {
+        Self { _marker: PhantomData }
+    }
+
     /// Begin a tensor unit operation in this context.
     #[primitive(TuContext::begin)]
     pub fn begin<'l, D: MaterializableScalar, Chip: M, Cluster: M, Slice: M, Element: M>(
@@ -146,88 +104,10 @@ impl<const T: Tu> TuContext<{ T }> {
         for (i, input) in [lhs, rhs].into_iter().enumerate() {
             output
                 .view_mut()
-                .tile::<Symbol<I>, m![{ Chip }, { Cluster }, { Slice }, 1 #{!} 2, { Element }], 1>(i)
+                .tile_derived::<Symbol<I>, 1>(i)
                 .transpose(input.inner, false);
         }
 
         BeginTensor::new(self, output)
-    }
-}
-
-impl TuContext<{ Tu::Sub }> {
-    /// Asymmetric cluster slice via ParallelCopy (stos): each cluster selects its own slice
-    /// position from `slice_indices` (one per cluster) — e.g. `[1, 0]` gives cluster 0 slice 1,
-    /// cluster 1 slice 0.
-    ///
-    /// `AxisToSlice` must be the outermost axis in `Element`.
-    #[primitive(TuContext::parallel_copy_cluster_slice)]
-    pub fn parallel_copy_cluster_slice<
-        'l,
-        const CLUSTER_DIM: usize,
-        AxisToSlice: M,
-        AxisSlicedElement: M,
-        Element2: M,
-        D: Scalar,
-        Chip: M,
-        Cluster: M,
-        Slice: M,
-        Element: M,
-    >(
-        &mut self,
-        tensor: DmTensorView<'l, D, Chip, Cluster, Slice, Element>,
-        slice_indices: &[usize; CLUSTER_DIM],
-    ) -> super::tensor::memory::DmTensor<D, Chip, Cluster, Slice, Element2> {
-        let mut sliced = DmTensor::new();
-
-        for (cluster_idx, slice_idx) in slice_indices.iter().enumerate() {
-            let cluster_slice = tensor.cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM>>(cluster_idx);
-            let selected = cluster_slice.tile::<AxisToSlice, 1, AxisSlicedElement>(*slice_idx);
-            // The stos copy is emitted by this primitive's own translation, so the body just moves
-            // the bytes for the CPU backend.
-            sliced
-                .view_mut()
-                .cluster_tile::<Cluster, 1, Padding<Identity, CLUSTER_DIM, { PaddingKind::Bottom }>>(cluster_idx)
-                .inner
-                .transpose(selected.inner, false);
-        }
-
-        sliced
-    }
-
-    /// Asymmetric chip slice via ParallelCopy (stos): each chip selects its own slice position
-    /// from `slice_indices` (one per chip) — e.g. `[3, 0, 1, 2]` gives chip 0 slice 3, chip 1
-    /// slice 0, chip 2 slice 1, chip 3 slice 2.
-    #[primitive(TuContext::parallel_copy_chip_slice)]
-    pub fn parallel_copy_chip_slice<
-        'l,
-        const CHIP_DIM: usize,
-        AxisToSlice: M,
-        AxisSlicedElement: M,
-        Element2: M,
-        D: Scalar,
-        Chip: M,
-        Cluster: M,
-        Slice: M,
-        Element: M,
-    >(
-        &mut self,
-        tensor: DmTensorView<'l, D, Chip, Cluster, Slice, Element>,
-        slice_indices: &[usize; CHIP_DIM],
-    ) -> DmTensor<D, Chip, Cluster, Slice, Element2> {
-        let mut sliced = DmTensor::new();
-
-        for (chip_idx, slice_idx) in slice_indices.iter().enumerate() {
-            let chip_slice = tensor.chip_tile::<Chip, 1, Padding<Identity, CHIP_DIM>>(chip_idx);
-            let selected = chip_slice.tile::<AxisToSlice, 1, AxisSlicedElement>(*slice_idx);
-            // The stos copy is emitted by this primitive's own translation, so the body just moves
-            // the bytes for the CPU backend.
-            sliced
-                .view_mut()
-                .chip_tile::<Chip, 1, Padding<Identity, CHIP_DIM, { PaddingKind::Bottom }>>(chip_idx)
-                .inner
-                .transpose(selected.inner, false);
-        }
-
-        sliced
     }
 }

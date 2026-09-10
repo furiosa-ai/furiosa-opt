@@ -13,14 +13,14 @@ type Lane = m![Col];
 /// Lifts `Grp` onto `Slice` while loading a contraction weight into TRF.
 #[device(chip = 1)]
 pub fn lift_to_trf_contract(
-    ctx: &mut Context,
+    device: &mut Device,
     act: &HbmTensor<i8, Chip, m![Row, Grp, Act, Dot]>,
     weight: &HbmTensor<i8, Chip, m![Row, Grp, Col, Dot]>,
 ) -> HbmTensor<i32, Chip, m![Row, Grp, Act, Col]> {
-    let act_dm = act.to_dm::<Cluster, Lifted, m![Act, Dot]>(&mut ctx.tdma);
-    let weight_dm = weight.to_dm::<Cluster, Replicated, m![Grp, Col, Dot]>(&mut ctx.tdma);
+    let act_dm = act.to_dm::<Cluster, Lifted, m![Act, Dot]>(&mut device.tdma);
+    let weight_dm = weight.to_dm::<Cluster, Replicated, m![Grp, Col, Dot]>(&mut device.tdma);
 
-    let trf: TrfTensor<i8, Chip, Cluster, Lifted, Lane, m![Dot]> = ctx
+    let trf: TrfTensor<i8, Chip, Cluster, Lifted, Lane, m![Dot]> = device
         .sub
         .begin(weight_dm.view())
         .fetch::<m![Grp, Col], m![Dot]>()
@@ -28,7 +28,7 @@ pub fn lift_to_trf_contract(
         .collect::<m![Col], m![Dot]>()
         .to_trf();
 
-    let result: DmTensor<i32, Chip, Cluster, Lifted, m![Act, Col]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, Lifted, m![Act, Col]> = device
         .main
         .begin(act_dm.view())
         .fetch::<m![Act], m![Dot]>()
@@ -40,5 +40,5 @@ pub fn lift_to_trf_contract(
         .commit_trim::<m![Col]>()
         .commit();
 
-    result.to_hbm::<m![Row, Grp, Act, Col]>(&mut ctx.tdma)
+    result.to_hbm::<m![Row, Grp, Act, Col]>(&mut device.tdma)
 }

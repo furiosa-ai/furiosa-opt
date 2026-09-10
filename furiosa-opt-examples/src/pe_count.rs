@@ -26,9 +26,9 @@ type Chip = m![1];
 ///
 /// Oracle: `output == input + 1`.
 #[device(chip = 1, pe = 1)]
-pub fn one_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P1]>) -> HbmTensor<i32, Chip, m![P1]> {
-    let input_dm: DmTensor<i32, Chip, m![1], m![P1 / 4], m![P1 % 4]> = input.to_dm(&mut ctx.tdma);
-    let result: DmTensor<i32, Chip, m![1], m![P1 / 4], m![P1 % 4]> = ctx
+pub fn one_pe_add(device: &mut Device, input: &HbmTensor<i32, Chip, m![P1]>) -> HbmTensor<i32, Chip, m![P1]> {
+    let input_dm: DmTensor<i32, Chip, m![1], m![P1 / 4], m![P1 % 4]> = input.to_dm(&mut device.tdma);
+    let result: DmTensor<i32, Chip, m![1], m![P1 / 4], m![P1 % 4]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![P1 % 4]>()
@@ -40,16 +40,16 @@ pub fn one_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P1]>) -> Hb
         .vector_final()
         .commit_trim::<m![P1 % 4]>()
         .commit();
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Adds 1 on the vector engine at a 2-PE device (1 cluster x 128 slices).
 ///
 /// Oracle: `output == input + 1`.
 #[device(chip = 1, pe = 2)]
-pub fn two_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P2]>) -> HbmTensor<i32, Chip, m![P2]> {
-    let input_dm: DmTensor<i32, Chip, m![1], m![P2 / 4], m![P2 % 4]> = input.to_dm(&mut ctx.tdma);
-    let result: DmTensor<i32, Chip, m![1], m![P2 / 4], m![P2 % 4]> = ctx
+pub fn two_pe_add(device: &mut Device, input: &HbmTensor<i32, Chip, m![P2]>) -> HbmTensor<i32, Chip, m![P2]> {
+    let input_dm: DmTensor<i32, Chip, m![1], m![P2 / 4], m![P2 % 4]> = input.to_dm(&mut device.tdma);
+    let result: DmTensor<i32, Chip, m![1], m![P2 / 4], m![P2 % 4]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![P2 % 4]>()
@@ -61,16 +61,16 @@ pub fn two_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P2]>) -> Hb
         .vector_final()
         .commit_trim::<m![P2 % 4]>()
         .commit();
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Adds 1 on the vector engine at a 4-PE device (1 cluster x 256 slices).
 ///
 /// Oracle: `output == input + 1`.
 #[device(chip = 1, pe = 4)]
-pub fn four_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P4]>) -> HbmTensor<i32, Chip, m![P4]> {
-    let input_dm: DmTensor<i32, Chip, m![1], m![P4 / 4], m![P4 % 4]> = input.to_dm(&mut ctx.tdma);
-    let result: DmTensor<i32, Chip, m![1], m![P4 / 4], m![P4 % 4]> = ctx
+pub fn four_pe_add(device: &mut Device, input: &HbmTensor<i32, Chip, m![P4]>) -> HbmTensor<i32, Chip, m![P4]> {
+    let input_dm: DmTensor<i32, Chip, m![1], m![P4 / 4], m![P4 % 4]> = input.to_dm(&mut device.tdma);
+    let result: DmTensor<i32, Chip, m![1], m![P4 / 4], m![P4 % 4]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![P4 % 4]>()
@@ -82,7 +82,7 @@ pub fn four_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P4]>) -> H
         .vector_final()
         .commit_trim::<m![P4 % 4]>()
         .commit();
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Adds 1 on the vector engine at an 8-PE device (2 clusters x 256 slices). The DM layout now
@@ -90,9 +90,9 @@ pub fn four_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P4]>) -> H
 ///
 /// Oracle: `output == input + 1`.
 #[device(chip = 1, pe = 8)]
-pub fn eight_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P8]>) -> HbmTensor<i32, Chip, m![P8]> {
-    let input_dm: DmTensor<i32, Chip, m![P8 / 1024], m![P8 / 4 % 256], m![P8 % 4]> = input.to_dm(&mut ctx.tdma);
-    let result: DmTensor<i32, Chip, m![P8 / 1024], m![P8 / 4 % 256], m![P8 % 4]> = ctx
+pub fn eight_pe_add(device: &mut Device, input: &HbmTensor<i32, Chip, m![P8]>) -> HbmTensor<i32, Chip, m![P8]> {
+    let input_dm: DmTensor<i32, Chip, m![P8 / 1024], m![P8 / 4 % 256], m![P8 % 4]> = input.to_dm(&mut device.tdma);
+    let result: DmTensor<i32, Chip, m![P8 / 1024], m![P8 / 4 % 256], m![P8 % 4]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![P8 % 4]>()
@@ -104,7 +104,7 @@ pub fn eight_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P8]>) -> 
         .vector_final()
         .commit_trim::<m![P8 % 4]>()
         .commit();
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Adds 1 on the vector engine at a 2-chip 8-PE device (2 chips x 2 clusters x 256 slices). The DM
@@ -114,12 +114,12 @@ pub fn eight_pe_add(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![P8]>) -> 
 /// Oracle: `output == input + 1`.
 #[device(chip = 2, pe = 8)]
 pub fn two_chip_add(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, m![P2C / 2048], m![P2C % 2048]>,
 ) -> HbmTensor<i32, m![P2C / 2048], m![P2C % 2048]> {
     let input_dm: DmTensor<i32, m![P2C / 2048], m![P2C / 1024 % 2], m![P2C / 4 % 256], m![P2C % 4]> =
-        input.to_dm(&mut ctx.tdma);
-    let result: DmTensor<i32, m![P2C / 2048], m![P2C / 1024 % 2], m![P2C / 4 % 256], m![P2C % 4]> = ctx
+        input.to_dm(&mut device.tdma);
+    let result: DmTensor<i32, m![P2C / 2048], m![P2C / 1024 % 2], m![P2C / 4 % 256], m![P2C % 4]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![P2C % 4]>()
@@ -131,7 +131,7 @@ pub fn two_chip_add(
         .vector_final()
         .commit_trim::<m![P2C % 4]>()
         .commit();
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Adds 1 on the vector engine at a 4-chip 8-PE device (4 chips x 2 clusters x 256 slices), the
@@ -140,12 +140,12 @@ pub fn two_chip_add(
 /// Oracle: `output == input + 1`.
 #[device(chip = 4, pe = 8)]
 pub fn four_chip_add(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, m![P4C / 2048], m![P4C % 2048]>,
 ) -> HbmTensor<i32, m![P4C / 2048], m![P4C % 2048]> {
     let input_dm: DmTensor<i32, m![P4C / 2048], m![P4C / 1024 % 2], m![P4C / 4 % 256], m![P4C % 4]> =
-        input.to_dm(&mut ctx.tdma);
-    let result: DmTensor<i32, m![P4C / 2048], m![P4C / 1024 % 2], m![P4C / 4 % 256], m![P4C % 4]> = ctx
+        input.to_dm(&mut device.tdma);
+    let result: DmTensor<i32, m![P4C / 2048], m![P4C / 1024 % 2], m![P4C / 4 % 256], m![P4C % 4]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![P4C % 4]>()
@@ -157,5 +157,5 @@ pub fn four_chip_add(
         .vector_final()
         .commit_trim::<m![P4C % 4]>()
         .commit();
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

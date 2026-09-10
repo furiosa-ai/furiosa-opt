@@ -13,14 +13,16 @@ use furiosa_opt_std::prelude::*;
 /// `output == input`.
 #[tokio::test]
 async fn test_runtime_if_scalar_index() {
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(runtime_if_scalar_index.topology()).unwrap();
     let input = HostTensor::<i8, m![A, B]>::from_vec((0..<m![A, B]>::SIZE).map(|x| x as i8).collect::<Vec<_>>());
-    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
 
-    let out = launch(runtime_if_scalar_index, (&mut *ctx, &input_hbm)).await;
+    let out = launch(runtime_if_scalar_index, (&mut device, &input_hbm))
+        .await
+        .unwrap();
 
     assert_eq!(
         input.clone().into_inner().into_vec(),
-        out.to_host::<m![A, B]>(&mut ctx.pdma).await.into_vec()
+        out.to_host::<m![A, B]>(&mut device.pdma).await.unwrap().into_vec()
     );
 }

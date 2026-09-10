@@ -1,13 +1,41 @@
 use std::marker::PhantomData;
 
-use furiosa_mapping::Mapping as MappingValue;
 use furiosa_mapping::*;
-use furiosa_opt_lower::{PadInput, TileInput, config_pad, config_tile};
+use furiosa_opt_lower::{PadInput, TileInput, TileMappingInput, config_pad, config_tile, tile_mapping};
 
 use super::Tensor;
 use crate::backend::Backend;
 use crate::runtime::CurrentBackend;
 use crate::scalar::*;
+
+/// A tile mapping derived from its source mapping instead of supplied by an API caller.
+#[derive(Debug, Clone)]
+pub(crate) struct Tiled<Index, Element, const LEN: usize, const HOLE_FILL: PaddingKind>(PhantomData<(Index, Element)>);
+
+impl<Index: M, Element: M, const LEN: usize, const HOLE_FILL: PaddingKind> M for Tiled<Index, Element, LEN, HOLE_FILL> {
+    const SIZE: usize = Element::SIZE;
+
+    fn to_value() -> Mapping {
+        tile_mapping(TileMappingInput {
+            index: Index::to_value(),
+            element: Element::to_value(),
+            len: LEN,
+            hole_fill: HOLE_FILL,
+        })
+        .unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    fn map(index: usize) -> Cell {
+        Self::to_value().index(index)
+    }
+}
+
+/// Panics if `E2`'s type-level derivation (e.g. a [`Tiled`] built from an invalid split) is not
+/// well-formed. Does not, and cannot, check that `E2` actually corresponds to any particular
+/// source mapping -- only that its own derivation holds together.
+fn assert_valid_derivation<E2: M>() {
+    E2::to_value();
+}
 
 /// Mutable view into a tensor. Borrows the concrete storage of some base tensor; the element
 /// mapping `Mapping` is the view's *current* logical layout (changed by [`Self::tile`]), tracked
@@ -21,7 +49,7 @@ pub struct TensorViewMut<'l, D: Scalar, Mapping: M, B: Backend = CurrentBackend>
     // but represents it in `Mapping` as padding; `base_map` keeps the axis live so a partial-view
     // relayout can resolve the offset's physical wire base against the real layout (see
     // [`crate::backend::Backend::transpose`]).
-    base_map: MappingValue,
+    base_map: furiosa_mapping::Mapping,
     _marker: PhantomData<(Mapping, B)>,
 }
 
@@ -42,7 +70,7 @@ pub struct TensorView<'l, D: Scalar, Mapping: M, B: Backend = CurrentBackend> {
     inner: &'l B::Storage<D>,
     offset: Index,
     /// The base tensor's live-axis mapping (see [`TensorViewMut::base_map`]).
-    base_map: MappingValue,
+    base_map: furiosa_mapping::Mapping,
     _marker: PhantomData<(Mapping, B)>,
 }
 
@@ -81,6 +109,15 @@ impl<'l, D: Scalar, Mapping: M, B: Backend> From<TensorViewMut<'l, D, Mapping, B
 }
 
 impl<'l, D: Scalar, E: M, B: Backend> TensorViewMut<'l, D, E, B> {
+    pub(crate) fn reborrow(&mut self) -> TensorViewMut<'_, D, E, B> {
+        TensorViewMut {
+            inner: &mut *self.inner,
+            offset: self.offset.clone(),
+            base_map: self.base_map.clone(),
+            _marker: PhantomData,
+        }
+    }
+
     /// Creates a new tensor view mut.
     pub(crate) fn new(inner: &'l mut B::Storage<D>) -> Self {
         Self {
@@ -106,8 +143,33 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorViewMut<'l, D, E, B> {
         self.retile::<I, E2>(start)
     }
 
+    /// Creates a mutable tile whose mapping is derived from the source mapping.
+    pub(crate) fn tile_derived<I: M, const LEN: usize>(
+        self,
+        start: usize,
+    ) -> TensorViewMut<'l, D, Tiled<I, E, LEN, { PaddingKind::Bottom }>, B> {
+        self.retile_derived::<I, Tiled<I, E, LEN, { PaddingKind::Bottom }>>(start)
+    }
+
+    /// Rewraps a derived tile, panicking if its type-level split is invalid. `assert_valid_derivation`
+    /// only catches a broken *derivation* (e.g. an invalid [`Tiled`]); it does not, and cannot, check
+    /// that `E2` actually corresponds to `E` -- see [`Self::retile`]'s warning. Only call this with an
+    /// `E2` derived from `E` by construction.
+    pub(crate) fn retile_derived<I: M, E2: M>(self, start: usize) -> TensorViewMut<'l, D, E2, B> {
+        assert_valid_derivation::<E2>();
+        self.retile::<I, E2>(start)
+    }
+
     /// The rewrap half of [`Self::tile`], for a caller that has already checked the split. A
     /// `DmTensorView` checks the one axis class its tile retargets, which its combined `E` cannot state.
+    ///
+    /// `E2` is trusted, not verified: only `I`'s position is checked against `E` (via `offset`), and
+    /// `E2` itself is recorded solely at `_marker`, with no comparison to `E` or `base_map`. Passing an
+    /// `E2` that is not actually `E` with `I` fixed at `start` (byte-for-byte, including every other
+    /// axis's stride) compiles and does not panic; it silently reads or writes the wrong addresses.
+    /// Only pass an `E2` derived from the caller's *own* `E` by construction (see [`Tiled`], or a type
+    /// checked the way [`Self::tile`] checks `E2` with [`config_tile`]) -- never a type merely declared
+    /// to have the right shape.
     pub(crate) fn retile<I: M, E2: M>(self, start: usize) -> TensorViewMut<'l, D, E2, B> {
         let mut offset = self.offset;
         offset
@@ -203,8 +265,26 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorView<'l, D, E, B> {
         self.retile::<I, E2>(start)
     }
 
+    /// Creates a tile whose mapping is derived from the source mapping.
+    pub(crate) fn tile_derived<I: M, const LEN: usize>(
+        &self,
+        start: usize,
+    ) -> TensorView<'l, D, Tiled<I, E, LEN, { PaddingKind::Top }>, B> {
+        self.retile_derived::<I, Tiled<I, E, LEN, { PaddingKind::Top }>>(start)
+    }
+
+    /// Rewraps a derived tile, panicking if its type-level split is invalid. `assert_valid_derivation`
+    /// only catches a broken *derivation* (e.g. an invalid [`Tiled`]); it does not, and cannot, check
+    /// that `E2` actually corresponds to `E` -- see [`Self::retile`]'s warning. Only call this with an
+    /// `E2` derived from `E` by construction.
+    pub(crate) fn retile_derived<I: M, E2: M>(&self, start: usize) -> TensorView<'l, D, E2, B> {
+        assert_valid_derivation::<E2>();
+        self.retile::<I, E2>(start)
+    }
+
     /// The rewrap half of [`Self::tile`], for a caller that has already checked the split. See
-    /// [`TensorViewMut::retile`].
+    /// [`TensorViewMut::retile`] -- same trust, same silent-misaddress risk if `E2` is not truly `E`
+    /// with `I` fixed at `start`.
     pub(crate) fn retile<I: M, E2: M>(&self, start: usize) -> TensorView<'l, D, E2, B> {
         let mut offset = self.offset.clone();
         offset
@@ -212,6 +292,29 @@ impl<'l, D: Scalar, E: M, B: Backend> TensorView<'l, D, E, B> {
             .unwrap_or_else(|kind| panic!("tile start maps to {kind:?} padding"));
         // Retiling is a plain rewrap (see `base_map`'s doc): same-type inner borrow, new mapping `E2`
         // recorded only at `_marker`, `base_map` left as the base tensor's live-axis mapping.
+        TensorView {
+            inner: self.inner,
+            offset,
+            base_map: self.base_map.clone(),
+            _marker: PhantomData,
+        }
+    }
+
+    /// Creates a view at one position of each independent axis.
+    pub(crate) fn retile_axes<E2: M>(
+        &self,
+        axes: &[furiosa_mapping::Mapping],
+        starts: &[usize],
+    ) -> TensorView<'l, D, E2, B> {
+        assert_eq!(axes.len(), starts.len());
+        let mut offset = self.offset.clone();
+        for (axis, &start) in axes.iter().zip(starts) {
+            match axis.index(start) {
+                Cell::Index(index) => offset.add(index),
+                Cell::Padding(kind) => panic!("tile start maps to {kind:?} padding"),
+                Cell::OutOfBounds => panic!("tile start maps out of bounds"),
+            }
+        }
         TensorView {
             inner: self.inner,
             offset,

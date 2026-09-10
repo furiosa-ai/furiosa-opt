@@ -37,11 +37,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -69,7 +69,7 @@ impl<
         self,
     ) -> TransposeTensor<'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B> {
         verify_transpose::<D, Time, Packet, OutTime, OutPacket>();
-        TransposeTensor::new(self.ctx, self.inner.transpose(false))
+        TransposeTensor::new(self.device, self.inner.transpose(false))
     }
 }
 // ANCHOR_END: transpose_impl

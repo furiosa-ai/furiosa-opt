@@ -85,9 +85,9 @@
 //!     unsafe { operand.reshape() }
 //! }
 //! #
-//! # let mut ctx = Context::acquire();
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 128], m![1], m![B]> =
-//! #     BeginTensor::new(&mut ctx.sub, Tensor::zero());
+//! #     BeginTensor::new(&mut device.sub, Tensor::zero());
 //! # let _ = relabel(store(input));
 //! ```
 
@@ -107,10 +107,13 @@ type Slice = m![1 # 256];
 /// Expected: `6 is not available for op Binary(SubFxp)`, pinned by the snapshot and by the
 /// answer-key test that catches the Cpu panic.
 #[device(chip = 1)]
-pub fn ve_elementwise_fxp_chain(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+pub fn ve_elementwise_fxp_chain(
+    device: &mut Device,
+    input: &HbmTensor<i32, Chip, m![A]>,
+) -> HbmTensor<i32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -125,7 +128,7 @@ pub fn ve_elementwise_fxp_chain(ctx: &mut Context, input: &HbmTensor<i32, Chip, 
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// A VRF operand whose packet lanes are `D` elements apart: the stream's packet is `G`, which the
@@ -136,14 +139,14 @@ pub fn ve_elementwise_fxp_chain(ctx: &mut Context, input: &HbmTensor<i32, Chip, 
 /// that catches the Cpu panic. Storing the operand as `[D, G]` (`G` innermost) is the fix.
 #[device(chip = 1)]
 pub fn ve_vrf_strided_packet(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![D, G]>,
     operand: &HbmTensor<i32, Chip, m![G, D]>,
 ) -> HbmTensor<i32, Chip, m![D, G]> {
-    let input_dm = input.to_dm::<Cluster, Slice, m![D, G]>(&mut ctx.tdma);
-    let operand_dm = operand.to_dm::<Cluster, Slice, m![G, D]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, Slice, m![D, G]>(&mut device.tdma);
+    let operand_dm = operand.to_dm::<Cluster, Slice, m![G, D]>(&mut device.tdma);
 
-    let operand_vrf: VrfTensor<i32, Chip, Cluster, Slice, m![G, D]> = ctx
+    let operand_vrf: VrfTensor<i32, Chip, Cluster, Slice, m![G, D]> = device
         .sub
         .begin(operand_dm.view())
         .fetch::<m![G, D / 8], m![D % 8]>()
@@ -151,7 +154,7 @@ pub fn ve_vrf_strided_packet(
         .collect::<m![G, D / 8], m![D % 8]>()
         .to_vrf();
 
-    let result: DmTensor<i32, Chip, Cluster, Slice, m![D, G]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, Slice, m![D, G]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![D], m![G]>()
@@ -164,7 +167,7 @@ pub fn ve_vrf_strided_packet(
         .commit_trim::<m![G]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// The group axis outermost in the FETCH time, so one interleaved group is the whole 512-element row,
@@ -174,25 +177,25 @@ pub fn ve_vrf_strided_packet(
 /// The fix is [`ve_group_pair_add_group_axis_inner`](crate::vector_engine::ve_group_pair_add_group_axis_inner).
 #[device(chip = 1)]
 pub fn ve_group_pair_over_cache(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: &HbmTensor<i32, Chip, m![A]>,
     rhs: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, Slice, m![A]>(&mut ctx.tdma);
-    let rhs_dm = rhs.to_dm::<Cluster, Slice, m![A]>(&mut ctx.tdma);
+    let lhs_dm = lhs.to_dm::<Cluster, Slice, m![A]>(&mut device.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, Slice, m![A]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, Slice, m![A]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, Slice, m![A]> = device
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
         .fetch::<m![I, A / 8], m![A % 8]>()
         .fetch_cast::<i32>()
         .collect::<m![I, A / 8], m![A % 8]>()
         .vector_init()
-        .vector_intra_slice_unzip::<I, m![1 # 2, A / 8], m![A / 8]>()
+        .vector_intra_slice_unzip::<I, m![A / 8]>()
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
         .commit_trim::<m![A % 8]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

@@ -17,7 +17,7 @@ axes![A = 512, B = 32];
 #[device(chip = 1)]
 #[allow(clippy::assertions_on_constants)]
 pub fn unevaluated_const(
-    ctx: &mut Context,
+    device: &mut Device,
     input: HbmTensorView<'_, i8, m![1], m![A, B]>,
 ) -> HbmTensor<i8, m![1], m![B, A]> {
     const { assert!(<m![B]>::SIZE % 32 == 0, "B must be a multiple of 32") };
@@ -25,7 +25,7 @@ pub fn unevaluated_const(
     for b in 0..<m![B]>::SIZE {
         let input_slice = input.tile::<m![B], 1, m![A, 1 # 32]>(b);
         let output_slice = output.view_mut().tile::<m![B], 1, m![1 #{!} 32, A]>(b);
-        input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+        input_slice.to_hbm_view(&mut device.tdma, output_slice);
     }
     output
 }

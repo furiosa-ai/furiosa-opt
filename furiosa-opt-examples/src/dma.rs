@@ -12,13 +12,13 @@ type Cluster = m![1 # 2];
 /// stays dense.
 #[device(chip = 1)]
 pub fn dup_two(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: &HbmTensor<i32, Chip, m![PA, PD]>,
     rhs: &HbmTensor<i32, Chip, m![PA, PD]>,
 ) -> (HbmTensor<i32, Chip, m![PA, PD]>, HbmTensor<i32, Chip, m![PA, PD]>) {
-    let dl: DmTensor<i32, Chip, Cluster, m![PA], m![PD]> = lhs.to_dm(&mut ctx.tdma);
-    let dr: DmTensor<i32, Chip, Cluster, m![PA], m![PD]> = rhs.to_dm(&mut ctx.tdma);
-    (dl.to_hbm(&mut ctx.tdma), dr.to_hbm(&mut ctx.tdma))
+    let dl: DmTensor<i32, Chip, Cluster, m![PA], m![PD]> = lhs.to_dm(&mut device.tdma);
+    let dr: DmTensor<i32, Chip, Cluster, m![PA], m![PD]> = rhs.to_dm(&mut device.tdma);
+    (dl.to_hbm(&mut device.tdma), dr.to_hbm(&mut device.tdma))
 }
 
 /// The dense `i32` HBM shape shared by the multiple-output copy kernels, and its DM landing shape.
@@ -27,9 +27,9 @@ type DupDm = DmTensor<i32, Chip, Cluster, m![PA], m![PD]>;
 
 /// Single-output copy: exercises the `compare_edf!` byte-image path on a bare (non-tuple) return.
 #[device(chip = 1)]
-pub fn dup_one(ctx: &mut Context, input: &DupHbm) -> DupHbm {
-    let dm: DupDm = input.to_dm(&mut ctx.tdma);
-    dm.to_hbm(&mut ctx.tdma)
+pub fn dup_one(device: &mut Device, input: &DupHbm) -> DupHbm {
+    let dm: DupDm = input.to_dm(&mut device.tdma);
+    dm.to_hbm(&mut device.tdma)
 }
 
 /// Eight outputs alternating between two inputs (`a, b, a, b, ...`) so adjacent outputs differ.
@@ -37,21 +37,21 @@ pub fn dup_one(ctx: &mut Context, input: &DupHbm) -> DupHbm {
 #[device(chip = 1)]
 #[expect(clippy::type_complexity)]
 pub fn dup_many(
-    ctx: &mut Context,
+    device: &mut Device,
     a: &DupHbm,
     b: &DupHbm,
 ) -> (DupHbm, DupHbm, DupHbm, DupHbm, DupHbm, DupHbm, DupHbm, DupHbm) {
-    let da: DupDm = a.to_dm(&mut ctx.tdma);
-    let db: DupDm = b.to_dm(&mut ctx.tdma);
+    let da: DupDm = a.to_dm(&mut device.tdma);
+    let db: DupDm = b.to_dm(&mut device.tdma);
     (
-        da.to_hbm(&mut ctx.tdma),
-        db.to_hbm(&mut ctx.tdma),
-        da.to_hbm(&mut ctx.tdma),
-        db.to_hbm(&mut ctx.tdma),
-        da.to_hbm(&mut ctx.tdma),
-        db.to_hbm(&mut ctx.tdma),
-        da.to_hbm(&mut ctx.tdma),
-        db.to_hbm(&mut ctx.tdma),
+        da.to_hbm(&mut device.tdma),
+        db.to_hbm(&mut device.tdma),
+        da.to_hbm(&mut device.tdma),
+        db.to_hbm(&mut device.tdma),
+        da.to_hbm(&mut device.tdma),
+        db.to_hbm(&mut device.tdma),
+        da.to_hbm(&mut device.tdma),
+        db.to_hbm(&mut device.tdma),
     )
 }
 
@@ -59,19 +59,19 @@ pub fn dup_many(
 /// input so a permutation of the lowered output order is observable.
 #[device(chip = 1)]
 pub fn mixed_inplace_and_returned_outputs(
-    ctx: &mut Context,
+    device: &mut Device,
     for_ref: &DupHbm,
     for_view: &DupHbm,
     for_return: &DupHbm,
     by_ref: &mut DupHbm,
     by_view: HbmTensorViewMut<'_, i32, Chip, m![1 #{!} 2, PA, PD]>,
 ) -> DupHbm {
-    let for_ref: DupDm = for_ref.to_dm(&mut ctx.tdma);
-    let for_view: DupDm = for_view.to_dm(&mut ctx.tdma);
-    let for_return: DupDm = for_return.to_dm(&mut ctx.tdma);
-    for_ref.view().to_hbm_view(&mut ctx.tdma, by_ref.view_mut());
-    for_view.view().to_hbm_view(&mut ctx.tdma, by_view);
-    for_return.to_hbm(&mut ctx.tdma)
+    let for_ref: DupDm = for_ref.to_dm(&mut device.tdma);
+    let for_view: DupDm = for_view.to_dm(&mut device.tdma);
+    let for_return: DupDm = for_return.to_dm(&mut device.tdma);
+    for_ref.view().to_hbm_view(&mut device.tdma, by_ref.view_mut());
+    for_view.view().to_hbm_view(&mut device.tdma, by_view);
+    for_return.to_hbm(&mut device.tdma)
 }
 
 /// Regression guard for the padded-tail DMA path: an in-slice tail axis whose live size is not
@@ -82,9 +82,9 @@ pub fn mixed_inplace_and_returned_outputs(
 /// padding too, because a dense `m![PA, PC]` source (DRAM stride 20) is rejected at the load.
 #[device(chip = 1)]
 pub fn padded_tail_alignment(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![PA, PC # 8]>,
 ) -> HbmTensor<i32, Chip, m![PA, PC # 8]> {
-    let dm: DmTensor<i32, Chip, Cluster, m![PA], m![PC # 8]> = input.to_dm(&mut ctx.tdma);
-    dm.to_hbm(&mut ctx.tdma)
+    let dm: DmTensor<i32, Chip, Cluster, m![PA], m![PC # 8]> = input.to_dm(&mut device.tdma);
+    dm.to_hbm(&mut device.tdma)
 }

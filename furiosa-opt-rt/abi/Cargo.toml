@@ -1,0 +1,17 @@
+[package]
+name = "furiosa-opt-abi"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[features]
+default = ["std"]
+std = ["alloc"]
+alloc = ["dep:bincode2"]
+
+[dependencies]
+bincode2 = { package = "bincode", version = "2", default-features = false, features = ["alloc", "derive"], optional = true }
+thiserror-core = { workspace = true }
+
+[lints]
+workspace = true

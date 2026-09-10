@@ -25,14 +25,14 @@ type Lane = m![R];
 /// `i8` activation x `i8` weight, promoted to `i9` x `i9` at the DPE.
 #[device(chip = 1)]
 pub fn i8_contract(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, Chip, m![A, K8]>,
     input_trf: &HbmTensor<i8, Chip, m![R, K8]>,
 ) -> HbmTensor<i32, Chip, m![A, R]> {
-    let input_dm = input.to_dm::<Cluster, Slice, m![A, K8]>(&mut ctx.tdma);
-    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K8]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, Slice, m![A, K8]>(&mut device.tdma);
+    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K8]>(&mut device.tdma);
 
-    let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![K8]> = ctx
+    let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![K8]> = device
         .sub
         .begin(trf_dm.view())
         .fetch::<m![R], m![K8]>()
@@ -40,7 +40,7 @@ pub fn i8_contract(
         .collect::<m![R], m![K8]>()
         .to_trf();
 
-    let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![A], m![K8]>()
@@ -53,20 +53,20 @@ pub fn i8_contract(
         .commit_trim::<m![R]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// `f8e4m3` contraction; passes through to the DPE unchanged, accumulates in f32.
 #[device(chip = 1)]
 pub fn f8e4m3_contract(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f8e4m3, Chip, m![A, K8]>,
     input_trf: &HbmTensor<f8e4m3, Chip, m![R, K8]>,
 ) -> HbmTensor<f32, Chip, m![A, R]> {
-    let input_dm = input.to_dm::<Cluster, Slice, m![A, K8]>(&mut ctx.tdma);
-    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K8]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, Slice, m![A, K8]>(&mut device.tdma);
+    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K8]>(&mut device.tdma);
 
-    let trf: TrfTensor<f8e4m3, Chip, Cluster, Slice, Lane, m![K8]> = ctx
+    let trf: TrfTensor<f8e4m3, Chip, Cluster, Slice, Lane, m![K8]> = device
         .sub
         .begin(trf_dm.view())
         .fetch::<m![R], m![K8]>()
@@ -74,7 +74,7 @@ pub fn f8e4m3_contract(
         .collect::<m![R], m![K8]>()
         .to_trf();
 
-    let result: DmTensor<f32, Chip, Cluster, Slice, m![A, R]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, Slice, m![A, R]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![A], m![K8]>()
@@ -87,7 +87,7 @@ pub fn f8e4m3_contract(
         .commit_trim::<m![R]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Zero-point-subtracted contraction: the activation is fetched as `i8` and
@@ -96,14 +96,14 @@ pub fn f8e4m3_contract(
 /// The i9 stream can only reach `contract_outer` (it is not committable).
 #[device(chip = 1)]
 pub fn zero_point_sub_contract(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, Chip, m![A, K8]>,
     input_trf: &HbmTensor<i8, Chip, m![R, K8]>,
 ) -> HbmTensor<i32, Chip, m![A, R]> {
-    let input_dm = input.to_dm::<Cluster, Slice, m![A, K8]>(&mut ctx.tdma);
-    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K8]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, Slice, m![A, K8]>(&mut device.tdma);
+    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K8]>(&mut device.tdma);
 
-    let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![K8]> = ctx
+    let trf: TrfTensor<i8, Chip, Cluster, Slice, Lane, m![K8]> = device
         .sub
         .begin(trf_dm.view())
         .fetch::<m![R], m![K8]>()
@@ -111,7 +111,7 @@ pub fn zero_point_sub_contract(
         .collect::<m![R], m![K8]>()
         .to_trf();
 
-    let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![A], m![K8]>()
@@ -124,21 +124,21 @@ pub fn zero_point_sub_contract(
         .commit_trim::<m![R]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// `i4` activation x `i4` weight, promoted to `i5` x `i5` at the contraction engine.
 /// One flit is 64 i4 elements (half a byte each), sub-mac padded to the i4 mac.
 #[device(chip = 1)]
 pub fn i4_contract(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i4, Chip, m![A, K4]>,
     input_trf: &HbmTensor<i4, Chip, m![R, K4]>,
 ) -> HbmTensor<i32, Chip, m![A, R]> {
-    let input_dm = input.to_dm::<Cluster, Slice, m![A, K4]>(&mut ctx.tdma);
-    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K4]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, Slice, m![A, K4]>(&mut device.tdma);
+    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K4]>(&mut device.tdma);
 
-    let trf: TrfTensor<i4, Chip, Cluster, Slice, Lane, m![K4]> = ctx
+    let trf: TrfTensor<i4, Chip, Cluster, Slice, Lane, m![K4]> = device
         .sub
         .begin(trf_dm.view())
         .fetch::<m![R], m![K4]>()
@@ -146,7 +146,7 @@ pub fn i4_contract(
         .collect::<m![R], m![K4]>()
         .to_trf();
 
-    let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, Slice, m![A, R]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![A], m![K4]>()
@@ -159,20 +159,20 @@ pub fn i4_contract(
         .commit_trim::<m![R]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// `f8e5m2` contraction; passes through to the DPE unchanged, accumulates in f32.
 #[device(chip = 1)]
 pub fn f8e5m2_contract(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f8e5m2, Chip, m![A, K8]>,
     input_trf: &HbmTensor<f8e5m2, Chip, m![R, K8]>,
 ) -> HbmTensor<f32, Chip, m![A, R]> {
-    let input_dm = input.to_dm::<Cluster, Slice, m![A, K8]>(&mut ctx.tdma);
-    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K8]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, Slice, m![A, K8]>(&mut device.tdma);
+    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K8]>(&mut device.tdma);
 
-    let trf: TrfTensor<f8e5m2, Chip, Cluster, Slice, Lane, m![K8]> = ctx
+    let trf: TrfTensor<f8e5m2, Chip, Cluster, Slice, Lane, m![K8]> = device
         .sub
         .begin(trf_dm.view())
         .fetch::<m![R], m![K8]>()
@@ -180,7 +180,7 @@ pub fn f8e5m2_contract(
         .collect::<m![R], m![K8]>()
         .to_trf();
 
-    let result: DmTensor<f32, Chip, Cluster, Slice, m![A, R]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, Slice, m![A, R]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![A], m![K8]>()
@@ -193,21 +193,21 @@ pub fn f8e5m2_contract(
         .commit_trim::<m![R]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// `bf16` contraction; passes through to the DPE unchanged, accumulates in f32.
 /// One flit is 16 bf16 elements (2 bytes each).
 #[device(chip = 1)]
 pub fn bf16_contract(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A, K16]>,
     input_trf: &HbmTensor<bf16, Chip, m![R, K16]>,
 ) -> HbmTensor<f32, Chip, m![A, R]> {
-    let input_dm = input.to_dm::<Cluster, Slice, m![A, K16]>(&mut ctx.tdma);
-    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K16]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, Slice, m![A, K16]>(&mut device.tdma);
+    let trf_dm = input_trf.to_dm::<Cluster, Slice, m![R, K16]>(&mut device.tdma);
 
-    let trf: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K16]> = ctx
+    let trf: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K16]> = device
         .sub
         .begin(trf_dm.view())
         .fetch::<m![R], m![K16]>()
@@ -215,7 +215,7 @@ pub fn bf16_contract(
         .collect::<m![R], m![K16]>()
         .to_trf();
 
-    let result: DmTensor<f32, Chip, Cluster, Slice, m![A, R]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, Slice, m![A, R]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![A], m![K16]>()
@@ -228,5 +228,5 @@ pub fn bf16_contract(
         .commit_trim::<m![R]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

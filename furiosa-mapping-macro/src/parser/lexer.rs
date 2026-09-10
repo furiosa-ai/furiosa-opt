@@ -1,10 +1,14 @@
-use proc_macro2::{Literal, TokenStream, TokenTree};
+use proc_macro2::{Literal, Span, TokenStream, TokenTree};
 use std::collections::VecDeque;
 use std::fmt;
 
+/// A parser position for either empty input or a source token.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Location(Option<Span>);
+
 /// Mode for the lexer, determining how expressions are tokenized.
-#[derive(Debug, Clone, Copy)]
-pub enum LexerMode {
+#[derive(Clone, Copy)]
+pub(super) enum LexerMode {
     /// Parse mapping expressions (for `m!` macro)
     Mapping,
     /// Parse index expressions with expression capture (for `i!` macro)
@@ -12,7 +16,7 @@ pub enum LexerMode {
 }
 
 #[derive(Debug, Clone)]
-pub enum Token {
+pub(super) enum Token {
     // --- Literals ---
     Symbol(String),
     Nat(usize),
@@ -37,13 +41,53 @@ pub enum Token {
 
 /// Contents of a `#{...}` padding-kind annotation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HashFillKind {
+pub(super) enum HashFillKind {
     /// `#{*}`: top padding (undefined slots). `#` is its shorthand.
     Star,
     /// `#{!}`: inaccessible (bottom) padding; reads are UB.
     Bang,
     /// `#{0}`: accessible padding masked to zero. Only `0` is accepted.
     Zero,
+}
+
+pub(super) enum LexicalError {
+    InvalidToken { token: String, span: Span },
+    UnrecognizedToken { token: String, span: Span },
+}
+
+/// Lexer for tokenizing input TokenStream.
+pub(super) struct Lexer {
+    /// Iterator over TokenTree.
+    iter: proc_macro2::token_stream::IntoIter,
+    /// Pending TokenTrees to be processed.
+    pending: VecDeque<TokenTree>,
+    /// Lexer mode (Mapping or Index)
+    mode: LexerMode,
+    /// Whether a Colon was seen in Index mode
+    after_colon: bool,
+}
+
+impl Location {
+    fn at(span: Span) -> Self {
+        Self(Some(span))
+    }
+
+    pub(super) fn is_start(self) -> bool {
+        self.0.is_none()
+    }
+
+    pub(super) fn span(self) -> Span {
+        self.0.unwrap_or_else(Span::call_site)
+    }
+}
+
+impl LexerMode {
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Mapping => "mapping",
+            Self::Index => "index",
+        }
+    }
 }
 
 impl fmt::Display for Token {
@@ -70,43 +114,20 @@ impl fmt::Display for Token {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum LexicalError {
-    InvalidToken(String),
-    UnrecognizedToken(String),
-}
-
-impl fmt::Display for LexicalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LexicalError::InvalidToken(s) => write!(f, "Invalid token: {}", s),
-            LexicalError::UnrecognizedToken(s) => write!(f, "Unrecognized token: {}", s),
-        }
-    }
-}
-
-/// Lexer for tokenizing input TokenStream.
-#[derive(Debug)]
-pub struct Lexer {
-    /// Iterator over TokenTree.
-    iter: proc_macro2::token_stream::IntoIter,
-    /// Pending TokenTrees to be processed.
-    pending: VecDeque<TokenTree>,
-    /// Lexer mode (Mapping or Index)
-    mode: LexerMode,
-    /// Whether a Colon was seen in Index mode
-    after_colon: bool,
-}
-
 impl Lexer {
     /// Creates a new Lexer from the given TokenStream with the specified mode.
-    pub fn new(input: TokenStream, mode: LexerMode) -> Self {
+    pub(super) fn new(input: TokenStream, mode: LexerMode) -> Self {
         Lexer {
             iter: input.into_iter(),
             pending: VecDeque::new(),
             mode,
             after_colon: false,
         }
+    }
+
+    fn locate(&self, token: Token, span: Span) -> (Location, Token, Location) {
+        let location = Location::at(span);
+        (location, token, location)
     }
 
     fn next_tree(&mut self) -> Option<TokenTree> {
@@ -137,17 +158,17 @@ impl Lexer {
 }
 
 impl Iterator for Lexer {
-    type Item = Result<(usize, Token, usize), LexicalError>;
+    type Item = Result<(Location, Token, Location), LexicalError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let tree = self.next_tree()?;
-        let (span_start, span_end) = (0, 0);
+        let mut span = tree.span();
 
         // In Index mode, after we see Colon, capture the expression
         if matches!(self.mode, LexerMode::Index) && self.after_colon {
             self.after_colon = false;
             let expr = self.capture_expr(tree);
-            return Some(Ok((span_start, Token::Expr(expr), span_end)));
+            return Some(Ok(self.locate(Token::Expr(expr), span)));
         }
 
         let token = match tree {
@@ -162,7 +183,7 @@ impl Iterator for Lexer {
                 } else if s == "\"]\"" {
                     Token::RBracket
                 } else {
-                    return Some(Err(LexicalError::InvalidToken(s)));
+                    return Some(Err(LexicalError::InvalidToken { token: s, span }));
                 }
             }
 
@@ -220,17 +241,28 @@ impl Iterator for Lexer {
                         Token::Colon
                     }
                     '=' => Token::Eq,
-                    _ => return Some(Err(LexicalError::UnrecognizedToken(ch.to_string()))),
+                    _ => {
+                        return Some(Err(LexicalError::UnrecognizedToken {
+                            token: ch.to_string(),
+                            span,
+                        }));
+                    }
                 }
             }
 
             TokenTree::Group(group) => {
                 let (open_token, close_lit_string) = match group.delimiter() {
-                    proc_macro2::Delimiter::Parenthesis => (Token::LParen, ")"),
-                    proc_macro2::Delimiter::Bracket => (Token::LBracket, "]"),
+                    proc_macro2::Delimiter::Parenthesis => {
+                        span = group.span_open();
+                        (Token::LParen, ")")
+                    }
+                    proc_macro2::Delimiter::Bracket => {
+                        span = group.span_open();
+                        (Token::LBracket, "]")
+                    }
                     proc_macro2::Delimiter::Brace => {
                         let inner_stream: proc_macro2::TokenStream = group.stream();
-                        return Some(Ok((span_start, Token::Escaped(inner_stream), span_end)));
+                        return Some(Ok(self.locate(Token::Escaped(inner_stream), span)));
                     }
                     proc_macro2::Delimiter::None => {
                         let inner_stream: Vec<TokenTree> = group.stream().into_iter().collect();
@@ -254,6 +286,6 @@ impl Iterator for Lexer {
             }
         };
 
-        Some(Ok((span_start, token, span_end)))
+        Some(Ok(self.locate(token, span)))
     }
 }

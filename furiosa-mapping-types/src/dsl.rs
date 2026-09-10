@@ -32,6 +32,25 @@ pub trait M: Debug + Clone {
 }
 // ANCHOR_END: trait_m
 
+/// A mapping whose size is a count, which is what an operator takes as its factor.
+///
+/// [`Broadcast`] counts a literal, [`Symbol`] counts an axis, and [`Stride`] counts how many of
+/// something fits: `m![Width / 512]` is however many 512-wide pieces `Width` holds. Every other
+/// mapping has a size without counting anything, so none is a factor: [`Pair`] multiplies two
+/// shapes together, and the remaining operators only repeat the factor they were given.
+///
+/// ```compile_fail,E0277
+/// use furiosa_mapping_types::*;
+/// struct A;
+/// impl AxisName for A {
+///     const NAME: Ident = Ident::A;
+///     const SIZE: usize = 8;
+/// }
+/// // A pair is a shape, not a count, so it cannot be a stride.
+/// let _ = <Stride<Symbol<A>, Pair<Symbol<A>, Symbol<A>>> as M>::SIZE;
+/// ```
+pub trait Count: M {}
+
 /// Broadcast expression: `SIZE` iterations of a stride-0 (don't-care) axis.
 /// `Broadcast<1>` is the identity (the unit written `m![1]`).
 /// `SIZE > 1` lowers in shape conversion to a non-target `Tile` fill.
@@ -56,6 +75,8 @@ impl<const SIZE: usize> M for Broadcast<SIZE> {
     }
 }
 // ANCHOR_END: broadcast_impl
+
+impl<const SIZE: usize> Count for Broadcast<SIZE> {}
 
 // ANCHOR: identity_impl
 /// The identity mapping (size-1 broadcast), the unit written `m![1]`.
@@ -103,32 +124,38 @@ impl<S: AxisName> M for Symbol<S> {
 }
 // ANCHOR_END: symbol_impl
 
-/// Stride expression that represents one for every `SIZE` elements.
+impl<S: AxisName> Count for Symbol<S> {}
+
+/// Stride expression that represents one for every element the factor mapping names.
+///
+/// `F` carries the stride in type space. Literal factors use [`Broadcast`]; an axis factor uses
+/// [`Symbol`], avoiding a size read from a generic parameter in const-argument position.
 #[primitive(mapping::Stride)]
 #[derive(Debug, Clone)]
-pub struct Stride<L, const SIZE: usize> {
-    _marker: PhantomData<L>,
+pub struct Stride<L, F> {
+    _marker: PhantomData<(L, F)>,
 }
 // ANCHOR: stride_impl
-impl<L, const SIZE: usize> M for Stride<L, SIZE>
+impl<L, F> M for Stride<L, F>
 where
     L: M,
+    F: Count,
 {
     const SIZE: usize = {
-        assert!(L::SIZE % SIZE == 0, "Stride size must divide the original size");
-        L::SIZE / SIZE
+        assert!(L::SIZE % F::SIZE == 0, "Stride size must divide the original size");
+        L::SIZE / F::SIZE
     };
 
     fn to_value() -> Mapping {
         Mapping::Stride {
             inner: RBox::new(L::to_value()),
-            stride: SIZE,
+            stride: F::SIZE,
         }
     }
 
     fn map(i: usize) -> Cell {
         if i < Self::SIZE {
-            L::map(i * SIZE)
+            L::map(i * F::SIZE)
         } else {
             Cell::OutOfBounds
         }
@@ -136,26 +163,29 @@ where
 }
 // ANCHOR_END: stride_impl
 
-/// Modulo expression that represents modulo `SIZE` elements.
+impl<L: M, F: Count> Count for Stride<L, F> {}
+
+/// Modulo expression that represents the factor mapping's extent.
 #[primitive(mapping::Modulo)]
 #[derive(Debug, Clone)]
-pub struct Modulo<L, const SIZE: usize> {
-    _marker: PhantomData<L>,
+pub struct Modulo<L, F> {
+    _marker: PhantomData<(L, F)>,
 }
 // ANCHOR: modulo_impl
-impl<L, const SIZE: usize> M for Modulo<L, SIZE>
+impl<L, F> M for Modulo<L, F>
 where
     L: M,
+    F: Count,
 {
     const SIZE: usize = {
-        assert!(L::SIZE % SIZE == 0, "Modulo size must divide the original size");
-        SIZE
+        assert!(L::SIZE % F::SIZE == 0, "Modulo size must divide the original size");
+        F::SIZE
     };
 
     fn to_value() -> Mapping {
         Mapping::Modulo {
             inner: RBox::new(L::to_value()),
-            modulo: SIZE,
+            modulo: F::SIZE,
         }
     }
 
@@ -169,33 +199,39 @@ where
 }
 // ANCHOR_END: modulo_impl
 
-/// Truncate expression to `SIZE` elements.
+/// Truncate expression to the factor mapping's extent.
 #[primitive(mapping::Resize)]
 #[derive(Debug, Clone)]
-pub struct Resize<L, const SIZE: usize> {
-    _marker: PhantomData<L>,
+pub struct Resize<L, F> {
+    _marker: PhantomData<(L, F)>,
 }
 // ANCHOR: resize_impl
-impl<L, const SIZE: usize> M for Resize<L, SIZE>
+impl<L, F> M for Resize<L, F>
 where
     L: M,
+    F: Count,
 {
-    const SIZE: usize = SIZE;
+    const SIZE: usize = F::SIZE;
 
     fn to_value() -> Mapping {
         Mapping::Resize {
             inner: RBox::new(L::to_value()),
-            resize: SIZE,
+            resize: F::SIZE,
         }
     }
 
     fn map(i: usize) -> Cell {
-        if i < SIZE { L::map(i) } else { Cell::OutOfBounds }
+        if i < F::SIZE { L::map(i) } else { Cell::OutOfBounds }
     }
 }
 // ANCHOR_END: resize_impl
 
 /// Add padding to increase an expression's size.
+///
+/// `F` names the padded extent as a mapping rather than a constant. A literal extent writes it as
+/// [`Broadcast`], and an extent the caller derives from an axis writes it as [`Symbol`], which
+/// keeps such an extent in type space: reading a size off a generic parameter in const-argument
+/// position is what `generic_const_exprs` is for, and reading it in a const initializer is not.
 ///
 /// `KIND` selects the padding flavour at the type level. Defaults to
 /// [`PaddingKind::Top`] (arbitrary values); use [`PaddingKind::Zero`] for
@@ -203,26 +239,27 @@ where
 /// stage), or [`PaddingKind::Bottom`] for inaccessible regions.
 #[primitive(mapping::Padding)]
 #[derive(Debug, Clone)]
-pub struct Padding<L, const SIZE: usize, const KIND: PaddingKind = { PaddingKind::Top }> {
-    _marker: PhantomData<L>,
+pub struct Padding<L, F, const KIND: PaddingKind = { PaddingKind::Top }> {
+    _marker: PhantomData<(L, F)>,
 }
 // ANCHOR: padding_impl
-impl<L, const SIZE: usize, const KIND: PaddingKind> M for Padding<L, SIZE, KIND>
+impl<L, F, const KIND: PaddingKind> M for Padding<L, F, KIND>
 where
     L: M,
+    F: Count,
 {
-    const SIZE: usize = SIZE;
+    const SIZE: usize = F::SIZE;
 
     fn to_value() -> Mapping {
         Mapping::Padding {
             inner: RBox::new(L::to_value()),
-            padding: SIZE,
+            padding: F::SIZE,
             kind: KIND,
         }
     }
 
     fn map(i: usize) -> Cell {
-        if i >= SIZE {
+        if i >= F::SIZE {
             Cell::OutOfBounds
         } else if i >= L::SIZE {
             Cell::Padding(KIND)

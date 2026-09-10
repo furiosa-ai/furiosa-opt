@@ -3,7 +3,7 @@
 //!
 //! Lifting onto the same dimension twice:
 //!
-//! ```compile_fail,E0277
+//! ```compile_fail,E0599
 //! # #![feature(adt_const_params)]
 //! # extern crate furiosa_opt_std;
 //! use furiosa_opt_std::prelude::*;
@@ -43,9 +43,9 @@
 //!         .commit()
 //! }
 //! #
-//! # let mut ctx = Context::acquire();
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, _, bf16, m![1], m![1 # 2], m![A], m![1], m![H, V]> =
-//! #     BeginTensor::new(&mut ctx.main, Tensor::zero());
+//! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # let _dm = resized(input);
 //! ```
 //!
@@ -69,9 +69,9 @@
 //!         .commit()
 //! }
 //! #
-//! # let mut ctx = Context::acquire();
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![H, V]> =
-//! #     BeginTensor::new(&mut ctx.main, Tensor::zero());
+//! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # let _dm = resized_slice(input);
 //! ```
 //!
@@ -92,9 +92,9 @@
 //!         .fetch_cluster_lift::<m![H], m![Four]>();
 //! }
 //! #
-//! # let mut ctx = Context::acquire();
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, _, bf16, m![1], m![2], m![A], m![1], m![Six, V]> =
-//! #     BeginTensor::new(&mut ctx.main, Tensor::zero());
+//! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # nondivisible(input);
 //! ```
 //!
@@ -118,9 +118,9 @@
 //!         .commit()
 //! }
 //! #
-//! # let mut ctx = Context::acquire();
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, _, bf16, m![1], m![2], m![A, 2], m![1], m![H, G, Q, V]> =
-//! #     BeginTensor::new(&mut ctx.main, Tensor::zero());
+//! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # let _dm = overshoots(input);
 //! ```
 //!
@@ -140,14 +140,14 @@ type Cluster = m![1 # 2];
 /// Rejects replacing the live slice dimension `G` with the lifted dimension `H`.
 #[device(chip = 1)]
 pub fn live_placement_renamed(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A, G, H, V]>,
     output: &mut HbmTensor<bf16, Chip, m![A, H, V]>,
 ) {
     let dm: DmTensor<bf16, Chip, Cluster, m![A, G], m![H, V]> =
-        input.to_dm::<Cluster, m![A, G], m![H, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, m![A, G], m![H, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![A, H], m![V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![A, H], m![V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![H], m![V]>()
@@ -156,20 +156,20 @@ pub fn live_placement_renamed(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+    result.view().to_hbm_view(&mut device.tdma, output.view_mut());
 }
 
 /// Rejects a lifted axis whose 4-byte step cannot be represented by an 8-byte-aligned fetch base.
 #[device(chip = 1)]
 pub fn unaligned_base_step(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, Chip, m![A, Step, Four]>,
     output: &mut HbmTensor<i8, Chip, m![A, Step, Four # 8]>,
 ) {
     let dm: DmTensor<i8, Chip, Cluster, m![A, 2], m![Step, Four]> =
-        input.to_dm::<Cluster, m![A, 2], m![Step, Four]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, m![A, 2], m![Step, Four]>(&mut device.tdma);
 
-    let result: DmTensor<i8, Chip, Cluster, m![A, Step], m![Four # 8]> = ctx
+    let result: DmTensor<i8, Chip, Cluster, m![A, Step], m![Four # 8]> = device
         .main
         .begin(dm.view())
         .fetch::<m![Step], m![Four # 8]>()
@@ -178,5 +178,5 @@ pub fn unaligned_base_step(
         .commit_trim::<m![Four # 8]>()
         .commit();
 
-    result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+    result.view().to_hbm_view(&mut device.tdma, output.view_mut());
 }

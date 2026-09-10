@@ -33,9 +33,9 @@ fn matmul<'l, const T: Tu>(
          .contract_lane::<m![A], m![C]>(LaneMode::Interleaved)
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]> = TrfTensor::zero();
 # let _o = matmul(a, &b);
 ```

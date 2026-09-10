@@ -42,9 +42,9 @@ fn reduce_b<'l, const T: Tu>(
          .contract_lane::<m![A % 8], m![1 # 8]>(LaneMode::Sequential)
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]> = TrfTensor::zero();
 # let _o = reduce_b(a, &b);
 ```

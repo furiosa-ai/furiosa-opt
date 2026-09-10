@@ -72,14 +72,14 @@ fn commit_trim_i4_no_trim<'l, const T: Tu>(
     input.commit_trim::<m![J]>()
 }
 #
-# let mut ctx = Context::acquire();
-# let a: CastTensor<'_, _, i8, m![1], m![1], m![1], m![M, K], m![W # 32]> = CastTensor::new(&mut ctx.main, Tensor::zero());
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# let a: CastTensor<'_, _, i8, m![1], m![1], m![1], m![M, K], m![W # 32]> = CastTensor::new(&mut device.main, Tensor::zero());
 # let _o = commit_trim_i8_padding(a);
-# let b: ContractTensor<'_, _, f32, m![1], m![1], m![1], m![M, K], m![W]> = ContractTensor::new(&mut ctx.main, Tensor::zero());
+# let b: ContractTensor<'_, _, f32, m![1], m![1], m![1], m![M, K], m![W]> = ContractTensor::new(&mut device.main, Tensor::zero());
 # let _o = commit_trim_f32_non_padding(b);
-# let c: CastTensor<'_, _, bf16, m![1], m![1], m![1], m![M, K], m![N]> = CastTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CastTensor<'_, _, bf16, m![1], m![1], m![1], m![M, K], m![N]> = CastTensor::new(&mut device.main, Tensor::zero());
 # let _o = commit_trim_bf16_with_transpose(c);
-# let d: CastTensor<'_, _, i4, m![1], m![1], m![1], m![M, K], m![J]> = CastTensor::new(&mut ctx.main, Tensor::zero());
+# let d: CastTensor<'_, _, i4, m![1], m![1], m![1], m![M, K], m![J]> = CastTensor::new(&mut device.main, Tensor::zero());
 # let _o = commit_trim_i4_no_trim(d);
 ```
 

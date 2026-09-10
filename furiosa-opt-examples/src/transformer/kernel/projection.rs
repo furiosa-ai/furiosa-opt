@@ -7,7 +7,7 @@ use crate::transformer::ops::{SliceN32, SliceP4};
 type Cluster = m![1 # 2];
 
 pub(crate) fn proj_q(
-    ctx: &mut Context,
+    device: &mut Device,
     input: DmTensorView<'_, bf16, Chip, Cluster, SliceP4, m![H]>,
     weight: &HbmTensor<bf16, Chip, m![Q, H]>,
 ) -> DmTensor<bf16, Chip, Cluster, SliceN32, m![G, D]> {
@@ -15,15 +15,15 @@ pub(crate) fn proj_q(
 
     let input: DmTensorView<'_, bf16, Chip, Cluster, SliceQ, m![H]> = unsafe { input.reshape() };
 
-    let weight: DmTensor<bf16, Chip, Cluster, SliceQ, m![Q % 32, H]> = weight.to_dm(&mut ctx.tdma);
-    let weight_trf: TrfTensor<bf16, Chip, Cluster, SliceQ, m![Q / 4 % 8], m![Q % 4, H]> = ctx
+    let weight: DmTensor<bf16, Chip, Cluster, SliceQ, m![Q % 32, H]> = weight.to_dm(&mut device.tdma);
+    let weight_trf: TrfTensor<bf16, Chip, Cluster, SliceQ, m![Q / 4 % 8], m![Q % 4, H]> = device
         .sub
         .begin(weight.view())
         .fetch::<m![Q % 32, H / 16], m![H % 16]>()
         .collect::<m![Q % 32, H / 16], m![H % 16]>()
         .to_trf();
 
-    let result: DmTensor<bf16, Chip, Cluster, SliceQ, m![Q % 32]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, SliceQ, m![Q % 32]> = device
         .main
         .begin(input)
         .fetch::<m![H / 16], m![H % 16]>()
@@ -37,7 +37,7 @@ pub(crate) fn proj_q(
         .commit_trim::<m![Q % 4]>()
         .commit();
 
-    let result: DmTensor<bf16, Chip, Cluster, m![Q / 256, 1 # 32], m![Q % 256]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![Q / 256, 1 # 32], m![Q % 256]> = device
         .main
         .begin(result.view())
         .fetch::<m![1], m![Q % 32]>()
@@ -51,7 +51,7 @@ pub(crate) fn proj_q(
 
 /// Shared `[P]` projection (`x @ weight^T`) used by both the K and V heads.
 fn proj_p(
-    ctx: &mut Context,
+    device: &mut Device,
     input: DmTensorView<'_, bf16, Chip, Cluster, SliceP4, m![H]>,
     weight: &HbmTensor<bf16, Chip, m![P, H]>,
 ) -> DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> {
@@ -59,15 +59,15 @@ fn proj_p(
 
     let input: DmTensorView<'_, bf16, Chip, Cluster, SliceP, m![H]> = unsafe { input.reshape() };
 
-    let weight: DmTensor<bf16, Chip, Cluster, SliceP, m![P % 32, H]> = weight.to_dm(&mut ctx.tdma);
-    let weight_trf: TrfTensor<bf16, Chip, Cluster, SliceP, m![P % 8], m![P / 8 % 4, H]> = ctx
+    let weight: DmTensor<bf16, Chip, Cluster, SliceP, m![P % 32, H]> = weight.to_dm(&mut device.tdma);
+    let weight_trf: TrfTensor<bf16, Chip, Cluster, SliceP, m![P % 8], m![P / 8 % 4, H]> = device
         .sub
         .begin(weight.view())
         .fetch::<m![P % 8, P / 8 % 4, H / 16], m![H % 16]>()
         .collect::<m![P % 8, P / 8 % 4, H / 16], m![H % 16]>()
         .to_trf();
 
-    let result: DmTensor<bf16, Chip, Cluster, SliceP, m![P % 32]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, SliceP, m![P % 32]> = device
         .main
         .begin(input)
         .fetch::<m![H / 16], m![H % 16]>()
@@ -80,7 +80,7 @@ fn proj_p(
         .commit_trim::<m![P % 8]>()
         .commit();
 
-    let result: DmTensor<bf16, Chip, Cluster, m![P / 128, 1 # 32], m![P % 128]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![P / 128, 1 # 32], m![P % 128]> = device
         .main
         .begin(result.view())
         .fetch::<m![1], m![P % 32]>()
@@ -93,26 +93,26 @@ fn proj_p(
 }
 
 pub(crate) fn proj_k(
-    ctx: &mut Context,
+    device: &mut Device,
     input: DmTensorView<'_, bf16, Chip, Cluster, SliceP4, m![H]>,
     weight: &HbmTensor<bf16, Chip, m![P, H]>,
 ) -> DmTensor<bf16, Chip, Cluster, SliceN32, m![D]> {
-    proj_p(ctx, input, weight)
+    proj_p(device, input, weight)
 }
 
 pub(crate) fn proj_v(
-    ctx: &mut Context,
+    device: &mut Device,
     input: DmTensorView<'_, bf16, Chip, Cluster, SliceP4, m![H]>,
     kv_offset: &HbmTensor<i32, Chip, m![1]>,
     weight: &HbmTensor<bf16, Chip, m![P, H]>,
     v_cache: &mut HbmTensor<bf16, Chip, m![T, N, D]>,
 ) {
-    let result = proj_p(ctx, input, weight);
+    let result = proj_p(device, input, weight);
     result.dma_scatter::<m![1], _, _>(kv_offset, v_cache);
 }
 
 pub(crate) fn proj_o(
-    ctx: &mut Context,
+    device: &mut Device,
     input: DmTensor<bf16, Chip, Cluster, SliceP4, m![Q]>,
     weight: &HbmTensor<bf16, Chip, m![H, Q]>,
 ) -> DmTensor<bf16, Chip, Cluster, SliceP4, m![H]> {
@@ -120,15 +120,15 @@ pub(crate) fn proj_o(
 
     let input: DmTensor<bf16, Chip, Cluster, SliceO, m![Q]> = unsafe { input.reshape() };
 
-    let weight: DmTensor<bf16, Chip, Cluster, SliceO, m![H % 16, Q]> = weight.to_dm(&mut ctx.tdma);
-    let weight_trf: TrfTensor<bf16, Chip, Cluster, SliceO, m![H / 4 % 4], m![H % 4, Q]> = ctx
+    let weight: DmTensor<bf16, Chip, Cluster, SliceO, m![H % 16, Q]> = weight.to_dm(&mut device.tdma);
+    let weight_trf: TrfTensor<bf16, Chip, Cluster, SliceO, m![H / 4 % 4], m![H % 4, Q]> = device
         .sub
         .begin(weight.view())
         .fetch::<m![H % 16, Q / 16], m![Q % 16]>()
         .collect::<m![H % 16, Q / 16], m![Q % 16]>()
         .to_trf();
 
-    let result: DmTensor<bf16, Chip, Cluster, SliceO, m![H % 16]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, SliceO, m![H % 16]> = device
         .main
         .begin(input.view())
         .fetch::<m![Q / 16], m![Q % 16]>()
@@ -142,7 +142,8 @@ pub(crate) fn proj_o(
         .commit_trim::<m![H % 4]>()
         .commit();
 
-    ctx.main
+    device
+        .main
         .begin(result.view())
         .fetch::<m![1], m![H % 16]>()
         .switch::<SliceP4, m![H / 16]>(SwitchConfig::Broadcast1 { slice1: 64, slice0: 4 })

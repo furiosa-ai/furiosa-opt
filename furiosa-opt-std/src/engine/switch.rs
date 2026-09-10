@@ -44,11 +44,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }
@@ -68,7 +68,7 @@ impl<'l, const T: Tu, P: CanApplySwitch, D: Scalar, Chip: M, Cluster: M, Slice: 
         config: SwitchConfig,
     ) -> SwitchTensor<'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B> {
         verify_switch::<Slice, Time, OutSlice, OutTime>(&config);
-        SwitchTensor::new(self.ctx, self.inner.transpose(true))
+        SwitchTensor::new(self.device, self.inner.transpose(true))
     }
 }
 // ANCHOR_END: switch_impl

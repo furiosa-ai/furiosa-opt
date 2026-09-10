@@ -28,12 +28,12 @@ type Slice = m![A, 2];
 /// Lifts `H` from fetch time onto `Slice`.
 #[device(chip = 1)]
 pub fn fetch_slice_lift_axis(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A, H, V]>,
 ) -> HbmTensor<bf16, Chip, m![A, H, V]> {
-    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![H, V]> = input.to_dm::<Cluster, Slice, m![H, V]>(&mut ctx.tdma);
+    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![H, V]> = input.to_dm::<Cluster, Slice, m![H, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![A, H], m![V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![A, H], m![V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![H], m![V]>()
@@ -42,16 +42,16 @@ pub fn fetch_slice_lift_axis(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![A, H, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![A, H, V]>(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn fetch_slice_lift_axis_twice(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A, H, V]>,
 ) -> (HbmTensor<bf16, Chip, m![A, H, V]>, HbmTensor<bf16, Chip, m![A, H, V]>) {
-    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![H, V]> = input.to_dm::<Cluster, Slice, m![H, V]>(&mut ctx.tdma);
-    let output0: DmTensor<bf16, Chip, Cluster, m![A, H], m![V]> = ctx
+    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![H, V]> = input.to_dm::<Cluster, Slice, m![H, V]>(&mut device.tdma);
+    let output0: DmTensor<bf16, Chip, Cluster, m![A, H], m![V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![H], m![V]>()
@@ -59,7 +59,7 @@ pub fn fetch_slice_lift_axis_twice(
         .collect::<m![1], m![V]>()
         .commit_trim::<m![V]>()
         .commit();
-    let output1: DmTensor<bf16, Chip, Cluster, m![A, H], m![V]> = ctx
+    let output1: DmTensor<bf16, Chip, Cluster, m![A, H], m![V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![H], m![V]>()
@@ -68,20 +68,20 @@ pub fn fetch_slice_lift_axis_twice(
         .commit_trim::<m![V]>()
         .commit();
     (
-        output0.to_hbm::<m![A, H, V]>(&mut ctx.tdma),
-        output1.to_hbm::<m![A, H, V]>(&mut ctx.tdma),
+        output0.to_hbm::<m![A, H, V]>(&mut device.tdma),
+        output1.to_hbm::<m![A, H, V]>(&mut device.tdma),
     )
 }
 
 /// Lifts the outer binary digit of `Q` from fetch time onto `Slice`.
 #[device(chip = 1)]
 pub fn fetch_slice_lift_digit(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A, Q, V]>,
 ) -> HbmTensor<bf16, Chip, m![A, Q, V]> {
-    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![Q, V]> = input.to_dm::<Cluster, Slice, m![Q, V]>(&mut ctx.tdma);
+    let dm: DmTensor<bf16, Chip, Cluster, Slice, m![Q, V]> = input.to_dm::<Cluster, Slice, m![Q, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, m![A, Q / 2], m![Q % 2, V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, m![A, Q / 2], m![Q % 2, V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![Q], m![V]>()
@@ -90,7 +90,7 @@ pub fn fetch_slice_lift_digit(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![A, Q, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![A, Q, V]>(&mut device.tdma)
 }
 
 axes![Row = 64, G = 2];
@@ -100,13 +100,13 @@ type LiftedBroadcasts = m![H, Row, G];
 /// Lifts `H` and `G` onto two `Slice` broadcast slots.
 #[device(chip = 1)]
 pub fn fetch_slice_lift_broadcasts(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![Row, H, G, V]>,
 ) -> HbmTensor<bf16, Chip, m![H, Row, G, V]> {
     let dm: DmTensor<bf16, Chip, Cluster, BroadcastSlice, m![H, G, V]> =
-        input.to_dm::<Cluster, BroadcastSlice, m![H, G, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, BroadcastSlice, m![H, G, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, Cluster, LiftedBroadcasts, m![V]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, LiftedBroadcasts, m![V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![H, G], m![V]>()
@@ -115,7 +115,7 @@ pub fn fetch_slice_lift_broadcasts(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![H, Row, G, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![H, Row, G, V]>(&mut device.tdma)
 }
 
 type PaddedSlice = m![A, 1 # 2];
@@ -123,13 +123,13 @@ type PaddedSlice = m![A, 1 # 2];
 /// Lifts `H` from fetch time onto `Cluster`.
 #[device(chip = 1)]
 pub fn fetch_cluster_lift_axis(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![A, H, V]>,
 ) -> HbmTensor<bf16, Chip, m![H, A, V]> {
     let dm: DmTensor<bf16, Chip, m![2], PaddedSlice, m![H, V]> =
-        input.to_dm::<m![2], PaddedSlice, m![H, V]>(&mut ctx.tdma);
+        input.to_dm::<m![2], PaddedSlice, m![H, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, Chip, m![H], PaddedSlice, m![V]> = ctx
+    let result: DmTensor<bf16, Chip, m![H], PaddedSlice, m![V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![H], m![V]>()
@@ -138,7 +138,7 @@ pub fn fetch_cluster_lift_axis(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![H, A, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![H, A, V]>(&mut device.tdma)
 }
 
 type FourChips = m![4];
@@ -146,13 +146,13 @@ type FourChips = m![4];
 /// Lifts `Q` from fetch time onto `Chip`.
 #[device(chip = 4)]
 pub fn fetch_chip_lift_axis(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, FourChips, m![A, Q, V]>,
 ) -> HbmTensor<bf16, m![Q], m![A, V]> {
     let dm: DmTensor<bf16, FourChips, Cluster, PaddedSlice, m![Q, V]> =
-        input.to_dm::<Cluster, PaddedSlice, m![Q, V]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, PaddedSlice, m![Q, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, m![Q], Cluster, PaddedSlice, m![V]> = ctx
+    let result: DmTensor<bf16, m![Q], Cluster, PaddedSlice, m![V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![Q], m![V]>()
@@ -161,7 +161,7 @@ pub fn fetch_chip_lift_axis(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![A, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![A, V]>(&mut device.tdma)
 }
 
 axes![C = 4, L = 2];
@@ -170,13 +170,13 @@ type ThreeLifted = m![A, H];
 /// Lifts `C`, `L`, and `H` onto `Chip`, `Cluster`, and `Slice` in one read.
 #[device(chip = 4)]
 pub fn fetch_lift_every_dimension(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, m![4], m![A, C, L, H, V]>,
 ) -> HbmTensor<bf16, m![C], m![L, A, H, V]> {
     let dm: DmTensor<bf16, m![4], m![2], Slice, m![C, L, H, V]> =
-        input.to_dm::<m![2], Slice, m![C, L, H, V]>(&mut ctx.tdma);
+        input.to_dm::<m![2], Slice, m![C, L, H, V]>(&mut device.tdma);
 
-    let result: DmTensor<bf16, m![C], m![L], ThreeLifted, m![V]> = ctx
+    let result: DmTensor<bf16, m![C], m![L], ThreeLifted, m![V]> = device
         .main
         .begin(dm.view())
         .fetch::<m![C, L, H], m![V]>()
@@ -187,5 +187,5 @@ pub fn fetch_lift_every_dimension(
         .commit_trim::<m![V]>()
         .commit();
 
-    result.to_hbm::<m![L, A, H, V]>(&mut ctx.tdma)
+    result.to_hbm::<m![L, A, H, V]>(&mut device.tdma)
 }

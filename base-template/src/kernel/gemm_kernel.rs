@@ -10,19 +10,19 @@ pub type Lane = m![J % 8];
 
 #[device(chip = 1)]
 pub fn gemm_kernel(
-    ctx: &mut Context,
+    device: &mut Device,
     a: &HbmTensor<bf16, Chip, m![I, K]>,
     b: &HbmTensor<bf16, Chip, m![J, K]>,
 ) -> HbmTensor<bf16, Chip, m![I, J]> {
     // Move data from HBM to DM
-    let a: DmTensor<bf16, Chip, Cluster, Slice, m![I % 32, K]> = a.to_dm(&mut ctx.tdma);
-    let b: DmTensor<bf16, Chip, Cluster, Slice, m![J % 32, K]> = b.to_dm(&mut ctx.tdma);
+    let a: DmTensor<bf16, Chip, Cluster, Slice, m![I % 32, K]> = a.to_dm(&mut device.tdma);
+    let b: DmTensor<bf16, Chip, Cluster, Slice, m![J % 32, K]> = b.to_dm(&mut device.tdma);
 
     // Load matrix B into TRF
     // Switch Engine distributes B across 256 slices
     // Each slice gets the full `K` dimension but only its (16 × 16) output tile
     // See: Switch Engine topologies for details on distribution
-    let b_trf: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![J / 8 % 4, K]> = ctx
+    let b_trf: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![J / 8 % 4, K]> = device
         .sub
         .begin(b.view())
         .fetch::<m![J % 8, J / 8 % 4], m![K]>()
@@ -32,7 +32,7 @@ pub fn gemm_kernel(
     // Compute GEMM: A × B
     // Switch Engine ensures matching (`I / 32`, `J / 32`) slice distribution
     // Contraction reduces along `K`, preserves `I` and `J`
-    let result: DmTensor<bf16, Chip, Cluster, Slice, m![I % 32, J % 32]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, Slice, m![I % 32, J % 32]> = device
         .main
         .begin(a.view())
         .fetch::<m![I % 32, J / 8 % 4], m![K]>()
@@ -46,5 +46,5 @@ pub fn gemm_kernel(
         .commit();
 
     // Transfer result to HBM
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

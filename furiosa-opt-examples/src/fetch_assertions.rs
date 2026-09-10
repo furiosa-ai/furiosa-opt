@@ -11,13 +11,13 @@ pub mod cluster_size {
 
     #[device(chip = 1)]
     pub fn valid_cluster_size(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -26,7 +26,7 @@ pub mod cluster_size {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -35,13 +35,13 @@ pub mod slice_size {
 
     #[device(chip = 1)]
     pub fn valid_slice_size(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -50,6 +50,6 @@ pub mod slice_size {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }

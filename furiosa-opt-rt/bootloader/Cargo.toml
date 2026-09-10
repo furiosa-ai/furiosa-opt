@@ -1,0 +1,35 @@
+# The signed boot image. A standalone workspace like `device/`, reaching `abi` through a symlink so
+# the image's bytes do not depend on where the repository is checked out.
+[workspace]
+
+[workspace.dependencies]
+elf = { version = "0.8.0", default-features = false }
+thiserror-core = { package = "thiserror", version = "2.0.17", default-features = false }
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(backend, values("npu"))', 'cfg(furiosa_opt)'] }
+
+[package]
+name = "furiosa-opt-bootloader"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "furiosa-opt-bootloader"
+path = "src/main.rs"
+test = false
+doctest = false
+bench = false
+
+[dependencies]
+furiosa-opt-abi = { path = "abi", version = "0.1.0", default-features = false }
+sha2 = { version = "0.10.9", default-features = false }
+
+[build-dependencies]
+sha2 = { version = "0.10.9", default-features = false }
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1

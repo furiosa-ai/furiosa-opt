@@ -20,9 +20,9 @@ pub type SmallRowMut = m![1 #{!} 64, H];
 /// covers both conversions `launch` performs and so both `address` implementations.
 #[device(chip = 1)]
 pub fn tile_move(
-    ctx: &mut Context,
+    device: &mut Device,
     input: HbmTensorView<'_, bf16, Chip, SmallRow>,
     out: HbmTensorViewMut<'_, bf16, Chip, SmallRowMut>,
 ) {
-    input.to_hbm_view(&mut ctx.tdma, out);
+    input.to_hbm_view(&mut device.tdma, out);
 }

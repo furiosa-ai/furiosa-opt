@@ -18,12 +18,12 @@ axes![A = 512];
 /// Divides each element by the axis size via a bare `<m![A]>::SIZE as f32` cast (see module doc).
 #[device(chip = 1)]
 pub fn scalar_cast_missing_const(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -38,5 +38,5 @@ pub fn scalar_cast_missing_const(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

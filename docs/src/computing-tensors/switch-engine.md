@@ -58,9 +58,9 @@ fn forwarding<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![B], m![C]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![B], m![C]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = forwarding(f);
 ```
 
@@ -112,9 +112,9 @@ fn broadcast01<'l, const T: Tu>(
     )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, f32, m![1], m![D], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, f32, m![1], m![D], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o= broadcast01(f);
 ```
 
@@ -170,9 +170,9 @@ fn broadcast1<'l, const T: Tu>(
     )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = broadcast1(f);
 ```
 
@@ -217,9 +217,9 @@ fn transpose<'l, const T: Tu>(
     })
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = transpose(f);
 ```
 
@@ -285,9 +285,9 @@ fn inter_transpose<'l, const T: Tu>(
         })
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = inter_transpose(f);
 ```
 
@@ -341,9 +341,9 @@ fn transposed_broadcast1<'l, const T: Tu>(
     )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = transposed_broadcast1(f);
 ```
 
@@ -433,9 +433,9 @@ fn arbitrary_permutation<'l, const T: Tu>(
     )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = arbitrary_permutation(f);
 ```
 
@@ -478,9 +478,9 @@ fn multi_axis_broadcast<'l, const T: Tu>(
     )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = multi_axis_broadcast(f);
 ```
 
@@ -521,9 +521,9 @@ fn partial_axis_extraction<'l, const T: Tu>(
     )
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]> = FetchTensor::new(&mut ctx.main, Tensor::zero());
+# let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = partial_axis_extraction(f);
 ```
 

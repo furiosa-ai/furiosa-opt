@@ -1,15 +1,16 @@
 mod backend;
-mod convert;
-mod ffi;
-mod kernel;
+mod bind;
+mod function;
+mod host;
 mod output;
 mod registry;
 
 pub use backend::Npu;
-pub use convert::ExtendBuffers;
-pub use ffi::NpuDesc;
-pub(crate) use ffi::bind_device;
-pub(crate) use kernel::CpuBuffer;
-pub use kernel::{Buffer, Kernel, Kernels, kernel};
-pub use output::{KernelOutput, KernelOutputDestination};
+pub use function::{Function, function};
+pub use host::HostBuf;
 pub use registry::Key;
+
+#[doc(hidden)]
+pub mod __private {
+    pub use super::output::DeviceOutput;
+}

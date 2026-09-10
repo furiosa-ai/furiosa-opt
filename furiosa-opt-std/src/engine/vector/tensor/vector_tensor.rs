@@ -63,7 +63,7 @@ use super::vector_tensor_pair::VectorTensorPair;
 /// VE input after `vector_init()`, before choosing the first block.
 #[derive(Debug)]
 pub struct VectorInitTensor<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M> {
-    pub(crate) ctx: &'l mut TuContext<{ T }>,
+    pub(crate) device: &'l mut TuContext<{ T }>,
     pub(crate) inner: Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
 }
 
@@ -72,10 +72,10 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packe
 {
     /// Creates a new VectorInitTensor.
     pub fn new(
-        ctx: &'l mut TuContext<{ T }>,
+        device: &'l mut TuContext<{ T }>,
         inner: Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
     ) -> Self {
-        Self { ctx, inner }
+        Self { device, inner }
     }
 }
 
@@ -139,7 +139,7 @@ pub struct VectorTensor<
     FS: stage::VeTensorContext = stage::Standalone,
     const W: Way = { Way8 },
 > {
-    pub(crate) ctx: &'l mut TuContext<{ T }>,
+    pub(crate) device: &'l mut TuContext<{ T }>,
     pub(crate) data: VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, W>,
 }
 
@@ -272,17 +272,17 @@ impl<
         VeState<Stash>,
     ) {
         let (inner, tag, ve_state) = self.data.into_parts();
-        (self.ctx, inner, tag, ve_state)
+        (self.device, inner, tag, ve_state)
     }
 
-    /// Consumes the tensor and returns ctx and data separately.
+    /// Consumes the tensor and returns device and data separately.
     pub fn into_ctx_and_data(
         self,
     ) -> (
         &'l mut TuContext<{ T }>,
         VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, W>,
     ) {
-        (self.ctx, self.data)
+        (self.device, self.data)
     }
 
     /// Returns a mutable reference to the VE state.
@@ -317,13 +317,13 @@ impl<
 
     /// Creates a new VectorTensor from parts.
     pub fn from_parts(
-        ctx: &'l mut TuContext<{ T }>,
+        device: &'l mut TuContext<{ T }>,
         inner: Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
         tag: Tensor<u8, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
         ve_state: VeState<Stash>,
     ) -> Self {
         Self {
-            ctx,
+            device,
             data: VeTensorData {
                 inner,
                 tag,
@@ -336,10 +336,10 @@ impl<
 
     /// Creates a new VectorTensor from context and data.
     pub fn from_ctx_and_data(
-        ctx: &'l mut TuContext<{ T }>,
+        device: &'l mut TuContext<{ T }>,
         data: VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, W>,
     ) -> Self {
-        Self { ctx, data }
+        Self { device, data }
     }
 
     /// Internal helper for binary operations: reads the stash the operand asks for, runs the op with ALU
@@ -362,7 +362,10 @@ impl<
             .data
             .apply_binary(op.alu(), op.binary_op_fn(mode), &operand, stash_data)
             .apply_stash_transition::<Op>();
-        VectorTensor { ctx: self.ctx, data }
+        VectorTensor {
+            device: self.device,
+            data,
+        }
     }
 }
 
@@ -424,7 +427,7 @@ impl<
     > {
         let new_ve_state = self.data.ve_state.write_stash(&self.data.inner);
         VectorTensor {
-            ctx: self.ctx,
+            device: self.device,
             data: VeTensorData {
                 inner: self.data.inner,
                 tag: self.data.tag,
@@ -459,7 +462,7 @@ impl<
     /// After this, commit/cast/transpose are available through the stream tensor API.
     #[primitive(VectorTensor::vector_final)]
     pub fn vector_final(self) -> VectorFinalTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet> {
-        VectorFinalTensor::new(self.ctx, self.data.inner)
+        VectorFinalTensor::new(self.device, self.data.inner)
     }
 }
 
@@ -489,7 +492,7 @@ impl<
     ) -> VectorInterSliceReduceTensor<'l, T, i32, Chip, Cluster, OutSlice, OutTime, Packet, { VeOrder::IntraFirst }>
     {
         let reduced = self.data.inner.reduce(op.reduce_fn(), op.identity(), true);
-        create_inter_slice_reduce_tensor(self.ctx, reduced)
+        create_inter_slice_reduce_tensor(self.device, reduced)
     }
 }
 
@@ -515,7 +518,7 @@ impl<
     ) -> VectorInterSliceReduceTensor<'l, T, f32, Chip, Cluster, OutSlice, OutTime, Packet, { VeOrder::IntraFirst }>
     {
         let reduced = self.data.inner.reduce(op.reduce_fn(), op.identity(), true);
-        create_inter_slice_reduce_tensor(self.ctx, reduced)
+        create_inter_slice_reduce_tensor(self.device, reduced)
     }
 }
 
@@ -535,11 +538,11 @@ pub(crate) fn create_inter_slice_reduce_tensor<
     Packet: M,
     const VE_ORDER: VeOrder,
 >(
-    ctx: &'l mut TuContext<{ T }>,
+    device: &'l mut TuContext<{ T }>,
     inner: Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
 ) -> VectorInterSliceReduceTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, VE_ORDER> {
     VectorTensor {
-        ctx,
+        device,
         data: VeTensorData {
             inner,
             tag: Tensor::zeroed(),
@@ -566,18 +569,18 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packe
         branch: TagMode<D>,
     ) -> VectorBranchTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, Fresh, { VeOrder::IntraFirst }> {
         // ANCHOR_END: vector_intra_slice_tag
-        VectorBranchTensor::new(self.ctx, self.inner, branch)
+        VectorBranchTensor::new(self.device, self.inner, branch)
     }
 
     /// Enters VE intra-slice pipeline (two-group / unzip).
     // ANCHOR: vector_intra_slice_unzip
     #[primitive(VectorInitTensor::vector_intra_slice_unzip)]
-    pub fn vector_intra_slice_unzip<I: AxisName, TileTime: M, SplitTime: M>(
+    pub fn vector_intra_slice_unzip<I: AxisName, SplitTime: M>(
         self,
     ) -> VectorTensorPair<'l, T, D, stage::Tag, Chip, Cluster, Slice, SplitTime, Packet> {
         // ANCHOR_END: vector_intra_slice_unzip
-        verify_vector_intra_slice_unzip::<I, Time, Packet>();
-        VectorTensorPair::new::<I, Time, TileTime>(self.ctx, self.inner)
+        verify_vector_intra_slice_unzip::<I, Time, SplitTime, Packet>();
+        VectorTensorPair::new::<I, Time>(self.device, self.inner)
     }
 }
 // ANCHOR_END: vector_init_intra_slice_methods_impl
@@ -596,7 +599,7 @@ impl<'l, const T: Tu, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M>
     {
         // ANCHOR_END: init_inter_slice_reduce_i32
         let reduced = self.inner.reduce(op.reduce_fn(), op.identity(), true);
-        create_inter_slice_reduce_tensor(self.ctx, reduced)
+        create_inter_slice_reduce_tensor(self.device, reduced)
     }
 }
 // ANCHOR_END: vector_init_inter_slice_reduce_i32_impl
@@ -615,7 +618,7 @@ impl<'l, const T: Tu, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M>
     {
         // ANCHOR_END: init_inter_slice_reduce_f32
         let reduced = self.inner.reduce(op.reduce_fn(), op.identity(), true);
-        create_inter_slice_reduce_tensor(self.ctx, reduced)
+        create_inter_slice_reduce_tensor(self.device, reduced)
     }
 }
 // ANCHOR_END: vector_init_inter_slice_reduce_f32_impl
@@ -667,7 +670,7 @@ impl<
         self,
         branch: TagMode<D>,
     ) -> VectorBranchTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet, Fresh, { VeOrder::InterFirst }> {
-        VectorBranchTensor::new(self.ctx, self.data.inner, branch)
+        VectorBranchTensor::new(self.device, self.data.inner, branch)
     }
 }
 
@@ -692,7 +695,7 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packe
 {
     /// Creates a new VectorBranchTensor from inner tensor and branch configuration.
     pub fn new(
-        ctx: &'l mut TuContext<{ T }>,
+        device: &'l mut TuContext<{ T }>,
         inner: Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
         branch_config: TagMode<D>,
     ) -> Self {
@@ -703,7 +706,7 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packe
             Packet::SIZE,
         );
         let tag = apply_branch_config(&inner, &branch_config);
-        Self::from_parts(ctx, inner, tag, VeState::new())
+        Self::from_parts(device, inner, tag, VeState::new())
     }
 }
 
@@ -1180,8 +1183,8 @@ where
 
         let result = self.inner().map(&op_fn);
 
-        let (ctx, _inner, tag, ve_state) = self.into_parts();
-        VectorFxpToFpTensor::from_parts(ctx, result, tag, ve_state)
+        let (device, _inner, tag, ve_state) = self.into_parts();
+        VectorFxpToFpTensor::from_parts(device, result, tag, ve_state)
     }
 }
 
@@ -1217,12 +1220,12 @@ where
     ) -> VectorNarrowTensor<'l, T, D, Chip, Cluster, Slice, Time2, Packet2, Stash, VE_ORDER, FS, { Way4 }> {
         verify_vector_narrow_split::<Time, Packet, Time2, Packet2>();
 
-        let (ctx, inner, tag, ve_state) = self.into_parts();
+        let (device, inner, tag, ve_state) = self.into_parts();
 
         let split_inner = inner.transpose::<VeTensorShape<Chip, Cluster, Slice, Time2, Packet2>>(true);
         let split_eid = tag.transpose::<VeTensorShape<Chip, Cluster, Slice, Time2, Packet2>>(true);
 
-        VectorNarrowTensor::from_parts(ctx, split_inner, split_eid, ve_state)
+        VectorNarrowTensor::from_parts(device, split_inner, split_eid, ve_state)
     }
 }
 
@@ -1259,12 +1262,12 @@ where
     ) -> VectorNarrowTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet2, Stash, VE_ORDER, FS, { Way4 }> {
         verify_vector_narrow_trim::<Packet, Packet2>();
 
-        let (ctx, inner, tag, ve_state) = self.into_parts();
+        let (device, inner, tag, ve_state) = self.into_parts();
 
         let stripped = inner.transpose::<VeTensorShape<Chip, Cluster, Slice, Time, Packet2>>(true);
         let stripped_eid = tag.transpose::<VeTensorShape<Chip, Cluster, Slice, Time, Packet2>>(true);
 
-        VectorNarrowTensor::from_parts(ctx, stripped, stripped_eid, ve_state)
+        VectorNarrowTensor::from_parts(device, stripped, stripped_eid, ve_state)
     }
 }
 
@@ -1310,8 +1313,8 @@ where
         let (guard, op) = op.into_guarded_unary_op();
         self.ve_state_mut().use_alu(op.alu());
         let result = apply_unary_op_where(self.inner(), self.tag(), guard, op.unary_op_fn());
-        let (ctx, _inner, tag, ve_state) = self.into_parts();
-        VectorFpTensor::from_parts(ctx, result, tag, ve_state)
+        let (device, _inner, tag, ve_state) = self.into_parts();
+        VectorFpTensor::from_parts(device, result, tag, ve_state)
     }
 
     /// Fp binary operation (f32 only). The operand is a const, `&VrfTensor`, or
@@ -1383,7 +1386,7 @@ where
         self.ve_state_mut().use_alu(op.alu());
         let op_fn = op.ternary_op_fn(Some(mode));
         let result = apply_ternary_op(self.inner(), self.tag(), op_fn, &operands, stash_data.as_ref());
-        let (ctx, _inner, tag, ve_state) = self.into_parts();
+        let (device, _inner, tag, ve_state) = self.into_parts();
         let data = VeTensorData {
             inner: result,
             tag,
@@ -1392,7 +1395,7 @@ where
             _filter_state: PhantomData,
         }
         .apply_stash_transition::<Op>();
-        VectorFpTensor::from_ctx_and_data(ctx, data)
+        VectorFpTensor::from_ctx_and_data(device, data)
     }
 }
 
@@ -1449,7 +1452,7 @@ where
 // ANCHOR_END: intra_slice_reduce_i32
     {
         self.ve_state_mut().use_alu(op.alu());
-        let (ctx, inner, tag, ve_state) = self.into_parts();
+        let (device, inner, tag, ve_state) = self.into_parts();
         verify_reduce_label(
             Time::to_value(),
             Packet::to_value(),
@@ -1463,7 +1466,7 @@ where
             false,
         );
         let reduced_eid = reduce_tag::<Chip, Cluster, Slice, Time, Packet, OutTime, OutPacket>(tag);
-        VectorIntraSliceReduceTensor::from_parts(ctx, reduced_inner, reduced_eid, ve_state)
+        VectorIntraSliceReduceTensor::from_parts(device, reduced_inner, reduced_eid, ve_state)
     }
 }
 
@@ -1480,12 +1483,12 @@ where
     /// # #![feature(adt_const_params)]
     /// use furiosa_opt_std::prelude::*;
     /// axes![A = 2048, B = 2, I = 2, R = 8];
-    /// let mut ctx = Context::acquire();
+    /// let mut device = Device::new(Topology { chips: 1, pes: 1 }).unwrap();
     /// let input: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![R, I], m![A % 8]> =
-    ///     CollectTensor::new(&mut ctx.main, Tensor::zero());
+    ///     CollectTensor::new(&mut device.main, Tensor::zero());
     /// let _zipped_reduce = input
     ///     .vector_init()
-    ///     .vector_intra_slice_unzip::<I, m![R, 1 # 2], m![R]>()
+    ///     .vector_intra_slice_unzip::<I, m![R]>()
     ///     .vector_fxp_to_fp(31)
     ///     .vector_narrow_split::<m![R, A / 4 % 2], m![A % 4]>()
     ///     .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))
@@ -1512,7 +1515,7 @@ where
 // ANCHOR_END: intra_slice_reduce_f32
     {
         self.ve_state_mut().use_alu(op.alu());
-        let (ctx, inner, tag, ve_state) = self.into_parts();
+        let (device, inner, tag, ve_state) = self.into_parts();
         verify_reduce_label(
             Time::to_value(),
             Packet::to_value(),
@@ -1526,7 +1529,7 @@ where
             false,
         );
         let reduced_eid = reduce_tag::<Chip, Cluster, Slice, Time, Packet, OutTime, OutPacket>(tag);
-        VectorIntraSliceReduceTensor::from_parts(ctx, reduced_inner, reduced_eid, ve_state)
+        VectorIntraSliceReduceTensor::from_parts(device, reduced_inner, reduced_eid, ve_state)
     }
 }
 
@@ -1613,12 +1616,12 @@ where
     ) -> VectorWidenTensor<'l, T, D, Chip, Cluster, Slice, Time2, Packet2, Stash, VE_ORDER, FS, { Way8 }> {
         verify_vector_widen_concat::<Time, Packet, Time2, Packet2>();
 
-        let (ctx, inner, tag, ve_state) = self.into_parts();
+        let (device, inner, tag, ve_state) = self.into_parts();
 
         let concat_inner = inner.transpose::<VeTensorShape<Chip, Cluster, Slice, Time2, Packet2>>(true);
         let concat_eid = tag.transpose::<VeTensorShape<Chip, Cluster, Slice, Time2, Packet2>>(true);
 
-        VectorWidenTensor::from_parts(ctx, concat_inner, concat_eid, ve_state)
+        VectorWidenTensor::from_parts(device, concat_inner, concat_eid, ve_state)
     }
 }
 
@@ -1655,12 +1658,12 @@ where
     ) -> VectorWidenTensor<'l, T, D, Chip, Cluster, Slice, Time, Packet2, Stash, VE_ORDER, FS, { Way8 }> {
         verify_vector_widen_pad::<Packet, Packet2>();
 
-        let (ctx, inner, tag, ve_state) = self.into_parts();
+        let (device, inner, tag, ve_state) = self.into_parts();
 
         let padded = inner.transpose::<VeTensorShape<Chip, Cluster, Slice, Time, Packet2>>(true);
         let padded_eid = tag.transpose::<VeTensorShape<Chip, Cluster, Slice, Time, Packet2>>(true);
 
-        VectorWidenTensor::from_parts(ctx, padded, padded_eid, ve_state)
+        VectorWidenTensor::from_parts(device, padded, padded_eid, ve_state)
     }
 }
 
@@ -1694,8 +1697,8 @@ where
         let op_fn = op.op_fn();
         let result = self.inner().map(&op_fn);
 
-        let (ctx, _inner, tag, ve_state) = self.into_parts();
-        VectorFpToFxpTensor::from_parts(ctx, result, tag, ve_state)
+        let (device, _inner, tag, ve_state) = self.into_parts();
+        VectorFpToFxpTensor::from_parts(device, result, tag, ve_state)
     }
 }
 
@@ -1860,8 +1863,8 @@ impl<
     ) -> VectorTensor<'l, T, S, D2, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, W> {
         let op_fn = HasConversionOp::<D, D2>::conversion_op_fn(&Reinterpret);
         let result = self.inner().map(&op_fn);
-        let (ctx, _inner, tag, ve_state) = self.into_parts();
-        VectorTensor::from_parts(ctx, result, tag, ve_state)
+        let (device, _inner, tag, ve_state) = self.into_parts();
+        VectorTensor::from_parts(device, result, tag, ve_state)
     }
 }
 

@@ -11,13 +11,13 @@ pub mod alignment {
 
     #[device(chip = 1)]
     pub fn aligned_fetch_packet_i8(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -26,18 +26,18 @@ pub mod alignment {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn aligned_fetch_packet_bf16(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<bf16, Chip, m![A, B]>,
         output: &mut HbmTensor<bf16, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<bf16, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<bf16, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -46,7 +46,7 @@ pub mod alignment {
             .commit_trim::<m![B % 16]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -55,13 +55,13 @@ pub mod packet {
 
     #[device(chip = 1)]
     pub fn packet_padding_unchanged(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -70,18 +70,18 @@ pub mod packet {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn packet_padding_added_in_switch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -90,18 +90,18 @@ pub mod packet {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn packet_nested_padding(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -110,18 +110,18 @@ pub mod packet {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn packet_restructuring(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, C]>,
         output: &mut HbmTensor<i8, Chip, m![A, C / 16, C % 16]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, C]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, C]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, C / 16, C % 16]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, C / 16, C % 16]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![C]>()
@@ -130,18 +130,18 @@ pub mod packet {
             .commit_trim::<m![C % 32]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn valid_padding(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -150,7 +150,7 @@ pub mod packet {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -159,13 +159,13 @@ pub mod slice {
 
     #[device(chip = 1)]
     pub fn valid_matching_slice_sizes(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -174,7 +174,7 @@ pub mod slice {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -183,13 +183,13 @@ pub mod broadcast1 {
 
     #[device(chip = 1)]
     pub fn valid_basic(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 16, 1 # 4, C % 4, A, C / 4 % 4, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 16, 1 # 4, C % 4], m![A, C / 4 % 4, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 16, 1 # 4, C % 4], m![A, C / 4 % 4, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -199,18 +199,18 @@ pub mod broadcast1 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn valid_degenerate(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, 1 # 4, A, C % 4, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![1 # 4, C % 64], m![A, C / 64, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![1 # 4, C % 64], m![A, C / 64, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -220,7 +220,7 @@ pub mod broadcast1 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -229,13 +229,13 @@ pub mod broadcast01 {
 
     #[device(chip = 1)]
     pub fn valid_only_slice1(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![B]>,
         output: &mut HbmTensor<i8, Chip, m![F / 4, E / 4, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![E / 4], m![1, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![E / 4], m![1, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![F / 4], m![E / 4, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![F / 4], m![E / 4, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![1], m![B]>()
@@ -249,18 +249,18 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn valid_with_time0(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, D % 4, A / 2, C / 2 % 2, A % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A / 2, C / 2 % 2, A % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A / 2, C / 2 % 2, A % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -274,18 +274,18 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn valid_broadcast_with_padding(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, 1 # 4, A, C / 2 % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, 1 # 4], m![A, C / 2 % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, 1 # 4], m![A, C / 2 % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -299,7 +299,7 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -308,13 +308,13 @@ pub mod transpose {
 
     #[device(chip = 1)]
     pub fn valid_single_axis(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 64, C % 2, C / 2 % 32, A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 64, C % 2, C / 2 % 32], m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 64, C % 2, C / 2 % 32], m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -324,18 +324,18 @@ pub mod transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn valid_three_axes(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 128, C % 8, C / 8 % 16, A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C / 128, C / 8 % 16, C % 8], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C / 128, C / 8 % 16, C % 8], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 128, C % 8, C / 8 % 16], m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 128, C % 8, C / 8 % 16], m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -345,18 +345,18 @@ pub mod transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn valid_split_inner(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 16, C % 4, C / 4 % 4, A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C / 16, C % 16], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C / 16, C % 16], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 16, C % 4, C / 4 % 4], m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 16, C % 4, C / 4 % 4], m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -366,7 +366,7 @@ pub mod transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -375,38 +375,39 @@ pub mod inter_transpose {
 
     #[device(chip = 1)]
     pub fn valid(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 32, A / 2 % 2, C % 16, A / 4, A % 2, C / 16 % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, C / 16 % 2, B]> = ctx
-            .main
-            .begin(input_dm.view())
-            .fetch::<m![A], m![B]>()
-            .fetch_cast::<i8>()
-            .switch::<m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, C / 16 % 2]>(SwitchConfig::InterTranspose {
-                slice1: 2,
-                slice0: 16,
-                time0: 2,
-            })
-            .collect::<m![A / 4, A % 2, C / 16 % 2], m![B]>()
-            .commit_trim::<m![B]>()
-            .commit();
+        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, C / 16 % 2, B]> =
+            device
+                .main
+                .begin(input_dm.view())
+                .fetch::<m![A], m![B]>()
+                .fetch_cast::<i8>()
+                .switch::<m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, C / 16 % 2]>(SwitchConfig::InterTranspose {
+                    slice1: 2,
+                    slice0: 16,
+                    time0: 2,
+                })
+                .collect::<m![A / 4, A % 2, C / 16 % 2], m![B]>()
+                .commit_trim::<m![B]>()
+                .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn valid_degenerate(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, C % 32, C / 32 % 8, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![A, C % 32], m![C / 32 % 8, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![A, C % 32], m![C / 32 % 8, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -420,6 +421,6 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }

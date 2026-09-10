@@ -151,15 +151,9 @@ pub fn axes(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn m(input: TokenStream) -> TokenStream {
     let input: proc_macro2::TokenStream = input.into();
-    let lexer = parser::Lexer::new(input, parser::LexerMode::Mapping);
-    let parser = parser::MappingParser::new();
-    let mapping = match parser.parse(lexer) {
+    let mapping = match parser::parse_mapping(input) {
         Ok(mapping) => mapping,
-        Err(e) => {
-            return syn::Error::new(proc_macro2::Span::call_site(), e.to_string())
-                .to_compile_error()
-                .into();
-        }
+        Err(error) => return error.to_compile_error().into(),
     };
     let expanded = mapping.expand();
     quote! { #expanded }.into()
@@ -204,15 +198,9 @@ pub fn m(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn i(input: TokenStream) -> TokenStream {
     let input: proc_macro2::TokenStream = input.into();
-    let lexer = parser::Lexer::new(input, parser::LexerMode::Index);
-    let parser = parser::IndexParser::new();
-    let assignments = match parser.parse(lexer) {
+    let assignments = match parser::parse_index(input) {
         Ok(assignments) => assignments,
-        Err(e) => {
-            return syn::Error::new(proc_macro2::Span::call_site(), e.to_string())
-                .to_compile_error()
-                .into();
-        }
+        Err(error) => return error.to_compile_error().into(),
     };
 
     let expansions = assignments.iter().map(|assignment| assignment.expand());

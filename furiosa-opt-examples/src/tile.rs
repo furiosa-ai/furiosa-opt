@@ -7,13 +7,16 @@ axes![One = 1];
 
 /// Device function that transposes a tensor from shape [A, B] to [B, A].
 #[device(chip = 1)]
-pub fn tile_simple(ctx: &mut Context, input: HbmTensorView<'_, i8, m![1], m![A, B]>) -> HbmTensor<i8, m![1], m![B, A]> {
+pub fn tile_simple(
+    device: &mut Device,
+    input: HbmTensorView<'_, i8, m![1], m![A, B]>,
+) -> HbmTensor<i8, m![1], m![B, A]> {
     let mut output = HbmTensor::<i8, m![1], m![B, A]>::new();
     for b in 0..32 {
         // TODO: replace with <m![B]>::SIZE
         let input_slice = input.tile::<m![B], 1, m![A, 1 # 32]>(b);
         let output_slice = output.view_mut().tile::<m![B], 1, m![1 #{!} 32, A]>(b);
-        input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+        input_slice.to_hbm_view(&mut device.tdma, output_slice);
     }
     output
 }
@@ -21,16 +24,16 @@ pub fn tile_simple(ctx: &mut Context, input: HbmTensorView<'_, i8, m![1], m![A, 
 /// Exercises computed tile offsets.
 #[device(chip = 1)]
 pub fn tile_computed_offset(
-    ctx: &mut Context,
+    device: &mut Device,
     input_hbm: &HbmTensor<i8, m![1], m![A, B]>,
 ) -> HbmTensor<i8, m![1], m![A, B]> {
     const GROUPS: usize = 2;
     const GROUP: usize = 16;
     const WINDOW: usize = 8;
-    let input = input_hbm.to_dm::<m![A / 256], m![A % 256], m![B]>(&mut ctx.tdma);
+    let input = input_hbm.to_dm::<m![A / 256], m![A % 256], m![B]>(&mut device.tdma);
     let mut output = DmTensor::<i8, m![1], m![A / 256], m![A % 256], m![B]>::new();
 
-    input.view().to_dm_view(&mut ctx.tdma, output.view_mut());
+    input.view().to_dm_view(&mut device.tdma, output.view_mut());
 
     let mut scratch = DmTensor::<i8, m![1], m![A / 256], m![A % 256], m![B]>::new();
     for g in 0..GROUPS {
@@ -38,11 +41,11 @@ pub fn tile_computed_offset(
             let b = g * GROUP + j * WINDOW;
             let input_col = input.view().tile::<m![B], 8, m![B = 8 # 32]>(b);
             let scratch_col = scratch.view_mut().tile::<m![B], 8, m![B = 8 #{!} 32]>(b);
-            input_col.to_dm_view(&mut ctx.tdma, scratch_col);
+            input_col.to_dm_view(&mut device.tdma, scratch_col);
         }
     }
 
-    output.to_hbm(&mut ctx.tdma)
+    output.to_hbm(&mut device.tdma)
 }
 
 type Chip = m![1];
@@ -58,13 +61,14 @@ type Slice = m![1 # 256];
 ///
 /// Runs at a 4-PE device (1 cluster) so the `Cluster = m![1]` DM allocations match the config.
 #[device(chip = 1, pe = 4)]
-pub fn tile_window_commit(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![D]>) -> HbmTensor<f32, Chip, m![D]> {
-    let tensor: DmTensor<f32, Chip, Cluster, Slice, m![D]> = input.to_dm(&mut ctx.tdma);
+pub fn tile_window_commit(device: &mut Device, input: &HbmTensor<f32, Chip, m![D]>) -> HbmTensor<f32, Chip, m![D]> {
+    let tensor: DmTensor<f32, Chip, Cluster, Slice, m![D]> = input.to_dm(&mut device.tdma);
     let tile_one = tensor.view().tile::<m![D], 32, m![D = 32 # 64]>(0);
 
     let mut result: DmTensor<f32, Chip, Cluster, Slice, m![D]> = DmTensor::new();
 
-    ctx.main
+    device
+        .main
         .begin(tile_one)
         .fetch::<m![1], m![D = 32]>()
         .fetch_cast::<f32>()
@@ -72,7 +76,7 @@ pub fn tile_window_commit(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![D]>
         .commit_trim::<m![D = 32 % 8]>()
         .commit_view(result.view_mut().tile::<m![D], 32, m![D = 32 #{!} 64]>(32));
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Same transpose as [`tile_simple`], but the input is aliased with a bare `view()`
@@ -80,12 +84,15 @@ pub fn tile_window_commit(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![D]>
 /// param tensor, which the loop-body builder must find among the parent's tensors;
 /// without that it fails VISA -> LIR with "no tensor exists for T{n}".
 #[device(chip = 1)]
-pub fn tile_view_in_loop(ctx: &mut Context, input: &HbmTensor<i8, m![1], m![A, B]>) -> HbmTensor<i8, m![1], m![B, A]> {
+pub fn tile_view_in_loop(
+    device: &mut Device,
+    input: &HbmTensor<i8, m![1], m![A, B]>,
+) -> HbmTensor<i8, m![1], m![B, A]> {
     let mut output = HbmTensor::<i8, m![1], m![B, A]>::new();
     for b in 0..32 {
         let input_slice = input.view().tile::<m![B], 1, m![A, 1 # 32]>(b);
         let output_slice = output.view_mut().tile::<m![B], 1, m![1 #{!} 32, A]>(b);
-        input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+        input_slice.to_hbm_view(&mut device.tdma, output_slice);
     }
     output
 }
@@ -109,7 +116,7 @@ pub fn tile_view_in_loop(ctx: &mut Context, input: &HbmTensor<i8, m![1], m![A, B
 /// the host backend's tile-shape validator does not accept this two-level HBM tile.
 #[device(chip = 1)]
 pub fn tile_view_in_nested_loop(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, m![1], m![A, B]>,
 ) -> HbmTensor<i8, m![1], m![A, B]> {
     let mut output = HbmTensor::<i8, m![1], m![A, B]>::new();
@@ -129,7 +136,7 @@ pub fn tile_view_in_nested_loop(
                 .view_mut()
                 .tile::<m![B / 16], 1, m![A, 1 #{!} 2, B % 16]>(g)
                 .tile::<m![B % 16], 1, m![A, 1 #{!} 32]>(h);
-            in_col.to_hbm_view(&mut ctx.tdma, out_col);
+            in_col.to_hbm_view(&mut device.tdma, out_col);
         }
     }
     output
@@ -148,14 +155,14 @@ pub fn tile_view_in_nested_loop(
 /// oracle (`compare_edf!`) for both the loop-tensor re-merge and the chunk-axis fix.
 #[device(chip = 1)]
 pub fn tile_chunked_output(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, m![1], m![B, D]>,
 ) -> HbmTensor<i8, m![1], m![B, D]> {
     let mut output = HbmTensor::<i8, m![1], m![B, D]>::new();
     for i in 0..4 {
         let input_slice = input.view().tile::<m![D / 16], 1, m![B, 1 # 4, D % 16]>(i);
         let output_slice = output.view_mut().tile::<m![D / 16], 1, m![B, 1 #{!} 4, D % 16]>(i);
-        input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+        input_slice.to_hbm_view(&mut device.tdma, output_slice);
     }
     output
 }
@@ -165,40 +172,40 @@ pub fn tile_chunked_output(
 /// removed from the shape, exercising the absent-unit-axis no-op lowering (`is_absent_unit_axis`).
 #[device(chip = 1)]
 pub fn tile_unit_axis(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, m![1], m![One, B, D]>,
 ) -> HbmTensor<i8, m![1], m![One, B, D]> {
     let mut output = HbmTensor::<i8, m![1], m![One, B, D]>::new();
     let input_slice = input.view().tile::<m![One], 1, m![1, B, D]>(0);
     let output_slice = output.view_mut().tile::<m![One], 1, m![1, B, D]>(0);
-    input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+    input_slice.to_hbm_view(&mut device.tdma, output_slice);
     output
 }
 
 #[device(chip = 1)]
 pub fn tile_with_larger_than_one_1(
-    ctx: &mut Context,
+    device: &mut Device,
     up_weight: &HbmTensor<bf16, Chip, m![L, A]>,
 ) -> HbmTensor<bf16, Chip, m![L, A]> {
     let mut output = HbmTensor::<bf16, Chip, m![L, A]>::new();
 
     let input_slice = up_weight.view().tile::<m![L], 256, m![L = 256 # 768, A]>(0);
     let output_slice = output.view_mut().tile::<m![L], 256, m![L = 256 #{!} 768, A]>(2);
-    input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+    input_slice.to_hbm_view(&mut device.tdma, output_slice);
 
     let input_slice = up_weight.view().tile::<m![L], 256, m![L = 256 # 768, A]>(1);
     let output_slice = output.view_mut().tile::<m![L], 256, m![L = 256 #{!} 768, A]>(1);
-    input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+    input_slice.to_hbm_view(&mut device.tdma, output_slice);
 
     let input_slice = up_weight.view().tile::<m![L], 256, m![L = 256 # 768, A]>(2);
     let output_slice = output.view_mut().tile::<m![L], 256, m![L = 256 #{!} 768, A]>(0);
-    input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+    input_slice.to_hbm_view(&mut device.tdma, output_slice);
 
     output
 }
 
 #[device(chip = 1)]
-pub fn tile_with_larger_than_one_2(ctx: &mut Context, up_weight: &HbmTensor<bf16, Chip, m![L, A]>) {
+pub fn tile_with_larger_than_one_2(device: &mut Device, up_weight: &HbmTensor<bf16, Chip, m![L, A]>) {
     let up_weight = up_weight
         .view()
         .tile::<m![L / 256], 2, m![L / 256 = 2 # 3, L %  256, A]>(1);
@@ -216,22 +223,22 @@ pub fn tile_with_larger_than_one_2(ctx: &mut Context, up_weight: &HbmTensor<bf16
 /// most of the output tensor unwritten).
 #[device(chip = 1)]
 pub fn tile_size_gt1_chunk_swap(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![L, A]>,
 ) -> HbmTensor<bf16, Chip, m![L, A]> {
     let mut output = HbmTensor::<bf16, Chip, m![L, A]>::new();
 
     let input_slice = input.view().tile::<m![L], 256, m![L = 256 # 768, A]>(0);
     let output_slice = output.view_mut().tile::<m![L], 256, m![L = 256 #{!} 768, A]>(256);
-    input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+    input_slice.to_hbm_view(&mut device.tdma, output_slice);
 
     let input_slice = input.view().tile::<m![L], 256, m![L = 256 # 768, A]>(256);
     let output_slice = output.view_mut().tile::<m![L], 256, m![L = 256 #{!} 768, A]>(0);
-    input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+    input_slice.to_hbm_view(&mut device.tdma, output_slice);
 
     let input_slice = input.view().tile::<m![L], 256, m![L = 256 # 768, A]>(512);
     let output_slice = output.view_mut().tile::<m![L], 256, m![L = 256 #{!} 768, A]>(512);
-    input_slice.to_hbm_view(&mut ctx.tdma, output_slice);
+    input_slice.to_hbm_view(&mut device.tdma, output_slice);
 
     output
 }
@@ -244,14 +251,14 @@ pub fn tile_size_gt1_chunk_swap(
 /// has to factor `L` at the digit's extent first. Without that the window comes off the front of
 /// the whole axis and the 8 outer positions are lost.
 #[device(chip = 1)]
-pub fn tile_inner_digit(ctx: &mut Context, input: &HbmTensor<bf16, Chip, m![L]>) -> HbmTensor<bf16, Chip, m![L]> {
+pub fn tile_inner_digit(device: &mut Device, input: &HbmTensor<bf16, Chip, m![L]>) -> HbmTensor<bf16, Chip, m![L]> {
     let mut output = HbmTensor::<bf16, Chip, m![L]>::new();
 
     let input_window = input.view().tile::<m![L % 96], 2, m![L / 96, L % 96 = 2 # 96]>(0);
     let output_window = output
         .view_mut()
         .tile::<m![L % 96], 2, m![L / 96, L % 96 = 2 #{!} 96]>(4);
-    input_window.to_hbm_view(&mut ctx.tdma, output_window);
+    input_window.to_hbm_view(&mut device.tdma, output_window);
 
     output
 }
@@ -260,7 +267,7 @@ pub fn tile_inner_digit(ctx: &mut Context, input: &HbmTensor<bf16, Chip, m![L]>)
 /// windowing it, so the view is the 8 outer positions alone.
 #[device(chip = 1)]
 pub fn tile_inner_digit_single(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![L]>,
 ) -> HbmTensor<bf16, Chip, m![L]> {
     let mut output = HbmTensor::<bf16, Chip, m![L]>::new();
@@ -269,7 +276,7 @@ pub fn tile_inner_digit_single(
     let output_cell = output
         .view_mut()
         .tile::<m![L % 96], 1, m![L / 96, L % 96 = 1 #{!} 96]>(7);
-    input_cell.to_hbm_view(&mut ctx.tdma, output_cell);
+    input_cell.to_hbm_view(&mut device.tdma, output_cell);
 
     output
 }
@@ -286,12 +293,12 @@ pub mod dm_inner_digit {
     /// Tiles a packed HBM weight along the inner `H % 120` digit, then materializes each two-cell
     /// view in DM.
     #[device(chip = 1)]
-    pub fn tile_packed_inner_digit_to_dm(ctx: &mut Context, down_weight_packed: &HbmTensor<f4e2m1, Chip, m![H, L]>) {
+    pub fn tile_packed_inner_digit_to_dm(device: &mut Device, down_weight_packed: &HbmTensor<f4e2m1, Chip, m![H, L]>) {
         for k in 0..60 {
             let down_weight_packed: DmTensor<f4e2m1, Chip, Cluster, DownRows, m![H % 120 = 2, L]> = down_weight_packed
                 .view()
                 .tile::<m![H % 120], 2, m![H / 120, H % 120 = 2 # 120, L]>(2 * k)
-                .to_dm(&mut ctx.tdma);
+                .to_dm(&mut device.tdma);
         }
     }
 }

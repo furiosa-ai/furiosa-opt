@@ -1,9 +1,6 @@
 //! Examples exercising memory-movement primitives that lack dedicated examples
 //! elsewhere: DM↔DM relayout ([`DmTensor::to_dm`]) and a `commit_view` into a
 //! down-padded tiled `view_mut` ([`commit_view_bottom_pad`]).
-//!
-//! Parallel copy and HBM chip shuffle are recognized at MIR but not translated further, so they live
-//! in `npu-opt-examples::unsupported::memory_op`.
 
 #![expect(clippy::type_complexity)]
 
@@ -16,12 +13,12 @@ axes![Q = 896, T = 512];
 /// The `Slice` size is preserved (`m![A]` and `m![1 # 2, A / 2]` are both 256).
 #[device(chip = 1)]
 pub fn dm_relayout(
-    ctx: &mut Context,
+    device: &mut Device,
     hbm: &HbmTensor<i32, m![1], m![A, B]>,
 ) -> HbmTensor<i32, m![1], m![A / 2, A % 2, B]> {
-    let dm: DmTensor<i32, m![1], m![1 # 2], m![A], m![B]> = hbm.to_dm(&mut ctx.tdma);
-    let relaid: DmTensor<i32, m![1], m![1 # 2], m![1 # 2, A / 2], m![A % 2, B]> = dm.to_dm(&mut ctx.tdma);
-    relaid.to_hbm(&mut ctx.tdma)
+    let dm: DmTensor<i32, m![1], m![1 # 2], m![A], m![B]> = hbm.to_dm(&mut device.tdma);
+    let relaid: DmTensor<i32, m![1], m![1 # 2], m![1 # 2, A / 2], m![A % 2, B]> = dm.to_dm(&mut device.tdma);
+    relaid.to_hbm(&mut device.tdma)
 }
 
 type QChip = m![1];
@@ -36,14 +33,15 @@ type QSlice = m![T / 32 # 256];
 /// [`PaddingKind::Bottom`].
 #[device(chip = 1)]
 pub fn commit_view_bottom_pad(
-    ctx: &mut Context,
+    device: &mut Device,
     input_hbm: &HbmTensor<f32, QChip, m![T, Q % 56 = 8]>,
 ) -> HbmTensor<f32, QChip, m![T, Q % 56]> {
-    let input: DmTensor<f32, QChip, QCluster, QSlice, m![T % 32, Q % 56 = 8]> = input_hbm.to_dm(&mut ctx.tdma);
+    let input: DmTensor<f32, QChip, QCluster, QSlice, m![T % 32, Q % 56 = 8]> = input_hbm.to_dm(&mut device.tdma);
 
     let mut result: DmTensor<f32, QChip, QCluster, QSlice, m![T % 32, Q % 56]> = DmTensor::new();
 
-    ctx.main
+    device
+        .main
         .begin(input.view())
         .fetch::<m![T % 32], m![Q % 56 = 8]>()
         .collect::<m![T % 32], m![Q % 56 = 8]>()
@@ -54,5 +52,5 @@ pub fn commit_view_bottom_pad(
                 .tile::<m![Q % 56], 8, m![T % 32, Q % 56 = 8 #{!} 56]>(0),
         );
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

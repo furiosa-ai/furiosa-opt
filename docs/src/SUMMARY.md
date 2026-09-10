@@ -39,6 +39,8 @@
   + [Commit Adapter](./computing-tensors/commit-adapter.md)
 
 
+  + [Case Study: Chip/Cluster Reduction](./kernel-examples/chip-cluster-reduce.md)
+
 - [End-to-End Cases](./kernel-examples/index.md)
   + [Case Study: Transformer](./kernel-examples/transformer.md)
 

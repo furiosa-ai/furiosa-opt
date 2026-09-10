@@ -950,7 +950,7 @@ mod tests {
     /// the rules live -- the eDSL builder, the ViSA translator and lowering to `VePass` all report
     /// what `validate` decides -- so it is the one place they are pinned.
     #[test]
-    fn unittest_slot_defect() {
+    fn reports_each_slot_defect() {
         type Layout = BranchedOperand<i32, i32>;
         type Node = Operands<i32, i32>;
         let bit0 = TagGuard::matches([BitReq::One, BitReq::Ignore, BitReq::Ignore, BitReq::Ignore]);

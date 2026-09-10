@@ -10,16 +10,16 @@ pub type Lane = m![1]; // No lane parallelism
 
 #[device(chip = 1)]
 pub fn dot_product_kernel(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: &HbmTensor<bf16, Chip, m![A]>,
     rhs: &HbmTensor<bf16, Chip, m![A]>,
 ) -> HbmTensor<bf16, Chip, m![1]> {
     // HBM → DM
-    let lhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = lhs.to_dm(&mut ctx.tdma);
-    let rhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = rhs.to_dm(&mut ctx.tdma);
+    let lhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = lhs.to_dm(&mut device.tdma);
+    let rhs: DmTensor<bf16, Chip, Cluster, Slice, m![A]> = rhs.to_dm(&mut device.tdma);
 
     // Sub context: load rhs into TRF
-    let rhs: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![A]> = ctx
+    let rhs: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![A]> = device
         .sub
         .begin(rhs.view())
         .fetch::<Time, m![A]>()
@@ -27,7 +27,7 @@ pub fn dot_product_kernel(
         .to_trf();
 
     // Main context: stream lhs through the Contraction Engine, reduce along A
-    let result: DmTensor<bf16, Chip, Cluster, Slice, m![1 # 8]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, Slice, m![1 # 8]> = device
         .main
         .begin(lhs.view())
         .fetch::<Time, m![A]>()
@@ -42,5 +42,5 @@ pub fn dot_product_kernel(
         .commit();
 
     // DM → HBM
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

@@ -11,16 +11,16 @@ pub type Lane = m![1];
 
 #[device(chip = 1)]
 pub fn gemv_kernel(
-    ctx: &mut Context,
+    device: &mut Device,
     matrix: &HbmTensor<bf16, Chip, m![I, J]>,
     vector: &HbmTensor<bf16, Chip, m![J]>,
 ) -> HbmTensor<bf16, Chip, m![I]> {
     // Move data from HBM to DM
-    let matrix: DmTensor<bf16, Chip, Cluster, Slice, m![J]> = matrix.to_dm(&mut ctx.tdma);
-    let vector: DmTensor<bf16, Chip, Cluster, Slice, m![J]> = vector.to_dm(&mut ctx.tdma);
+    let matrix: DmTensor<bf16, Chip, Cluster, Slice, m![J]> = matrix.to_dm(&mut device.tdma);
+    let vector: DmTensor<bf16, Chip, Cluster, Slice, m![J]> = vector.to_dm(&mut device.tdma);
 
     // Load vector into TRF
-    let vector_trf: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![J]> = ctx
+    let vector_trf: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![J]> = device
         .sub
         .begin(vector.view())
         .fetch::<m![1], m![J]>()
@@ -30,7 +30,7 @@ pub fn gemv_kernel(
 
     // Compute GEMV: matrix × vector
     // Key difference: `I` maps to slice (preserved), `J` gets reduced
-    let result: DmTensor<bf16, Chip, Cluster, Slice, m![1 # 4]> = ctx
+    let result: DmTensor<bf16, Chip, Cluster, Slice, m![1 # 4]> = device
         .main
         .begin(matrix.view())
         .fetch::<m![J / 16], m![J % 16]>()
@@ -44,5 +44,5 @@ pub fn gemv_kernel(
         .commit();
 
     // Transfer result to HBM
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

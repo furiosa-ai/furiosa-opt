@@ -120,7 +120,7 @@
 //! ```
 //!
 //! Two edges above carry a fact the graph cannot: `to_vrf` stores what the position it leaves from
-//! holds, so off a `vector_final` the register takes the pass output, and it takes `ctx.sub` as an
+//! holds, so off a `vector_final` the register takes the pass output, and it takes `device.sub` as an
 //! argument when the stream runs in the main context, whose write goes through that context.
 
 pub mod cast;

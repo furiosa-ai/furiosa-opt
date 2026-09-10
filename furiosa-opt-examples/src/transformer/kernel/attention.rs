@@ -15,10 +15,11 @@ const EPS: f32 = 6.25e-8;
 /// Load a per-head `[N, G]` DM tensor into the VRF. This layout conversion is
 /// needed every time a running max/sum/alpha value is consumed by a vector op.
 fn ng_to_vrf<Slice: M>(
-    ctx: &mut Context,
+    device: &mut Device,
     x: &DmTensor<f32, Chip, Cluster, Slice, m![N, G]>,
 ) -> VrfTensor<f32, Chip, Cluster, Slice, m![N, G]> {
-    ctx.sub
+    device
+        .sub
         .begin(x.view())
         .fetch::<m![N / 4], m![N % 4, G]>()
         .collect::<m![N / 4], m![N % 4, G]>()
@@ -30,22 +31,22 @@ fn ng_to_vrf<Slice: M>(
 /// The single query is broadcast across 16 slices so the `T` reduction can be
 /// parallelized.
 fn qk_scaled(
-    ctx: &mut Context,
+    device: &mut Device,
     q: &HbmTensor<bf16, Chip, m![N, G, D]>,
     k: &HbmTensor<bf16, Chip, m![T, N, D]>,
 ) -> DmTensor<bf16, Chip, Cluster, Slice, m![N, G, T]> {
     type SliceQK = m![T / 8, 1 # 4];
 
-    let q: DmTensor<bf16, Chip, Cluster, SliceQK, m![N, G, D]> = q.to_dm(&mut ctx.tdma);
-    let k: DmTensor<bf16, Chip, Cluster, SliceQK, m![T % 8, N, D]> = k.to_dm(&mut ctx.tdma);
-    let k_trf: TrfTensor<bf16, Chip, Cluster, SliceQK, m![T % 8], m![N, D]> = ctx
+    let q: DmTensor<bf16, Chip, Cluster, SliceQK, m![N, G, D]> = q.to_dm(&mut device.tdma);
+    let k: DmTensor<bf16, Chip, Cluster, SliceQK, m![T % 8, N, D]> = k.to_dm(&mut device.tdma);
+    let k_trf: TrfTensor<bf16, Chip, Cluster, SliceQK, m![T % 8], m![N, D]> = device
         .sub
         .begin(k.view())
         .fetch::<m![T % 8, N, D / 16], m![D % 16]>()
         .collect::<m![T % 8, N, D / 16], m![D % 16]>()
         .to_trf();
 
-    let qk: DmTensor<bf16, Chip, Cluster, SliceQK, m![N, G, T % 8]> = ctx
+    let qk: DmTensor<bf16, Chip, Cluster, SliceQK, m![N, G, T % 8]> = device
         .main
         .begin(q.view())
         .fetch::<m![N, G, D / 16], m![D % 16]>()
@@ -64,7 +65,8 @@ fn qk_scaled(
         .commit_trim::<m![T % 8]>()
         .commit();
 
-    ctx.main
+    device
+        .main
         .begin(qk.view())
         .fetch::<m![N, G], m![T % 8 # 16]>()
         .switch::<Slice, m![N, G, T / 8]>(SwitchConfig::Broadcast1 { slice1: 64, slice0: 4 })
@@ -75,10 +77,11 @@ fn qk_scaled(
 
 /// Per-head maximum of the logits, `[N, G]`.
 fn row_max(
-    ctx: &mut Context,
+    device: &mut Device,
     qk: &DmTensor<bf16, Chip, Cluster, Slice, m![N, G, T]>,
 ) -> DmTensor<f32, Chip, Cluster, Slice, m![N, G]> {
-    ctx.main
+    device
+        .main
         .begin(qk.view())
         .fetch::<m![N, G, T / 16], m![T % 16]>()
         .fetch_cast::<f32>()
@@ -96,12 +99,12 @@ fn row_max(
 
 /// `exp(qk - max)` with the causal mask applied, `[N, G, T]`.
 fn masked_exp(
-    ctx: &mut Context,
+    device: &mut Device,
     qk: &DmTensor<bf16, Chip, Cluster, Slice, m![N, G, T]>,
     max_vrf: &VrfTensor<f32, Chip, Cluster, Slice, m![N, G]>,
     mask: &HbmTensor<f32, Chip, m![T]>,
 ) -> DmTensor<f32, Chip, Cluster, Slice, m![N, G, T]> {
-    let exp: DmTensor<f32, Chip, Cluster, Slice, m![N, G, T]> = ctx
+    let exp: DmTensor<f32, Chip, Cluster, Slice, m![N, G, T]> = device
         .main
         .begin(qk.view())
         .fetch::<m![N, G, T / 16], m![T % 16]>()
@@ -117,15 +120,16 @@ fn masked_exp(
         .commit_trim::<m![T % 8]>()
         .commit();
 
-    let mask: DmTensor<f32, Chip, Cluster, Slice, m![T]> = mask.to_dm(&mut ctx.tdma);
-    let mask_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![T]> = ctx
+    let mask: DmTensor<f32, Chip, Cluster, Slice, m![T]> = mask.to_dm(&mut device.tdma);
+    let mask_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![T]> = device
         .sub
         .begin(mask.view())
         .fetch::<m![T / 8], m![T % 8]>()
         .collect::<m![T / 8], m![T % 8]>()
         .to_vrf();
 
-    ctx.main
+    device
+        .main
         .begin(exp.view())
         .fetch::<m![N, G, T / 8], m![T % 8]>()
         .collect::<m![N, G, T / 8], m![T % 8]>()
@@ -139,10 +143,11 @@ fn masked_exp(
 
 /// Per-head sum of the masked exponentials, `[N, G]` (softmax denominator).
 fn row_sum(
-    ctx: &mut Context,
+    device: &mut Device,
     masked_exp: &DmTensor<f32, Chip, Cluster, Slice, m![N, G, T]>,
 ) -> DmTensor<f32, Chip, Cluster, Slice, m![N, G]> {
-    ctx.main
+    device
+        .main
         .begin(masked_exp.view())
         .fetch::<m![N, G, T / 8], m![T % 8]>()
         .collect::<m![N, G, T / 8], m![T % 8]>()
@@ -160,13 +165,13 @@ fn row_sum(
 
 /// `softmax_weights @ V`, producing the (unnormalized) attention output `[N, G, D]`.
 fn weighted_sum(
-    ctx: &mut Context,
+    device: &mut Device,
     masked_exp: &DmTensor<f32, Chip, Cluster, Slice, m![N, G, T]>,
     v: &HbmTensor<bf16, Chip, m![T, N, D]>,
 ) -> DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]> {
     type SliceQV = m![N, T / 16];
 
-    let weight: DmTensor<bf16, Chip, Cluster, Slice, m![N, G, T]> = ctx
+    let weight: DmTensor<bf16, Chip, Cluster, Slice, m![N, G, T]> = device
         .main
         .begin(masked_exp.view())
         .fetch::<m![N, G, T / 8], m![T % 8]>()
@@ -174,10 +179,10 @@ fn weighted_sum(
         .cast::<bf16, m![T % 8 # 16]>()
         .commit_trim::<m![T % 8]>()
         .commit();
-    let weight: DmTensor<bf16, Chip, Cluster, SliceQV, m![G, T % 16]> = weight.to_dm(&mut ctx.tdma);
+    let weight: DmTensor<bf16, Chip, Cluster, SliceQV, m![G, T % 16]> = weight.to_dm(&mut device.tdma);
 
-    let v: DmTensor<bf16, Chip, Cluster, SliceQV, m![T % 16, D]> = v.to_dm(&mut ctx.tdma);
-    let v: DmTensor<bf16, Chip, Cluster, SliceQV, m![D, T % 16]> = ctx
+    let v: DmTensor<bf16, Chip, Cluster, SliceQV, m![T % 16, D]> = v.to_dm(&mut device.tdma);
+    let v: DmTensor<bf16, Chip, Cluster, SliceQV, m![D, T % 16]> = device
         .main
         .begin(v.view())
         .fetch::<m![D / 8, T % 16], m![D % 8 # 16]>()
@@ -185,14 +190,14 @@ fn weighted_sum(
         .transpose::<m![D / 8, T / 4 % 4, D % 8], m![T % 4 # 16]>()
         .commit_trim::<m![T % 4]>()
         .commit();
-    let v_trf: TrfTensor<bf16, Chip, Cluster, SliceQV, m![D % 8], m![D / 8, T % 16]> = ctx
+    let v_trf: TrfTensor<bf16, Chip, Cluster, SliceQV, m![D % 8], m![D / 8, T % 16]> = device
         .sub
         .begin(v.view())
         .fetch::<m![D % 8, D / 8], m![T % 16]>()
         .collect::<m![D % 8, D / 8], m![T % 16]>()
         .to_trf();
 
-    let weighted_sum: DmTensor<bf16, Chip, Cluster, SliceQV, m![G, D]> = ctx
+    let weighted_sum: DmTensor<bf16, Chip, Cluster, SliceQV, m![G, D]> = device
         .main
         .begin(weight.view())
         .fetch::<m![G], m![T % 16]>()
@@ -204,7 +209,7 @@ fn weighted_sum(
         .cast::<bf16, m![D % 8 # 16]>()
         .commit_trim::<m![D % 8]>()
         .commit();
-    let weighted_sum: DmTensor<bf16, Chip, Cluster, m![N, 1 # 32], m![G, D]> = ctx
+    let weighted_sum: DmTensor<bf16, Chip, Cluster, m![N, 1 # 32], m![G, D]> = device
         .main
         .begin(weighted_sum.view())
         .fetch::<m![G, D / 16], m![D % 16]>()
@@ -217,14 +222,14 @@ fn weighted_sum(
         .commit_trim::<m![D % 8]>()
         .commit();
 
-    weighted_sum.to_dm(&mut ctx.tdma)
+    weighted_sum.to_dm(&mut device.tdma)
 }
 
 /// Attention over the first key/value block: initializes the running max, sum
 /// and output that later blocks accumulate into.
 #[expect(clippy::too_many_arguments)]
 pub(crate) fn forward_first(
-    ctx: &mut Context,
+    device: &mut Device,
     q: &HbmTensor<bf16, Chip, m![N, G, D]>,
     k: &HbmTensor<bf16, Chip, m![T, N, D]>,
     v: &HbmTensor<bf16, Chip, m![T, N, D]>,
@@ -233,24 +238,24 @@ pub(crate) fn forward_first(
     sum_hbm: &mut HbmTensor<f32, Chip, m![N, G]>,
     out_hbm: &mut HbmTensor<bf16, Chip, m![N, G, D]>,
 ) {
-    let qk = qk_scaled(ctx, q, k);
-    let max = row_max(ctx, &qk);
-    let max_vrf = ng_to_vrf(ctx, &max);
+    let qk = qk_scaled(device, q, k);
+    let max = row_max(device, &qk);
+    let max_vrf = ng_to_vrf(device, &max);
 
-    let exp = masked_exp(ctx, &qk, &max_vrf, mask);
-    let sum = row_sum(ctx, &exp);
-    let result = weighted_sum(ctx, &exp, v);
+    let exp = masked_exp(device, &qk, &max_vrf, mask);
+    let sum = row_sum(device, &exp);
+    let result = weighted_sum(device, &exp, v);
 
-    max.view().to_hbm_view(&mut ctx.tdma, max_hbm.view_mut());
-    sum.view().to_hbm_view(&mut ctx.tdma, sum_hbm.view_mut());
-    result.view().to_hbm_view(&mut ctx.tdma, out_hbm.view_mut());
+    max.view().to_hbm_view(&mut device.tdma, max_hbm.view_mut());
+    sum.view().to_hbm_view(&mut device.tdma, sum_hbm.view_mut());
+    result.view().to_hbm_view(&mut device.tdma, out_hbm.view_mut());
 }
 
 /// Attention over a subsequent key/value block, folding its contribution into
 /// the running (online-softmax) max, sum and output stored in HBM.
 #[expect(clippy::too_many_arguments)]
 pub(crate) fn forward(
-    ctx: &mut Context,
+    device: &mut Device,
     q: &HbmTensor<bf16, Chip, m![N, G, D]>,
     k: &HbmTensor<bf16, Chip, m![T, N, D]>,
     v: &HbmTensor<bf16, Chip, m![T, N, D]>,
@@ -259,15 +264,15 @@ pub(crate) fn forward(
     sum_hbm: &mut HbmTensor<f32, Chip, m![N, G]>,
     out_hbm: &mut HbmTensor<bf16, Chip, m![N, G, D]>,
 ) {
-    let qk = qk_scaled(ctx, q, k);
-    let max = row_max(ctx, &qk);
+    let qk = qk_scaled(device, q, k);
+    let max = row_max(device, &qk);
 
     // Combine this block's max with the running max, and derive the rescale
     // factor `alpha = exp(old_max - new_max)` for the accumulated sum/output.
-    let old_max: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = max_hbm.to_dm(&mut ctx.tdma);
-    let old_max_vrf = ng_to_vrf(ctx, &old_max);
+    let old_max: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = max_hbm.to_dm(&mut device.tdma);
+    let old_max_vrf = ng_to_vrf(device, &old_max);
 
-    let max: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = ctx
+    let max: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = device
         .main
         .begin(max.view())
         .fetch::<m![N / 4], m![N % 4, G]>()
@@ -279,9 +284,9 @@ pub(crate) fn forward(
         .commit_trim::<m![N % 4, G]>()
         .commit();
 
-    max.view().to_hbm_view(&mut ctx.tdma, max_hbm.view_mut());
+    max.view().to_hbm_view(&mut device.tdma, max_hbm.view_mut());
 
-    let alpha: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = ctx
+    let alpha: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = device
         .main
         .begin(max.view())
         .fetch::<m![N / 4], m![N % 4, G]>()
@@ -295,16 +300,16 @@ pub(crate) fn forward(
         .vector_final()
         .commit_trim::<m![N % 4, G]>()
         .commit();
-    let alpha_vrf = ng_to_vrf(ctx, &alpha);
-    let max_vrf = ng_to_vrf(ctx, &max);
+    let alpha_vrf = ng_to_vrf(device, &alpha);
+    let max_vrf = ng_to_vrf(device, &max);
 
-    let exp = masked_exp(ctx, &qk, &max_vrf, mask);
-    let expsum = row_sum(ctx, &exp);
-    let expsum_vrf = ng_to_vrf(ctx, &expsum);
+    let exp = masked_exp(device, &qk, &max_vrf, mask);
+    let expsum = row_sum(device, &exp);
+    let expsum_vrf = ng_to_vrf(device, &expsum);
 
     // sum = old_sum * alpha + expsum
-    let sum: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = sum_hbm.to_dm(&mut ctx.tdma);
-    let sum: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = ctx
+    let sum: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = sum_hbm.to_dm(&mut device.tdma);
+    let sum: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = device
         .main
         .begin(sum.view())
         .fetch::<m![N / 4], m![N % 4, G]>()
@@ -319,10 +324,10 @@ pub(crate) fn forward(
         .commit_trim::<m![N % 4, G]>()
         .commit();
 
-    sum.view().to_hbm_view(&mut ctx.tdma, sum_hbm.view_mut());
+    sum.view().to_hbm_view(&mut device.tdma, sum_hbm.view_mut());
 
-    let result = weighted_sum(ctx, &exp, v);
-    let result_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![N, G, D]> = ctx
+    let result = weighted_sum(device, &exp, v);
+    let result_vrf: VrfTensor<f32, Chip, Cluster, Slice, m![N, G, D]> = device
         .sub
         .begin(result.view())
         .fetch::<m![N, G, D / 16], m![D % 16]>()
@@ -331,8 +336,8 @@ pub(crate) fn forward(
         .to_vrf();
 
     // out = old_out * alpha + result
-    let out: DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]> = out_hbm.to_dm(&mut ctx.tdma);
-    let out: DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]> = ctx
+    let out: DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]> = out_hbm.to_dm(&mut device.tdma);
+    let out: DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]> = device
         .main
         .begin(out.view())
         .fetch::<m![N, G, D / 16], m![D % 16]>()
@@ -347,7 +352,7 @@ pub(crate) fn forward(
         .cast::<bf16, m![D % 8 # 16]>()
         .commit_trim::<m![D % 8]>()
         .commit();
-    let out: DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]> = ctx
+    let out: DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]> = device
         .main
         .begin(out.view())
         .fetch::<m![N, G, D / 16], m![D % 16]>()
@@ -361,21 +366,22 @@ pub(crate) fn forward(
         .commit_trim::<m![D % 8]>()
         .commit();
 
-    out.view().to_hbm_view(&mut ctx.tdma, out_hbm.view_mut());
+    out.view().to_hbm_view(&mut device.tdma, out_hbm.view_mut());
 }
 
 /// Normalize the accumulated attention output by the running softmax sum. Called from the
 /// decoder kernel rather than `forward`/`forward_first`, since `sum` is only final once every
 /// KV chunk has been folded in.
 pub(crate) fn norm<Slice: M>(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]>,
     sum_hbm: &HbmTensor<f32, Chip, m![N, G]>,
 ) -> DmTensor<bf16, Chip, Cluster, Slice, m![N, G, D]> {
-    let sum: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = sum_hbm.to_dm(&mut ctx.tdma);
-    let sum_vrf = ng_to_vrf(ctx, &sum);
+    let sum: DmTensor<f32, Chip, Cluster, Slice, m![N, G]> = sum_hbm.to_dm(&mut device.tdma);
+    let sum_vrf = ng_to_vrf(device, &sum);
 
-    ctx.main
+    device
+        .main
         .begin(input.view())
         .fetch::<m![N, G, D / 16], m![D % 16]>()
         .fetch_cast::<f32>()

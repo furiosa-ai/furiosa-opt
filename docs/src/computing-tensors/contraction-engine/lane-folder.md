@@ -40,9 +40,9 @@ fn lane_interleaved<'l, const T: Tu>(
     input.contract_lane::<m![M, P], m![N]>(LaneMode::Interleaved)
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]> = TrfTensor::zero();
 # 
 # let i: ContractTimeTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]> = a 
@@ -81,9 +81,9 @@ fn lane_sequential<'l, const T: Tu>(
     input.contract_lane::<m![M, N, P / 8], m![P % 8]>(LaneMode::Sequential)
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]> = TrfTensor::zero();
 # 
 # let i: ContractTimeTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]> = a 

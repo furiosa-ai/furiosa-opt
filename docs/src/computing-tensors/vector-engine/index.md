@@ -58,9 +58,9 @@ fn relu<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: ContractTensor<'_, _, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]> = ContractTensor::new(&mut ctx.main, Tensor::zero());
+# let c: ContractTensor<'_, _, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]> = ContractTensor::new(&mut device.main, Tensor::zero());
 # let _o = relu(c);
 ```
 
@@ -90,9 +90,9 @@ fn relu_then_reduce<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = relu_then_reduce(c);
 ```
 
@@ -122,9 +122,9 @@ fn reduce_then_add<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = reduce_then_add(c);
 ```
 
@@ -159,9 +159,9 @@ fn full_sum<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i32, m![1], m![B], m![R / 32], m![R % 32 / 4], m![R % 4 # 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![R / 32], m![R % 32 / 4], m![R % 4 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = full_sum(c);
 ```
 
@@ -184,14 +184,14 @@ fn pair_add<'l, const T: Tu>(
     input
         .vector_init()
         // split into group 0 and group 1 along I
-        .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
+        .vector_intra_slice_unzip::<I, m![1]>()
         // group0 + group1
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]> = CollectTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = pair_add(c);
 ```

@@ -22,7 +22,6 @@ use std::marker::PhantomData;
 pub use lane::LaneMode;
 pub use outer::ContractOuterTensor;
 
-use furiosa_mapping::Mapping as MappingValue;
 use furiosa_mapping::*;
 
 use crate::backend::Backend;
@@ -45,11 +44,11 @@ pub(crate) struct LazyContraction<D: Scalar, B: Backend> {
     pub(crate) rhs: B::Storage<D>,
     /// `lhs`'s own compact layout. [`crate::storage::buf::BufStorage`] reads its strides from this;
     /// [`crate::storage::math::MathStorage`] carries its own axes and ignores it.
-    pub(crate) lhs_map: MappingValue,
+    pub(crate) lhs_map: Mapping,
     /// See `lhs_map`.
-    pub(crate) rhs_map: MappingValue,
+    pub(crate) rhs_map: Mapping,
     /// The full (un-reduced) index space the fold reduces onto the Lane Folder's rebuilt `out`.
-    pub(crate) pre_reduce: MappingValue,
+    pub(crate) pre_reduce: Mapping,
 }
 
 /// Number of columns in the temporal accumulator buffer, single-sourced from the published verifier crate.
@@ -88,7 +87,7 @@ pub struct ContractPacketTensor<
     Packet: M,
     B: Backend = CurrentBackend,
 > {
-    pub(crate) ctx: &'l mut TuContext<{ T }>,
+    pub(crate) device: &'l mut TuContext<{ T }>,
     /// The deferred carrier (see [`LazyContraction`]); this stage only re-types it to the post-Packet `OutPacket`.
     pub(crate) inner: LazyContraction<D, B>,
     /// Axis typestate the stage transitions carry; `inner` is mapping-free.
@@ -110,7 +109,7 @@ pub struct ContractTimeTensor<
     Packet: M,
     B: Backend = CurrentBackend,
 > {
-    pub(crate) ctx: &'l mut TuContext<{ T }>,
+    pub(crate) device: &'l mut TuContext<{ T }>,
     /// The deferred carrier (see [`LazyContraction`]); [`lane::contract_lane`] finalizes it.
     pub(crate) inner: LazyContraction<D, B>,
     /// Pre-reduce `Time` mapping captured by `contract_time`, used by `contract_lane` to
@@ -130,10 +129,10 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: LazyContraction<D, B>) -> Self {
+    pub(crate) fn new(device: &'l mut TuContext<{ T }>, inner: LazyContraction<D, B>) -> Self {
         Self::check_constraints();
         Self {
-            ctx,
+            device,
             inner,
             _axes: PhantomData,
         }
@@ -150,10 +149,14 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M
     }
 
     #[doc(hidden)]
-    pub(crate) fn new(ctx: &'l mut TuContext<{ T }>, inner: LazyContraction<D, B>, pre_reduce_time: Mapping) -> Self {
+    pub(crate) fn new(
+        device: &'l mut TuContext<{ T }>,
+        inner: LazyContraction<D, B>,
+        pre_reduce_time: Mapping,
+    ) -> Self {
         Self::check_constraints();
         Self {
-            ctx,
+            device,
             inner,
             pre_reduce_time,
             _axes: PhantomData,
@@ -175,11 +178,11 @@ impl<'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet:
     }
 
     #[doc(hidden)]
-    pub fn new(ctx: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
+    pub fn new(device: &'l mut TuContext<{ T }>, inner: Tensor<D, Self::Mapping, B>) -> Self {
         Self::check_constraints();
 
         Self {
-            ctx,
+            device,
             inner,
             _position: PhantomData,
         }

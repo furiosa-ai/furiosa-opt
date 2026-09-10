@@ -43,12 +43,12 @@ macro_rules! scalar_fixture {
 
             #[device(chip = 1)]
             pub fn $fn(
-                ctx: &mut Context,
+                device: &mut Device,
                 input: &HbmTensor<$src, m![1], m![A, B]>,
             ) -> HbmTensor<$dst, m![1], m![B, A]> {
-                let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma);
+                let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut device.tdma);
 
-                let result: DmTensor<$dst, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = ctx
+                let result: DmTensor<$dst, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = device
                     .main
                     .begin(input_dm.view())
                     .fetch::<m![A / 8 % 2], m![A % 8, B]>()
@@ -57,7 +57,7 @@ macro_rules! scalar_fixture {
                     .commit_trim::<m![B]>()
                     .commit();
 
-                result.to_hbm(&mut ctx.tdma)
+                result.to_hbm(&mut device.tdma)
             }
         }
     };
@@ -90,12 +90,12 @@ pub mod f32_commit_narrow {
 
     #[device(chip = 1)]
     pub fn commit_narrow_f32(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<f32, m![1], m![A, B]>,
     ) -> HbmTensor<bf16, m![1], m![B, A]> {
-        let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut device.tdma);
 
-        let result: DmTensor<bf16, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = ctx
+        let result: DmTensor<bf16, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A / 8 % 2], m![A % 8, B]>()
@@ -105,19 +105,19 @@ pub mod f32_commit_narrow {
             .commit_cast::<bf16>()
             .commit();
 
-        result.to_hbm(&mut ctx.tdma)
+        result.to_hbm(&mut device.tdma)
     }
 
     /// The ReLU-fused conversion, a separate hardware conversion rather than a mode of the one
     /// above.
     #[device(chip = 1)]
     pub fn commit_narrow_relu_f32(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<f32, m![1], m![A, B]>,
     ) -> HbmTensor<bf16, m![1], m![B, A]> {
-        let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]>(&mut device.tdma);
 
-        let result: DmTensor<bf16, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = ctx
+        let result: DmTensor<bf16, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A / 8 % 2], m![A % 8, B]>()
@@ -127,7 +127,7 @@ pub mod f32_commit_narrow {
             .commit_cast_relu::<bf16>()
             .commit();
 
-        result.to_hbm(&mut ctx.tdma)
+        result.to_hbm(&mut device.tdma)
     }
 }
 

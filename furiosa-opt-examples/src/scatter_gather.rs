@@ -57,12 +57,12 @@ type Cluster = m![1 # 2];
 /// Scatter values into cache at index positions.
 #[device(chip = 1)]
 pub fn scatter_minimal(
-    ctx: &mut Context,
+    device: &mut Device,
     data: &HbmTensor<bf16, Chip, m![K, D]>,
     index: &HbmTensor<i32, Chip, m![K]>,
     output: &mut HbmTensor<bf16, Chip, m![C, D]>,
 ) {
-    let data_dm: DmTensor<bf16, Chip, Cluster, m![K / 2], m![K % 2, D]> = data.to_dm(&mut ctx.tdma);
+    let data_dm: DmTensor<bf16, Chip, Cluster, m![K / 2], m![K % 2, D]> = data.to_dm(&mut device.tdma);
 
     data_dm.dma_scatter::<m![K], _, _>(index, output);
 }
@@ -75,13 +75,13 @@ pub fn scatter_minimal(
 /// `num_slices`, so it lowers end to end through VISA -> LIR -> EDF.
 #[device(chip = 1)]
 pub fn gather_minimal(
-    ctx: &mut Context,
+    device: &mut Device,
     table: &HbmTensor<bf16, Chip, m![K, D]>,
     index: &HbmTensor<i32, Chip, m![G]>,
 ) -> HbmTensor<bf16, Chip, m![G, D]> {
     let values_dm: DmTensor<bf16, Chip, Cluster, m![G / 2], m![G % 2, D]> = table.dma_gather_scaled(index);
 
-    values_dm.to_hbm(&mut ctx.tdma)
+    values_dm.to_hbm(&mut device.tdma)
 }
 
 /// Gather an unaligned count `U = 768` (`= 3 * num_slices`, non-power-of-2, `> K`) from the
@@ -90,13 +90,13 @@ pub fn gather_minimal(
 /// non-power-of-2 gather size that wraps the table.
 #[device(chip = 1)]
 pub fn gather_unaligned(
-    ctx: &mut Context,
+    device: &mut Device,
     table: &HbmTensor<bf16, Chip, m![K, D]>,
     index: &HbmTensor<i32, Chip, m![U]>,
 ) -> HbmTensor<bf16, Chip, m![U, D]> {
     let values_dm: DmTensor<bf16, Chip, Cluster, m![U / 3], m![U % 3, D]> = table.dma_gather_scaled(index);
 
-    values_dm.to_hbm(&mut ctx.tdma)
+    values_dm.to_hbm(&mut device.tdma)
 }
 
 /// Gather over a multi-dimensional DRAM pool `[NBlocks, KvHeads, PBlock, HeadDim]`, remapping the
@@ -111,7 +111,7 @@ pub fn gather_unaligned(
 /// see `LirBuilder::relabel_indirect_key_axis`.
 #[device(chip = 1)]
 pub fn gather_paged_kv(
-    ctx: &mut Context,
+    device: &mut Device,
     pool: &HbmTensor<bf16, Chip, m![NBlocks, KvHeads, PBlock, HeadDim]>,
     block_table: &HbmTensor<i32, Chip, m![NBlocks]>,
 ) -> HbmTensor<bf16, Chip, m![NBlocks, KvHeads, PBlock, HeadDim]> {
@@ -119,7 +119,7 @@ pub fn gather_paged_kv(
     let gathered: DmTensor<bf16, Chip, Cluster, m![NBlocks, PBlock], m![KvHeads, HeadDim]> =
         pool.dma_gather_scaled(block_table);
 
-    gathered.to_hbm(&mut ctx.tdma)
+    gathered.to_hbm(&mut device.tdma)
 }
 
 /// Unscaled twin of [`gather_minimal`]: the index holds RAW row positions instead of byte offsets.
@@ -129,14 +129,14 @@ pub fn gather_paged_kv(
 /// `G / 2 = 256` partitioning as [`gather_minimal`] so it lowers end to end through VISA -> LIR.
 #[device(chip = 1)]
 pub fn gather_aligned_unscaled(
-    ctx: &mut Context,
+    device: &mut Device,
     table: &HbmTensor<bf16, Chip, m![K, D]>,
     index: &HbmTensor<i32, Chip, m![G]>,
 ) -> HbmTensor<bf16, Chip, m![G, D]> {
-    let index_dm: DmTensor<i32, Chip, Cluster, m![G / 2], m![G % 2]> = index.to_dm(&mut ctx.tdma);
+    let index_dm: DmTensor<i32, Chip, Cluster, m![G / 2], m![G % 2]> = index.to_dm(&mut device.tdma);
     let values_dm: DmTensor<bf16, Chip, Cluster, m![G / 2], m![G % 2, D]> = table.dma_gather_unscaled(&index_dm);
 
-    values_dm.to_hbm(&mut ctx.tdma)
+    values_dm.to_hbm(&mut device.tdma)
 }
 
 /// Scaled gather fed by a RAW row-position index, scaled on-device: the DRAM index is staged to DM
@@ -154,7 +154,7 @@ pub fn gather_aligned_unscaled(
 /// scaling the caller would otherwise do on the host is four vISA statements here.
 #[device(chip = 1)]
 pub fn gather_scaled_from_raw_index(
-    ctx: &mut Context,
+    device: &mut Device,
     table: &HbmTensor<bf16, Chip, m![Rows, Width]>,
     index: &HbmTensor<i32, Chip, m![IdxRows, Indices]>,
 ) -> HbmTensor<bf16, Chip, m![IdxRows, Indices, Width]> {
@@ -162,8 +162,8 @@ pub fn gather_scaled_from_raw_index(
     type Packet = m![Indices % 8];
     const ROW_BYTES: i32 = (<m![Width]>::SIZE * size_of::<bf16>()) as i32;
 
-    let raw: DmTensor<i32, Chip, Cluster, Slice, Packet> = index.to_dm(&mut ctx.tdma);
-    let scaled: DmTensor<i32, Chip, Cluster, Slice, Packet> = ctx
+    let raw: DmTensor<i32, Chip, Cluster, Slice, Packet> = index.to_dm(&mut device.tdma);
+    let scaled: DmTensor<i32, Chip, Cluster, Slice, Packet> = device
         .main
         .begin(raw.view())
         .fetch::<m![1], Packet>()
@@ -175,11 +175,11 @@ pub fn gather_scaled_from_raw_index(
         .vector_final()
         .commit_trim::<Packet>()
         .commit();
-    let offsets: HbmTensor<i32, Chip, m![IdxRows, Indices]> = scaled.to_hbm(&mut ctx.tdma);
+    let offsets: HbmTensor<i32, Chip, m![IdxRows, Indices]> = scaled.to_hbm(&mut device.tdma);
 
     let values: DmTensor<bf16, Chip, Cluster, Slice, m![Indices % 8, Width]> = table.dma_gather_scaled(&offsets);
 
-    values.to_hbm(&mut ctx.tdma)
+    values.to_hbm(&mut device.tdma)
 }
 
 /// The other way out of the SPM bound
@@ -203,7 +203,7 @@ pub fn gather_scaled_from_raw_index(
 /// returned tensor after the loop closes, and a parameter has no such resolution.
 #[device(chip = 1)]
 pub fn gather_unscaled_split_index(
-    ctx: &mut Context,
+    device: &mut Device,
     table: &HbmTensor<bf16, Chip, m![Rows, Width]>,
     index: &HbmTensor<i32, Chip, m![IdxRows, Indices]>,
 ) -> HbmTensor<bf16, Chip, m![IdxRows, Indices, Width]> {
@@ -215,11 +215,11 @@ pub fn gather_unscaled_split_index(
         let chunk: DmTensor<i32, Chip, Cluster, Slice, Packet> = index
             .view()
             .tile::<m![Indices / 32], 1, m![IdxRows, 1 # 4, Indices % 32]>(c)
-            .to_dm(&mut ctx.tdma);
+            .to_dm(&mut device.tdma);
         let values: DmTensor<bf16, Chip, Cluster, Slice, m![Indices % 2, Width]> = table.dma_gather_unscaled(&chunk);
 
         values.view().to_hbm_view(
-            &mut ctx.tdma,
+            &mut device.tdma,
             out.view_mut()
                 .tile::<m![Indices / 32], 1, m![IdxRows, 1 #{!} 4, Indices % 32, Width]>(c),
         );
@@ -235,12 +235,12 @@ pub fn gather_unscaled_split_index(
 /// the unscaled gather lowering with a non-broadcast SPM index cluster.
 #[device(chip = 1)]
 pub fn gather_placed_unscaled(
-    ctx: &mut Context,
+    device: &mut Device,
     table: &HbmTensor<bf16, Chip, m![K, D]>,
     index: &HbmTensor<i32, Chip, m![CL, G]>,
 ) -> HbmTensor<bf16, Chip, m![CL, G, D]> {
-    let index_dm: DmTensor<i32, Chip, m![CL], m![G / 2], m![G % 2]> = index.to_dm(&mut ctx.tdma);
+    let index_dm: DmTensor<i32, Chip, m![CL], m![G / 2], m![G % 2]> = index.to_dm(&mut device.tdma);
     let values_dm: DmTensor<bf16, Chip, m![CL], m![G / 2], m![G % 2, D]> = table.dma_gather_unscaled(&index_dm);
 
-    values_dm.to_hbm(&mut ctx.tdma)
+    values_dm.to_hbm(&mut device.tdma)
 }

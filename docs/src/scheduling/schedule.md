@@ -7,9 +7,9 @@ It preserves dependencies and resource constraints needed for sequentially equiv
 
 The public execution contexts are:
 
-- **Main** (`ctx.main`): drives the main Tensor Unit pipeline.
-- **Sub** (`ctx.sub`): drives the subset of the Tensor Unit pipeline used by operations such as register-file preloads.
-- **DMA** (`ctx.tdma`): drives tensor movement between HBM, DM, and other memory tiers.
+- **Main** (`device.main`): drives the main Tensor Unit pipeline.
+- **Sub** (`device.sub`): drives the subset of the Tensor Unit pipeline used by operations such as register-file preloads.
+- **DMA** (`device.tdma`): drives tensor movement between HBM, DM, and other memory tiers.
 
 Operations in one context are ordered.
 In the MNIST schedule, operations in different contexts overlap when they do not share a scheduling resource or violate a memory dependency.
@@ -82,15 +82,15 @@ type Cluster = m![1 # 2];
 
 #[device(chip = 1)]
 pub fn forward(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<bf16, Chip, m![X]>,
     fc1_weight: &HbmTensor<bf16, Chip, m![H, X]>,
     fc1_bias: &HbmTensor<bf16, Chip, m![H]>,
     fc2_weight: &HbmTensor<bf16, Chip, m![C, H]>,
     fc2_bias: &HbmTensor<bf16, Chip, m![C]>,
 ) -> HbmTensor<bf16, Chip, m![C]> {
-    let hidden = fc1_relu(ctx, input, fc1_weight, fc1_bias);
-    fc2(ctx, hidden, fc2_weight, fc2_bias)
+    let hidden = fc1_relu(device, input, fc1_weight, fc1_bias);
+    fc2(device, hidden, fc2_weight, fc2_bias)
 }
 ```
 

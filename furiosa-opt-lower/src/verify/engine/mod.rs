@@ -5,6 +5,7 @@ mod collect;
 mod commit_adapter;
 mod contraction;
 mod fetch;
+mod fetch_adapter;
 mod vector;
 
 pub use cast::{CastError, CastInput, CastKind, config_cast};
@@ -25,6 +26,7 @@ pub use fetch::{
     FetchDimensionsInput, FetchLiftDimension, FetchLiftError, FetchLiftInput, config_fetch_dimensions,
     config_fetch_lift,
 };
+pub use fetch_adapter::{FetchContext, FetchVolumeError, config_fetch_volume};
 pub use vector::{
     ReduceLabelInput, UnreadableCause, VectorError, VectorIntraSliceUnzipInput, VectorNarrowSplitInput,
     VectorNarrowTrimInput, VectorWidenConcatInput, VectorWidenPadInput, VrfOperandError, VrfOperandInput,

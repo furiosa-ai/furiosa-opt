@@ -38,17 +38,17 @@ async fn answer_i8_contract() {
         }
     }
 
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(i8_contract.topology()).unwrap();
     let input = HostTensor::<i8, m![A, K8]>::from_vec(input_vals);
     let trf = HostTensor::<i8, m![R, K8]>::from_vec(trf_vals);
-    let input_hbm = input.to_hbm::<Chip, m![A, K8]>(&mut ctx.pdma).await;
-    let trf_hbm = trf.to_hbm::<Chip, m![R, K8]>(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm::<Chip, m![A, K8]>(&mut device.pdma).await.unwrap();
+    let trf_hbm = trf.to_hbm::<Chip, m![R, K8]>(&mut device.pdma).await.unwrap();
 
-    let out = launch(i8_contract, (&mut *ctx, &input_hbm, &trf_hbm)).await;
+    let out = launch(i8_contract, (&mut device, &input_hbm, &trf_hbm)).await.unwrap();
 
     assert_eq!(
         expected,
-        out.to_host::<m![A, R # 8]>(&mut ctx.pdma).await.into_vec(),
+        out.to_host::<m![A, R # 8]>(&mut device.pdma).await.unwrap().into_vec(),
         "true-math oracle (left) vs VISA-sim (right)"
     );
 }

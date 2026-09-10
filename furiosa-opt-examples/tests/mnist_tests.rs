@@ -7,35 +7,42 @@ const MNIST: &[u8] = include_bytes!("../data/mnist/mnist.safetensors");
 #[tokio::test]
 async fn test_mnist() {
     let model = SafeTensors::deserialize(MNIST).unwrap();
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(forward.topology()).unwrap();
 
     let w1 = HostTensor::<bf16, m![H, X]>::from_safetensors(&model.tensor("hw.fc1.weight").unwrap())
         .unwrap()
-        .to_hbm(&mut ctx.pdma)
-        .await;
+        .to_hbm(&mut device.pdma)
+        .await
+        .unwrap();
     let b1 = HostTensor::<bf16, m![H]>::from_safetensors(&model.tensor("fc1.bias").unwrap())
         .unwrap()
-        .to_hbm(&mut ctx.pdma)
-        .await;
+        .to_hbm(&mut device.pdma)
+        .await
+        .unwrap();
     let w2 = HostTensor::<bf16, m![C, H]>::from_safetensors(&model.tensor("hw.fc2.weight").unwrap())
         .unwrap()
-        .to_hbm(&mut ctx.pdma)
-        .await;
+        .to_hbm(&mut device.pdma)
+        .await
+        .unwrap();
     let b2 = HostTensor::<bf16, m![C]>::from_safetensors(&model.tensor("hw.fc2.bias").unwrap())
         .unwrap()
-        .to_hbm(&mut ctx.pdma)
-        .await;
+        .to_hbm(&mut device.pdma)
+        .await
+        .unwrap();
 
     for i in 0..10 {
         let img = HostTensor::<bf16, m![X]>::from_safetensors(&model.tensor(&format!("hw.image_{i}")).unwrap())
             .unwrap()
-            .to_hbm(&mut ctx.pdma)
-            .await;
-
-        let logits = launch(forward, (&mut *ctx, &img, &w1, &b1, &w2, &b2))
+            .to_hbm(&mut device.pdma)
             .await
-            .to_host::<m![C]>(&mut ctx.pdma)
-            .await;
+            .unwrap();
+
+        let logits = launch(forward, (&mut device, &img, &w1, &b1, &w2, &b2))
+            .await
+            .unwrap()
+            .to_host::<m![C]>(&mut device.pdma)
+            .await
+            .unwrap();
 
         let buf = logits.into_vec();
         let predicted = buf

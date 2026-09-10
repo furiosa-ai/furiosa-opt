@@ -10,6 +10,7 @@ use furiosa_opt_macro::primitive;
 use furiosa_opt_lower::{CommitInput, config_commit};
 
 use crate::backend::Backend;
+use crate::constraints;
 use crate::context::*;
 use crate::engine::CanApplyCommit;
 use crate::scalar::*;
@@ -29,7 +30,11 @@ impl<'l, const T: Tu, P: CanApplyCommit, D: Scalar, Chip: M, Cluster: M, Slice: 
 
     /// Commits to a mutable tensor view in data memory.
     #[primitive(TuTensor::commit_view)]
-    pub fn commit_view<Element: M>(self, mut dst: DmTensorViewMut<'l, D, Chip, Cluster, Slice, Element, B>) {
+    pub fn commit_view<DstSlice: M, Element: M>(
+        self,
+        mut dst: DmTensorViewMut<'l, D, Chip, Cluster, DstSlice, Element, B>,
+    ) {
+        constraints::assert_slice_preserved::<Slice, DstSlice>();
         verify_commit::<D, Time, Packet, Element>();
         dst.inner.transpose(self.inner.view(), false);
     }

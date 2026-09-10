@@ -14,12 +14,12 @@ It gives the operation and context for each public boundary.
 
 | Current value | Destination | Operation and context |
 | --- | --- | --- |
-| `HostTensor` | `HbmTensor` | `HostTensor::to_hbm` with `Context::pdma` (async); see [DMA Engine](./dma-engine.md) |
-| `HbmTensor` | `HostTensor` | `HbmTensor::to_host` with `Context::pdma` (async); see [DMA Engine](./dma-engine.md) |
-| `HbmTensor` | `DmTensor` | `HbmTensor::to_dm` with `Context::tdma`; see [DMA Engine](./dma-engine.md) |
-| `DmTensor` | `HbmTensor` | `DmTensor::to_hbm` with `Context::tdma`; see [DMA Engine](./dma-engine.md) |
+| `HostTensor` | `HbmTensor` | `HostTensor::to_hbm` with `Device::pdma` (async); see [DMA Engine](./dma-engine.md) |
+| `HbmTensor` | `HostTensor` | `HbmTensor::to_host` with `Device::pdma` (async); see [DMA Engine](./dma-engine.md) |
+| `HbmTensor` | `DmTensor` | `HbmTensor::to_dm` with `Device::tdma`; see [DMA Engine](./dma-engine.md) |
+| `DmTensor` | `HbmTensor` | `DmTensor::to_hbm` with `Device::tdma`; see [DMA Engine](./dma-engine.md) |
 | `HbmTensor` | `HbmTensor` | `HbmTensor::to_hbm` with the DMA context required by the call; see [DMA Engine](./dma-engine.md) |
-| `DmTensor` | `DmTensor` | `DmTensor::to_dm` with `Context::tdma`, or a fetch/commit round trip through the Tensor Unit; see [DMA Engine](./dma-engine.md) and [Commit Engine](./commit-engine.md) |
+| `DmTensor` | `DmTensor` | `DmTensor::to_dm` with `Device::tdma`, or a fetch/commit round trip through the Tensor Unit; see [DMA Engine](./dma-engine.md) and [Commit Engine](./commit-engine.md) |
 | `DmTensorView` | Tensor Unit stream | `TuContext::begin`, then [`fetch`](./fetch-engine.md) |
 | Tensor Unit stream | `DmTensor` | [`commit`](./commit-engine.md), or [`commit_view`](./commit-engine.md) for an existing mutable view |
 
@@ -64,7 +64,7 @@ The [Case Study: Tensor Unit I/O](./tensor-unit-io.md) shows this order with con
 
 ## Keep transfers ordered
 
-`Context::acquire()` provides one process-wide context containing independent `main` and `sub` Tensor Unit contexts plus `tdma` and `pdma` DMA contexts.
+`Device::new(Topology { chips, pes })` opens the chips and is what a launch runs on, carrying independent `main` and `sub` Tensor Unit contexts plus `tdma` and `pdma` DMA contexts.
 Pass the matching mutable context to each operation.
 Rust borrows enforce that a Tensor Unit stream keeps its source view alive.
 `begin` borrows a `DmTensorView`, and the stream lifetime cannot outlive that view.

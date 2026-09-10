@@ -87,9 +87,9 @@ The `.to_dm()` method, for instance, specifies \\(f(T) = T\\) in that:
 axes![A = 8, B = 512];
 
 fn hbm_to_dm(
-    ctx: &mut Context,
+    device: &mut Device,
     hbm: &HbmTensor<bf16, m![A], m![B]>,
 ) -> DmTensor<bf16, m![A], m![1], m![B / 2], m![B % 2]> {
-    hbm.to_dm(&mut ctx.tdma)
+    hbm.to_dm(&mut device.tdma)
 }
 ```

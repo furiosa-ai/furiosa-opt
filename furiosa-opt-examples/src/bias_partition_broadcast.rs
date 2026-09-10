@@ -13,10 +13,10 @@ type Cl = m![2];
 /// Stages `[Feat, Quad]` onto a 128-wide `Slice` and writes the 256-slice DM back.
 #[device(chip = 1)]
 pub fn bias_partition_broadcast(
-    ctx: &mut Context,
+    device: &mut Device,
     bias: &HbmTensor<bf16, Chip, m![Feat, Quad]>,
 ) -> HbmTensor<bf16, Chip, m![Feat, 2, Quad]> {
     // The output keeps the `2` axis, so the read-only fill needs no write-side collapse.
-    let bias_dm: DmTensor<bf16, Chip, Cl, Slice, m![Quad]> = bias.to_dm(&mut ctx.tdma);
-    bias_dm.to_hbm(&mut ctx.tdma)
+    let bias_dm: DmTensor<bf16, Chip, Cl, Slice, m![Quad]> = bias.to_dm(&mut device.tdma);
+    bias_dm.to_hbm(&mut device.tdma)
 }

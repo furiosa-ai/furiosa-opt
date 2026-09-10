@@ -9,14 +9,14 @@ async fn test_tile_simple_host() {
     // Host operations: create tensors, transfer to device
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i8, m![A, B]>::rand(&mut rng);
-    let mut ctx = Context::acquire();
-    let input_hbm = input.to_hbm(&mut ctx.pdma).await;
+    let mut device = Device::new(tile_simple.topology()).unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
 
     // Device operation via launch
-    let output_hbm = launch(tile_simple, (&mut ctx, input_hbm.view())).await;
+    let output_hbm = launch(tile_simple, (&mut device, input_hbm.view())).await.unwrap();
 
     // Host operation: transfer back
-    let output = output_hbm.to_host::<m![B, A]>(&mut ctx.pdma).await;
+    let output = output_hbm.to_host::<m![B, A]>(&mut device.pdma).await.unwrap();
 
     assert_eq!(
         input.into_inner().transpose::<m![B, A]>(false).into_vec(),
@@ -31,17 +31,18 @@ async fn test_tile_simple_host() {
 /// commit overwrites, so "unwritten" is the concrete, checkable claim "still zero".
 #[tokio::test]
 async fn test_tile_window_commit_host() {
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(tile_window_commit.topology()).unwrap();
 
     let input = HostTensor::<f32, m![D]>::from_vec((0..64).map(|x| x as f32).collect::<Vec<_>>())
-        .to_hbm::<m![1], m![D]>(&mut ctx.pdma)
-        .await;
+        .to_hbm::<m![1], m![D]>(&mut device.pdma)
+        .await
+        .unwrap();
 
-    let output = launch(tile_window_commit, (&mut *ctx, &input)).await;
+    let output = launch(tile_window_commit, (&mut device, &input)).await.unwrap();
 
     // result[32..64] is written from input[0..32]; result[0..32] (the out-of-tile down-pad cells)
     // must stay at the destination's zero-filled default.
-    let actual: Vec<f32> = output.to_host::<m![D]>(&mut ctx.pdma).await.into_vec();
+    let actual: Vec<f32> = output.to_host::<m![D]>(&mut device.pdma).await.unwrap().into_vec();
     for i in 0..32 {
         assert_eq!(
             actual[i], 0.0,

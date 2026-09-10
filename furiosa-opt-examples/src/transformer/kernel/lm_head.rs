@@ -7,7 +7,7 @@ pub(crate) type Cluster = m![Wp / 4096 % 2];
 pub(crate) type Slice = m![Wp / 16 % 256];
 
 pub(crate) fn forward(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &DmTensor<bf16, Chip, Cluster, Slice, m![H]>,
     weight: HbmTensorView<'_, bf16, Chip, m![Wp / 8192, Wp % 8192, H]>,
     out: &mut HbmTensor<bf16, Chip, m![Wp]>,
@@ -17,16 +17,17 @@ pub(crate) fn forward(
     for i in 0..19 {
         let weight: DmTensor<bf16, Chip, Cluster, Slice, m![Wp % 16, H]> = weight
             .tile::<m![Wp / 8192], 1, m![1 # 19, Wp % 8192, H]>(i)
-            .to_dm(&mut ctx.tdma);
+            .to_dm(&mut device.tdma);
 
-        let weight_trf: TrfTensor<bf16, Chip, Cluster, Slice, m![Wp % 8], m![Wp / 8 % 2, H]> = ctx
+        let weight_trf: TrfTensor<bf16, Chip, Cluster, Slice, m![Wp % 8], m![Wp / 8 % 2, H]> = device
             .sub
             .begin(weight.view())
             .fetch::<m![Wp % 8, Wp / 8 % 2, H / 16], m![H % 16]>()
             .collect::<m![Wp % 8, Wp / 8 % 2, H / 16], m![H % 16]>()
             .to_trf();
 
-        ctx.main
+        device
+            .main
             .begin(input.view())
             .fetch::<m![H / 16], m![H % 16]>()
             .collect::<m![H / 16], m![H % 16]>()
@@ -39,7 +40,7 @@ pub(crate) fn forward(
             .commit_view(logits.view_mut().tile::<m![Wp / 8192], 1, m![1 #{!} 19, Wp % 16]>(i));
     }
 
-    let logits: DmTensor<bf16, Chip, Cluster, m![Wp / 128 % 32, 1 # 8], m![Wp / 8192, Wp % 128]> = ctx
+    let logits: DmTensor<bf16, Chip, Cluster, m![Wp / 128 % 32, 1 # 8], m![Wp / 8192, Wp % 128]> = device
         .main
         .begin(logits.view())
         .fetch::<m![Wp / 8192], m![Wp % 16]>()
@@ -51,5 +52,5 @@ pub(crate) fn forward(
         .commit_trim::<m![Wp % 16]>()
         .commit();
 
-    logits.view().to_hbm_view(&mut ctx.tdma, out.view_mut());
+    logits.view().to_hbm_view(&mut device.tdma, out.view_mut());
 }

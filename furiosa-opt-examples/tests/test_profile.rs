@@ -3,14 +3,14 @@
 //! an `info_span!` carrying its cycle window. This counts them and asserts the
 //! profiled run produced spans. Gated to the `npu` backend, so it runs under:
 //!
-//!   TUC_PROFILE_LEVEL=info \
+//!   FURIOSA_OPT_PROFILE=info \
 //!     cargo furiosa-opt test -p furiosa-opt-examples --test test_profile
 #![cfg(backend = "npu")]
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use furiosa_opt_examples::contract_element_types::{A, K8, R, i8_contract};
 use furiosa_opt_std::prelude::*;
+use tracing::field::{Field, Visit};
 use tracing_subscriber::layer::{Context as LayerContext, Layer};
 use tracing_subscriber::prelude::*;
 
@@ -18,22 +18,57 @@ type Chip = m![1];
 
 /// Counts on-device profile spans (target `span::npu`) as they are emitted.
 #[derive(Clone, Default)]
-struct Counter(Arc<AtomicUsize>);
+struct Counter(Arc<Mutex<Vec<Fields>>>);
+
+#[derive(Default)]
+struct Fields {
+    category: bool,
+    name: bool,
+    begin: bool,
+    end: bool,
+}
 
 impl Counter {
-    fn incr(&self) -> usize {
-        self.0.fetch_add(1, Ordering::Relaxed)
+    fn read(&self) -> usize {
+        self.0.lock().expect("profile spans").len()
     }
 
-    fn read(&self) -> usize {
-        self.0.load(Ordering::Relaxed)
+    fn verifies(&self) -> bool {
+        self.0
+            .lock()
+            .expect("profile spans")
+            .iter()
+            .all(|fields| fields.category && fields.name && fields.begin && fields.end)
+    }
+}
+
+impl Visit for Fields {
+    fn record_debug(&mut self, _: &Field, _: &dyn std::fmt::Debug) {}
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        match field.name() {
+            "cat" => self.category = value == "NPU",
+            "name" => self.name = !value.is_empty(),
+            _ => {}
+        }
+    }
+
+    fn record_u64(&mut self, field: &Field, _: u64) {
+        match field.name() {
+            "begin_cycle" => self.begin = true,
+            "end_cycle" => self.end = true,
+            _ => {}
+        }
     }
 }
 
 impl<S: tracing::Subscriber> Layer<S> for Counter {
     fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, _id: &tracing::span::Id, _ctx: LayerContext<'_, S>) {
         if attrs.metadata().target() == "span::npu" {
-            self.incr();
+            assert_eq!(attrs.metadata().name(), "NPU");
+            let mut fields = Fields::default();
+            attrs.record(&mut fields);
+            self.0.lock().expect("profile spans").push(fields);
         }
     }
 }
@@ -42,28 +77,25 @@ impl<S: tracing::Subscriber> Layer<S> for Counter {
 async fn profile_i8_contract() {
     // Separate from the span assertion below: the runtime records nothing under
     // `info`, and that must not read as a regression in the profiled path.
-    let level = std::env::var("TUC_PROFILE_LEVEL")
+    let level = std::env::var("FURIOSA_OPT_PROFILE")
         .unwrap_or_default()
         .to_ascii_lowercase();
     assert!(
         matches!(level.as_str(), "info" | "debug" | "trace"),
-        "TUC_PROFILE_LEVEL is {level:?}; the runtime only records spans at info or above",
+        "FURIOSA_OPT_PROFILE is {level:?}; the runtime only records spans at info or above",
     );
 
     let counter = Counter::default();
     tracing_subscriber::registry().with(counter.clone()).init();
 
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(i8_contract.topology()).unwrap();
     let input = HostTensor::<i8, m![A, K8]>::from_vec(vec![1; <m![A, K8]>::SIZE]);
     let trf = HostTensor::<i8, m![R, K8]>::from_vec(vec![1; <m![R, K8]>::SIZE]);
-    let input_hbm = input.to_hbm::<Chip, m![A, K8]>(&mut ctx.pdma).await;
-    let trf_hbm = trf.to_hbm::<Chip, m![R, K8]>(&mut ctx.pdma).await;
+    let input_hbm = input.to_hbm::<Chip, m![A, K8]>(&mut device.pdma).await.unwrap();
+    let trf_hbm = trf.to_hbm::<Chip, m![R, K8]>(&mut device.pdma).await.unwrap();
 
-    let _ = launch(i8_contract, (&mut *ctx, &input_hbm, &trf_hbm)).await;
-
-    // Spans are decoded off the launch hot path, so wait for the deferred
-    // read-back before checking.
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let _ = launch(i8_contract, (&mut device, &input_hbm, &trf_hbm)).await.unwrap();
 
     assert!(counter.read() > 0, "expected on-device profile spans");
+    assert!(counter.verifies());
 }

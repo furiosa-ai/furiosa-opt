@@ -7,19 +7,21 @@ use furiosa_opt_std::prelude::*;
 async fn test_reshape() {
     use furiosa_opt_examples::reshape::{A, B, C, D, E, F, G, H, I};
 
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(reshape.topology()).unwrap();
 
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..256 * 4096).collect::<Vec<_>>())
-            .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut ctx.pdma)
-            .await;
+            .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
+            .await
+            .unwrap();
 
-    let output = launch(reshape, (&mut *ctx, &hbm_tensor)).await;
+    let output = launch(reshape, (&mut device, &hbm_tensor)).await.unwrap();
 
     assert_eq!(
         output
-            .to_host::<m![C, D, E, F, G, H, I]>(&mut ctx.pdma)
+            .to_host::<m![C, D, E, F, G, H, I]>(&mut device.pdma)
             .await
+            .unwrap()
             .into_vec(),
         Tensor::<i32, m![C, D, E, F, G, H, I]>::from_vec(
             (0..256 * 4096)
@@ -47,17 +49,24 @@ async fn test_reshape() {
 async fn test_reshape_different_num_axes() {
     use furiosa_opt_examples::reshape::different_axes::{A, B, C, D, E, F};
 
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(reshape_different_num_axes.topology()).unwrap();
 
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..256 * 4096).collect::<Vec<_>>())
-            .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut ctx.pdma)
-            .await;
+            .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
+            .await
+            .unwrap();
 
-    let output = launch(reshape_different_num_axes, (&mut *ctx, &hbm_tensor)).await;
+    let output = launch(reshape_different_num_axes, (&mut device, &hbm_tensor))
+        .await
+        .unwrap();
 
     assert_eq!(
-        output.to_host::<m![C, D, E, F]>(&mut ctx.pdma).await.into_vec(),
+        output
+            .to_host::<m![C, D, E, F]>(&mut device.pdma)
+            .await
+            .unwrap()
+            .into_vec(),
         Tensor::<i32, m![C, D, E, F]>::from_vec(
             (0..256 * 4096)
                 .map(|x| {

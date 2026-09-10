@@ -18,13 +18,13 @@
 //!
 //! # Example
 //! ```ignore
-//! ctx.main
+//! device.main
 //!     .begin_interleaved(lhs.view(), rhs.view())
 //!     .fetch::<m![I], m![A % 8]>()
 //!     .switch::<m![A / 8], m![I]>(config)
 //!     .collect::<m![I], m![A % 8]>()
 //!     .vector_init()
-//!     .vector_intra_slice_unzip::<{ Ident::I }, m![1 # 2], m![1]>()
+//!     .vector_intra_slice_unzip::<{ Ident::I }, m![1]>()
 //!     .vector_fxp(FxpBinaryOp::MulInt, Some(operands0), Some(operands1)) // optional preprocessing
 //!     .vector_clip_zip(ClipBinaryOpI32::AddFxp)
 //!     .vector_final()
@@ -96,7 +96,7 @@ pub struct VectorTensorPair<
     Packet: M,
     const W: Way = { Way8 },
 > {
-    pub(crate) ctx: &'l mut TuContext<{ T }>,
+    pub(crate) device: &'l mut TuContext<{ T }>,
 
     pub(crate) group0: GroupTensorData<S, D, Chip, Cluster, Slice, SplitTime, Packet, W>,
 
@@ -114,8 +114,8 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Packet: M, Spl
     /// Group 0 gets tile index 0, Group 1 gets tile index 1.
     /// Both groups start at Tag stage.
     #[primitive(VectorTensorPair::new)]
-    pub(crate) fn new<I: AxisName, Time: M, TileTime: M>(
-        ctx: &'l mut TuContext<{ T }>,
+    pub(crate) fn new<I: AxisName, Time: M>(
+        device: &'l mut TuContext<{ T }>,
         inner: Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
     ) -> Self {
         assert_eq!(
@@ -124,21 +124,12 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Packet: M, Spl
             "VectorTensorPair requires Packet of 8 elements (one flit) in Way8 mode, got {}",
             Packet::SIZE,
         );
-        // `tile` produces TileTime; `reinterpret` rewraps to the same-layout SplitTime shape.
         let (g0_inner, g1_inner): (
             Tensor<D, VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
             Tensor<D, VeTensorShape<Chip, Cluster, Slice, SplitTime, Packet>>,
         ) = {
-            let g0 = inner
-                .view()
-                .tile::<Symbol<I>, m![{ Chip }, { Cluster }, { Slice }, { TileTime }, { Packet }], 1>(0)
-                .read()
-                .transmute();
-            let g1 = inner
-                .view()
-                .tile::<Symbol<I>, m![{ Chip }, { Cluster }, { Slice }, { TileTime }, { Packet }], 1>(1)
-                .read()
-                .transmute();
+            let g0 = inner.view().tile_derived::<Symbol<I>, 1>(0).read().transmute();
+            let g1 = inner.view().tile_derived::<Symbol<I>, 1>(1).read().transmute();
             (g0, g1)
         };
 
@@ -146,7 +137,7 @@ impl<'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Packet: M, Spl
         let g1_tag = g1_inner.map(|_| 0u8);
 
         VectorTensorPair {
-            ctx,
+            device,
             group0: VeTensorData {
                 inner: g0_inner,
                 tag: g0_tag,
@@ -252,7 +243,7 @@ impl<
         };
 
         VectorTensorPair {
-            ctx: self.ctx,
+            device: self.device,
             group0: VeTensorData {
                 inner: group0_inner,
                 tag: self.group0.tag,
@@ -287,7 +278,7 @@ impl<
             |data: Tensor<D, m![{ Chip }, { Cluster }, { Slice }, { SplitTime }, { Packet }]>| data.map(&op_fn);
 
         VectorTensorPair {
-            ctx: self.ctx,
+            device: self.device,
             group0: VeTensorData {
                 inner: fn_group0(self.group0.inner),
                 tag: self.group0.tag,
@@ -618,7 +609,7 @@ impl<
             VeTensorShape<Chip, Cluster, Slice, SplitTime2, Packet2>;
 
         VectorTensorPair {
-            ctx: self.ctx,
+            device: self.device,
             group0: VeTensorData {
                 inner: g0_inner.transpose::<OutShape<Chip, Cluster, Slice, SplitTime2, Packet2>>(true),
                 tag: g0_eid.transpose::<OutShape<Chip, Cluster, Slice, SplitTime2, Packet2>>(true),
@@ -865,7 +856,7 @@ impl<
             VeTensorShape<Chip, Cluster, Slice, SplitTime2, Packet2>;
 
         VectorTensorPair {
-            ctx: self.ctx,
+            device: self.device,
             group0: VeTensorData {
                 inner: g0_inner.transpose::<OutShape<Chip, Cluster, Slice, SplitTime2, Packet2>>(true),
                 tag: g0_eid.transpose::<OutShape<Chip, Cluster, Slice, SplitTime2, Packet2>>(true),
@@ -1076,7 +1067,7 @@ impl<
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
         let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
-        VectorLogicTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorLogicTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary logic operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
@@ -1105,7 +1096,7 @@ impl<
             .group0
             .inner
             .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
-        VectorLogicTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorLogicTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 }
 
@@ -1143,7 +1134,7 @@ impl<
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
         let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
-        VectorLogicTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorLogicTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary logic operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
@@ -1172,7 +1163,7 @@ impl<
             .group0
             .inner
             .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
-        VectorLogicTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorLogicTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 }
 
@@ -1202,7 +1193,7 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fxp>, Chip: M, Cl
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
         let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
-        VectorFxpTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorFxpTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary fxp operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
@@ -1231,7 +1222,7 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fxp>, Chip: M, Cl
             .group0
             .inner
             .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
-        VectorFxpTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorFxpTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 }
 
@@ -1261,7 +1252,7 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fp>, Chip: M, Clu
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
         let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
-        VectorFpTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorFpTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary fp operation merging Group 0 and Group 1 with explicit mode.
@@ -1290,7 +1281,7 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Fp>, Chip: M, Clu
             .group0
             .inner
             .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
-        VectorFpTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorFpTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 }
 
@@ -1320,7 +1311,7 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
         let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
-        VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorClipTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary clip operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
@@ -1349,7 +1340,7 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
             .group0
             .inner
             .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
-        VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorClipTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 }
 
@@ -1379,7 +1370,7 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
         self.group0.ve_state.merge(self.group1.ve_state);
         self.group0.ve_state.use_alu(op.alu());
         let result = self.group0.inner.zip_with(&self.group1.inner, op.binary_op_fn(None));
-        VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorClipTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 
     /// Binary clip operation merging Group 0 and Group 1 with explicit mode. Requires `Way8` mode.
@@ -1408,7 +1399,7 @@ impl<'l, const T: Tu, S: stage::Stage + CanTransitionTo<stage::Clip>, Chip: M, C
             .group0
             .inner
             .zip_with(&self.group1.inner, op.binary_op_fn(Some(mode)));
-        VectorClipTensor::from_parts(self.ctx, result, self.group1.tag, self.group0.ve_state)
+        VectorClipTensor::from_parts(self.device, result, self.group1.tag, self.group0.ve_state)
     }
 }
 

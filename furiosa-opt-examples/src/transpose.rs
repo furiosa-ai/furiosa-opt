@@ -10,14 +10,14 @@ axes![P = 64, A = 8, B = 16, C = 32, D = 4];
 /// it is divided into two steps for demonstration purposes.
 #[device(chip = 1)]
 pub fn transpose_simple(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A, B, C]>,
 ) -> HbmTensor<f32, Chip, m![C, A, B]> {
     // transpose: [A, B, C] -> [A, C, B]
-    let intermediate: HbmTensor<f32, Chip, m![A, C, B]> = input.to_hbm(&mut ctx.tdma);
+    let intermediate: HbmTensor<f32, Chip, m![A, C, B]> = input.to_hbm(&mut device.tdma);
 
     // transpose: [A, C, B] -> [C, A, B]
-    intermediate.to_hbm(&mut ctx.tdma)
+    intermediate.to_hbm(&mut device.tdma)
 }
 
 /// Transposes an i8 tensor from `[P, A, B]` to `[P, B, A]` with the TU
@@ -32,12 +32,12 @@ pub fn transpose_simple(
 /// ```
 #[device(chip = 1, pe = 1)]
 pub fn transpose_i8_tu(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, Chip, m![P, A, B]>,
 ) -> HbmTensor<i8, Chip, m![P, B, A]> {
-    let input_dm: DmTensor<i8, Chip, Cluster, m![P], m![A, B]> = input.to_dm(&mut ctx.tdma);
+    let input_dm: DmTensor<i8, Chip, Cluster, m![P], m![A, B]> = input.to_dm(&mut device.tdma);
 
-    let output_dm: DmTensor<i8, Chip, Cluster, m![P], m![B, A]> = ctx
+    let output_dm: DmTensor<i8, Chip, Cluster, m![P], m![B, A]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![A], m![B]>()
@@ -46,18 +46,18 @@ pub fn transpose_i8_tu(
         .commit_trim::<m![A]>()
         .commit();
 
-    output_dm.to_hbm(&mut ctx.tdma)
+    output_dm.to_hbm(&mut device.tdma)
 }
 
 /// Transposes an i16 tensor with doubled input packing.
 #[device(chip = 1, pe = 1)]
 pub fn transpose_i16_tu(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i16, Chip, m![P, D, B]>,
 ) -> HbmTensor<i16, Chip, m![P, B, D]> {
-    let input_dm: DmTensor<i16, Chip, Cluster, m![P], m![D, B]> = input.to_dm(&mut ctx.tdma);
+    let input_dm: DmTensor<i16, Chip, Cluster, m![P], m![D, B]> = input.to_dm(&mut device.tdma);
 
-    let output_dm: DmTensor<i16, Chip, Cluster, m![P], m![B, D]> = ctx
+    let output_dm: DmTensor<i16, Chip, Cluster, m![P], m![B, D]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![D], m![B]>()
@@ -66,5 +66,5 @@ pub fn transpose_i16_tu(
         .commit_trim::<m![D]>()
         .commit();
 
-    output_dm.to_hbm(&mut ctx.tdma)
+    output_dm.to_hbm(&mut device.tdma)
 }

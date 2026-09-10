@@ -38,16 +38,17 @@ async fn answer_swap_halves() {
         "the swap must actually move data (not an identity)"
     );
 
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(swap_halves.topology()).unwrap();
     let input_hbm = HostTensor::<bf16, m![A, X]>::from_vec(input_vals)
-        .to_hbm::<Chip, m![A, X]>(&mut ctx.pdma)
-        .await;
+        .to_hbm::<Chip, m![A, X]>(&mut device.pdma)
+        .await
+        .unwrap();
 
-    let out = launch(swap_halves, (&mut *ctx, &input_hbm)).await;
+    let out = launch(swap_halves, (&mut device, &input_hbm)).await.unwrap();
 
     assert_eq!(
         expected,
-        out.to_host::<m![A, X]>(&mut ctx.pdma).await.into_vec(),
+        out.to_host::<m![A, X]>(&mut device.pdma).await.unwrap().into_vec(),
         "host oracle (left) vs VISA-sim (right)"
     );
 }

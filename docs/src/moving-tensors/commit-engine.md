@@ -42,9 +42,9 @@ fn cast_commit<'l, const T: Tu>(
     input.cast::<bf16, m![N # 16]>().commit_trim::<m![N]>().commit()
 }
 #
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 #
-# let c: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![P], m![M], m![N]> = ContractTensor::new(&mut ctx.main, Tensor::zero());
+# let c: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![P], m![M], m![N]> = ContractTensor::new(&mut device.main, Tensor::zero());
 # let _o = cast_commit(c);
 ```
 
@@ -107,12 +107,12 @@ fn transpose_with_trimming<'l, const T: Tu>(
 }
 
 #
-# let mut ctx = Context::acquire();
-# let a: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]> = CastTensor::new(&mut ctx.main, Tensor::zero());
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# let a: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]> = CastTensor::new(&mut device.main, Tensor::zero());
 # let _o = no_transpose(a);
-# let b: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]> = ContractTensor::new(&mut ctx.main, Tensor::zero());
+# let b: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]> = ContractTensor::new(&mut device.main, Tensor::zero());
 # let _o = transpose(b);
-# let c: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]> = CastTensor::new(&mut ctx.main, Tensor::zero());
+# let c: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]> = CastTensor::new(&mut device.main, Tensor::zero());
 # let _o = transpose_with_trimming(c);
 ```
 

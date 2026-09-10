@@ -23,14 +23,14 @@
 //!     input.fetch::<m![1], m![A]>().collect::<m![A / 8], m![A % 8]>().to_vrf()
 //! }
 //! #
-//! # let mut ctx = Context::acquire();
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A]> =
-//! #     BeginTensor::new(&mut ctx.sub, Tensor::zero());
+//! #     BeginTensor::new(&mut device.sub, Tensor::zero());
 //! # let _vrf = store(input);
 //! ```
 //!
 //! The same bound holds for a main-context store off the vector engine's write port, which takes
-//! `ctx.sub` as well:
+//! `device.sub` as well:
 //!
 //! ```
 //! # #![feature(adt_const_params)]
@@ -55,12 +55,10 @@
 //!         .to_vrf(sub)
 //! }
 //! #
-//! # let mut acquired = Context::acquire();
-//! # // Field borrows split through a `&mut Context`, which is what a `#[device]` kernel holds.
-//! # let ctx: &mut Context = &mut acquired;
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![1], m![A]> =
-//! #     BeginTensor::new(&mut ctx.main, Tensor::zero());
-//! # let _vrf = store(input, &mut ctx.sub);
+//! #     BeginTensor::new(&mut device.main, Tensor::zero());
+//! # let _vrf = store(input, &mut device.sub);
 //! ```
 //!
 //! Doubling it overruns the file there too:
@@ -88,13 +86,10 @@
 //!         .to_vrf(sub)
 //! }
 //! #
-//! # let mut acquired = Context::acquire();
-//! # // Field borrows split only through a `&mut Context`; the `Acquired` guard derefs to the whole
-//! # // thing, which is why a `#[device]` kernel (taking `&mut Context`) needs no reborrow.
-//! # let ctx: &mut Context = &mut acquired;
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![1], m![A]> =
-//! #     BeginTensor::new(&mut ctx.main, Tensor::zero());
-//! # let _vrf = store(input, &mut ctx.sub);
+//! #     BeginTensor::new(&mut device.main, Tensor::zero());
+//! # let _vrf = store(input, &mut device.sub);
 //! ```
 //!
 //! ```compile_fail
@@ -111,9 +106,9 @@
 //!     input.fetch::<m![1], m![A]>().collect::<m![A / 8], m![A % 8]>().to_vrf()
 //! }
 //! #
-//! # let mut ctx = Context::acquire();
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 //! # let input: BeginTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A]> =
-//! #     BeginTensor::new(&mut ctx.sub, Tensor::zero());
+//! #     BeginTensor::new(&mut device.sub, Tensor::zero());
 //! # let _vrf = store(input);
 //! ```
 
@@ -127,10 +122,10 @@ type Slice = m![1 # 256];
 
 /// `A` `i32` values are 8 KiB per slice, filling the file exactly. This is the largest legal store.
 #[device(chip = 1)]
-pub fn to_vrf_fills_file(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) {
-    let dm = input.to_dm::<Cluster, Slice, m![A]>(&mut ctx.tdma);
+pub fn to_vrf_fills_file(device: &mut Device, input: &HbmTensor<i32, Chip, m![A]>) {
+    let dm = input.to_dm::<Cluster, Slice, m![A]>(&mut device.tdma);
 
-    let _vrf: VrfTensor<i32, Chip, Cluster, Slice, m![A]> = ctx
+    let _vrf: VrfTensor<i32, Chip, Cluster, Slice, m![A]> = device
         .sub
         .begin(dm.view())
         .fetch::<m![1], m![A]>()
@@ -142,10 +137,10 @@ pub fn to_vrf_fills_file(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>)
 /// The same capacity through the vector engine's write port: `A` `f32` values are 8 KiB per slice,
 /// so the pass output fills the file exactly.
 #[device(chip = 1)]
-pub fn ve_to_vrf_fills_file(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![A]>) {
-    let dm = input.to_dm::<Cluster, Slice, m![A]>(&mut ctx.tdma);
+pub fn ve_to_vrf_fills_file(device: &mut Device, input: &HbmTensor<f32, Chip, m![A]>) {
+    let dm = input.to_dm::<Cluster, Slice, m![A]>(&mut device.tdma);
 
-    let _vrf: VrfTensor<f32, Chip, Cluster, Slice, m![A]> = ctx
+    let _vrf: VrfTensor<f32, Chip, Cluster, Slice, m![A]> = device
         .main
         .begin(dm.view())
         .fetch::<m![1], m![A]>()
@@ -157,5 +152,5 @@ pub fn ve_to_vrf_fills_file(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![A
         .vector_fp_unary(FpUnaryOp::Sqrt)
         .vector_widen_concat::<m![A / 8], m![A % 8]>()
         .vector_final()
-        .to_vrf(&mut ctx.sub);
+        .to_vrf(&mut device.sub);
 }

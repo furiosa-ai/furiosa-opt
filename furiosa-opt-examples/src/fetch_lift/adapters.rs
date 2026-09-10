@@ -7,12 +7,13 @@ axes![Oct = 8];
 /// Lifts `H` onto `Slice` before widening `i8` values to `i32`.
 #[device(chip = 1)]
 pub fn fetch_slice_lift_then_cast(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, Chip, m![A, H, Oct]>,
 ) -> HbmTensor<i32, Chip, m![A, H, Oct]> {
-    let dm: DmTensor<i8, Chip, Cluster, Slice, m![H, Oct]> = input.to_dm::<Cluster, Slice, m![H, Oct]>(&mut ctx.tdma);
+    let dm: DmTensor<i8, Chip, Cluster, Slice, m![H, Oct]> =
+        input.to_dm::<Cluster, Slice, m![H, Oct]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A, H], m![Oct]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A, H], m![Oct]> = device
         .main
         .begin(dm.view())
         .fetch::<m![H], m![Oct]>()
@@ -22,7 +23,7 @@ pub fn fetch_slice_lift_then_cast(
         .commit_trim::<m![Oct]>()
         .commit();
 
-    result.to_hbm::<m![A, H, Oct]>(&mut ctx.tdma)
+    result.to_hbm::<m![A, H, Oct]>(&mut device.tdma)
 }
 
 axes![Code = 16];
@@ -30,13 +31,13 @@ axes![Code = 16];
 /// Lifts `H` onto `Slice`, decodes `f4e2m1`, and widens the result to `f32`.
 #[device(chip = 1)]
 pub fn fetch_slice_lift_table_lookup(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f4e2m1, Chip, m![A, H, Code]>,
 ) -> HbmTensor<f32, Chip, m![A, H, Code]> {
     let dm: DmTensor<f4e2m1, Chip, Cluster, Slice, m![H, Code]> =
-        input.to_dm::<Cluster, Slice, m![H, Code]>(&mut ctx.tdma);
+        input.to_dm::<Cluster, Slice, m![H, Code]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A, H], m![Code]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A, H], m![Code]> = device
         .main
         .begin(dm.view())
         .fetch::<m![H], m![Code]>()
@@ -47,7 +48,7 @@ pub fn fetch_slice_lift_table_lookup(
         .commit_trim::<m![Code % 8]>()
         .commit();
 
-    result.to_hbm::<m![A, H, Code]>(&mut ctx.tdma)
+    result.to_hbm::<m![A, H, Code]>(&mut device.tdma)
 }
 
 axes![Red = 4, Z = 2];
@@ -55,13 +56,13 @@ axes![Red = 4, Z = 2];
 /// Lifts `Z` onto `Cluster` before reducing `Red` across slices.
 #[device(chip = 1)]
 pub fn fetch_cluster_lift_inter_slice_reduce(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![Row, Red, Z, Oct]>,
 ) -> HbmTensor<i32, Chip, m![Z, Row, Oct]> {
     let dm: DmTensor<i32, Chip, m![2], m![Row, Red], m![Z, Oct]> =
-        input.to_dm::<m![2], m![Row, Red], m![Z, Oct]>(&mut ctx.tdma);
+        input.to_dm::<m![2], m![Row, Red], m![Z, Oct]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, m![Z], m![Row, 1 # 4], m![Oct]> = ctx
+    let result: DmTensor<i32, Chip, m![Z], m![Row, 1 # 4], m![Oct]> = device
         .main
         .begin(dm.view())
         .fetch::<m![Z], m![Oct]>()
@@ -73,7 +74,7 @@ pub fn fetch_cluster_lift_inter_slice_reduce(
         .commit_trim::<m![Oct]>()
         .commit();
 
-    result.to_hbm::<m![Z, Row, Oct]>(&mut ctx.tdma)
+    result.to_hbm::<m![Z, Row, Oct]>(&mut device.tdma)
 }
 
 axes![P128 = 128, Zp = 2, Act = 8, Dot = 32, Out = 8];
@@ -85,14 +86,14 @@ type ZeroPointLane = m![Out];
 /// Lifts `Zp` onto `Slice` before zero-point subtraction and contraction.
 #[device(chip = 1)]
 pub fn lift_zero_point_sub_contract(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i8, Chip, m![P128, Zp, Act, Dot]>,
     weight: &HbmTensor<i8, Chip, m![P128, Zp, Out, Dot]>,
 ) -> HbmTensor<i32, Chip, m![P128, Zp, Act, Out]> {
-    let input_dm = input.to_dm::<Cluster, ZeroPointSlice, m![Zp, Act, Dot]>(&mut ctx.tdma);
-    let weight_dm = weight.to_dm::<Cluster, LiftedZeroPointSlice, m![Out, Dot]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, ZeroPointSlice, m![Zp, Act, Dot]>(&mut device.tdma);
+    let weight_dm = weight.to_dm::<Cluster, LiftedZeroPointSlice, m![Out, Dot]>(&mut device.tdma);
 
-    let trf: TrfTensor<i8, Chip, Cluster, LiftedZeroPointSlice, ZeroPointLane, m![Dot]> = ctx
+    let trf: TrfTensor<i8, Chip, Cluster, LiftedZeroPointSlice, ZeroPointLane, m![Dot]> = device
         .sub
         .begin(weight_dm.view())
         .fetch::<m![Out], m![Dot]>()
@@ -100,7 +101,7 @@ pub fn lift_zero_point_sub_contract(
         .collect::<m![Out], m![Dot]>()
         .to_trf();
 
-    let result: DmTensor<i32, Chip, Cluster, LiftedZeroPointSlice, m![Act, Out]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, LiftedZeroPointSlice, m![Act, Out]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![Zp, Act], m![Dot]>()
@@ -114,5 +115,5 @@ pub fn lift_zero_point_sub_contract(
         .commit_trim::<m![Out]>()
         .commit();
 
-    result.to_hbm::<m![P128, Zp, Act, Out]>(&mut ctx.tdma)
+    result.to_hbm::<m![P128, Zp, Act, Out]>(&mut device.tdma)
 }

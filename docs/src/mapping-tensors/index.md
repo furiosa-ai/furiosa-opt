@@ -156,8 +156,8 @@ An assignment holds for one stage rather than for the whole pipeline, and four r
 
 | Route | Moves | Available when | Cost |
 | --- | --- | --- | --- |
-| [Switch Engine](../computing-tensors/switch-engine.md) | an axis either way between `Slice` and `Time` | one of its configurations expresses the slice placement | `ring_size × Time::SIZE × flits_per_packet` cycles of ring traversal |
-| [DMA](../moving-tensors/dma-engine.md) | an axis into `Chip`, `Cluster` or `Slice`, by writing the placement it is given | always | a transfer of the whole tensor |
+| [Switch Engine](../computing-tensors/switch-engine.md) | an axis either way between `Slice` and `Time` | one of its configurations expresses the `Slice` placement | `ring_size × Time::SIZE × flits_per_packet` cycles of ring traversal |
+| [DMA](../moving-tensors/dma-engine.md) | an axis into `Chip`, `Cluster` or `Slice`, by writing the desired placement | always | a transfer of the whole tensor |
 | [Inter-slice reducer](../computing-tensors/vector-engine/inter-slice-reducer.md#promotion-from-time-into-outslice) | an axis out of `Time` into the `Slice` slot a reduced axis vacates | the stream is reduced over a `Slice` axis anyway | none beyond that reduction |
 | [Axis lifting](../moving-tensors/fetch-engine.md#axis-lifting), at fetch | an axis out of `Time` onto `Chip`, `Cluster` or `Slice` | the selected dimension holds a broadcast | the original read, plus a DMA, a context-local add, and an SFR store for `Slice` |
 

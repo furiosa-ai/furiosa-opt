@@ -1,10 +1,13 @@
 use super::*;
 
 #[device(chip = 1)]
-pub fn ve_elementwise_fxp_const(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+pub fn ve_elementwise_fxp_const(
+    device: &mut Device,
+    input: &HbmTensor<i32, Chip, m![A]>,
+) -> HbmTensor<i32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -17,17 +20,17 @@ pub fn ve_elementwise_fxp_const(ctx: &mut Context, input: &HbmTensor<i32, Chip, 
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_arith_right_shift_round(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -40,17 +43,17 @@ pub fn ve_elementwise_arith_right_shift_round(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_full_pipeline(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -70,7 +73,7 @@ pub fn ve_elementwise_full_pipeline(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// Exercises the scalar float `Neg` lowering on the const-fold path.
@@ -83,15 +86,15 @@ pub fn ve_elementwise_full_pipeline(
 /// faithful unary `NegF` sign-flip, never `0.0 - x`; that arm is unit-tested in `eval.rs`.)
 #[device(chip = 1)]
 pub fn ve_elementwise_neg_offset_f32(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
     let offset = 100.0f32;
     let neg_offset = -offset;
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -106,7 +109,7 @@ pub fn ve_elementwise_neg_offset_f32(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// `|x|` on `f32` by bit masking: clear the sign bit, no float ALU involved.
@@ -117,12 +120,12 @@ pub fn ve_elementwise_neg_offset_f32(
 /// no stage.
 #[device(chip = 1)]
 pub fn ve_elementwise_reinterpret_abs_f32(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -137,7 +140,7 @@ pub fn ve_elementwise_reinterpret_abs_f32(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// `min(|x| * 2, 100.0)` with the doubling done as `exponent += 1` on the bit pattern, to exercise
@@ -148,12 +151,12 @@ pub fn ve_elementwise_reinterpret_abs_f32(
 /// hardware, so consecutive ones must collapse rather than each cost something.
 #[device(chip = 1)]
 pub fn ve_elementwise_reinterpret_chain_f32(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -172,14 +175,17 @@ pub fn ve_elementwise_reinterpret_chain_f32(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
-pub fn ve_elementwise_stash_f32(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![A]>) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+pub fn ve_elementwise_stash_f32(
+    device: &mut Device,
+    input: &HbmTensor<f32, Chip, m![A]>,
+) -> HbmTensor<f32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -196,15 +202,18 @@ pub fn ve_elementwise_stash_f32(ctx: &mut Context, input: &HbmTensor<f32, Chip, 
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// i32 stash example: stash input, multiply by 2, then max with stashed value
 #[device(chip = 1)]
-pub fn ve_elementwise_stash_i32(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+pub fn ve_elementwise_stash_i32(
+    device: &mut Device,
+    input: &HbmTensor<i32, Chip, m![A]>,
+) -> HbmTensor<i32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -219,19 +228,19 @@ pub fn ve_elementwise_stash_i32(ctx: &mut Context, input: &HbmTensor<i32, Chip, 
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 macro_rules! define_elementwise_fp_unary {
     ($name:ident, $op:expr) => {
         #[device(chip = 1)]
         pub fn $name(
-            ctx: &mut Context,
+            device: &mut Device,
             input: &HbmTensor<f32, Chip, m![A]>,
         ) -> HbmTensor<f32, Chip, m![A]> {
-            let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+            let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-            let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+            let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
                 .main
                 .begin(input_dm.view())
                 .fetch::<m![1], m![A % 2]>()
@@ -246,7 +255,7 @@ macro_rules! define_elementwise_fp_unary {
                 .commit_trim::<m![A % 2]>()
                 .commit();
 
-            result.to_hbm(&mut ctx.tdma)
+            result.to_hbm(&mut device.tdma)
         }
     };
 }
@@ -263,12 +272,12 @@ define_elementwise_fp_unary!(ve_elementwise_cos, FpUnaryOp::Cos);
 
 #[device(chip = 1)]
 pub fn ve_elementwise_fp_binary_with_mode(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -283,17 +292,17 @@ pub fn ve_elementwise_fp_binary_with_mode(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_fp_ternary_with_mode(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -308,17 +317,17 @@ pub fn ve_elementwise_fp_ternary_with_mode(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_logic_with_mode(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -331,17 +340,17 @@ pub fn ve_elementwise_logic_with_mode(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_fxp_with_mode(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -354,17 +363,17 @@ pub fn ve_elementwise_fxp_with_mode(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_fp_div_with_mode(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -379,17 +388,17 @@ pub fn ve_elementwise_fp_div_with_mode(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_clip_with_mode(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![A]>,
 ) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -402,26 +411,26 @@ pub fn ve_elementwise_clip_with_mode(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_group_pair_fp_zip_with_mode(
-    ctx: &mut Context,
+    device: &mut Device,
     lhs: &HbmTensor<f32, Chip, m![A]>,
     rhs: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
-    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let lhs_dm = lhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
+    let rhs_dm = rhs.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin_interleaved::<I, _, _, _, _, _>(lhs_dm.view(), rhs_dm.view())
         .fetch::<m![I], m![A % 2]>()
         .fetch_cast::<f32>()
         .collect::<m![I], m![A % 2 # 8]>()
         .vector_init()
-        .vector_intra_slice_unzip::<I, m![1 # 2], m![1]>()
+        .vector_intra_slice_unzip::<I, m![1]>()
         .vector_narrow_split::<m![1 # 2], m![A % 2 # 4]>()
         .vector_fp_zip_with_mode(FpBinaryOp::SubF, BinaryArgMode::Mode10)
         .vector_widen_concat::<m![1], m![A % 2 # 8]>()
@@ -429,16 +438,16 @@ pub fn ve_group_pair_fp_zip_with_mode(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 // Stash at fxp stage, read at clip stage (i32 -> i32)
 // input * 2, then max(result, stashed_input)
 #[device(chip = 1)]
-pub fn ve_stash_fxp_fxp(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+pub fn ve_stash_fxp_fxp(device: &mut Device, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -453,7 +462,7 @@ pub fn ve_stash_fxp_fxp(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) 
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 /// `2|x|` on `f32`, with the stash written after a reinterpret.
@@ -467,12 +476,12 @@ pub fn ve_stash_fxp_fxp(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) 
 /// point observable at all: `max(|x|, x)` is `|x|` whichever of the two the cache holds.
 #[device(chip = 1)]
 pub fn ve_stash_after_reinterpret_f32(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<f32, Chip, m![A]>,
 ) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -489,17 +498,20 @@ pub fn ve_stash_after_reinterpret_f32(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 // A value computed in the 4-way region reaches the stash by widening first: the widen itself
 // holds no write indexer, so the write rides the first clip op and the read the second, both
 // 8-way. `2 * max(2x, 0)`.
 #[device(chip = 1)]
-pub fn ve_stash_after_widen_f32(ctx: &mut Context, input: &HbmTensor<f32, Chip, m![A]>) -> HbmTensor<f32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+pub fn ve_stash_after_widen_f32(
+    device: &mut Device,
+    input: &HbmTensor<f32, Chip, m![A]>,
+) -> HbmTensor<f32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -517,14 +529,14 @@ pub fn ve_stash_after_widen_f32(ctx: &mut Context, input: &HbmTensor<f32, Chip, 
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
-pub fn ve_elementwise_logic(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
-    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut ctx.tdma);
+pub fn ve_elementwise_logic(device: &mut Device, input: &HbmTensor<i32, Chip, m![A]>) -> HbmTensor<i32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![1], m![A % 2]>()
@@ -538,20 +550,20 @@ pub fn ve_elementwise_logic(ctx: &mut Context, input: &HbmTensor<i32, Chip, m![A
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_vrf(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![A, B]>,
     vrf_data: &HbmTensor<i32, Chip, m![B]>,
 ) -> HbmTensor<i32, Chip, m![A, B]> {
-    let input_intermediate: HbmTensor<i32, Chip, m![B, A]> = input.to_hbm(&mut ctx.tdma);
-    let input_dm = input_intermediate.to_dm::<Cluster, m![A / 2], m![B, A % 2]>(&mut ctx.tdma);
-    let vrf_dm = vrf_data.to_dm::<Cluster, m![A / 2], m![B]>(&mut ctx.tdma);
+    let input_intermediate: HbmTensor<i32, Chip, m![B, A]> = input.to_hbm(&mut device.tdma);
+    let input_dm = input_intermediate.to_dm::<Cluster, m![A / 2], m![B, A % 2]>(&mut device.tdma);
+    let vrf_dm = vrf_data.to_dm::<Cluster, m![A / 2], m![B]>(&mut device.tdma);
 
-    let vrf: VrfTensor<i32, Chip, Cluster, m![A / 2], m![B]> = ctx
+    let vrf: VrfTensor<i32, Chip, Cluster, m![A / 2], m![B]> = device
         .sub
         .begin(vrf_dm.view())
         .fetch::<m![1], m![B]>()
@@ -559,7 +571,7 @@ pub fn ve_elementwise_vrf(
         .collect::<m![B / 8], m![B % 8]>()
         .to_vrf();
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![B, A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![B, A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![B], m![A % 2]>()
@@ -572,22 +584,22 @@ pub fn ve_elementwise_vrf(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 #[device(chip = 1)]
 pub fn ve_elementwise_multi_vrf(
-    ctx: &mut Context,
+    device: &mut Device,
     input: &HbmTensor<i32, Chip, m![A, B]>,
     vrf_data1: &HbmTensor<i32, Chip, m![B]>,
     vrf_data2: &HbmTensor<i32, Chip, m![B]>,
 ) -> HbmTensor<i32, Chip, m![A, B]> {
-    let input_intermediate: HbmTensor<i32, Chip, m![B, A]> = input.to_hbm(&mut ctx.tdma);
-    let input_dm = input_intermediate.to_dm::<Cluster, m![A / 2], m![B, A % 2]>(&mut ctx.tdma);
-    let vrf_dm1 = vrf_data1.to_dm::<Cluster, m![A / 2], m![B]>(&mut ctx.tdma);
-    let vrf_dm2 = vrf_data2.to_dm::<Cluster, m![A / 2], m![B]>(&mut ctx.tdma);
+    let input_intermediate: HbmTensor<i32, Chip, m![B, A]> = input.to_hbm(&mut device.tdma);
+    let input_dm = input_intermediate.to_dm::<Cluster, m![A / 2], m![B, A % 2]>(&mut device.tdma);
+    let vrf_dm1 = vrf_data1.to_dm::<Cluster, m![A / 2], m![B]>(&mut device.tdma);
+    let vrf_dm2 = vrf_data2.to_dm::<Cluster, m![A / 2], m![B]>(&mut device.tdma);
 
-    let vrf1: VrfTensor<i32, Chip, Cluster, m![A / 2], m![B]> = ctx
+    let vrf1: VrfTensor<i32, Chip, Cluster, m![A / 2], m![B]> = device
         .sub
         .begin(vrf_dm1.view())
         .fetch::<m![1], m![B]>()
@@ -595,7 +607,7 @@ pub fn ve_elementwise_multi_vrf(
         .collect::<m![B / 8], m![B % 8]>()
         .to_vrf();
 
-    let vrf2: VrfTensor<i32, Chip, Cluster, m![A / 2], m![B]> = ctx
+    let vrf2: VrfTensor<i32, Chip, Cluster, m![A / 2], m![B]> = device
         .sub
         .begin(vrf_dm2.view())
         .fetch::<m![1], m![B]>()
@@ -603,7 +615,7 @@ pub fn ve_elementwise_multi_vrf(
         .collect::<m![B / 8], m![B % 8]>()
         .to_vrf();
 
-    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![B, A % 2]> = ctx
+    let result: DmTensor<i32, Chip, Cluster, m![A / 2], m![B, A % 2]> = device
         .main
         .begin(input_dm.view())
         .fetch::<m![B], m![A % 2]>()
@@ -618,7 +630,7 @@ pub fn ve_elementwise_multi_vrf(
         .commit_trim::<m![A % 2]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }
 
 // =============================================================================
@@ -629,23 +641,23 @@ pub fn ve_elementwise_multi_vrf(
 /// vector engine, whose pass ends at the write port, and a second stream consumes the register.
 #[device(chip = 1)]
 pub fn ve_contract_to_vrf(
-    ctx: &mut Context,
+    device: &mut Device,
     act: &HbmTensor<f8e4m3, Chip, m![W]>,
     weight: &HbmTensor<f8e4m3, Chip, m![P, W]>,
     scale: &HbmTensor<f32, Chip, m![P]>,
 ) -> HbmTensor<f32, Chip, m![P]> {
-    let act_dm: DmTensor<f8e4m3, Chip, Cluster, Slice, m![W]> = act.to_dm(&mut ctx.tdma);
-    let weight_dm: DmTensor<f8e4m3, Chip, Cluster, Slice, m![P, W]> = weight.to_dm(&mut ctx.tdma);
-    let scale_dm: DmTensor<f32, Chip, Cluster, Slice, m![P]> = scale.to_dm(&mut ctx.tdma);
+    let act_dm: DmTensor<f8e4m3, Chip, Cluster, Slice, m![W]> = act.to_dm(&mut device.tdma);
+    let weight_dm: DmTensor<f8e4m3, Chip, Cluster, Slice, m![P, W]> = weight.to_dm(&mut device.tdma);
+    let scale_dm: DmTensor<f32, Chip, Cluster, Slice, m![P]> = scale.to_dm(&mut device.tdma);
 
-    let weight_trf: TrfTensor<f8e4m3, Chip, Cluster, Slice, m![P], m![W]> = ctx
+    let weight_trf: TrfTensor<f8e4m3, Chip, Cluster, Slice, m![P], m![W]> = device
         .sub
         .begin(weight_dm.view())
         .fetch::<m![P], m![W]>()
         .collect::<m![P, W / 32], m![W % 32]>()
         .to_trf();
 
-    let dot: VrfTensor<f32, Chip, Cluster, Slice, m![P]> = ctx
+    let dot: VrfTensor<f32, Chip, Cluster, Slice, m![P]> = device
         .main
         .begin(act_dm.view())
         .fetch::<m![W / 32], m![W % 32]>()
@@ -660,9 +672,9 @@ pub fn ve_contract_to_vrf(
         .vector_fp_unary(FpUnaryOp::Sqrt)
         .vector_widen_concat::<m![1], m![P]>()
         .vector_final()
-        .to_vrf(&mut ctx.sub);
+        .to_vrf(&mut device.sub);
 
-    let result: DmTensor<f32, Chip, Cluster, Slice, m![P]> = ctx
+    let result: DmTensor<f32, Chip, Cluster, Slice, m![P]> = device
         .main
         .begin(scale_dm.view())
         .fetch::<m![1], m![P]>()
@@ -677,5 +689,5 @@ pub fn ve_contract_to_vrf(
         .commit_trim::<m![P]>()
         .commit();
 
-    result.to_hbm(&mut ctx.tdma)
+    result.to_hbm(&mut device.tdma)
 }

@@ -36,9 +36,9 @@ fn collect_identity<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut ctx.main, Tensor::zero());
+# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut device.main, Tensor::zero());
 # let _o = collect_identity(c);
 ```
 
@@ -75,9 +75,9 @@ fn collect_padding<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut ctx.main, Tensor::zero());
+# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut device.main, Tensor::zero());
 # let _o = collect_padding(c);
 ```
 
@@ -114,9 +114,9 @@ fn collect_multi_flit<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: SwitchTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut ctx.main, Tensor::zero());
+# let c: SwitchTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut device.main, Tensor::zero());
 # let _o = collect_multi_flit(c);
 ```
 
@@ -155,9 +155,9 @@ fn collect_multi_flit_padded<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut ctx = Context::acquire();
+# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 # 
-# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut ctx.main, Tensor::zero());
+# let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut device.main, Tensor::zero());
 # let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { collect_multi_flit_padded(c) }));
 ```
 

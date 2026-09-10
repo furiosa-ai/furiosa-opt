@@ -20,14 +20,22 @@ macro_rules! whole_region_answer_test {
     ($name:ident, $d:ty, $fn:ident, $input:expr, $fill:expr $(,)?) => {
         #[tokio::test]
         async fn $name() {
-            let mut ctx = Context::acquire();
+            let mut device = Device::new($fn.topology()).unwrap();
             let input_vals: Vec<$d> = $input;
             let input = HostTensor::<$d, m![A, B]>::from_vec(input_vals)
-                .to_hbm::<m![1], m![A, B]>(&mut ctx.pdma)
-                .await;
-            let output = launch($fn, (&mut *ctx, &input)).await;
+                .to_hbm::<m![1], m![A, B]>(&mut device.pdma)
+                .await
+                .unwrap();
+            let output = launch($fn, (&mut device, &input)).await.unwrap();
             let answer: Vec<$d> = std::iter::repeat_n($fill, <OutMap>::SIZE).collect();
-            assert_eq!(output.to_host::<OutMap>(&mut ctx.pdma).await.into_vec(), answer);
+            assert_eq!(
+                output
+                    .to_host::<OutMap>(&mut device.pdma)
+                    .await
+                    .unwrap()
+                    .into_vec(),
+                answer
+            );
         }
     };
 }

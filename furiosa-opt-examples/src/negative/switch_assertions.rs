@@ -21,13 +21,13 @@ pub mod packet {
 
     #[device(chip = 1)]
     pub fn packet_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -36,21 +36,21 @@ pub mod packet {
             .commit_trim::<m![A # 32]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn collect_time_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<bf16, Chip, m![A, B]>,
         output: &mut HbmTensor<bf16, Chip, m![A, B % 16]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
         // bf16 B=32 elements = 64 bytes = 2 flits.
         // Correct Time2 would be m![A, B / 16] (absorbing outer flit into time).
         // Here we provide m![A] which is wrong → "Collect time mismatch".
-        let result: DmTensor<bf16, Chip, Cluster, Slice, m![A, B % 16]> = ctx
+        let result: DmTensor<bf16, Chip, Cluster, Slice, m![A, B % 16]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -59,7 +59,7 @@ pub mod packet {
             .commit_trim::<m![B % 16]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -68,13 +68,13 @@ pub mod broadcast1 {
 
     #[device(chip = 1)]
     pub fn invalid_slice1_zero(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, D % 4, A, C % 4, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C % 4, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C % 4, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -84,18 +84,18 @@ pub mod broadcast1 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice_size(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, D % 4, A, C % 4, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C % 4, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C % 4, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -105,18 +105,18 @@ pub mod broadcast1 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice2_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![D % 4, C % 64, A, C / 64, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![D % 4, C % 64], m![A, C / 64, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![D % 4, C % 64], m![A, C / 64, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -126,18 +126,18 @@ pub mod broadcast1 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_broadcast_axes_not_new(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, C % 4, A, C % 4, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 64, C % 64], m![A, C / 64, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 64, C % 64], m![A, C / 64, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -147,18 +147,18 @@ pub mod broadcast1 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice0_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, D % 4, A, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![1 # 4, D % 64], m![A, C / 64, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![1 # 4, D % 64], m![A, C / 64, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -168,18 +168,18 @@ pub mod broadcast1 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_out_time(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, D % 4, A, E % 4, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![1 # 4, C % 64], m![A, E % 4, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![1 # 4, C % 64], m![A, E % 4, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -189,7 +189,7 @@ pub mod broadcast1 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -198,13 +198,13 @@ pub mod broadcast01 {
 
     #[device(chip = 1)]
     pub fn invalid_slice0_zero(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, D % 4, A, C / 2 % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C / 2 % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C / 2 % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -218,18 +218,18 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice_size(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, D % 4, A, C / 2 % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C / 2 % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C / 2 % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -243,18 +243,18 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_time_size(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, D % 4, A, C / 2 % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C / 2 % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, D % 4], m![A, C / 2 % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -268,18 +268,18 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice2_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 8, D % 8, A / 2, C / 2 % 2, A % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 8, D % 8], m![A / 2, C / 2 % 2, A % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 8, D % 8], m![A / 2, C / 2 % 2, A % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -293,18 +293,18 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice_axes_in_broadcast(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, C % 4, A, C / 2 % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, C % 4], m![A, C / 2 % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, C % 4], m![A, C / 2 % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -318,18 +318,18 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_time_axes_in_broadcast(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, A % 4, A, C / 2 % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, A % 4], m![A, C / 2 % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, A % 4], m![A, C / 2 % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -343,18 +343,18 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_out_time(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 4, E % 4, A / 2, C / 2, A % 2, C % 2, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 4, E % 4], m![A / 2, C / 2, A % 2, C % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 4, E % 4], m![A / 2, C / 2, A % 2, C % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -368,7 +368,7 @@ pub mod broadcast01 {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -377,13 +377,13 @@ pub mod transpose {
 
     #[device(chip = 1)]
     pub fn invalid_time_size(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 64, C % 2, C / 2 % 32, D, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 64, C % 2, C / 2 % 32], m![D, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 64, C % 2, C / 2 % 32], m![D, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -393,18 +393,18 @@ pub mod transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_time_mapping(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![C / 64, C % 2, C / 2 % 32, E % 8, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 64, C % 2, C / 2 % 32], m![E % 8, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 64, C % 2, C / 2 % 32], m![E % 8, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -414,18 +414,18 @@ pub mod transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_transpose_placement(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C / 128, C / 8 % 16, C % 8], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C / 128, C / 8 % 16, C % 8], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C % 8, C / 128, C / 8 % 16], m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C % 8, C / 128, C / 8 % 16], m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -435,7 +435,7 @@ pub mod transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
 
@@ -444,13 +444,13 @@ pub mod inter_transpose {
 
     #[device(chip = 1)]
     pub fn invalid_time0(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![A, C % 32], m![C / 32 % 8, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![A, C % 32], m![C / 32 % 8, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -464,18 +464,18 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_dims(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, Slice, m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, Slice, m![A, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -489,18 +489,18 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_time0_size(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![A, C % 32], m![C / 32 % 8, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![A, C % 32], m![C / 32 % 8, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -514,18 +514,18 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice2_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C / 128, C % 128], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C / 128, C % 128], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![D % 2, A, C % 16], m![B / 16, E % 2, C / 16 % 8, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![D % 2, A, C % 16], m![B / 16, E % 2, C / 16 % 8, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A, B / 8], m![B]>()
@@ -539,18 +539,18 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice0_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, B / 2], m![A / 4, A % 2, C / 16 % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, B / 2], m![A / 4, A % 2, C / 16 % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -564,18 +564,18 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_time1_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C / 128, C % 128], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C / 128, C % 128], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 32, D % 2, C % 16], m![A / 2, G / 16, A % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 32, D % 2, C % 16], m![A / 2, G / 16, A % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -589,43 +589,44 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_time2_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, C % 16], m![A / 2, A % 2, C / 16 % 2, B]> = ctx
-            .main
-            .begin(input_dm.view())
-            .fetch::<m![A], m![B]>()
-            .fetch_cast::<i8>()
-            .switch::<m![C / 32, A / 2 % 2, C % 16], m![A / 2, A % 2, C / 16 % 2]>(SwitchConfig::InterTranspose {
-                slice1: 2,
-                slice0: 16,
-                time0: 2,
-            })
-            .collect::<m![A / 2, A % 2, C / 16 % 2], m![B]>()
-            .commit_trim::<m![B]>()
-            .commit();
+        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, C % 16], m![A / 2, A % 2, C / 16 % 2, B]> =
+            device
+                .main
+                .begin(input_dm.view())
+                .fetch::<m![A], m![B]>()
+                .fetch_cast::<i8>()
+                .switch::<m![C / 32, A / 2 % 2, C % 16], m![A / 2, A % 2, C / 16 % 2]>(SwitchConfig::InterTranspose {
+                    slice1: 2,
+                    slice0: 16,
+                    time0: 2,
+                })
+                .collect::<m![A / 2, A % 2, C / 16 % 2], m![B]>()
+                .commit_trim::<m![B]>()
+                .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_time0_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, C % 16], m![A / 4, A / 2 % 2, D % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, C % 16], m![A / 4, A / 2 % 2, D % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -639,18 +640,18 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 
     #[device(chip = 1)]
     pub fn invalid_slice1_mismatch(
-        ctx: &mut Context,
+        device: &mut Device,
         input: &HbmTensor<i8, Chip, m![A, B]>,
         output: &mut HbmTensor<i8, Chip, m![A, B]>,
     ) {
-        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut ctx.tdma);
+        let input_dm = input.to_dm::<Cluster, m![C], m![A, B]>(&mut device.tdma);
 
-        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, D % 2, B]> = ctx
+        let result: DmTensor<i8, Chip, Cluster, m![C / 32, A / 2 % 2, C % 16], m![A / 4, A % 2, D % 2, B]> = device
             .main
             .begin(input_dm.view())
             .fetch::<m![A], m![B]>()
@@ -664,6 +665,6 @@ pub mod inter_transpose {
             .commit_trim::<m![B]>()
             .commit();
 
-        result.view().to_hbm_view(&mut ctx.tdma, output.view_mut());
+        result.view().to_hbm_view(&mut device.tdma, output.view_mut());
     }
 }
