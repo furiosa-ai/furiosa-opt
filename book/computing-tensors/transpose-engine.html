@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -201,7 +201,7 @@ impl&lt;
         self,
     ) -&gt; TransposeTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
         verify_transpose::&lt;D, Time, Packet, OutTime, OutPacket&gt;();
-        TransposeTensor::new(self.ctx, self.inner.transpose(false))
+        TransposeTensor::new(self.device, self.inner.transpose(false))
     }
 }</code></pre>
 <p>The kernel writer chooses <code>OutTime</code> and <code>OutPacket</code> (the output dimension layouts), and the compiler verifies the result against the hardware constraints listed under <a href="#parameters">Parameters</a>.</p>
@@ -220,9 +220,9 @@ fn basic_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = basic_transpose(c);
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
@@ -314,9 +314,9 @@ fn small_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![A], m![B # 32]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![A], m![B # 32]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = small_transpose(c);
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
@@ -357,9 +357,9 @@ fn large_col_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = large_col_transpose(c);
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
@@ -400,9 +400,9 @@ fn bf16_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![P], m![C, D], m![E # 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![P], m![C, D], m![E # 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = bf16_transpose(c);
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
@@ -443,9 +443,9 @@ fn i4_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i4, m![1], m![1 # 2], m![P], m![B, C], m![E # 64]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i4, m![1], m![1 # 2], m![P], m![B, C], m![E # 64]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = i4_transpose(c);
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
@@ -487,9 +487,9 @@ fn f32_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![1 # 2], m![P], m![B, D], m![E # 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![1 # 2], m![P], m![B, D], m![E # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = f32_transpose(c);
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>

@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-b78bfe2e.js"></script>
+        <script src="../../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -197,7 +197,7 @@
         });
         // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
         // performs this Time reduction too. This stage only re-types the carrier to `OutTime`.
-        ContractTimeTensor::new(self.ctx, self.inner, Time::to_value())
+        ContractTimeTensor::new(self.device, self.inner, Time::to_value())
     }
 }</code></pre>
 <p>For example, the kernel below reduces a 2D tensor along <code>B</code> (surviving only <code>A</code>).</p>
@@ -231,9 +231,9 @@ fn reduce_b&lt;'l, const T: Tu&gt;(
          .contract_lane::&lt;m![A % 8], m![1 # 8]&gt;(LaneMode::Sequential)
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = reduce_b(a, &amp;b);
 </span><span class="boring">}</span></code></pre>

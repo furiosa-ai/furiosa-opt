@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -225,9 +225,9 @@ fn load_trf&lt;'l, const T: Tu&gt;(
     input.to_trf()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = load_trf(c);
 </span><span class="boring">}</span></code></pre>
 <p>For example, in a matmul kernel <code>Lane</code> holds output channels and <code>Element</code> holds the contracted axis.</p>
@@ -251,9 +251,9 @@ fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
     input.to_trf()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = store_bmatmul_trf(c);
 </span><span class="boring">}</span></code></pre>
 <h4 id="from-the-vector-engine"><a class="header" href="#from-the-vector-engine">From the Vector Engine</a></h4>
@@ -265,9 +265,9 @@ fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 64];
 
-fn store_pass(ctx: &amp;mut Context) -&gt; VrfTensor&lt;f32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
+fn store_pass(device: &amp;mut Device) -&gt; VrfTensor&lt;f32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; {
     let dm: DmTensor&lt;f32, m![1], m![1 # 2], m![1 # 256], m![B]&gt; = DmTensor::new();
-    ctx.main
+    device.main
         .begin(dm.view())
         .fetch::&lt;m![1], m![B]&gt;()
         .collect::&lt;m![B / 8], m![B % 8]&gt;()
@@ -277,11 +277,11 @@ fn store_pass(ctx: &amp;mut Context) -&gt; VrfTensor&lt;f32, m![1], m![1 # 2], m
         .vector_fp_unary(FpUnaryOp::Sqrt)
         .vector_widen_concat::&lt;m![B / 8], m![B % 8]&gt;()
         .vector_final()
-        .to_vrf(&amp;mut ctx.sub)
+        .to_vrf(&amp;mut device.sub)
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let _o = store_pass(&amp;mut ctx);
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">let _o = store_pass(&amp;mut device);
 </span><span class="boring">}</span></code></pre>
 <p>The two positions are different data paths, not two spellings of one.
 Off the <code>collect</code>, the Fetch Network hands the flits to the register file and no engine runs in between.
@@ -289,8 +289,8 @@ Off a <code>vector_final</code>, the pass ends at the Vector Engine’s own writ
 <p>That is the only way a computed value reaches the VRF, since the <a href="#from-data-memory">DM-direct</a> store and the collect-position store both read Data Memory.
 Nothing after the Vector Engine can run in the same command, so a store cannot be combined with a cast, a transpose, or a commit.</p>
 <h4 id="which-context-a-store-occupies"><a class="header" href="#which-context-a-store-occupies">Which context a store occupies</a></h4>
-<p>A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes <code>&amp;mut ctx.sub</code> as well.
-<code>ctx.main</code> and <code>ctx.sub</code> are separate fields, so a kernel (which holds <code>&amp;mut Context</code>) borrows both at once, as the example above does.</p>
+<p>A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes <code>&amp;mut device.sub</code> as well.
+<code>device.main</code> and <code>device.sub</code> are separate fields, so a kernel (which holds <code>&amp;mut Device</code>) borrows both at once, as the example above does.</p>
 <p>The borrow lasts the statement, which is the extent of the occupancy: the sub context is free again once the command retires.
 How long the <em>register</em> stays occupied is a different question with a different answer (until the operand’s last read), and it is the compiler’s allocation to make, which is why the returned <code>VrfTensor</code> carries no borrow.</p>
 <p>A store issued from the sub context needs no argument, since it already holds that context.</p>
@@ -402,13 +402,13 @@ fn store_vrf&lt;'l&gt;(
     input.to_vrf()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt; = CollectTensor::new(&amp;mut ctx.sub, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]&gt; = CollectTensor::new(&amp;mut device.sub, Tensor::zero());
 </span><span class="boring">let _o = store_vrf(c);
 </span><span class="boring">}</span></code></pre>
 <p>The store has one signature per context, and the example above takes the sub context’s.
-A store issued from the main context takes <code>ctx.sub</code> as an argument, because the write registers live in the sub context’s register map: see <a href="#which-context-a-store-occupies">Which context a store occupies</a>.</p>
+A store issued from the main context takes <code>device.sub</code> as an argument, because the write registers live in the sub context’s register map: see <a href="#which-context-a-store-occupies">Which context a store occupies</a>.</p>
 <h4 id="from-data-memory-1"><a class="header" href="#from-data-memory-1">From Data Memory</a></h4>
 <p>For completely contiguous input access (no gaps or reordering), VRF supports a <em>short command</em> (StoVRF), a compact hardware instruction that loads data from Data Memory directly into the VRF, bypassing the full Fetch → Switch → Collect → <code>to_vrf()</code> pipeline.
 The shortcut trades arbitrary-layout support for lower setup overhead.</p>

@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-b78bfe2e.js"></script>
+        <script src="../../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -197,7 +197,7 @@ The same methods also exist on intra-slice tensors at the stages that support th
     ) -&gt; VectorInterSliceReduceTensor&lt;'l, T, i32, Chip, Cluster, OutSlice, OutTime, Packet, { VeOrder::InterFirst }&gt;
     {
         let reduced = self.inner.reduce(op.reduce_fn(), op.identity(), true);
-        create_inter_slice_reduce_tensor(self.ctx, reduced)
+        create_inter_slice_reduce_tensor(self.device, reduced)
     }
 }</code></pre>
 <p><code>InterSliceReduceOpI32</code> operations:</p>
@@ -226,7 +226,7 @@ The same methods also exist on intra-slice tensors at the stages that support th
     ) -&gt; VectorInterSliceReduceTensor&lt;'l, T, f32, Chip, Cluster, OutSlice, OutTime, Packet, { VeOrder::InterFirst }&gt;
     {
         let reduced = self.inner.reduce(op.reduce_fn(), op.identity(), true);
-        create_inter_slice_reduce_tensor(self.ctx, reduced)
+        create_inter_slice_reduce_tensor(self.device, reduced)
     }
 }</code></pre>
 <p><code>InterSliceReduceOpF32</code> operations:</p>
@@ -277,9 +277,9 @@ fn inter_slice_add&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = inter_slice_add(c);
 </span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [A / 8, R]  -&gt;  [A / 8, 1 # 4]
@@ -307,9 +307,9 @@ fn broadcast_into_x&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![B], m![W, R], m![1], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![B], m![W, R], m![1], m![P]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = broadcast_into_x(c);
 </span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [W, R]  -&gt;  [W, X]
@@ -337,9 +337,9 @@ fn axis_promotion&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![B], m![W, R], m![S, V, U], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![B], m![W, R], m![S, V, U], m![P]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = axis_promotion(c);
 </span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [W, R]     -&gt;  [W, V]

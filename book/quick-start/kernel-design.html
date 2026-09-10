@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -212,11 +212,11 @@ pub type Cluster = m![1 # 2];
 pub type Slice = m![A / 8 # 256];
 
 #[device(chip = 1)]
-pub fn constant_add_kernel(ctx: &amp;mut Context, input: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;) -&gt; HbmTensor&lt;i32, Chip, m![A]&gt; {
+pub fn constant_add_kernel(device: &amp;mut Device, input: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;) -&gt; HbmTensor&lt;i32, Chip, m![A]&gt; {
     // HBM → DM: split 2048 elements across 256 slices (8 elements per slice)
-    let dm = input.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma);
+    let dm = input.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut device.tdma);
 
-    let result = ctx
+    let result = device
         .main
         .begin(dm.view())
         // Fetch: stream 8-element packets from DM into the pipeline
@@ -235,7 +235,7 @@ pub fn constant_add_kernel(ctx: &amp;mut Context, input: &amp;HbmTensor&lt;i32, 
         .commit::&lt;m![A % 8]&gt;();
 
     // DM → HBM
-    result.to_hbm(&amp;mut ctx.tdma)
+    result.to_hbm(&amp;mut device.tdma)
 }</code></pre>
 <h4 id="host-program-and-oracle"><a class="header" href="#host-program-and-oracle">Host Program and Oracle</a></h4>
 <p>The host program creates input, uploads it to HBM, launches the device function, and compares the result with the host equation in its test.</p>
@@ -246,13 +246,14 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() {
-    let mut ctx = Context::acquire();
+async fn main() -&gt; Result&lt;(), Error&gt; {
+    let mut device = Device::new(constant_add_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
-    let in_hbm = input.to_hbm(&amp;mut ctx.pdma).await;
-    let _out_hbm = launch(constant_add_kernel, (&amp;mut ctx, &amp;in_hbm)).await;
+    let in_hbm = input.to_hbm(&amp;mut device.pdma).await?;
+    let _out_hbm = launch(constant_add_kernel, (&amp;mut device, &amp;in_hbm)).await?;
     println!("Constant Add: kernel ran");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -261,19 +262,19 @@ mod tests {
 
     #[tokio::test]
     async fn matches_reference() {
-        let mut ctx = Context::acquire();
+        let mut device = Device::new(constant_add_kernel.topology()).unwrap();
 
         let mut rng = SmallRng::seed_from_u64(42);
         let input = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
-        let in_hbm = input.to_hbm(&amp;mut ctx.pdma).await;
+        let in_hbm = input.to_hbm(&amp;mut device.pdma).await.unwrap();
 
         // Reference: out[i] = in[i] + 1.
         let in_buf: Vec&lt;i32&gt; = input.into_vec();
         let expected: Vec&lt;i32&gt; = in_buf.iter().map(|&amp;x| x.wrapping_add(1)).collect();
 
-        let out_hbm = launch(constant_add_kernel, (&amp;mut ctx, &amp;in_hbm)).await;
+        let out_hbm = launch(constant_add_kernel, (&amp;mut device, &amp;in_hbm)).await.unwrap();
 
-        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut ctx.pdma).await.into_vec();
+        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             assert_eq!(e, a, "constant_add mismatch at i={i}: expected {e}, actual {a}");
         }
@@ -356,7 +357,7 @@ The two DM regions must not overlap.</p>
     OUT_DM --&gt;|Tensor DMA| OUT_HBM[(HBM)]
 </pre>
 
-<p>Every device kernel has <code>ctx.main</code> and <code>ctx.sub</code> execution contexts on separate hardware resources.
+<p>Every device kernel has <code>device.main</code> and <code>device.sub</code> execution contexts on separate hardware resources.
 <code>main</code> runs the primary computation while <code>sub</code> commonly prefetches operands.
 <code>main</code> waits when it needs data that <code>sub</code> has not produced, and both contexts share the flat on-chip SRAM.</p>
 <p>Omit DM addresses for automatic placement.
@@ -376,17 +377,17 @@ pub type Slice = m![A / 8 # 256];
 
 #[device(chip = 1)]
 pub fn elementwise_mul_kernel(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     lhs: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;,
     rhs: &amp;HbmTensor&lt;i32, Chip, m![A]&gt;,
 ) -&gt; HbmTensor&lt;i32, Chip, m![A]&gt; {
     // Move both operands from HBM to DM (DM placement is assigned automatically).
-    let lhs_dm = lhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma);
-    let rhs_dm = rhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut ctx.tdma);
+    let lhs_dm = lhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut device.tdma);
+    let rhs_dm = rhs.to_dm::&lt;Cluster, Slice, m![A % 8]&gt;(&amp;mut device.tdma);
 
     // Sub context: load rhs into VRF (runs concurrently with the main context below).
     // VRF holds a per-slice operand that the Vector Engine reads every cycle.
-    let rhs_vrf: VrfTensor&lt;i32, Chip, Cluster, Slice, m![A % 8]&gt; = ctx
+    let rhs_vrf: VrfTensor&lt;i32, Chip, Cluster, Slice, m![A % 8]&gt; = device
         .sub
         .begin(rhs_dm.view())
         .fetch::&lt;m![1], m![A % 8]&gt;()
@@ -394,7 +395,7 @@ pub fn elementwise_mul_kernel(
         .to_vrf();
 
     // Main context: multiply every lhs element by its rhs counterpart from VRF
-    let result = ctx
+    let result = device
         .main
         .begin(lhs_dm.view())
         .fetch::&lt;m![1], m![A % 8]&gt;()
@@ -407,7 +408,7 @@ pub fn elementwise_mul_kernel(
         .commit_trim::&lt;m![A % 8]&gt;()
         .commit::&lt;m![A % 8]&gt;();
 
-    result.to_hbm(&amp;mut ctx.tdma)
+    result.to_hbm(&amp;mut device.tdma)
 }</code></pre>
 <h4 id="host-program-and-oracle-1"><a class="header" href="#host-program-and-oracle-1">Host Program and Oracle</a></h4>
 <p>Base-template host program and oracle: <code>src/elementwise_mul.rs</code>.</p>
@@ -417,15 +418,16 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() {
-    let mut ctx = Context::acquire();
+async fn main() -&gt; Result&lt;(), Error&gt; {
+    let mut device = Device::new(elementwise_mul_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
     let rhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
-    let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma).await;
-    let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma).await;
-    let _out_hbm = launch(elementwise_mul_kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
+    let lhs_hbm = lhs.to_hbm(&amp;mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await?;
+    let _out_hbm = launch(elementwise_mul_kernel, (&amp;mut device, &amp;lhs_hbm, &amp;rhs_hbm)).await?;
     println!("Elementwise Mul: kernel ran");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -434,23 +436,23 @@ mod tests {
 
     #[tokio::test]
     async fn matches_reference() {
-        let mut ctx = Context::acquire();
+        let mut device = Device::new(elementwise_mul_kernel.topology()).unwrap();
 
         let mut rng = SmallRng::seed_from_u64(42);
         let lhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
         let rhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
 
-        let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma).await;
-        let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma).await;
+        let lhs_hbm = lhs.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await.unwrap();
 
         // Reference: out[i] = lhs[i] * rhs[i].
         let lhs_buf: Vec&lt;i32&gt; = lhs.into_vec();
         let rhs_buf: Vec&lt;i32&gt; = rhs.into_vec();
         let expected: Vec&lt;i32&gt; = lhs_buf.iter().zip(&amp;rhs_buf).map(|(&amp;a, &amp;b)| a.wrapping_mul(b)).collect();
 
-        let out_hbm = launch(elementwise_mul_kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
+        let out_hbm = launch(elementwise_mul_kernel, (&amp;mut device, &amp;lhs_hbm, &amp;rhs_hbm)).await.unwrap();
 
-        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut ctx.pdma).await.into_vec();
+        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             assert_eq!(e, a, "elementwise_mul mismatch at i={i}: expected {e}, actual {a}");
         }
@@ -488,16 +490,16 @@ pub type Lane = m![1]; // No lane parallelism
 
 #[device(chip = 1)]
 pub fn dot_product_kernel(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     lhs: &amp;HbmTensor&lt;bf16, Chip, m![A]&gt;,
     rhs: &amp;HbmTensor&lt;bf16, Chip, m![A]&gt;,
 ) -&gt; HbmTensor&lt;bf16, Chip, m![1]&gt; {
     // HBM → DM
-    let lhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = lhs.to_dm(&amp;mut ctx.tdma);
-    let rhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = rhs.to_dm(&amp;mut ctx.tdma);
+    let lhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = lhs.to_dm(&amp;mut device.tdma);
+    let rhs: DmTensor&lt;bf16, Chip, Cluster, Slice, m![A]&gt; = rhs.to_dm(&amp;mut device.tdma);
 
     // Sub context: load rhs into TRF
-    let rhs: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![A]&gt; = ctx
+    let rhs: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![A]&gt; = device
         .sub
         .begin(rhs.view())
         .fetch::&lt;Time, m![A]&gt;()
@@ -505,7 +507,7 @@ pub fn dot_product_kernel(
         .to_trf();
 
     // Main context: stream lhs through the Contraction Engine, reduce along A
-    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1 # 8]&gt; = ctx
+    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1 # 8]&gt; = device
         .main
         .begin(lhs.view())
         .fetch::&lt;Time, m![A]&gt;()
@@ -520,7 +522,7 @@ pub fn dot_product_kernel(
         .commit();
 
     // DM → HBM
-    result.to_hbm(&amp;mut ctx.tdma)
+    result.to_hbm(&amp;mut device.tdma)
 }</code></pre>
 <h4 id="host-program-and-oracle-2"><a class="header" href="#host-program-and-oracle-2">Host Program and Oracle</a></h4>
 <p>Base-template host program and oracle: <code>src/dot_product.rs</code>.</p>
@@ -530,15 +532,16 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() {
-    let mut ctx = Context::acquire();
+async fn main() -&gt; Result&lt;(), Error&gt; {
+    let mut device = Device::new(dot_product_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
     let rhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
-    let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma).await;
-    let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma).await;
-    let _out_hbm = launch(dot_product_kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
+    let lhs_hbm = lhs.to_hbm(&amp;mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await?;
+    let _out_hbm = device.launch(dot_product_kernel, (&amp;lhs_hbm, &amp;rhs_hbm)).await?;
     println!("Dot Product: kernel ran");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -547,14 +550,14 @@ mod tests {
 
     #[tokio::test]
     async fn matches_reference() {
-        let mut ctx = Context::acquire();
+        let mut device = Device::new(dot_product_kernel.topology()).unwrap();
 
         let mut rng = SmallRng::seed_from_u64(42);
         let lhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
         let rhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
 
-        let lhs_hbm = lhs.to_hbm(&amp;mut ctx.pdma).await;
-        let rhs_hbm = rhs.to_hbm(&amp;mut ctx.pdma).await;
+        let lhs_hbm = lhs.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await.unwrap();
 
         // Reference: sum_i lhs[i] * rhs[i] in f32, then round to bf16.
         let lhs_buf: Vec&lt;bf16&gt; = lhs.into_vec();
@@ -566,9 +569,9 @@ mod tests {
             .sum();
         let expected = bf16::from_f32(expected_f32);
 
-        let out_hbm = launch(dot_product_kernel, (&amp;mut ctx, &amp;lhs_hbm, &amp;rhs_hbm)).await;
+        let out_hbm = device.launch(dot_product_kernel, (&amp;lhs_hbm, &amp;rhs_hbm)).await.unwrap();
 
-        let actual_buf: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![1]&gt;(&amp;mut ctx.pdma).await.into_vec();
+        let actual_buf: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![1]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
         if let Some(&amp;actual) = actual_buf.first() {
             let diff = (f32::from(actual) - f32::from(expected)).abs();
             let tol = (0.02 * f32::from(expected).abs()).max(0.5);
@@ -602,16 +605,16 @@ pub type Lane = m![1];
 
 #[device(chip = 1)]
 pub fn gemv_kernel(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     matrix: &amp;HbmTensor&lt;bf16, Chip, m![I, J]&gt;,
     vector: &amp;HbmTensor&lt;bf16, Chip, m![J]&gt;,
 ) -&gt; HbmTensor&lt;bf16, Chip, m![I]&gt; {
     // Move data from HBM to DM
-    let matrix: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = matrix.to_dm(&amp;mut ctx.tdma);
-    let vector: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = vector.to_dm(&amp;mut ctx.tdma);
+    let matrix: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = matrix.to_dm(&amp;mut device.tdma);
+    let vector: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J]&gt; = vector.to_dm(&amp;mut device.tdma);
 
     // Load vector into TRF
-    let vector_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![J]&gt; = ctx
+    let vector_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![J]&gt; = device
         .sub
         .begin(vector.view())
         .fetch::&lt;m![1], m![J]&gt;()
@@ -621,7 +624,7 @@ pub fn gemv_kernel(
 
     // Compute GEMV: matrix × vector
     // Key difference: `I` maps to slice (preserved), `J` gets reduced
-    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1 # 4]&gt; = ctx
+    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![1 # 4]&gt; = device
         .main
         .begin(matrix.view())
         .fetch::&lt;m![J / 16], m![J % 16]&gt;()
@@ -635,7 +638,7 @@ pub fn gemv_kernel(
         .commit();
 
     // Transfer result to HBM
-    result.to_hbm(&amp;mut ctx.tdma)
+    result.to_hbm(&amp;mut device.tdma)
 }</code></pre>
 <h4 id="host-program-and-oracle-3"><a class="header" href="#host-program-and-oracle-3">Host Program and Oracle</a></h4>
 <p>Base-template host program and oracle: <code>src/gemv.rs</code>.</p>
@@ -645,15 +648,16 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() {
-    let mut ctx = Context::acquire();
+async fn main() -&gt; Result&lt;(), Error&gt; {
+    let mut device = Device::new(gemv_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let matrix = HostTensor::&lt;bf16, m![I, J]&gt;::rand(&amp;mut rng);
     let vector = HostTensor::&lt;bf16, m![J]&gt;::rand(&amp;mut rng);
-    let matrix_hbm = matrix.to_hbm(&amp;mut ctx.pdma).await;
-    let vector_hbm = vector.to_hbm(&amp;mut ctx.pdma).await;
-    let _out_hbm = launch(gemv_kernel, (&amp;mut ctx, &amp;matrix_hbm, &amp;vector_hbm)).await;
+    let matrix_hbm = matrix.to_hbm(&amp;mut device.pdma).await?;
+    let vector_hbm = vector.to_hbm(&amp;mut device.pdma).await?;
+    let _out_hbm = launch(gemv_kernel, (&amp;mut device, &amp;matrix_hbm, &amp;vector_hbm)).await?;
     println!("GEMV: kernel ran");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -662,14 +666,14 @@ mod tests {
 
     #[tokio::test]
     async fn matches_reference() {
-        let mut ctx = Context::acquire();
+        let mut device = Device::new(gemv_kernel.topology()).unwrap();
 
         let mut rng = SmallRng::seed_from_u64(42);
         let matrix = HostTensor::&lt;bf16, m![I, J]&gt;::rand(&amp;mut rng);
         let vector = HostTensor::&lt;bf16, m![J]&gt;::rand(&amp;mut rng);
 
-        let matrix_hbm = matrix.to_hbm(&amp;mut ctx.pdma).await;
-        let vector_hbm = vector.to_hbm(&amp;mut ctx.pdma).await;
+        let matrix_hbm = matrix.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let vector_hbm = vector.to_hbm(&amp;mut device.pdma).await.unwrap();
 
         // Reference: y[i] = sum_j matrix[i, j] * vector[j] in f32, rounded to bf16.
         let mat_buf: Vec&lt;bf16&gt; = matrix.into_vec();
@@ -686,9 +690,9 @@ mod tests {
             })
             .collect();
 
-        let out_hbm = launch(gemv_kernel, (&amp;mut ctx, &amp;matrix_hbm, &amp;vector_hbm)).await;
+        let out_hbm = launch(gemv_kernel, (&amp;mut device, &amp;matrix_hbm, &amp;vector_hbm)).await.unwrap();
 
-        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I]&gt;(&amp;mut ctx.pdma).await.into_vec();
+        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             let diff = (f32::from(a) - f32::from(e)).abs();
             let tol = (0.02 * f32::from(e).abs()).max(0.5);
@@ -723,19 +727,19 @@ pub type Lane = m![J % 8];
 
 #[device(chip = 1)]
 pub fn gemm_kernel(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     a: &amp;HbmTensor&lt;bf16, Chip, m![I, K]&gt;,
     b: &amp;HbmTensor&lt;bf16, Chip, m![J, K]&gt;,
 ) -&gt; HbmTensor&lt;bf16, Chip, m![I, J]&gt; {
     // Move data from HBM to DM
-    let a: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, K]&gt; = a.to_dm(&amp;mut ctx.tdma);
-    let b: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J % 32, K]&gt; = b.to_dm(&amp;mut ctx.tdma);
+    let a: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, K]&gt; = a.to_dm(&amp;mut device.tdma);
+    let b: DmTensor&lt;bf16, Chip, Cluster, Slice, m![J % 32, K]&gt; = b.to_dm(&amp;mut device.tdma);
 
     // Load matrix B into TRF
     // Switch Engine distributes B across 256 slices
     // Each slice gets the full `K` dimension but only its (16 × 16) output tile
     // See: Switch Engine topologies for details on distribution
-    let b_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![J / 8 % 4, K]&gt; = ctx
+    let b_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![J / 8 % 4, K]&gt; = device
         .sub
         .begin(b.view())
         .fetch::&lt;m![J % 8, J / 8 % 4], m![K]&gt;()
@@ -745,7 +749,7 @@ pub fn gemm_kernel(
     // Compute GEMM: A × B
     // Switch Engine ensures matching (`I / 32`, `J / 32`) slice distribution
     // Contraction reduces along `K`, preserves `I` and `J`
-    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, J % 32]&gt; = ctx
+    let result: DmTensor&lt;bf16, Chip, Cluster, Slice, m![I % 32, J % 32]&gt; = device
         .main
         .begin(a.view())
         .fetch::&lt;m![I % 32, J / 8 % 4], m![K]&gt;()
@@ -759,7 +763,7 @@ pub fn gemm_kernel(
         .commit();
 
     // Transfer result to HBM
-    result.to_hbm(&amp;mut ctx.tdma)
+    result.to_hbm(&amp;mut device.tdma)
 }</code></pre>
 <h4 id="host-program-and-oracle-4"><a class="header" href="#host-program-and-oracle-4">Host Program and Oracle</a></h4>
 <p>Base-template host program and oracle: <code>src/gemm.rs</code>.</p>
@@ -769,15 +773,16 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() {
-    let mut ctx = Context::acquire();
+async fn main() -&gt; Result&lt;(), Error&gt; {
+    let mut device = Device::new(gemm_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let a = HostTensor::&lt;bf16, m![I, K]&gt;::rand(&amp;mut rng);
     let b = HostTensor::&lt;bf16, m![J, K]&gt;::rand(&amp;mut rng);
-    let a_hbm = a.to_hbm(&amp;mut ctx.pdma).await;
-    let b_hbm = b.to_hbm(&amp;mut ctx.pdma).await;
-    let _out_hbm = launch(gemm_kernel, (&amp;mut ctx, &amp;a_hbm, &amp;b_hbm)).await;
+    let a_hbm = a.to_hbm(&amp;mut device.pdma).await?;
+    let b_hbm = b.to_hbm(&amp;mut device.pdma).await?;
+    let _out_hbm = launch(gemm_kernel, (&amp;mut device, &amp;a_hbm, &amp;b_hbm)).await?;
     println!("GEMM: kernel ran");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -786,14 +791,14 @@ mod tests {
 
     #[tokio::test]
     async fn matches_reference() {
-        let mut ctx = Context::acquire();
+        let mut device = Device::new(gemm_kernel.topology()).unwrap();
 
         let mut rng = SmallRng::seed_from_u64(42);
         let a = HostTensor::&lt;bf16, m![I, K]&gt;::rand(&amp;mut rng);
         let b = HostTensor::&lt;bf16, m![J, K]&gt;::rand(&amp;mut rng);
 
-        let a_hbm = a.to_hbm(&amp;mut ctx.pdma).await;
-        let b_hbm = b.to_hbm(&amp;mut ctx.pdma).await;
+        let a_hbm = a.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let b_hbm = b.to_hbm(&amp;mut device.pdma).await.unwrap();
 
         // Reference: C[i, j] = sum_k A[i, k] * B[j, k] in f32, rounded to bf16.
         let a_buf: Vec&lt;bf16&gt; = a.into_vec();
@@ -812,9 +817,9 @@ mod tests {
             })
             .collect();
 
-        let out_hbm = launch(gemm_kernel, (&amp;mut ctx, &amp;a_hbm, &amp;b_hbm)).await;
+        let out_hbm = launch(gemm_kernel, (&amp;mut device, &amp;a_hbm, &amp;b_hbm)).await.unwrap();
 
-        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I, J]&gt;(&amp;mut ctx.pdma).await.into_vec();
+        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I, J]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
         for (idx, (&amp;e, &amp;av)) in expected.iter().zip(&amp;actual).enumerate() {
             let diff = (f32::from(av) - f32::from(e)).abs();
             let tol = (0.05 * f32::from(e).abs()).max(1.0);

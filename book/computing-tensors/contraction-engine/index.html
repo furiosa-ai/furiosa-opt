@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-b78bfe2e.js"></script>
+        <script src="../../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -290,9 +290,9 @@ fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
          .contract_lane::&lt;m![V / 16], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_k_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
@@ -340,9 +340,9 @@ fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
          .contract_lane::&lt;m![M], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_m_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>
@@ -384,9 +384,9 @@ fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
          .contract_lane::&lt;m![V], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_v_in_time(a, &amp;b);
 </span><span class="boring">}</span></code></pre>

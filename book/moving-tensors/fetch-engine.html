@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -192,7 +192,7 @@ The <code>assert_eq!</code> calls enforce hardware constraints on <code>Cluster:
     #[primitive(TuTensor::fetch)]
     pub fn fetch&lt;OutTime: M, OutPacket: M&gt;(self) -&gt; FetchTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
         verify_fetch::&lt;Cluster, Slice, Time, Packet, OutTime, OutPacket&gt;();
-        FetchTensor::new(self.ctx, self.inner.transpose(true))
+        FetchTensor::new(self.device, self.inner.transpose(true))
     }
 }</code></pre>
 <p>As introduced in <a href="../mapping-tensors/index.html">Mapping Tensors</a>, the <code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, <code>Time</code>, <code>Packet</code> mapping distributes data across space and time.
@@ -247,32 +247,62 @@ The compiler copies constant relative offsets from DRAM to SRAM, adds the source
 The fetch waits for this setup, which uses the same SFR-store mechanism as the Switch Engine’s <a href="../computing-tensors/switch-engine.html#configuration-overhead">custom bitmap</a>.</p>
 <p>For a sub-context fetch, the setup store overwrites SFRs that the fetch itself needs.
 The compiler restores those parameters after writing the bases; both contexts support every lift variant.</p>
-<pre><code class="language-rust ignore">    /// Gives each chip its own fetch base, lifting a DM axis onto `Chip`.
+<pre><code class="language-rust ignore">impl&lt;
+    'l,
+    const T: Tu,
+    P: CanApplyFetchChipLift,
+    D: Scalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+{
+    /// Gives each chip its own fetch base, lifting a DM axis onto `Chip`.
     #[primitive(TuTensor::fetch_chip_lift)]
     pub fn fetch_chip_lift&lt;OutChip: M, OutTime: M&gt;(
         self,
-    ) -&gt; FetchChipLiftTensor&lt;'l, T, D, OutChip, Cluster, Slice, OutTime, Packet, B&gt;
-    where
-        P: CanApplyFetchChipLift,
-    {
+    ) -&gt; FetchChipLiftTensor&lt;'l, T, D, OutChip, Cluster, Slice, OutTime, Packet, B&gt; {
 
+impl&lt;
+    'l,
+    const T: Tu,
+    P: CanApplyFetchClusterLift,
+    D: Scalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+{
     /// Gives each cluster its own fetch base, lifting a DM axis onto `Cluster`.
     #[primitive(TuTensor::fetch_cluster_lift)]
     pub fn fetch_cluster_lift&lt;OutCluster: M, OutTime: M&gt;(
         self,
-    ) -&gt; FetchClusterLiftTensor&lt;'l, T, D, Chip, OutCluster, Slice, OutTime, Packet, B&gt;
-    where
-        P: CanApplyFetchClusterLift,
-    {
+    ) -&gt; FetchClusterLiftTensor&lt;'l, T, D, Chip, OutCluster, Slice, OutTime, Packet, B&gt; {
 
+impl&lt;
+    'l,
+    const T: Tu,
+    P: CanApplyFetchSliceLift,
+    D: Scalar,
+    Chip: M,
+    Cluster: M,
+    Slice: M,
+    Time: M,
+    Packet: M,
+    B: Backend,
+&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+{
     /// Gives each slice its own fetch base, lifting a DM axis onto `Slice`.
     #[primitive(TuTensor::fetch_slice_lift)]
     pub fn fetch_slice_lift&lt;OutSlice: M, OutTime: M&gt;(
         self,
-    ) -&gt; FetchSliceLiftTensor&lt;'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B&gt;
-    where
-        P: CanApplyFetchSliceLift,
-    {</code></pre>
+    ) -&gt; FetchSliceLiftTensor&lt;'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B&gt; {</code></pre>
 <h3 id="example-lifting-q-onto-slice"><a class="header" href="#example-lifting-q-onto-slice">Example: Lifting <code>Q</code> onto <code>Slice</code></a></h3>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -289,11 +319,11 @@ fn fetch_halves_per_slice&lt;'l, const T: Tu&gt;(
         .fetch_slice_lift::&lt;m![A, Q / 2], m![Q % 2]&gt;()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let b: BeginTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">let b: BeginTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_halves_per_slice(b);
 </span><span class="boring">}</span></code></pre>
-<p>With <code>A = 128</code>, the slice placement <code>m![A, 2]</code> describes 128 pairs of slices; both slices in each pair hold the same <code>m![Q, V]</code> data.
+<p>With <code>A = 128</code>, the <code>Slice</code> placement <code>m![A, 2]</code> describes 128 pairs of slices; both slices in each pair hold the same <code>m![Q, V]</code> data.
 A plain <code>fetch</code> reads all four <code>Q</code> values on both slices.
 The lift replaces the broadcast <code>2</code> with <code>Q / 2</code>, leaving <code>Q % 2</code> in <code>Time</code>: the first slice reads <code>Q = 0, 1</code> from base 0, and the second reads <code>Q = 2, 3</code> from base 32 elements (64 bytes of <code>bf16</code>).</p>
 <div class="table-wrapper">
@@ -314,7 +344,10 @@ Here the second slice has <code>Q / 2 = 1</code>, so its base is <code>1 × (Q %
 <p>A lift must satisfy all of the following:</p>
 <ul>
 <li>The input and output sizes of the selected dimension must match.</li>
-<li>Only broadcasts may change. The verifier compares the mappings in size-2 groups; a changed broadcast <code>2</code> must become an axis component of size 2. To replace a broadcast with padding, reshape the DM placement and leave that padding unread. Several groups may change in one lift, but an existing axis or a broadcast of 3 may not.</li>
+<li>Only broadcasts may change.
+The verifier compares the mappings in size-2 groups; a changed broadcast <code>2</code> must become an axis component of size 2.
+To replace a broadcast with padding, reshape the DM placement and leave that padding unread.
+Several groups may change in one lift, but an existing axis or a broadcast of 3 may not.</li>
 <li>Lifted axes must be removed from <code>OutTime</code>. <code>OutPacket</code> remains unchanged.</li>
 <li>Lift methods must be called in <code>Chip</code>, <code>Cluster</code>, <code>Slice</code> order, at most once per dimension.</li>
 <li>Every calculated base must be a multiple of 8 bytes.</li>
@@ -329,14 +362,14 @@ Here the second slice has <code>Q / 2 = 1</code>, so its base is <code>1 × (Q %
 
 // Valid: DMA replicates `[H, V]` across `Rep`; reshape exposes `Rep` as a broadcast.
 fn named_broadcast(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     input: &amp;HbmTensor&lt;bf16, m![1], m![A, H, V]&gt;,
 ) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![A, H], m![V]&gt; {
     let written: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, Rep], m![H, V]&gt; =
-        input.to_dm::&lt;m![1 # 2], m![A, Rep], m![H, V]&gt;(&amp;mut ctx.tdma);
+        input.to_dm::&lt;m![1 # 2], m![A, Rep], m![H, V]&gt;(&amp;mut device.tdma);
     let dm: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, 2], m![H, V]&gt; = unsafe { written.reshape() };
 
-    ctx.main
+    device.main
         .begin(dm.view())
         .fetch::&lt;m![H], m![V]&gt;()
         .fetch_slice_lift::&lt;m![A, H], m![1]&gt;()
@@ -347,14 +380,14 @@ fn named_broadcast(
 
 // Invalid for lifting: `G` stores different values, but reshape names it as a broadcast.
 fn without_broadcast(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     input: &amp;HbmTensor&lt;bf16, m![1], m![A, G, H, V]&gt;,
 ) -&gt; DmTensor&lt;bf16, m![1], m![1 # 2], m![A, H], m![V]&gt; {
     let written: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, G], m![H, V]&gt; =
-        input.to_dm::&lt;m![1 # 2], m![A, G], m![H, V]&gt;(&amp;mut ctx.tdma);
+        input.to_dm::&lt;m![1 # 2], m![A, G], m![H, V]&gt;(&amp;mut device.tdma);
     let dm: DmTensor&lt;bf16, m![1], m![1 # 2], m![A, 2], m![H, V]&gt; = unsafe { written.reshape() };
 
-    ctx.main
+    device.main
         .begin(dm.view())
         .fetch::&lt;m![H], m![V]&gt;()
         .fetch_slice_lift::&lt;m![A, H], m![1]&gt;()
@@ -417,18 +450,18 @@ fn fetch_batch_4&lt;'l, const T: Tu&gt;(
     input.fetch()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_1(b);
 </span><span class="boring">
-</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_2(b);
 </span><span class="boring">
-</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_3(b);
 </span><span class="boring">
-</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_4(b);
 </span><span class="boring">}</span></code></pre>
 <h2 id="interleaving"><a class="header" href="#interleaving">Interleaving</a></h2>
@@ -449,18 +482,18 @@ At most two tensors can be interleaved in a single fetch operation.</p>
 /// The interleaved BeginTensor is created via Tu.begin_interleaved().
 /// The `I = 2` axis in Time encodes alternation between the two tensors.
 fn fetch_interleaved&lt;'l&gt;(
-    ctx: &amp;'l mut Context,
+    device: &amp;'l mut Device,
     lhs: &amp;'l DmTensor&lt;i8, m![1], m![1 # 2], m![1 # 256], m![A, B]&gt;,
     rhs: &amp;'l DmTensor&lt;i8, m![1], m![1 # 2], m![1 # 256], m![A, B]&gt;,
 ) -&gt; FetchTensor&lt;'l, { Tu::Main }, i8, m![1], m![1 # 2], m![1 # 256], m![A, I], m![B]&gt; {
-    ctx.main.begin_interleaved::&lt;I, _, _, _, _, _&gt;(lhs.view(), rhs.view()).fetch()
+    device.main.begin_interleaved::&lt;I, _, _, _, _, _&gt;(lhs.view(), rhs.view()).fetch()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
 </span><span class="boring">let lhs = DmTensor::new();
 </span><span class="boring">let rhs = DmTensor::new();
-</span><span class="boring">let _o = fetch_interleaved(&amp;mut ctx, &amp;lhs, &amp;rhs);
+</span><span class="boring">let _o = fetch_interleaved(&amp;mut device, &amp;lhs, &amp;rhs);
 </span><span class="boring">}</span></code></pre>
 <h2 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h2>
 <p>Three factors determine Fetch Sequencer throughput.</p>
@@ -515,12 +548,12 @@ fn fetch_packet_ABC&lt;'l, const T: Tu&gt;(
 }
 
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">let x: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_C(x);
-</span><span class="boring">let y: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let y: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_BC(y);
-</span><span class="boring">let z: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let z: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_ABC(z);
 </span><span class="boring">}</span></code></pre>
 <p>In these examples, padding reads beyond the actual data, but this is safe because padding values do not affect computation.

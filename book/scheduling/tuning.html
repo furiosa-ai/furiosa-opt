@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -188,7 +188,8 @@
 <li>Run the same checks and dump the candidate schedule.</li>
 <li>Keep the change only if correctness still passes and the measured metric improves; otherwise restore the baseline.</li>
 </ol>
-<p>Schedule makespan is the primary static metric in this chapter. Do not report a throughput or cycle improvement without a reproducible schedule comparison or separately documented device evidence.</p>
+<p>Schedule makespan is the primary static metric in this chapter.
+Do not report a throughput or cycle improvement without a reproducible schedule comparison or separately documented device evidence.</p>
 <h2 id="choose-one-lever"><a class="header" href="#choose-one-lever">Choose one lever</a></h2>
 <p>Choose a lever only after diagnosis names the dependency or resource it targets:</p>
 <ul>
@@ -196,14 +197,266 @@
 <li>change a tile or split shape when the schedule exposes avoidable serial work or an ill-fitting reduction;</li>
 <li>change a mapping, padding, or transfer boundary when the limiting interval is movement or an address dependency.</li>
 </ul>
-<p>The <a href="../moving-tensors/index.html">Moving Tensors</a>, <a href="../computing-tensors/index.html">Computing Tensors</a>, and <a href="../mapping-tensors/index.html">Mapping Tensors</a> chapters define these choices. This page defines how to test them, not their contracts.</p>
+<p>The <a href="../moving-tensors/index.html">Moving Tensors</a>, <a href="../computing-tensors/index.html">Computing Tensors</a>, and <a href="../mapping-tensors/index.html">Mapping Tensors</a> chapters define these choices.</p>
+<h2 id="unroll-a-loop"><a class="header" href="#unroll-a-loop">Unroll a loop</a></h2>
+<p>Use <code>#[unroll]</code> to expose every iteration of a small static loop to the scheduler.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(proc_macro_hygiene, register_tool, stmt_expr_attributes)]
+</span><span class="boring">#![register_tool(furiosa_opt)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">axes![Group = 4];
+</span><span class="boring">fn consume(_: usize) {}
+</span><span class="boring">#[device]
+</span><span class="boring">fn example(_: &amp;mut Device) {
+</span>#[unroll]
+for group in 0..Group::SIZE {
+    consume(group);
+}
+<span class="boring">}
+</span><span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() {
+</span><span class="boring">    let mut device = Device::new(example.topology()).unwrap();
+</span><span class="boring">    launch(example, &amp;mut device).await.unwrap();
+</span><span class="boring">}</span></code></pre>
+<p>The kernel crate requires <code>#![feature(proc_macro_hygiene, stmt_expr_attributes)]</code>.
+The trip count must be a compile-time constant.
+The loop may be in a device entry point or a helper called by one.
+Nested loops are not unrolled automatically.
+To unroll every level, add <code>#[unroll]</code> to each loop.</p>
+<p>The compiler checks for remaining loops after applying <code>#[unroll]</code>.
+Register-file reuse is enabled only when no loop remains anywhere in the kernel.
+Unrolling only some loops can still expose those iterations to scheduling, but a remaining outer or nested loop does not unlock loop-free optimizations.</p>
 <h2 id="double-buffering"><a class="header" href="#double-buffering">Double buffering</a></h2>
-<p>The scheduler splits the TRF into halves on its own: a tensor that fits in half the file is placed in one, so another operation can hold the other.
-A kernel does not name the region.
-Both halves share banks, so a candidate must still be checked for resource contention in the schedule.</p>
-<p>See <a href="../computing-tensors/register-files.html#double-buffering">Register Files: Double Buffering</a> for capacities and address modes. Use the schedule viewer to verify whether the chosen pattern actually overlaps operations; do not assume a fixed cycle reduction.</p>
-<h2 id="decide-and-record"><a class="header" href="#decide-and-record">Decide and record</a></h2>
-<p>For each experiment, record the hypothesis, the changed lever, the baseline and candidate makespans, the correctness commands, and the decision. This record makes a later Qwen3 capstone reproducible without repeating the engine contracts here.</p>
+<p>Double buffering can overlap staging the next weight group on <code>SubContext</code> with contracting the current group on <code>MainContext</code>.
+The scheduler can consider this overlap only when both operations are visible in the same scheduling unit.
+Use a manual two-stage loop or <code>#[unroll]</code> to create that opportunity.</p>
+<p>The comparison uses 20 weight groups and the same schedule window for every case.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Loop form</th><th style="text-align: right">Groups visible per scheduling unit</th><th style="text-align: right">Cross-iteration overlap</th><th style="text-align: right">Makespan</th></tr>
+</thead>
+<tbody>
+<tr><td>Ordinary rolled loop</td><td style="text-align: right">1</td><td style="text-align: right">No</td><td style="text-align: right">19,106 cycles</td></tr>
+<tr><td>Manual two-stage software pipeline</td><td style="text-align: right">2</td><td style="text-align: right">Yes</td><td style="text-align: right">15,477 cycles</td></tr>
+<tr><td>Full unrolling</td><td style="text-align: right">20</td><td style="text-align: right">Yes</td><td style="text-align: right">15,086 cycles</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>StoTrf</code> stages a weight group in the tensor register file (TRF).
+The TRF can place one group in each half, but both halves share banks.
+See <a href="../computing-tensors/register-files.html#double-buffering">Register Files: Double Buffering</a> for capacity and address-mode details.
+Use the <a href="../tools/schedule-viewer.html">Schedule Viewer</a> to verify the resulting overlap.</p>
+<p>Blue boxes mark <code>StoTrf</code>, orange boxes mark contraction, and green bands mark measured overlap.</p>
+<h3 id="ordinary-rolled-loop-19106-cycles"><a class="header" href="#ordinary-rolled-loop-19106-cycles">Ordinary rolled loop: 19,106 cycles</a></h3>
+<p>The scheduler builds one schedule for the rolled loop body and repeats that schedule for every iteration.
+Therefore, <code>Contraction(i)</code> and <code>StoTrf(i + 1)</code> cannot overlap.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(incomplete_features)]
+</span><span class="boring">#![feature(adt_const_params, proc_macro_hygiene, register_tool)]
+</span><span class="boring">#![register_tool(furiosa_opt)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">axes![Tok = 16, Red = 64, Out = 8, Group = 20];
+</span>use furiosa_opt_std::prelude::*;
+
+type Chip = m![1];
+type Cluster = m![Tok / 8 % 2];
+type Slice = m![Tok % 8 # 256];
+
+/// Stages and contracts one weight group per rolled iteration.
+#[device(chip = 1)]
+pub fn rolled(
+    device: &amp;mut Device,
+    activation: &amp;HbmTensor&lt;bf16, Chip, m![Tok, Red]&gt;,
+    weight: &amp;HbmTensor&lt;bf16, Chip, m![Group, Out, Red]&gt;,
+) -&gt; HbmTensor&lt;bf16, Chip, m![Tok, Group, Out]&gt; {
+    let activation: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Red]&gt; = activation.to_dm(&amp;mut device.tdma);
+    let weight: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Group, Out, Red]&gt; = weight.to_dm(&amp;mut device.tdma);
+    let mut output: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Group, Out]&gt; = DmTensor::new();
+
+    for g in 0..Group::SIZE {
+        let weight_group = weight.view().tile::&lt;m![Group], 1, m![1 # 20, Out, Red]&gt;(g);
+        let weight_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, m![Out], m![Red]&gt; = device
+            .sub
+            .begin(weight_group)
+            .fetch::&lt;m![Out, Red / 16], m![Red % 16]&gt;()
+            .collect::&lt;m![Out, Red / 16], m![Red % 16]&gt;()
+            .to_trf();
+
+        device
+            .main
+            .begin(activation.view())
+            .fetch::&lt;m![Red / 16], m![Red % 16]&gt;()
+            .collect::&lt;m![Red / 16], m![Red % 16]&gt;()
+            .contract_outer::&lt;m![Red / 32], m![Red % 32], _, _, _&gt;(&amp;weight_trf)
+            .contract_packet::&lt;m![1]&gt;()
+            .contract_time::&lt;m![1]&gt;()
+            .contract_lane::&lt;m![1], m![Out]&gt;(LaneMode::Interleaved)
+            .cast::&lt;bf16, m![Out # 16]&gt;()
+            .commit_trim::&lt;m![Out]&gt;()
+            .commit_view(output.view_mut().tile::&lt;m![Group], 1, m![1 #{!} 20, Out]&gt;(g));
+    }
+
+    let mut result = HbmTensor::&lt;bf16, Chip, m![Tok, Group, Out]&gt;::new();
+    output.view().to_hbm_view(&amp;mut device.tdma, result.view_mut());
+    result
+}
+<span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() {
+</span><span class="boring">let mut device = Device::new(rolled.topology()).unwrap();
+</span><span class="boring">let activation = HbmTensor::&lt;bf16, m![1], m![Tok, Red]&gt;::new();
+</span><span class="boring">let weight = HbmTensor::&lt;bf16, m![1], m![Group, Out, Red]&gt;::new();
+</span><span class="boring">let _output = launch(rolled, (&amp;mut device, &amp;activation, &amp;weight)).await.unwrap();
+</span><span class="boring">}</span></code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../images/loop-unrolling-rolled-schedule.png" alt="The rolled loop schedules each StoTrf before its matching contraction without cross-iteration overlap."><span class="img-wrapper"><img src="../images/loop-unrolling-rolled-schedule.png" alt="The rolled loop schedules each StoTrf before its matching contraction without cross-iteration overlap."></span></label></p>
+<h3 id="manual-two-stage-software-pipeline-15477-cycles"><a class="header" href="#manual-two-stage-software-pipeline-15477-cycles">Manual two-stage software pipeline: 15,477 cycles</a></h3>
+<p>The manual pipeline places two groups in one loop body.
+This makes <code>Contraction(first)</code> and <code>StoTrf(second)</code> available to the scheduler together.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(incomplete_features)]
+</span><span class="boring">#![feature(adt_const_params, proc_macro_hygiene, register_tool)]
+</span><span class="boring">#![register_tool(furiosa_opt)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">axes![Tok = 16, Red = 64, Out = 8, Group = 20, Pairs = 10];
+</span>use furiosa_opt_std::prelude::*;
+
+type Chip = m![1];
+type Cluster = m![Tok / 8 % 2];
+type Slice = m![Tok % 8 # 256];
+
+/// Exposes two weight groups per iteration for software pipelining.
+#[device(chip = 1)]
+pub fn software_pipelined(
+    device: &amp;mut Device,
+    activation: &amp;HbmTensor&lt;bf16, Chip, m![Tok, Red]&gt;,
+    weight: &amp;HbmTensor&lt;bf16, Chip, m![Group, Out, Red]&gt;,
+) -&gt; HbmTensor&lt;bf16, Chip, m![Tok, Group, Out]&gt; {
+    let activation: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Red]&gt; = activation.to_dm(&amp;mut device.tdma);
+    let weight: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Group, Out, Red]&gt; = weight.to_dm(&amp;mut device.tdma);
+    let mut output: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Group, Out]&gt; = DmTensor::new();
+
+    for pair in 0..Pairs::SIZE {
+        let first = pair * 2;
+        let second = first + 1;
+        let first_weight = weight.view().tile::&lt;m![Group], 1, m![1 # 20, Out, Red]&gt;(first);
+        let first_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, m![Out], m![Red]&gt; = device
+            .sub
+            .begin(first_weight)
+            .fetch::&lt;m![Out, Red / 16], m![Red % 16]&gt;()
+            .collect::&lt;m![Out, Red / 16], m![Red % 16]&gt;()
+            .to_trf();
+        let second_weight = weight.view().tile::&lt;m![Group], 1, m![1 # 20, Out, Red]&gt;(second);
+        let second_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, m![Out], m![Red]&gt; = device
+            .sub
+            .begin(second_weight)
+            .fetch::&lt;m![Out, Red / 16], m![Red % 16]&gt;()
+            .collect::&lt;m![Out, Red / 16], m![Red % 16]&gt;()
+            .to_trf();
+
+        device
+            .main
+            .begin(activation.view())
+            .fetch::&lt;m![Red / 16], m![Red % 16]&gt;()
+            .collect::&lt;m![Red / 16], m![Red % 16]&gt;()
+            .contract_outer::&lt;m![Red / 32], m![Red % 32], _, _, _&gt;(&amp;first_trf)
+            .contract_packet::&lt;m![1]&gt;()
+            .contract_time::&lt;m![1]&gt;()
+            .contract_lane::&lt;m![1], m![Out]&gt;(LaneMode::Interleaved)
+            .cast::&lt;bf16, m![Out # 16]&gt;()
+            .commit_trim::&lt;m![Out]&gt;()
+            .commit_view(output.view_mut().tile::&lt;m![Group], 1, m![1 #{!} 20, Out]&gt;(first));
+        device
+            .main
+            .begin(activation.view())
+            .fetch::&lt;m![Red / 16], m![Red % 16]&gt;()
+            .collect::&lt;m![Red / 16], m![Red % 16]&gt;()
+            .contract_outer::&lt;m![Red / 32], m![Red % 32], _, _, _&gt;(&amp;second_trf)
+            .contract_packet::&lt;m![1]&gt;()
+            .contract_time::&lt;m![1]&gt;()
+            .contract_lane::&lt;m![1], m![Out]&gt;(LaneMode::Interleaved)
+            .cast::&lt;bf16, m![Out # 16]&gt;()
+            .commit_trim::&lt;m![Out]&gt;()
+            .commit_view(output.view_mut().tile::&lt;m![Group], 1, m![1 #{!} 20, Out]&gt;(second));
+    }
+
+    let mut result = HbmTensor::&lt;bf16, Chip, m![Tok, Group, Out]&gt;::new();
+    output.view().to_hbm_view(&amp;mut device.tdma, result.view_mut());
+    result
+}
+<span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() {
+</span><span class="boring">let mut device = Device::new(software_pipelined.topology()).unwrap();
+</span><span class="boring">let activation = HbmTensor::&lt;bf16, m![1], m![Tok, Red]&gt;::new();
+</span><span class="boring">let weight = HbmTensor::&lt;bf16, m![1], m![Group, Out, Red]&gt;::new();
+</span><span class="boring">let _output = launch(software_pipelined, (&amp;mut device, &amp;activation, &amp;weight)).await.unwrap();
+</span><span class="boring">}</span></code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../images/loop-unrolling-software-pipelined-schedule.png" alt="The software-pipelined loop overlaps each current contraction with the next StoTrf."><span class="img-wrapper"><img src="../images/loop-unrolling-software-pipelined-schedule.png" alt="The software-pipelined loop overlaps each current contraction with the next StoTrf."></span></label></p>
+<h3 id="full-unrolling-15086-cycles"><a class="header" href="#full-unrolling-15086-cycles">Full unrolling: 15,086 cycles</a></h3>
+<p><code>#[unroll]</code> exposes all 20 groups without manually pairing them.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(incomplete_features)]
+</span><span class="boring">#![feature(adt_const_params, proc_macro_hygiene, register_tool)]
+</span><span class="boring">#![register_tool(furiosa_opt)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">axes![Tok = 16, Red = 64, Out = 8, Group = 20];
+</span>use furiosa_opt_std::prelude::*;
+
+type Chip = m![1];
+type Cluster = m![Tok / 8 % 2];
+type Slice = m![Tok % 8 # 256];
+
+/// Exposes every weight group by fully unrolling the group loop.
+#[device(chip = 1)]
+pub fn unrolled(
+    device: &amp;mut Device,
+    activation: &amp;HbmTensor&lt;bf16, Chip, m![Tok, Red]&gt;,
+    weight: &amp;HbmTensor&lt;bf16, Chip, m![Group, Out, Red]&gt;,
+) -&gt; HbmTensor&lt;bf16, Chip, m![Tok, Group, Out]&gt; {
+    let activation: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Red]&gt; = activation.to_dm(&amp;mut device.tdma);
+    let weight: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Group, Out, Red]&gt; = weight.to_dm(&amp;mut device.tdma);
+    let mut output: DmTensor&lt;bf16, Chip, Cluster, Slice, m![Group, Out]&gt; = DmTensor::new();
+
+    #[unroll]
+    for g in 0..Group::SIZE {
+        let weight_group = weight.view().tile::&lt;m![Group], 1, m![1 # 20, Out, Red]&gt;(g);
+        let weight_trf: TrfTensor&lt;bf16, Chip, Cluster, Slice, m![Out], m![Red]&gt; = device
+            .sub
+            .begin(weight_group)
+            .fetch::&lt;m![Out, Red / 16], m![Red % 16]&gt;()
+            .collect::&lt;m![Out, Red / 16], m![Red % 16]&gt;()
+            .to_trf();
+
+        device
+            .main
+            .begin(activation.view())
+            .fetch::&lt;m![Red / 16], m![Red % 16]&gt;()
+            .collect::&lt;m![Red / 16], m![Red % 16]&gt;()
+            .contract_outer::&lt;m![Red / 32], m![Red % 32], _, _, _&gt;(&amp;weight_trf)
+            .contract_packet::&lt;m![1]&gt;()
+            .contract_time::&lt;m![1]&gt;()
+            .contract_lane::&lt;m![1], m![Out]&gt;(LaneMode::Interleaved)
+            .cast::&lt;bf16, m![Out # 16]&gt;()
+            .commit_trim::&lt;m![Out]&gt;()
+            .commit_view(output.view_mut().tile::&lt;m![Group], 1, m![1 #{!} 20, Out]&gt;(g));
+    }
+
+    let mut result = HbmTensor::&lt;bf16, Chip, m![Tok, Group, Out]&gt;::new();
+    output.view().to_hbm_view(&amp;mut device.tdma, result.view_mut());
+    result
+}
+<span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() {
+</span><span class="boring">let mut device = Device::new(unrolled.topology()).unwrap();
+</span><span class="boring">let activation = HbmTensor::&lt;bf16, m![1], m![Tok, Red]&gt;::new();
+</span><span class="boring">let weight = HbmTensor::&lt;bf16, m![1], m![Group, Out, Red]&gt;::new();
+</span><span class="boring">let _output = launch(unrolled, (&amp;mut device, &amp;activation, &amp;weight)).await.unwrap();
+</span><span class="boring">}</span></code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../images/loop-unrolling-unrolled-schedule.png" alt="The unrolled loop overlaps the first contraction with the next iteration’s StoTrf."><span class="img-wrapper"><img src="../images/loop-unrolling-unrolled-schedule.png" alt="The unrolled loop overlaps the first contraction with the next iteration’s StoTrf."></span></label></p>
+<p>All captures show cycles 4,000 through 8,000.</p>
 
                     </main>
 

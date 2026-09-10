@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-b78bfe2e.js"></script>
+        <script src="../../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -215,9 +215,9 @@ fn reduce_time&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="reduction-in-packet"><a class="header" href="#reduction-in-packet">Reduction in <code>Packet</code></a></h3>
@@ -243,9 +243,9 @@ fn reduce_packet&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="reduction-in-both"><a class="header" href="#reduction-in-both">Reduction in Both</a></h3>
@@ -273,9 +273,9 @@ fn reduce_time_packet&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="per-slice-reduction"><a class="header" href="#per-slice-reduction">Per-Slice Reduction</a></h3>
@@ -303,9 +303,9 @@ fn reduce_slice_time_packet&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_slice_time_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
@@ -337,9 +337,9 @@ For example:</p>
     // Rejected: 12 accumulator slots required, but only 8 are available.
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = invalid_too_many_slots(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="reduction-in-packet-1"><a class="header" href="#reduction-in-packet-1">Reduction in <code>Packet</code></a></h3>
@@ -355,7 +355,7 @@ Two strategies handle padding exclusion.</p>
 <li>
 <p><strong>VCG (Valid Count Generator)</strong>: Preferred when its axis placement is supported.
 The compiler configures the VCG automatically from the mapping, and the VCG tags each flit with a <code>valid_count</code> so pad elements are excluded automatically.
-Not all axis placements across Slice, Time, and Packet are supported.
+Not all axis placements across <code>Slice</code>, <code>Time</code>, and <code>Packet</code> are supported.
 See <a href="./vcg.html">Valid Count Generator</a> for details.</p>
 </li>
 <li>

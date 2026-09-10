@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-b78bfe2e.js"></script>
+        <script src="../../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -210,7 +210,7 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
         });
         // Carry the deferred operands forward unreduced: the fused contraction at `contract_lane`
         // performs this Packet reduction too. This stage only re-types the carrier to `OutPacket`.
-        ContractPacketTensor::new(self.ctx, self.inner)
+        ContractPacketTensor::new(self.device, self.inner)
     }
 }</code></pre>
 <p>The kernel below uses all 8 lanes in parallel: tree depth 5 sums over the 32 <code>bf16</code> elements of <code>B</code>, producing one <code>f32</code> per <code>A</code> position.</p>
@@ -234,9 +234,9 @@ fn matmul&lt;'l, const T: Tu&gt;(
          .contract_lane::&lt;m![A], m![C]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = matmul(a, &amp;b);
 </span><span class="boring">}</span></code></pre>

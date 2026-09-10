@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -216,7 +216,7 @@ impl&lt;
 {
     /// Runs the Fetch Adapter's table-lookup stage (main context only).
     ///
-    /// Each input value indexes a decode table selected by the `TableLookup` impl,
+    /// Each input value indexes a decode table selected by the `TableLookupCast` impl,
     /// not by a runtime argument: `f4e2m1` decodes to either 8-bit float through the
     /// paired 4b-&gt;8b table (the NVFP4 / MXFP4 weight path), and either 8-bit float
     /// decodes to `bf16` through the non-paired table. Chain a
@@ -232,12 +232,12 @@ impl&lt;
         self,
     ) -&gt; FetchTableLookupTensor&lt;'l, { Tu::Main }, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
     where
-        D: TableLookup&lt;OutD&gt;,
+        D: TableLookupCast&lt;OutD&gt;,
     {
-        FetchTableLookupTensor::new(self.ctx, self.inner.map(|v| v.lookup()))
+        FetchTableLookupTensor::new(self.device, self.inner.map(|v| v.lookup()))
     }
 }</code></pre>
-<p>The decode table is selected by the input scalar type (via the <code>TableLookup</code> trait), not by a runtime argument, exactly as <code>fetch_cast</code> selects its conversion by the input type.
+<p>The decode table is selected by the input scalar type (via the <code>TableLookupCast</code> trait), not by a runtime argument, exactly as <code>fetch_cast</code> selects its conversion by the input type.
 The key width picks the table and the requested output type picks the entry encoding:</p>
 <div class="table-wrapper">
 <table>
@@ -298,7 +298,7 @@ Type casting adds 1 to 2 cycles of latency.
     where
         D: FetchCast&lt;OutD&gt;,
     {
-        FetchCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
+        FetchCastTensor::new(self.device, self.inner.map(|v| v.cast()))
     }
 }</code></pre>
 <p>RNGD supports the conversions below and no others: every widening lands in the <code>i32</code> / <code>f32</code> compute width, and <code>f32</code> to <code>bf16</code> is the only narrowing.</p>
@@ -336,8 +336,8 @@ fn fetch_with_type_cast&lt;'l, const T: Tu&gt;(
     input.fetch::&lt;m![1], m![A]&gt;().fetch_cast::&lt;i32&gt;()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A]&gt; = BeginTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_with_type_cast(x);</span></code></pre>
 <p>Type casting adds an additional limit on <code>read_size</code>.
 The cast output per fetch must fit in a single 32-byte flit (see <a href="./collect-engine.html">Collect Engine</a>).</p>
@@ -396,7 +396,7 @@ It is the only stage that produces an <code>i5</code>/<code>i9</code>.</p>
             zero_point_range.contains(&amp;zero_point),
             "zero_point {zero_point} is outside the source type's quantized range {zero_point_range:?}",
         );
-        FetchZeroPointSubTensor::new(self.ctx, self.inner.map(|v| v.zero_point_sub(zero_point)))
+        FetchZeroPointSubTensor::new(self.device, self.inner.map(|v| v.zero_point_sub(zero_point)))
     }
 }</code></pre>
 <h3 id="extra-bit-rationale"><a class="header" href="#extra-bit-rationale">Extra-Bit Rationale</a></h3>

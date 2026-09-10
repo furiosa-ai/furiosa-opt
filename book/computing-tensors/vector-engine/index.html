@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-b78bfe2e.js"></script>
+        <script src="../../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -199,7 +199,7 @@ The same method names (<code>vector_intra_slice_tag</code>, <code>vector_inter_s
     /// Initializes Vector Engine processing for this tensor.
     #[primitive(TuTensor::vector_init)]
     pub fn vector_init(self) -&gt; VectorInitTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet&gt; {
-        VectorInitTensor::new(self.ctx, self.inner)
+        VectorInitTensor::new(self.device, self.inner)
     }
 }
 
@@ -212,16 +212,16 @@ impl&lt;'l, const T: Tu, D: VeScalar, Chip: M, Cluster: M, Slice: M, Time: M, Pa
         self,
         branch: TagMode&lt;D&gt;,
     ) -&gt; VectorBranchTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, Packet, Fresh, { VeOrder::IntraFirst }&gt; {
-        VectorBranchTensor::new(self.ctx, self.inner, branch)
+        VectorBranchTensor::new(self.device, self.inner, branch)
     }
 
     /// Enters VE intra-slice pipeline (two-group / unzip).
     #[primitive(VectorInitTensor::vector_intra_slice_unzip)]
-    pub fn vector_intra_slice_unzip&lt;I: AxisName, TileTime: M, SplitTime: M&gt;(
+    pub fn vector_intra_slice_unzip&lt;I: AxisName, SplitTime: M&gt;(
         self,
     ) -&gt; VectorTensorPair&lt;'l, T, D, stage::Tag, Chip, Cluster, Slice, SplitTime, Packet&gt; {
-        verify_vector_intra_slice_unzip::&lt;I, Time, Packet&gt;();
-        VectorTensorPair::new::&lt;I, Time, TileTime&gt;(self.ctx, self.inner)
+        verify_vector_intra_slice_unzip::&lt;I, Time, SplitTime, Packet&gt;();
+        VectorTensorPair::new::&lt;I, Time&gt;(self.device, self.inner)
     }
 }
 
@@ -236,7 +236,7 @@ impl&lt;'l, const T: Tu, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
     ) -&gt; VectorInterSliceReduceTensor&lt;'l, T, i32, Chip, Cluster, OutSlice, OutTime, Packet, { VeOrder::InterFirst }&gt;
     {
         let reduced = self.inner.reduce(op.reduce_fn(), op.identity(), true);
-        create_inter_slice_reduce_tensor(self.ctx, reduced)
+        create_inter_slice_reduce_tensor(self.device, reduced)
     }
 }</code></pre>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
@@ -264,9 +264,9 @@ fn relu&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: ContractTensor&lt;'_, _, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]&gt; = ContractTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: ContractTensor&lt;'_, _, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]&gt; = ContractTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = relu(c);
 </span><span class="boring">}</span></code></pre>
 <h3 id="relu-then-reduce"><a class="header" href="#relu-then-reduce">ReLU Then Reduce</a></h3>
@@ -294,9 +294,9 @@ fn relu_then_reduce&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = relu_then_reduce(c);
 </span><span class="boring">}</span></code></pre>
 <h3 id="reduce-then-bias"><a class="header" href="#reduce-then-bias">Reduce Then Bias</a></h3>
@@ -324,9 +324,9 @@ fn reduce_then_add&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = reduce_then_add(c);
 </span><span class="boring">}</span></code></pre>
 <h3 id="intra--and-inter-slice-reduction"><a class="header" href="#intra--and-inter-slice-reduction">Intra- and Inter-Slice Reduction</a></h3>
@@ -359,9 +359,9 @@ fn full_sum&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![R / 32], m![R % 32 / 4], m![R % 4 # 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![R / 32], m![R % 32 / 4], m![R % 4 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = full_sum(c);
 </span><span class="boring">}</span></code></pre>
 <h3 id="pair-add"><a class="header" href="#pair-add">Pair Add</a></h3>
@@ -382,15 +382,15 @@ fn pair_add&lt;'l, const T: Tu&gt;(
     input
         .vector_init()
         // split into group 0 and group 1 along I
-        .vector_intra_slice_unzip::&lt;I, m![1 # 2], m![1]&gt;()
+        .vector_intra_slice_unzip::&lt;I, m![1]&gt;()
         // group0 + group1
         .vector_clip_zip(ClipBinaryOpI32::AddFxp)
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = pair_add(c);
 </span><span class="boring">}</span></code></pre>
 

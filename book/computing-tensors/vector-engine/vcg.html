@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-b78bfe2e.js"></script>
+        <script src="../../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -278,9 +278,9 @@ fn reduce_time_only&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_only(i);
 </span><span class="boring">}</span></code></pre>
 <p>In the example above, the sequencer iterates <code>R # 16</code> once with <code>size 16 : stride 1</code>, so <code>idx = t</code> for every time step.
@@ -315,9 +315,9 @@ fn reduce_time_reordered&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_reordered(i);
 </span><span class="boring">}</span></code></pre>
 <p>The compiler configures the time filter for this placement as follows:</p>
@@ -364,9 +364,9 @@ fn reduce_slice_time_slicemajor&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_slice_time_slicemajor(i);
 </span><span class="boring">}</span></code></pre>
 <p>The example places <code>R = 11</code> (padded to <code>R # 16</code>) across <code>Slice</code> and <code>Time</code> with the following sub-expressions.</p>
@@ -458,9 +458,9 @@ fn reduce_time_slice_timemajor&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_slice_timemajor(i);
 </span><span class="boring">}</span></code></pre>
 <p>The example places <code>R = 13</code> (padded to <code>R # 16</code>) across <code>Slice</code> and <code>Time</code> with the following sub-expressions.</p>
@@ -567,9 +567,9 @@ fn reduce_packet_only&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_packet_only(i);
 </span><span class="boring">}</span></code></pre>
 <p>The example above places <code>R = 3</code> (padded to <code>R # 8</code>) entirely in <code>Packet</code> with a single sub-expression.
@@ -605,9 +605,9 @@ fn reduce_time_packet&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_packet(i);
 </span><span class="boring">}</span></code></pre>
 <p>The example above places <code>R = 10</code> (padded to <code>R # 16</code>) across <code>Time</code> and <code>Packet</code>:</p>
@@ -798,9 +798,9 @@ fn reduce_wrong_ordering&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_ordering(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="r-in-slice-and-time-interleaved"><a class="header" href="#r-in-slice-and-time-interleaved"><code>R</code> in <code>Slice</code> and <code>Time</code>, Interleaved</a></h3>
@@ -831,9 +831,9 @@ fn reduce_wrong_interleave&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_interleave(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="r-in-slice-and-time-over-padded"><a class="header" href="#r-in-slice-and-time-over-padded"><code>R</code> in <code>Slice</code> and <code>Time</code>, Over-padded</a></h3>
@@ -870,9 +870,9 @@ fn reduce_time_major_wrong&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_time_major_wrong(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="r-in-packet-complex"><a class="header" href="#r-in-packet-complex"><code>R</code> in <code>Packet</code>, Complex</a></h3>
@@ -902,9 +902,9 @@ fn reduce_wrong_packet_outer&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_packet_outer(i);
 </span><span class="boring">}</span></code></pre>
 <p>The second example has <code>R</code> sharing <code>Packet</code> with another axis <code>A</code>, so <code>A</code>’s elements occupy positions that the prefix-based count treats as padding.</p>
@@ -932,8 +932,8 @@ fn reduce_wrong_mixed_packet&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_mixed_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h3 id="r-in-slice-and-packet"><a class="header" href="#r-in-slice-and-packet"><code>R</code> in <code>Slice</code> and <code>Packet</code></a></h3>
@@ -981,8 +981,8 @@ fn reduce_wrong_slice_packet&lt;'l, const T: Tu&gt;(
         )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut ctx.main, Tensor::zero(), TagMode::Zero);
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = reduce_wrong_slice_packet(i);
 </span><span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>

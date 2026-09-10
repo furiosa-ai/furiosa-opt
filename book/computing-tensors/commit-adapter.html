@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -233,7 +233,7 @@ impl&lt;
     pub fn commit_trim&lt;OutPacket: M&gt;(self) -&gt; CommitTrimTensor&lt;'l, T, D, Chip, Cluster, Slice, Time, OutPacket, B&gt; {
         verify_commit_trim::&lt;D, Packet, OutPacket&gt;();
         // `transpose(false)` is type-system filler; real trim lowering lands with the backend wiring.
-        CommitTrimTensor::new(self.ctx, self.inner.transpose(false))
+        CommitTrimTensor::new(self.device, self.inner.transpose(false))
     }
 }</code></pre>
 <p><code>.commit_trim::&lt;OutPacket&gt;()</code> declares the post-trim packet, and the chained <code>.commit(...)</code> then performs the DM write on the trimmed stream.
@@ -271,14 +271,14 @@ fn commit_trim_i4_no_trim&lt;'l, const T: Tu&gt;(
     input.commit_trim::&lt;m![J]&gt;()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let a: CastTensor&lt;'_, _, i8, m![1], m![1], m![1], m![M, K], m![W # 32]&gt; = CastTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">let a: CastTensor&lt;'_, _, i8, m![1], m![1], m![1], m![M, K], m![W # 32]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = commit_trim_i8_padding(a);
-</span><span class="boring">let b: ContractTensor&lt;'_, _, f32, m![1], m![1], m![1], m![M, K], m![W]&gt; = ContractTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: ContractTensor&lt;'_, _, f32, m![1], m![1], m![1], m![M, K], m![W]&gt; = ContractTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = commit_trim_f32_non_padding(b);
-</span><span class="boring">let c: CastTensor&lt;'_, _, bf16, m![1], m![1], m![1], m![M, K], m![N]&gt; = CastTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CastTensor&lt;'_, _, bf16, m![1], m![1], m![1], m![M, K], m![N]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = commit_trim_bf16_with_transpose(c);
-</span><span class="boring">let d: CastTensor&lt;'_, _, i4, m![1], m![1], m![1], m![M, K], m![J]&gt; = CastTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let d: CastTensor&lt;'_, _, i4, m![1], m![1], m![1], m![M, K], m![J]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = commit_trim_i4_no_trim(d);</span></code></pre>
 <h2 id="type-casting"><a class="header" href="#type-casting">Type Casting</a></h2>
 <p>Type casting converts <code>f32</code> data to <code>bf16</code> format on the commit path, optionally fusing a ReLU activation into the same pass.
@@ -315,7 +315,7 @@ Sub-context itself does not support type casting (consistent with the support ma
         D: CommitCast&lt;OutD&gt;,
     {
         verify_commit_cast::&lt;Packet&gt;();
-        CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast()))
+        CommitCastTensor::new(self.device, self.inner.map(|v| v.cast()))
     }
 
     /// The same cast with a ReLU fused in, clamping negative values to zero.
@@ -329,7 +329,7 @@ Sub-context itself does not support type casting (consistent with the support ma
         D: CommitCast&lt;OutD&gt;,
     {
         verify_commit_cast::&lt;Packet&gt;();
-        CommitCastTensor::new(self.ctx, self.inner.map(|v| v.cast_relu()))
+        CommitCastTensor::new(self.device, self.inner.map(|v| v.cast_relu()))
     }
 }</code></pre>
 <pre><code class="language-rust ignore"><span class="boring">#![feature(adt_const_params)]
@@ -362,7 +362,7 @@ fn commit_cast_relu_example&lt;'l, const T: Tu&gt;(
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../kernel-examples/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../kernel-examples/chip-cluster-reduce.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -376,7 +376,7 @@ fn commit_cast_relu_example&lt;'l, const T: Tu&gt;(
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../kernel-examples/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../kernel-examples/chip-cluster-reduce.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

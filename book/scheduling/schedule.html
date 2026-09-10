@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,9 +182,9 @@ It preserves dependencies and resource constraints needed for sequentially equiv
 <h2 id="execution-contexts"><a class="header" href="#execution-contexts">Execution contexts</a></h2>
 <p>The public execution contexts are:</p>
 <ul>
-<li><strong>Main</strong> (<code>ctx.main</code>): drives the main Tensor Unit pipeline.</li>
-<li><strong>Sub</strong> (<code>ctx.sub</code>): drives the subset of the Tensor Unit pipeline used by operations such as register-file preloads.</li>
-<li><strong>DMA</strong> (<code>ctx.tdma</code>): drives tensor movement between HBM, DM, and other memory tiers.</li>
+<li><strong>Main</strong> (<code>device.main</code>): drives the main Tensor Unit pipeline.</li>
+<li><strong>Sub</strong> (<code>device.sub</code>): drives the subset of the Tensor Unit pipeline used by operations such as register-file preloads.</li>
+<li><strong>DMA</strong> (<code>device.tdma</code>): drives tensor movement between HBM, DM, and other memory tiers.</li>
 </ul>
 <p>Operations in one context are ordered.
 In the MNIST schedule, operations in different contexts overlap when they do not share a scheduling resource or violate a memory dependency.
@@ -252,15 +252,15 @@ type Cluster = m![1 # 2];
 
 #[device(chip = 1)]
 pub fn forward(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     input: &amp;HbmTensor&lt;bf16, Chip, m![X]&gt;,
     fc1_weight: &amp;HbmTensor&lt;bf16, Chip, m![H, X]&gt;,
     fc1_bias: &amp;HbmTensor&lt;bf16, Chip, m![H]&gt;,
     fc2_weight: &amp;HbmTensor&lt;bf16, Chip, m![C, H]&gt;,
     fc2_bias: &amp;HbmTensor&lt;bf16, Chip, m![C]&gt;,
 ) -&gt; HbmTensor&lt;bf16, Chip, m![C]&gt; {
-    let hidden = fc1_relu(ctx, input, fc1_weight, fc1_bias);
-    fc2(ctx, hidden, fc2_weight, fc2_bias)
+    let hidden = fc1_relu(device, input, fc1_weight, fc1_bias);
+    fc2(device, hidden, fc2_weight, fc2_bias)
 }</code></pre>
 <p>Each fully connected layer computes a matrix-vector product and adds a bias.
 The first layer also applies ReLU in the same pass.</p>

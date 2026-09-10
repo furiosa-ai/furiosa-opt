@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -193,7 +193,7 @@ Only the <code>Slice</code> and <code>Time</code> mappings change to reflect the
         config: SwitchConfig,
     ) -&gt; SwitchTensor&lt;'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B&gt; {
         verify_switch::&lt;Slice, Time, OutSlice, OutTime&gt;(&amp;config);
-        SwitchTensor::new(self.ctx, self.inner.transpose(true))
+        SwitchTensor::new(self.device, self.inner.transpose(true))
     }
 }</code></pre>
 <p>The kernel writer picks <code>OutSlice</code>, <code>OutTime</code>, and a <code>SwitchConfig</code> argument that selects the configuration and its parameters.
@@ -241,9 +241,9 @@ fn forwarding&lt;'l, const T: Tu&gt;(
     input.collect()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A], m![B], m![C]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A], m![B], m![C]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = forwarding(f);
 </span><span class="boring">}</span></code></pre>
 <h3 id="broadcast01"><a class="header" href="#broadcast01">Broadcast01</a></h3>
@@ -285,9 +285,9 @@ fn broadcast01&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![D], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![D], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o= broadcast01(f);
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 2</code> (size of broadcast <code>X</code>), <code>slice0 = 2</code> (size of broadcast <code>Y</code>), and <code>time0 = 4</code>, the compiler derives <code>slice2 = 64</code>, <code>time1 = 16</code>, and <code>ring_size = 4</code> (64 sub-rings span 256 slices).</p>
@@ -331,9 +331,9 @@ fn broadcast1&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = broadcast1(f);
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 4</code> (size of broadcast <code>X</code>) and <code>slice0 = 8</code>, the compiler derives <code>slice2 = 8</code> and <code>ring_size = 32</code> (8 sub-rings span 256 slices).</p>
@@ -367,9 +367,9 @@ fn transpose&lt;'l, const T: Tu&gt;(
     })
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = transpose(f);
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 32</code> and <code>slice0 = 2</code>, the compiler derives <code>slice2 = 4</code> and <code>ring_size = 64</code> (4 sub-rings span 256 slices).</p>
@@ -423,9 +423,9 @@ fn inter_transpose&lt;'l, const T: Tu&gt;(
         })
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = inter_transpose(f);
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 2</code>, <code>slice0 = 16</code>, and <code>time0 = 2</code>, the compiler derives <code>slice2 = 8</code>, <code>time2 = 2</code>, and <code>ring_size = 32</code> (8 sub-rings span 256 slices).</p>
@@ -467,9 +467,9 @@ fn transposed_broadcast1&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = transposed_broadcast1(f);
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 8</code> and <code>slice0 = 8</code> (size of broadcast <code>Y</code>), the compiler derives <code>slice2 = 4</code> and <code>ring_size = 64</code> (4 sub-rings span 256 slices).</p>
@@ -536,9 +536,9 @@ fn arbitrary_permutation&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = arbitrary_permutation(f);
 </span><span class="boring">}</span></code></pre>
 <p>The output <code>Slice = m![B % 4, B / 4, A % 4, A / 4]</code> permutes the input slice shape <code>[0, 1, 2, 3]</code> into <code>[3, 2, 1, 0]</code>, which no regular configuration covers but a custom bitmap does.</p>
@@ -583,9 +583,9 @@ fn multi_axis_broadcast&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = multi_axis_broadcast(f);
 </span><span class="boring">}</span></code></pre>
 <p>The output moves <code>A % 2</code> and <code>B % 2</code> from <code>Slice</code> to <code>Time</code>, broadcasting at their original positions via the broadcast dimensions <code>X</code> and <code>Y</code>.
@@ -629,9 +629,9 @@ fn partial_axis_extraction&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]&gt; = FetchTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = partial_axis_extraction(f);
 </span><span class="boring">}</span></code></pre>
 <p>The output moves <code>C # 4</code> from <code>Slice</code> to <code>Time</code>, placing a broadcast axis <code>X</code> at its vacated <code>Slice</code> position, and the fourth value (<code>C # 4 = 3</code>), a pure padding cell, is dropped, so only the three valid values <code>C</code> are extracted.

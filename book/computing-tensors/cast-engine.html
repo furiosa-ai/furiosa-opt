@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -194,7 +194,7 @@ impl&lt;'l, const T: Tu, P: CanApplyCast, D: VeScalar, Chip: M, Cluster: M, Slic
         D: CastEngineCast&lt;OutD&gt;,
     {
         verify_cast::&lt;D, OutD, Packet, OutPacket&gt;();
-        CastTensor::new(self.ctx, self.inner.map(|v| v.cast()).transpose(false))
+        CastTensor::new(self.device, self.inner.map(|v| v.cast()).transpose(false))
     }
 }</code></pre>
 <p><code>.cast::&lt;OutD, OutPacket&gt;()</code> converts each element to type <code>OutD</code> and pads the output back to one 32-byte flit.
@@ -217,9 +217,9 @@ fn cast_i32_to_i8&lt;'l, const T: Tu&gt;(
     input.cast()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = cast_i32_to_i8(c);
 </span><span class="boring">}</span></code></pre>
 <p>The input data may not fill 32 bytes.
@@ -237,9 +237,9 @@ fn cast_padded&lt;'l, const T: Tu&gt;(
     input.cast()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = cast_padded(c);
 </span><span class="boring">}</span></code></pre>
 <h2 id="supported-casts"><a class="header" href="#supported-casts">Supported Casts</a></h2>

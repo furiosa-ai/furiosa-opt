@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -345,8 +345,8 @@ See <a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions
 <tr><th>Route</th><th>Moves</th><th>Available when</th><th>Cost</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="../computing-tensors/switch-engine.html">Switch Engine</a></td><td>an axis either way between <code>Slice</code> and <code>Time</code></td><td>one of its configurations expresses the slice placement</td><td><code>ring_size × Time::SIZE × flits_per_packet</code> cycles of ring traversal</td></tr>
-<tr><td><a href="../moving-tensors/dma-engine.html">DMA</a></td><td>an axis into <code>Chip</code>, <code>Cluster</code> or <code>Slice</code>, by writing the placement it is given</td><td>always</td><td>a transfer of the whole tensor</td></tr>
+<tr><td><a href="../computing-tensors/switch-engine.html">Switch Engine</a></td><td>an axis either way between <code>Slice</code> and <code>Time</code></td><td>one of its configurations expresses the <code>Slice</code> placement</td><td><code>ring_size × Time::SIZE × flits_per_packet</code> cycles of ring traversal</td></tr>
+<tr><td><a href="../moving-tensors/dma-engine.html">DMA</a></td><td>an axis into <code>Chip</code>, <code>Cluster</code> or <code>Slice</code>, by writing the desired placement</td><td>always</td><td>a transfer of the whole tensor</td></tr>
 <tr><td><a href="../computing-tensors/vector-engine/inter-slice-reducer.html#promotion-from-time-into-outslice">Inter-slice reducer</a></td><td>an axis out of <code>Time</code> into the <code>Slice</code> slot a reduced axis vacates</td><td>the stream is reduced over a <code>Slice</code> axis anyway</td><td>none beyond that reduction</td></tr>
 <tr><td><a href="../moving-tensors/fetch-engine.html#axis-lifting">Axis lifting</a>, at fetch</td><td>an axis out of <code>Time</code> onto <code>Chip</code>, <code>Cluster</code> or <code>Slice</code></td><td>the selected dimension holds a broadcast</td><td>the original read, plus a DMA, a context-local add, and an SFR store for <code>Slice</code></td></tr>
 </tbody>

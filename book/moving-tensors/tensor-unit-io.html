@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -195,14 +195,14 @@ type Cluster = m![1 # 2];
 
 #[device(chip = 1)]
 pub fn fetch_commit_simple(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     input: &amp;HbmTensor&lt;i8, m![1], m![A, B]&gt;,
 ) -&gt; HbmTensor&lt;i32, m![1], m![B, A]&gt; {
     // Element's innermost axis must match the source's innermost (B, stride 1) so that the
     // DMA tail contains the full B axis (8 × i8 = 8 bytes), satisfying min_align = 8.
-    let input_dm = input.to_dm::&lt;Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]&gt;(&amp;mut ctx.tdma);
+    let input_dm = input.to_dm::&lt;Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]&gt;(&amp;mut device.tdma);
 
-    let fetch_and_commit_tensor: DmTensor&lt;i32, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]&gt; = ctx
+    let fetch_and_commit_tensor: DmTensor&lt;i32, Chip, Cluster, m![A / 16], m![A / 8 % 2, A % 8, B]&gt; = device
         .main
         .begin(input_dm.view())
         .fetch::&lt;m![A / 8 % 2], m![A % 8, B]&gt;()
@@ -211,7 +211,7 @@ pub fn fetch_commit_simple(
         .commit_trim::&lt;m![B]&gt;()
         .commit();
 
-    fetch_and_commit_tensor.to_hbm(&amp;mut ctx.tdma)
+    fetch_and_commit_tensor.to_hbm(&amp;mut device.tdma)
 }</code></pre>
 <p>The host oracle and test are included in the examples test target.</p>
 <pre><code class="language-rust ignore">use furiosa_opt_examples::fetch_commit::fetch_commit_simple;
@@ -221,15 +221,16 @@ use furiosa_opt_std::prelude::*;
 async fn test_fetch_commit_simple_host() {
     use furiosa_opt_examples::fetch_commit::{A, B};
 
-    let mut ctx = Context::acquire();
+    let mut device = Device::new(fetch_commit_simple.topology()).unwrap();
 
     // Create input tensor with shape (A=4096)(B=8).
     let input = HostTensor::&lt;i8, m![A, B]&gt;::from_vec((0..32768).map(|x| x as i8).collect::&lt;Vec&lt;_&gt;&gt;())
-        .to_hbm::&lt;m![1], m![A, B]&gt;(&amp;mut ctx.pdma)
-        .await;
+        .to_hbm::&lt;m![1], m![A, B]&gt;(&amp;mut device.pdma)
+        .await
+        .unwrap();
 
     // Call the device function.
-    let output = launch(fetch_commit_simple, (&amp;mut *ctx, &amp;input)).await;
+    let output = launch(fetch_commit_simple, (&amp;mut device, &amp;input)).await.unwrap();
 
     let mut expected = vec![0i32; 4096 * 8];
     let mut idx = 0;
@@ -241,7 +242,7 @@ async fn test_fetch_commit_simple_host() {
     }
 
     assert_eq!(
-        output.to_host::&lt;m![B, A]&gt;(&amp;mut ctx.pdma).await.into_inner(),
+        output.to_host::&lt;m![B, A]&gt;(&amp;mut device.pdma).await.unwrap().into_inner(),
         Tensor::&lt;_, m![B, A], CurrentBackend&gt;::from_vec(expected)
     );
 }</code></pre>

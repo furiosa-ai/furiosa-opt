@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -421,22 +421,23 @@ fn test_padding() {
 <span class="boring">
 </span><span class="boring">test_padding();
 </span><span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize, const KIND: PaddingKind&gt; M for Padding&lt;L, SIZE, KIND&gt;
+<pre><code class="language-rust ignore">impl&lt;L, F, const KIND: PaddingKind&gt; M for Padding&lt;L, F, KIND&gt;
 where
     L: M,
+    F: Count,
 {
-    const SIZE: usize = SIZE;
+    const SIZE: usize = F::SIZE;
 
     fn to_value() -&gt; Mapping {
         Mapping::Padding {
             inner: RBox::new(L::to_value()),
-            padding: SIZE,
+            padding: F::SIZE,
             kind: KIND,
         }
     }
 
     fn map(i: usize) -&gt; Cell {
-        if i &gt;= SIZE {
+        if i &gt;= F::SIZE {
             Cell::OutOfBounds
         } else if i &gt;= L::SIZE {
             Cell::Padding(KIND)
@@ -488,21 +489,22 @@ fn test_resize() {
 <span class="boring">
 </span><span class="boring">test_resize();
 </span><span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize&gt; M for Resize&lt;L, SIZE&gt;
+<pre><code class="language-rust ignore">impl&lt;L, F&gt; M for Resize&lt;L, F&gt;
 where
     L: M,
+    F: Count,
 {
-    const SIZE: usize = SIZE;
+    const SIZE: usize = F::SIZE;
 
     fn to_value() -&gt; Mapping {
         Mapping::Resize {
             inner: RBox::new(L::to_value()),
-            resize: SIZE,
+            resize: F::SIZE,
         }
     }
 
     fn map(i: usize) -&gt; Cell {
-        if i &lt; SIZE { L::map(i) } else { Cell::OutOfBounds }
+        if i &lt; F::SIZE { L::map(i) } else { Cell::OutOfBounds }
     }
 }</code></pre>
 <h3 id="tiling"><a class="header" href="#tiling">Tiling</a></h3>
@@ -569,44 +571,46 @@ fn test_stride_modulo() {
 <span class="boring">
 </span><span class="boring">test_stride_modulo();
 </span><span class="boring">}</span></code></pre>
-<pre><code class="language-rust ignore">impl&lt;L, const SIZE: usize&gt; M for Stride&lt;L, SIZE&gt;
+<pre><code class="language-rust ignore">impl&lt;L, F&gt; M for Stride&lt;L, F&gt;
 where
     L: M,
+    F: Count,
 {
     const SIZE: usize = {
-        assert!(L::SIZE % SIZE == 0, "Stride size must divide the original size");
-        L::SIZE / SIZE
+        assert!(L::SIZE % F::SIZE == 0, "Stride size must divide the original size");
+        L::SIZE / F::SIZE
     };
 
     fn to_value() -&gt; Mapping {
         Mapping::Stride {
             inner: RBox::new(L::to_value()),
-            stride: SIZE,
+            stride: F::SIZE,
         }
     }
 
     fn map(i: usize) -&gt; Cell {
         if i &lt; Self::SIZE {
-            L::map(i * SIZE)
+            L::map(i * F::SIZE)
         } else {
             Cell::OutOfBounds
         }
     }
 }
 
-impl&lt;L, const SIZE: usize&gt; M for Modulo&lt;L, SIZE&gt;
+impl&lt;L, F&gt; M for Modulo&lt;L, F&gt;
 where
     L: M,
+    F: Count,
 {
     const SIZE: usize = {
-        assert!(L::SIZE % SIZE == 0, "Modulo size must divide the original size");
-        SIZE
+        assert!(L::SIZE % F::SIZE == 0, "Modulo size must divide the original size");
+        F::SIZE
     };
 
     fn to_value() -&gt; Mapping {
         Mapping::Modulo {
             inner: RBox::new(L::to_value()),
-            modulo: SIZE,
+            modulo: F::SIZE,
         }
     }
 

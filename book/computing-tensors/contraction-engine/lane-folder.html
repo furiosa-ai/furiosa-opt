@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-b78bfe2e.js"></script>
+        <script src="../../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -218,7 +218,7 @@ The stage drains the upstream Time Reducer’s buffer through an 8-element-wide 
                 &amp;contraction.pre_reduce,
                 &amp;out,
             ));
-        ContractTensor::new(self.ctx, reduced.transpose(false))
+        ContractTensor::new(self.device, reduced.transpose(false))
     }
 }</code></pre>
 <p>The minimal examples below take a <code>ContractTimeTensor</code> (the output of the upstream Time Reducer) and call only <code>.contract_lane(...)</code>, so each example shows the Lane Folder in isolation.
@@ -244,9 +244,9 @@ fn lane_interleaved&lt;'l, const T: Tu&gt;(
     input.contract_lane::&lt;m![M, P], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::zero();
 </span><span class="boring">
 </span><span class="boring">let i: ContractTimeTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt; = a 
@@ -280,9 +280,9 @@ fn lane_sequential&lt;'l, const T: Tu&gt;(
     input.contract_lane::&lt;m![M, N, P / 8], m![P % 8]&gt;(LaneMode::Sequential)
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::zero();
 </span><span class="boring">
 </span><span class="boring">let i: ContractTimeTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt; = a 

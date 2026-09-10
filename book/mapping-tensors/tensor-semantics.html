@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -255,10 +255,10 @@ The <code>.to_dm()</code> method, for instance, specifies \(f(T) = T\) in that:<
 </span>axes![A = 8, B = 512];
 
 fn hbm_to_dm(
-    ctx: &amp;mut Context,
+    device: &amp;mut Device,
     hbm: &amp;HbmTensor&lt;bf16, m![A], m![B]&gt;,
 ) -&gt; DmTensor&lt;bf16, m![A], m![1], m![B / 2], m![B % 2]&gt; {
-    hbm.to_dm(&amp;mut ctx.tdma)
+    hbm.to_dm(&amp;mut device.tdma)
 }
 <span class="boring">}</span></code></pre>
 

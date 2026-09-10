@@ -1,0 +1,571 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Case Study: Chip/Cluster Reduction - Programming Tensor Contraction Processors</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+        <!-- MathJax -->
+        <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-152b6ab7.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Programming Tensor Contraction Processors</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="case-study-chip-and-cluster-reduction"><a class="header" href="#case-study-chip-and-cluster-reduction">Case Study: Chip and Cluster Reduction</a></h1>
+<p>Chip and cluster reduction combines partial values stored along different <code>Chip</code> or <code>Cluster</code> dimensions.
+The examples implement ReduceScatter, AllGather, their composition, and direct AllReduce for both dimensions.
+A separate chip example implements Butterfly AllReduce.</p>
+<h2 id="shape-transformations"><a class="header" href="#shape-transformations">Shape Transformations</a></h2>
+<p>The notation <code>[dimension], [local]</code> separates the dimension shape from the shape stored locally at each dimension index.
+Let <code>R</code> be a dimension to reduce, <code>S</code> a local axis to distribute or gather, and <code>P...</code> and <code>Q...</code> the local shapes before and after <code>S</code>.
+For ReduceScatter and AllGather, <code>R</code> and <code>S</code> must have the same size <code>N</code>.
+<code>Broadcast(N)</code> means that all <code>N</code> indices along the dimension hold the same value.
+The table describes the logical result and preserves the order of local axes that are not removed.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Operation</th><th>Shape transformation</th></tr>
+</thead>
+<tbody>
+<tr><td>ReduceScatter</td><td><code>[R], [P..., S, Q...] -&gt; [S], [P..., Q...]</code></td></tr>
+<tr><td>AllGather</td><td><code>[S], [P..., Q...] -&gt; [Broadcast(N)], [P..., S, Q...]</code></td></tr>
+<tr><td>AllReduce</td><td><code>[R], [P...] -&gt; [Broadcast(N)], [P...]</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>ReduceScatter reduces <code>R</code> and distributes the resulting <code>S</code> axis: dimension index <code>s</code> retains coordinate <code>s</code> of <code>S</code>.
+AllGather reverses that distribution by collecting every <code>S</code> coordinate at every dimension index.
+AllReduce preserves the local shape while reducing <code>R</code> and replicating the result.
+Direct cyclic reduction, ReduceScatter followed by AllGather, and butterfly exchanges have the same AllReduce shape transformation.
+These transformations apply to both chip and cluster dimensions.</p>
+<h3 id="floating-point-reduction-order"><a class="header" href="#floating-point-reduction-order">Floating-Point Reduction Order</a></h3>
+<p><code>Broadcast(N)</code> is a logical placement guarantee.
+Independently computed floating-point replicas may differ because cyclic reductions use orders such as <code>0 + 1 + 2 + 3</code> and <code>1 + 2 + 3 + 0</code>.
+AllGather after ReduceScatter computes each shard once and gathers it, so those replicas are identical.
+The examples use <code>i32</code>, where rounding order does not apply.</p>
+<h2 id="redistribution-primitives"><a class="header" href="#redistribution-primitives">Redistribution Primitives</a></h2>
+<p>The examples use the deferred SRAM <a href="../moving-tensors/dma-engine.html#redistribution-operations">redistribution plan</a>.
+Shuffle and slice stages before <code>to_dm</code> fuse into one DMA.
+Direct <code>asymmetric_chip_slice</code> and <code>asymmetric_cluster_slice</code> calls instead use the sub-context without moving data along either dimension.</p>
+<h3 id="synchronization"><a class="header" href="#synchronization">Synchronization</a></h3>
+<p>The compiler derives synchronization from the final redistribution plan when <code>to_dm</code> materializes it.
+A source chip change inserts <code>ChipSync</code>, and a source cluster change inserts <code>ClusterSync</code>.
+A fused plan that changes both dimensions gets both synchronization protocols.
+Local <code>DmTensor</code> slicing adds neither.</p>
+<p>The compiler emits a destination-readiness sync before remote DMA access and a completion sync afterward.
+A self-to-self chip route emits no inter-chip send or receive.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Example</th><th>Redistribution calls</th><th>Automatically inserted synchronization</th></tr>
+</thead>
+<tbody>
+<tr><td>Chip ReduceScatter</td><td>4 <code>chip_shuffle().chip_slice().to_dm()</code> chains</td><td>3 <code>ChipSync</code> protocols; round 0 is self-to-self, while rounds 1-3 communicate between chips</td></tr>
+<tr><td>Chip AllGather</td><td>1 dimension-to-element <code>to_dm()</code></td><td>1 <code>ChipSync</code> protocol</td></tr>
+<tr><td>Chip AllGather after ReduceScatter</td><td>ReduceScatter plus AllGather</td><td>4 <code>ChipSync</code> protocols</td></tr>
+<tr><td>Chip AllReduce</td><td>3 <code>chip_shuffle().to_dm()</code> chains; the local value is already present</td><td>3 <code>ChipSync</code> protocols</td></tr>
+<tr><td>Chip Butterfly AllReduce</td><td>2 <code>chip_shuffle().to_dm()</code> chains</td><td>2 <code>ChipSync</code> protocols</td></tr>
+<tr><td>Cluster ReduceScatter</td><td>2 local slices and 1 <code>cluster_swap().to_dm()</code> chain</td><td>1 <code>ClusterSync</code> protocol</td></tr>
+<tr><td>Cluster AllGather</td><td>1 dimension-to-element <code>to_dm()</code></td><td>1 <code>ClusterSync</code> protocol</td></tr>
+<tr><td>Cluster AllGather after ReduceScatter</td><td>ReduceScatter plus AllGather</td><td>2 <code>ClusterSync</code> protocols</td></tr>
+<tr><td>Cluster AllReduce</td><td>1 <code>cluster_swap().to_dm()</code> chain</td><td>1 <code>ClusterSync</code> protocol</td></tr>
+</tbody>
+</table>
+</div>
+<p>These counts describe the explicit redistribution calls in the examples.
+HBM transfers and local Vector Engine work have their own dependencies but do not add chip or cluster redistribution syncs.</p>
+<h2 id="chip-examples"><a class="header" href="#chip-examples">Chip Examples</a></h2>
+<p>The examples use four-chip <code>A</code> and <code>B</code> axes and a 256-byte <code>[C, D]</code> payload.
+Chip and shard indices range from 0 through 3.</p>
+<pre><code class="language-rust ignore">use furiosa_opt_std::prelude::*;
+
+axes![A = 4, B = 4, C = 8, D = 8, I = 2, X = 2];</code></pre>
+<p>The reduction examples share this Vector Engine addition:</p>
+<pre><code class="language-rust ignore">/// Adds two `[C, D]` DM tensors with the Vector Engine.
+pub fn add_pair(
+    device: &amp;mut Device,
+    lhs: &amp;DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![C, D]&gt;,
+    rhs: &amp;DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![C, D]&gt;,
+    output: &amp;mut DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![C, D]&gt;,
+) {
+    device
+        .main
+        .begin_interleaved::&lt;I, _, _, _, _, _&gt;(lhs.view(), rhs.view())
+        .fetch::&lt;m![C, I], m![D]&gt;()
+        .collect::&lt;m![C, I], m![D]&gt;()
+        .vector_init()
+        .vector_intra_slice_unzip::&lt;I, m![C]&gt;()
+        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+        .vector_final()
+        .commit_trim::&lt;m![D]&gt;()
+        .commit_view(output.view_mut());
+}</code></pre>
+<h3 id="reducescatter"><a class="header" href="#reducescatter">ReduceScatter</a></h3>
+<p>The input places <code>A</code> across chips and keeps <code>[B, C, D]</code> local.
+Each <code>chip_shuffle().chip_slice().to_dm()</code> chain selects one <code>B</code> coordinate and routes it to a target chip.
+The three Vector Engine chains then sum the four routed <code>[C, D]</code> values.
+Here, <code>in[p, s]</code> is source chip <code>p</code>’s value for shard <code>s</code>, and <code>out[s] = sum_p in[p, s]</code>.</p>
+<pre><code class="language-rust ignore">/// Chip `i` keeps shard `i` of the sum over all chips.
+#[device(chip = 4)]
+pub fn reduce_scatter(
+    device: &amp;mut Device,
+    hbm: &amp;HbmTensor&lt;i32, m![A], m![B, C, D]&gt;,
+) -&gt; HbmTensor&lt;i32, m![A], m![C, D]&gt; {
+    let full: DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![B, C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    reduce_scatter_dm(device, &amp;full).to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Target chip</th><th>Round 0</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Result</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>in[0,0]</code></td><td><code>in[1,0]</code></td><td><code>in[2,0]</code></td><td><code>in[3,0]</code></td><td><code>out[0]</code></td></tr>
+<tr><td>1</td><td><code>in[1,1]</code></td><td><code>in[2,1]</code></td><td><code>in[3,1]</code></td><td><code>in[0,1]</code></td><td><code>out[1]</code></td></tr>
+<tr><td>2</td><td><code>in[2,2]</code></td><td><code>in[3,2]</code></td><td><code>in[0,2]</code></td><td><code>in[1,2]</code></td><td><code>out[2]</code></td></tr>
+<tr><td>3</td><td><code>in[3,3]</code></td><td><code>in[0,3]</code></td><td><code>in[1,3]</code></td><td><code>in[2,3]</code></td><td><code>out[3]</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The result remains sharded: target chip <code>s</code> owns <code>out[s]</code>.</p>
+<h3 id="allgather"><a class="header" href="#allgather">AllGather</a></h3>
+<p>The input gives source chip <code>s</code> one <code>[C, D]</code> shard, denoted by <code>in[s]</code>.
+One <code>to_dm()</code> moves the chip dimension into the local element shape and broadcasts that shape to every chip.</p>
+<pre><code class="language-rust ignore">/// Every chip receives every shard along `A`.
+#[device(chip = 4)]
+pub fn all_gather(device: &amp;mut Device, hbm: &amp;HbmTensor&lt;i32, m![A], m![C, D]&gt;) -&gt; HbmTensor&lt;i32, m![4], m![A, C, D]&gt; {
+    let shard: DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    all_gather_dm::&lt;m![A], m![A, C, D]&gt;(&amp;mut device.tdma, &amp;shard).to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Target chip</th><th>Local element after <code>to_dm()</code></th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>[in[0], in[1], in[2], in[3]]</code></td></tr>
+<tr><td>1</td><td><code>[in[0], in[1], in[2], in[3]]</code></td></tr>
+<tr><td>2</td><td><code>[in[0], in[1], in[2], in[3]]</code></td></tr>
+<tr><td>3</td><td><code>[in[0], in[1], in[2], in[3]]</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>Every target receives every shard.</p>
+<h3 id="allgather-after-reducescatter"><a class="header" href="#allgather-after-reducescatter">AllGather after ReduceScatter</a></h3>
+<p>This example feeds the ReduceScatter result directly into AllGather.</p>
+<pre><code class="language-rust ignore">/// Composes ReduceScatter and AllGather so every chip receives the reduced shards.
+#[device(chip = 4)]
+pub fn all_gather_after_reduce_scatter(
+    device: &amp;mut Device,
+    hbm: &amp;HbmTensor&lt;i32, m![A], m![B, C, D]&gt;,
+) -&gt; HbmTensor&lt;i32, m![4], m![B, C, D]&gt; {
+    let full: DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![B, C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    let shard = reduce_scatter_dm(device, &amp;full);
+    // Target chip b owns coordinate b, so changing the axis name preserves wire order.
+    let shard = unsafe { shard.reshape::&lt;m![B], m![1 # 2], m![1 # 256], m![C, D]&gt;() };
+    all_gather_dm::&lt;m![B], m![B, C, D]&gt;(&amp;mut device.tdma, &amp;shard).to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<p>Its final placement is the AllGather state shown above.</p>
+<h3 id="allreduce"><a class="header" href="#allreduce">AllReduce</a></h3>
+<p>The input gives chip <code>p</code> one partial <code>in[p]</code> with shape <code>[C, D]</code>.
+The original tensor supplies the identity rotation, and three chip shuffles supply the remaining cyclic rotations.
+Adding all four rotations leaves <code>out[target] = sum_i in[i]</code> on every target chip.</p>
+<pre><code class="language-rust ignore">/// Sums four cyclic chip rotations so every chip receives the full reduction.
+#[device(chip = 4)]
+pub fn all_reduce(device: &amp;mut Device, hbm: &amp;HbmTensor&lt;i32, m![A], m![C, D]&gt;) -&gt; HbmTensor&lt;i32, m![A], m![C, D]&gt; {
+    let round0: DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    let round1 = round0.chip_shuffle([1, 2, 3, 0]).to_dm::&lt;m![C, D]&gt;(&amp;mut device.tdma);
+    let round2 = round0.chip_shuffle([2, 3, 0, 1]).to_dm::&lt;m![C, D]&gt;(&amp;mut device.tdma);
+    let round3 = round0.chip_shuffle([3, 0, 1, 2]).to_dm::&lt;m![C, D]&gt;(&amp;mut device.tdma);
+
+    let mut sum01 = DmTensor::new();
+    let mut sum012 = DmTensor::new();
+    let mut sum = DmTensor::new();
+    add_pair(device, &amp;round0, &amp;round1, &amp;mut sum01);
+    add_pair(device, &amp;round2, &amp;sum01, &amp;mut sum012);
+    add_pair(device, &amp;round3, &amp;sum012, &amp;mut sum);
+    sum.to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Target chip</th><th>Local</th><th>Rotation 1</th><th>Rotation 2</th><th>Rotation 3</th><th>Result</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>in[0]</code></td><td><code>in[1]</code></td><td><code>in[2]</code></td><td><code>in[3]</code></td><td><code>out[0] = sum_i in[i]</code></td></tr>
+<tr><td>1</td><td><code>in[1]</code></td><td><code>in[2]</code></td><td><code>in[3]</code></td><td><code>in[0]</code></td><td><code>out[1] = sum_i in[i]</code></td></tr>
+<tr><td>2</td><td><code>in[2]</code></td><td><code>in[3]</code></td><td><code>in[0]</code></td><td><code>in[1]</code></td><td><code>out[2] = sum_i in[i]</code></td></tr>
+<tr><td>3</td><td><code>in[3]</code></td><td><code>in[0]</code></td><td><code>in[1]</code></td><td><code>in[2]</code></td><td><code>out[3] = sum_i in[i]</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="butterfly-allreduce"><a class="header" href="#butterfly-allreduce">Butterfly AllReduce</a></h3>
+<p>The input gives chip <code>p</code> one partial <code>in[p]</code> with shape <code>[C, D]</code>.
+Two shuffle-and-add rounds leave <code>sum_i in[i]</code> on every chip.
+Here, <code>i</code> ranges over all source chips.</p>
+<pre><code class="language-rust ignore">/// Reduces across chips with XOR-paired butterfly rounds.
+#[device(chip = 4)]
+pub fn butterfly_all_reduce(
+    device: &amp;mut Device,
+    hbm: &amp;HbmTensor&lt;i32, m![A], m![C, D]&gt;,
+) -&gt; HbmTensor&lt;i32, m![A], m![C, D]&gt; {
+    let partials: DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    let swapped = partials.chip_shuffle([1, 0, 3, 2]).to_dm::&lt;m![C, D]&gt;(&amp;mut device.tdma);
+    let mut first: DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![C, D]&gt; = DmTensor::new();
+    add_pair(device, &amp;swapped, &amp;partials, &amp;mut first);
+
+    let swapped = first.chip_shuffle([2, 3, 0, 1]).to_dm::&lt;m![C, D]&gt;(&amp;mut device.tdma);
+    let mut sum: DmTensor&lt;i32, m![A], m![1 # 2], m![1 # 256], m![C, D]&gt; = DmTensor::new();
+    add_pair(device, &amp;swapped, &amp;first, &amp;mut sum);
+    sum.to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Target chip</th><th>Initial</th><th>First peer</th><th>First sum</th><th>Second peer sum</th><th>Final</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>in[0]</code></td><td><code>in[1]</code></td><td><code>in[1]+in[0]</code></td><td><code>in[3]+in[2]</code></td><td><code>out[0] = sum_i in[i]</code></td></tr>
+<tr><td>1</td><td><code>in[1]</code></td><td><code>in[0]</code></td><td><code>in[0]+in[1]</code></td><td><code>in[2]+in[3]</code></td><td><code>out[1] = sum_i in[i]</code></td></tr>
+<tr><td>2</td><td><code>in[2]</code></td><td><code>in[3]</code></td><td><code>in[3]+in[2]</code></td><td><code>in[1]+in[0]</code></td><td><code>out[2] = sum_i in[i]</code></td></tr>
+<tr><td>3</td><td><code>in[3]</code></td><td><code>in[2]</code></td><td><code>in[2]+in[3]</code></td><td><code>in[0]+in[1]</code></td><td><code>out[3] = sum_i in[i]</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="cluster-examples"><a class="header" href="#cluster-examples">Cluster Examples</a></h2>
+<p>The cluster examples use two-element <code>A</code> and <code>B</code> axes with the same 256-byte <code>[C, D]</code> payload.
+Cluster and shard indices range from 0 through 1.</p>
+<pre><code class="language-rust ignore">use furiosa_opt_std::prelude::*;
+
+axes![A = 2, B = 2, C = 8, D = 8, I = 2];</code></pre>
+<p>The cluster examples use the corresponding two-cluster addition:</p>
+<pre><code class="language-rust ignore">/// Adds two `[C, D]` DM tensors with the Vector Engine.
+pub fn add_pair(
+    device: &amp;mut Device,
+    lhs: &amp;DmTensor&lt;i32, m![1], m![A], m![1 # 256], m![C, D]&gt;,
+    rhs: &amp;DmTensor&lt;i32, m![1], m![A], m![1 # 256], m![C, D]&gt;,
+    output: &amp;mut DmTensor&lt;i32, m![1], m![A], m![1 # 256], m![C, D]&gt;,
+) {
+    device
+        .main
+        .begin_interleaved::&lt;I, _, _, _, _, _&gt;(lhs.view(), rhs.view())
+        .fetch::&lt;m![C, I], m![D]&gt;()
+        .collect::&lt;m![C, I], m![D]&gt;()
+        .vector_init()
+        .vector_intra_slice_unzip::&lt;I, m![C]&gt;()
+        .vector_clip_zip(ClipBinaryOpI32::AddFxp)
+        .vector_final()
+        .commit_trim::&lt;m![D]&gt;()
+        .commit_view(output.view_mut());
+}</code></pre>
+<h3 id="reducescatter-1"><a class="header" href="#reducescatter-1">ReduceScatter</a></h3>
+<p>The first local <code>cluster_slice</code> selects <code>B</code> coordinates <code>[0, 1]</code>, one value per cluster.
+The second selects <code>[1, 0]</code>, and <code>cluster_swap().to_dm()</code> moves those values to the opposite clusters.
+The Vector Engine chain then adds the local and moved <code>[C, D]</code> values.
+Here, <code>in[c, s]</code> is source cluster <code>c</code>’s value for shard <code>s</code>, and <code>out[s] = sum_c in[c, s]</code>.</p>
+<pre><code class="language-rust ignore">/// Cluster `i` keeps shard `i` of the sum over both clusters.
+#[device(chip = 1)]
+pub fn reduce_scatter(
+    device: &amp;mut Device,
+    hbm: &amp;HbmTensor&lt;i32, m![1], m![A, B, C, D]&gt;,
+) -&gt; HbmTensor&lt;i32, m![1], m![A, C, D]&gt; {
+    let full: DmTensor&lt;i32, m![1], m![A], m![1 # 256], m![B, C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    reduce_scatter_dm(device, &amp;full).to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Target cluster</th><th>Local</th><th>Remote before swap</th><th>Remote after swap</th><th>Result</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>in[0,0]</code></td><td><code>in[0,1]</code></td><td><code>in[1,0]</code></td><td><code>out[0]</code></td></tr>
+<tr><td>1</td><td><code>in[1,1]</code></td><td><code>in[1,0]</code></td><td><code>in[0,1]</code></td><td><code>out[1]</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="allgather-1"><a class="header" href="#allgather-1">AllGather</a></h3>
+<p>The input gives source cluster <code>s</code> one <code>[C, D]</code> shard, denoted by <code>in[s]</code>.
+One <code>to_dm()</code> moves the cluster dimension into the local element shape and broadcasts that shape to both clusters.</p>
+<pre><code class="language-rust ignore">/// Both clusters receive every shard along `A`.
+#[device(chip = 1)]
+pub fn all_gather(device: &amp;mut Device, hbm: &amp;HbmTensor&lt;i32, m![1], m![A, C, D]&gt;) -&gt; HbmTensor&lt;i32, m![1], m![A, C, D]&gt; {
+    let shard: DmTensor&lt;i32, m![1], m![A], m![1 # 256], m![C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    all_gather_dm::&lt;m![A], m![A, C, D]&gt;(&amp;mut device.tdma, &amp;shard).to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Target cluster</th><th>Local element after <code>to_dm()</code></th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>[in[0], in[1]]</code></td></tr>
+<tr><td>1</td><td><code>[in[0], in[1]]</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="allgather-after-reducescatter-1"><a class="header" href="#allgather-after-reducescatter-1">AllGather after ReduceScatter</a></h3>
+<p>This example feeds the cluster ReduceScatter result directly into AllGather.</p>
+<pre><code class="language-rust ignore">/// Composes ReduceScatter and AllGather so both clusters receive the reduced shards.
+#[device(chip = 1)]
+pub fn all_gather_after_reduce_scatter(
+    device: &amp;mut Device,
+    hbm: &amp;HbmTensor&lt;i32, m![1], m![A, B, C, D]&gt;,
+) -&gt; HbmTensor&lt;i32, m![1], m![B, C, D]&gt; {
+    let full: DmTensor&lt;i32, m![1], m![A], m![1 # 256], m![B, C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    let shard = reduce_scatter_dm(device, &amp;full);
+    // Target cluster b owns coordinate b, so changing the axis name preserves wire order.
+    let shard = unsafe { shard.reshape::&lt;m![1], m![B], m![1 # 256], m![C, D]&gt;() };
+    all_gather_dm::&lt;m![B], m![B, C, D]&gt;(&amp;mut device.tdma, &amp;shard).to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<h3 id="allreduce-1"><a class="header" href="#allreduce-1">AllReduce</a></h3>
+<p>The input gives cluster <code>c</code> one partial <code>in[c]</code> with shape <code>[C, D]</code>.
+One cluster swap exchanges the two partials, and one addition leaves the complete reduction on both clusters.</p>
+<pre><code class="language-rust ignore">/// Adds the local and swapped cluster partials so both clusters receive the full reduction.
+#[device(chip = 1)]
+pub fn all_reduce(device: &amp;mut Device, hbm: &amp;HbmTensor&lt;i32, m![1], m![A, C, D]&gt;) -&gt; HbmTensor&lt;i32, m![1], m![A, C, D]&gt; {
+    let partials: DmTensor&lt;i32, m![1], m![A], m![1 # 256], m![C, D]&gt; = hbm.to_dm(&amp;mut device.tdma);
+    let remote = partials.cluster_swap().to_dm::&lt;m![C, D]&gt;(&amp;mut device.tdma);
+
+    let mut sum: DmTensor&lt;i32, m![1], m![A], m![1 # 256], m![C, D]&gt; = DmTensor::new();
+    add_pair(device, &amp;partials, &amp;remote, &amp;mut sum);
+    sum.to_hbm(&amp;mut device.tdma)
+}</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Target cluster</th><th>Local</th><th>Swapped peer</th><th>Result</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>in[0]</code></td><td><code>in[1]</code></td><td><code>out[0] = sum_i in[i]</code></td></tr>
+<tr><td>1</td><td><code>in[1]</code></td><td><code>in[0]</code></td><td><code>out[1] = sum_i in[i]</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="dma-layout-requirements"><a class="header" href="#dma-layout-requirements">DMA Layout Requirements</a></h2>
+<p>See <a href="../moving-tensors/dma-engine.html#redistribution-operations">Redistribution Operations</a> for the alignment, live-index, and 256-byte contiguous-run requirements.
+These examples use <code>m![B, C, D]</code>, whose inner <code>m![C, D]</code> run is exactly 256 bytes of <code>i32</code> data.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../computing-tensors/commit-adapter.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../kernel-examples/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../computing-tensors/commit-adapter.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../kernel-examples/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid-eefea253.min.js"></script>
+        <script src="../mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

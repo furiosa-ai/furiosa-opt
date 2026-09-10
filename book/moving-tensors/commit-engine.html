@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d6997f37.js";
+            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b78bfe2e.js"></script>
+        <script src="../toc-152b6ab7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -196,7 +196,11 @@ Its <code>Time</code> reflects the temporal unrolling of the computation, and <c
 
     /// Commits to a mutable tensor view in data memory.
     #[primitive(TuTensor::commit_view)]
-    pub fn commit_view&lt;Element: M&gt;(self, mut dst: DmTensorViewMut&lt;'l, D, Chip, Cluster, Slice, Element, B&gt;) {
+    pub fn commit_view&lt;DstSlice: M, Element: M&gt;(
+        self,
+        mut dst: DmTensorViewMut&lt;'l, D, Chip, Cluster, DstSlice, Element, B&gt;,
+    ) {
+        constraints::assert_slice_preserved::&lt;Slice, DstSlice&gt;();
         verify_commit::&lt;D, Time, Packet, Element&gt;();
         dst.inner.transpose(self.inner.view(), false);
     }
@@ -226,9 +230,9 @@ fn cast_commit&lt;'l, const T: Tu&gt;(
     input.cast::&lt;bf16, m![N # 16]&gt;().commit_trim::&lt;m![N]&gt;().commit()
 }
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
 </span><span class="boring">
-</span><span class="boring">let c: ContractTensor&lt;'_, _, f32, m![1], m![1 # 2], m![P], m![M], m![N]&gt; = ContractTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: ContractTensor&lt;'_, _, f32, m![1], m![1 # 2], m![P], m![M], m![N]&gt; = ContractTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = cast_commit(c);
 </span><span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
@@ -289,12 +293,12 @@ fn transpose_with_trimming&lt;'l, const T: Tu&gt;(
 }
 
 <span class="boring">
-</span><span class="boring">let mut ctx = Context::acquire();
-</span><span class="boring">let a: CastTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]&gt; = CastTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">let a: CastTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = no_transpose(a);
-</span><span class="boring">let b: ContractTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]&gt; = ContractTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let b: ContractTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]&gt; = ContractTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = transpose(b);
-</span><span class="boring">let c: CastTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]&gt; = CastTensor::new(&amp;mut ctx.main, Tensor::zero());
+</span><span class="boring">let c: CastTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = transpose_with_trimming(c);
 </span><span class="boring">}</span></code></pre>
 <h2 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h2>
