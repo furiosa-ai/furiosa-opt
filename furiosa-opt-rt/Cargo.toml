@@ -1,6 +1,6 @@
 [package]
 name = "furiosa-opt-rt"
-version = "0.1.0"
+version = "0.8.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "Host runtime for executing Furiosa Opt device functions on Furiosa NPUs."
@@ -11,8 +11,8 @@ bytemuck = "1"
 clap = { workspace = true }
 dma-heap = "0.4"
 env_logger = { workspace = true }
-furiosa-opt-abi = { path = "abi", version = "0.1.0" }
-furiosa-opt-ipc = { path = "ipc", version = "0.1.0" }
+furiosa-opt-abi = { path = "abi", version = "0.8.1" }
+furiosa-opt-ipc = { path = "ipc", version = "0.8.1" }
 io-uring = { workspace = true }
 log = { workspace = true }
 memmap2 = "0.9"

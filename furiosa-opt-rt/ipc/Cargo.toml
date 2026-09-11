@@ -1,6 +1,6 @@
 [package]
 name = "furiosa-opt-ipc"
-version = "0.1.0"
+version = "0.8.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "IPC protocol for communication between the Furiosa Opt host runtime and firmware."
@@ -12,7 +12,7 @@ std = []
 [dependencies]
 bincode2 = { workspace = true }
 bytemuck = "1"
-furiosa-opt-abi = { path = "../abi", version = "0.1.0", default-features = false }
+furiosa-opt-abi = { path = "../abi", version = "0.8.1", default-features = false }
 thiserror-core = { workspace = true }
 
 [lints]

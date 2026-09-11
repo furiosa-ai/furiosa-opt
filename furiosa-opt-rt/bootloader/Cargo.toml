@@ -22,7 +22,7 @@ doctest = false
 bench = false
 
 [dependencies]
-furiosa-opt-abi = { path = "abi", version = "0.1.0", default-features = false }
+furiosa-opt-abi = { path = "abi", version = "0.8.1", default-features = false }
 sha2 = { version = "0.10.9", default-features = false }
 
 [build-dependencies]

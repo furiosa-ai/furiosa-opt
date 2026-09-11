@@ -123,7 +123,7 @@ mod tests {
         assert_mapping_error(
             "A /",
             2..3,
-            "unexpected end of mapping expression; expected an integer or a braced Rust expression",
+            "unexpected end of mapping expression; expected an axis name, an integer, a braced Rust expression, or `(`",
         );
     }
 

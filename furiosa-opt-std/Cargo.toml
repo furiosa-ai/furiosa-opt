@@ -1,6 +1,6 @@
 [package]
 name = "furiosa-opt-std"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/furiosa-ai/furiosa-opt"
@@ -15,7 +15,7 @@ furiosa-mapping = { path = "../furiosa-mapping", version = "0.8" }
 furiosa-opt-common-ir = { path = "../furiosa-opt-common-ir", version = "0.8" }
 furiosa-opt-lower = { path = "../furiosa-opt-lower", version = "0.8" }
 furiosa-opt-macro = { path = "../furiosa-opt-macro", version = "0.8" }
-furiosa-opt-rt = { path = "../furiosa-opt-rt", version = "0.1.0" }
+furiosa-opt-rt = { path = "../furiosa-opt-rt", version = "0.8.1" }
 half = { workspace = true }
 log = { workspace = true }
 ndarray = { workspace = true }

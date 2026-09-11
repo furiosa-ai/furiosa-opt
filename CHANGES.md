@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [v0.8.1]
+
+### Fixed
+
+- Ship the production-signed bootloader in runtime packages so production devices can initialize.
+- Align `furiosa-opt-rt`, `furiosa-opt-abi`, and `furiosa-opt-ipc` with the release version.
+
 ## [v0.8.0]
 
 ### Added
