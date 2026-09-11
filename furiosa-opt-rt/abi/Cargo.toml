@@ -3,6 +3,7 @@ name = "furiosa-opt-abi"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
+description = "ABI contracts shared by the Furiosa Opt host and device runtimes."
 
 [features]
 default = ["std"]
