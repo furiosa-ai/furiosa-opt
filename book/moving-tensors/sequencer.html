@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,7 +187,8 @@ The DMA Engine chains a read sequencer and a write sequencer to move data among 
 <p><code>MemTensor</code> and <code>StreamTensor</code> are teaching-only pseudo types that isolate the buffer-to-stream pattern, so this section can explain sequencer mechanics without introducing every engine type.
 The real engine APIs use different types (<code>DmTensor</code>, <code>HbmTensor</code>, <code>TuTensor</code>, …), but every concrete pair maps onto the same <code>MemTensor</code> → <code>StreamTensor</code> shape illustrated below.</p>
 <p><code>MemTensor</code> holds data in some memory mapping <code>Buf</code>.
-DM and HBM tensors play this role in the public API.</p>
+DM, SPM, and HBM tensors play this role in the public API.</p>
+<p>The DMA Engine chains a read sequencer and a write sequencer to move data among DM, SPM, and HBM without intermediate buffers.</p>
 <pre><code class="language-rust ignore">/// A generic buffer-backed tensor.
 /// Anything that holds data in a memory `Buf` and can be streamed in or out.
 #[derive(Debug)]

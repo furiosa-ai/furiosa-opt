@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,7 +178,7 @@
                     <main>
                         <h1 id="moving-tensors"><a class="header" href="#moving-tensors">Moving Tensors</a></h1>
 <p>Furiosa-opt kernels are Rust functions compiled for the Furiosa NPU.
-This chapter explains how a kernel transfers tensor data between host memory, HBM, DM, and the Tensor Unit.
+This chapter explains how a kernel transfers tensor data between host memory, HBM, DM, SPM, and the Tensor Unit.
 The <a href="../quick-start/kernel-design.html#pattern-specific-mapping-and-memory">Quick Start kernel design</a> introduces these tiers in a complete kernel.
 Choose the source and destination in the movement table before reading the worked transfer.
 The <a href="./sequencer.html">Sequencer</a> describes the common loop model.
@@ -198,6 +198,8 @@ It gives the operation and context for each public boundary.</p>
 <tr><td><code>DmTensor</code></td><td><code>HbmTensor</code></td><td><code>DmTensor::to_hbm</code> with <code>Device::tdma</code>; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
 <tr><td><code>HbmTensor</code></td><td><code>HbmTensor</code></td><td><code>HbmTensor::to_hbm</code> with the DMA context required by the call; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
 <tr><td><code>DmTensor</code></td><td><code>DmTensor</code></td><td><code>DmTensor::to_dm</code> with <code>Device::tdma</code>, or a fetch/commit round trip through the Tensor Unit; see <a href="./dma-engine.html">DMA Engine</a> and <a href="./commit-engine.html">Commit Engine</a></td></tr>
+<tr><td><code>DmTensor</code></td><td><code>SpmTensor</code></td><td><code>DmTensor::to_spm</code> with <code>Device::tdma</code>; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
+<tr><td><code>SpmTensor</code></td><td><code>DmTensor</code></td><td><code>SpmTensor::to_dm</code> with <code>Device::tdma</code>; see <a href="./dma-engine.html">DMA Engine</a></td></tr>
 <tr><td><code>DmTensorView</code></td><td>Tensor Unit stream</td><td><code>TuContext::begin</code>, then <a href="./fetch-engine.html"><code>fetch</code></a></td></tr>
 <tr><td>Tensor Unit stream</td><td><code>DmTensor</code></td><td><a href="./commit-engine.html"><code>commit</code></a>, or <a href="./commit-engine.html"><code>commit_view</code></a> for an existing mutable view</td></tr>
 </tbody>
@@ -258,19 +260,18 @@ pub fn fetch_commit_simple(
 use furiosa_opt_std::prelude::*;
 
 #[tokio::test]
-async fn test_fetch_commit_simple_host() {
+async fn test_fetch_commit_simple_host() -&gt; eyre::Result&lt;()&gt; {
     use furiosa_opt_examples::fetch_commit::{A, B};
 
-    let mut device = Device::new(fetch_commit_simple.topology()).unwrap();
+    let mut device = Device::new(fetch_commit_simple.topology())?;
 
     // Create input tensor with shape (A=4096)(B=8).
     let input = HostTensor::&lt;i8, m![A, B]&gt;::from_vec((0..32768).map(|x| x as i8).collect::&lt;Vec&lt;_&gt;&gt;())
         .to_hbm::&lt;m![1], m![A, B]&gt;(&amp;mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
     // Call the device function.
-    let output = launch(fetch_commit_simple, (&amp;mut device, &amp;input)).await.unwrap();
+    let output = launch(fetch_commit_simple, (&amp;mut device, &amp;input)).await?;
 
     let mut expected = vec![0i32; 4096 * 8];
     let mut idx = 0;
@@ -282,9 +283,11 @@ async fn test_fetch_commit_simple_host() {
     }
 
     assert_eq!(
-        output.to_host::&lt;m![B, A]&gt;(&amp;mut device.pdma).await.unwrap().into_inner(),
+        output.to_host::&lt;m![B, A]&gt;(&amp;mut device.pdma).await?.into_inner(),
         Tensor::&lt;_, m![B, A], CurrentBackend&gt;::from_vec(expected)
     );
+
+    Ok(())
 }</code></pre>
 <p>The included source is the complete example for the ordering and lifetime rules described below.
 This chapter keeps that transfer as a readable HBM↔DM and lifetime tutorial; the linked Tensor Unit I/O pattern owns the detailed packet and performance comparisons.</p>
@@ -315,9 +318,8 @@ Its output mapping chooses the stream <code>Time</code> and <code>Packet</code> 
 <li><strong><a href="./commit-engine.html">Commit</a></strong> writes a Tensor Unit stream to DM.
 Its <code>Element</code> mapping chooses the destination layout and can transpose stream axes during the write.</li>
 <li><strong><a href="./dma-engine.html">DMA</a></strong> pairs read and write sequencers for memory-to-memory movement.
-The supported public paths are HBM to HBM, HBM to DM, DM to HBM, and DM to DM.
-Indirect gather/scatter APIs have separate index-unit contracts: unscaled gather uses a <code>DmTensor</code> index with raw row positions, while unscaled scatter is currently unimplemented.
-SPM has no public tensor type.</li>
+The supported public paths are HBM to HBM, HBM to DM, DM to HBM, DM to DM, and DM to SPM with SPM to DM.
+Indirect gather/scatter APIs name their index unit in the call that takes the index: <code>by_byte_offsets</code> consumes HBM-resident byte offsets and <code>by_positions</code> consumes positions from an <code>SpmTensor&lt;i32&gt;</code>, on both operations.</li>
 </ul>
 <p>The Tensor Unit pipeline is therefore:</p>
 <pre class="mermaid">flowchart LR
@@ -343,7 +345,7 @@ Small or strided packets increase the number of sequencer accesses.
 Conflicting DM-bank patterns can starve DMA.
 See <a href="./memory-performance.html">Memory Performance</a> for the bank-starvation rule, HBM interleaving, and packet-size trade-offs.</p>
 <p>For a complete end-to-end movement pattern, see <a href="./tensor-unit-io.html">Case Study: Tensor Unit I/O</a>.
-For indirect HBM row movement, see <a href="./dma-engine.html#scatter-and-gather">DMA gather and scatter</a>.</p>
+For indirect HBM row movement, see <a href="./dma-engine.html#gather-and-scatter">DMA gather and scatter</a>.</p>
 <h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <p>The <a href="https://docs.rs/crate/furiosa-opt-std">furiosa-opt-std rustdoc</a> documents the release API.
 Use the engine pages above for operation-specific contracts and <a href="../scheduling/index.html">Scheduling and Tuning</a> when a valid movement plan needs measured overlap or hazard diagnosis.</p>

@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -202,9 +202,9 @@ Every contraction consists of broadcast, multiply, and reduce steps.</p>
 <tr><th>Operation</th><th>Einsum</th><th>Broadcast</th><th>Multiply</th><th>Reduce</th></tr>
 </thead>
 <tbody>
-<tr><td>Dot product</td><td>(I, I \rightarrow 1)</td><td>None.</td><td>(x_i y_i)</td><td>(\sum_i x_i y_i)</td></tr>
-<tr><td>GEMV</td><td>(IJ, J \rightarrow I)</td><td>(x) across (I).</td><td>(A_{ij} x_j)</td><td>(y_i = \sum_j A_{ij} x_j)</td></tr>
-<tr><td>GEMM</td><td>(IK, KJ \rightarrow IJ)</td><td>(A) across (J) and (B) across (I).</td><td>(A_{ik} B_{kj})</td><td>(C_{ij} = \sum_k A_{ik} B_{kj})</td></tr>
+<tr><td>Dot product</td><td>\(I, I \rightarrow 1\)</td><td>None.</td><td>\(x_i y_i\)</td><td>\(\sum_i x_i y_i\)</td></tr>
+<tr><td>GEMV</td><td>\(IJ, J \rightarrow I\)</td><td>\(x\) across \(I\).</td><td>\(A_{ij} x_j\)</td><td>\(y_i = \sum_j A_{ij} x_j\)</td></tr>
+<tr><td>GEMM</td><td>\(IK, KJ \rightarrow IJ\)</td><td>\(A\) across \(J\) and \(B\) across \(I\).</td><td>\(A_{ik} B_{kj}\)</td><td>\(C_{ij} = \sum_k A_{ik} B_{kj}\)</td></tr>
 </tbody>
 </table>
 </div>

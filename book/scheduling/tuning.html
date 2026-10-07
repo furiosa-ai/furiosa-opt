@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -215,15 +215,25 @@ for group in 0..Group::SIZE {
 }
 <span class="boring">}
 </span><span class="boring">#[tokio::main]
-</span><span class="boring">async fn main() {
-</span><span class="boring">    let mut device = Device::new(example.topology()).unwrap();
-</span><span class="boring">    launch(example, &amp;mut device).await.unwrap();
+</span><span class="boring">async fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">    let mut device = Device::new(example.topology())?;
+</span><span class="boring">    launch(example, &amp;mut device).await?;
+</span><span class="boring">
+</span><span class="boring">    Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>The kernel crate requires <code>#![feature(proc_macro_hygiene, stmt_expr_attributes)]</code>.
-The trip count must be a compile-time constant.
+The loop must start at zero, run at least once, and have a compile-time constant end. <code>#[unroll]</code>
+fully expands that trip count; there is no source-level partial-unroll factor or hard maximum trip
+count. In practice, generated IR and code grow with the trip count, so reserve it for small loops.</p>
+<p>A runtime <code>if</code> inside the body is supported and is copied into every expanded iteration. A runtime
+loop end such as <code>0..valid_len</code> is rejected before unrolling because the compiler has no fixed
+number of body copies to create.
 The loop may be in a device entry point or a helper called by one.
 Nested loops are not unrolled automatically.
-To unroll every level, add <code>#[unroll]</code> to each loop.</p>
+To unroll every level, add <code>#[unroll]</code> to each loop.
+A nested loop with its own constant end is supported. An end that depends on an outer loop counter,
+such as <code>for j in 0..i</code>, is a runtime loop end and is rejected even when the outer loop has
+<code>#[unroll]</code>; loop construction currently happens before unrolling.</p>
 <p>The compiler checks for remaining loops after applying <code>#[unroll]</code>.
 Register-file reuse is enabled only when no loop remains anywhere in the kernel.
 Unrolling only some loops can still expose those iterations to scheduling, but a remaining outer or nested loop does not unlock loop-free optimizations.</p>
@@ -304,11 +314,13 @@ pub fn rolled(
     result
 }
 <span class="boring">#[tokio::main]
-</span><span class="boring">async fn main() {
-</span><span class="boring">let mut device = Device::new(rolled.topology()).unwrap();
+</span><span class="boring">async fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(rolled.topology())?;
 </span><span class="boring">let activation = HbmTensor::&lt;bf16, m![1], m![Tok, Red]&gt;::new();
 </span><span class="boring">let weight = HbmTensor::&lt;bf16, m![1], m![Group, Out, Red]&gt;::new();
-</span><span class="boring">let _output = launch(rolled, (&amp;mut device, &amp;activation, &amp;weight)).await.unwrap();
+</span><span class="boring">let _output = launch(rolled, (&amp;mut device, &amp;activation, &amp;weight)).await?;
+</span><span class="boring">
+</span><span class="boring">    Ok(())
 </span><span class="boring">}</span></code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../images/loop-unrolling-rolled-schedule.png" alt="The rolled loop schedules each StoTrf before its matching contraction without cross-iteration overlap."><span class="img-wrapper"><img src="../images/loop-unrolling-rolled-schedule.png" alt="The rolled loop schedules each StoTrf before its matching contraction without cross-iteration overlap."></span></label></p>
 <h3 id="manual-two-stage-software-pipeline-15477-cycles"><a class="header" href="#manual-two-stage-software-pipeline-15477-cycles">Manual two-stage software pipeline: 15,477 cycles</a></h3>
@@ -387,11 +399,13 @@ pub fn software_pipelined(
     result
 }
 <span class="boring">#[tokio::main]
-</span><span class="boring">async fn main() {
-</span><span class="boring">let mut device = Device::new(software_pipelined.topology()).unwrap();
+</span><span class="boring">async fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(software_pipelined.topology())?;
 </span><span class="boring">let activation = HbmTensor::&lt;bf16, m![1], m![Tok, Red]&gt;::new();
 </span><span class="boring">let weight = HbmTensor::&lt;bf16, m![1], m![Group, Out, Red]&gt;::new();
-</span><span class="boring">let _output = launch(software_pipelined, (&amp;mut device, &amp;activation, &amp;weight)).await.unwrap();
+</span><span class="boring">let _output = launch(software_pipelined, (&amp;mut device, &amp;activation, &amp;weight)).await?;
+</span><span class="boring">
+</span><span class="boring">    Ok(())
 </span><span class="boring">}</span></code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../images/loop-unrolling-software-pipelined-schedule.png" alt="The software-pipelined loop overlaps each current contraction with the next StoTrf."><span class="img-wrapper"><img src="../images/loop-unrolling-software-pipelined-schedule.png" alt="The software-pipelined loop overlaps each current contraction with the next StoTrf."></span></label></p>
 <h3 id="full-unrolling-15086-cycles"><a class="header" href="#full-unrolling-15086-cycles">Full unrolling: 15,086 cycles</a></h3>
@@ -449,11 +463,13 @@ pub fn unrolled(
     result
 }
 <span class="boring">#[tokio::main]
-</span><span class="boring">async fn main() {
-</span><span class="boring">let mut device = Device::new(unrolled.topology()).unwrap();
+</span><span class="boring">async fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(unrolled.topology())?;
 </span><span class="boring">let activation = HbmTensor::&lt;bf16, m![1], m![Tok, Red]&gt;::new();
 </span><span class="boring">let weight = HbmTensor::&lt;bf16, m![1], m![Group, Out, Red]&gt;::new();
-</span><span class="boring">let _output = launch(unrolled, (&amp;mut device, &amp;activation, &amp;weight)).await.unwrap();
+</span><span class="boring">let _output = launch(unrolled, (&amp;mut device, &amp;activation, &amp;weight)).await?;
+</span><span class="boring">
+</span><span class="boring">    Ok(())
 </span><span class="boring">}</span></code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../images/loop-unrolling-unrolled-schedule.png" alt="The unrolled loop overlaps the first contraction with the next iteration’s StoTrf."><span class="img-wrapper"><img src="../images/loop-unrolling-unrolled-schedule.png" alt="The unrolled loop overlaps the first contraction with the next iteration’s StoTrf."></span></label></p>
 <p>All captures show cycles 4,000 through 8,000.</p>

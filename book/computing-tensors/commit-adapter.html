@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -271,7 +271,8 @@ fn commit_trim_i4_no_trim&lt;'l, const T: Tu&gt;(
     input.commit_trim::&lt;m![J]&gt;()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">let a: CastTensor&lt;'_, _, i8, m![1], m![1], m![1], m![M, K], m![W # 32]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = commit_trim_i8_padding(a);
 </span><span class="boring">let b: ContractTensor&lt;'_, _, f32, m![1], m![1], m![1], m![M, K], m![W]&gt; = ContractTensor::new(&amp;mut device.main, Tensor::zero());
@@ -279,7 +280,10 @@ fn commit_trim_i4_no_trim&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let c: CastTensor&lt;'_, _, bf16, m![1], m![1], m![1], m![M, K], m![N]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = commit_trim_bf16_with_transpose(c);
 </span><span class="boring">let d: CastTensor&lt;'_, _, i4, m![1], m![1], m![1], m![M, K], m![J]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
-</span><span class="boring">let _o = commit_trim_i4_no_trim(d);</span></code></pre>
+</span><span class="boring">let _o = commit_trim_i4_no_trim(d);
+</span><span class="boring">
+</span><span class="boring">Ok(())
+</span><span class="boring">}</span></code></pre>
 <h2 id="type-casting"><a class="header" href="#type-casting">Type Casting</a></h2>
 <p>Type casting converts <code>f32</code> data to <code>bf16</code> format on the commit path, optionally fusing a ReLU activation into the same pass.
 The <a href="./cast-engine.html">Cast Engine</a> handles most type conversions in the Tensor Unit pipeline.

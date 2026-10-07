@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-152b6ab7.js"></script>
+        <script src="../../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -228,9 +228,7 @@ The input <code>Packet</code> carries the size that survived the <a href="./pack
 <pre><code class="language-text">OutTime   = [Time, Packet]
 OutPacket = [Lane # 8]
 </code></pre>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![N = 8, M = 4, P = 16];
@@ -244,7 +242,8 @@ fn lane_interleaved&lt;'l, const T: Tu&gt;(
     input.contract_lane::&lt;m![M, P], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::zero();
@@ -255,6 +254,8 @@ fn lane_interleaved&lt;'l, const T: Tu&gt;(
 </span><span class="boring">    .contract_time::&lt;m![M]&gt;();
 </span><span class="boring">
 </span><span class="boring">let _o = lane_interleaved(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="sequential"><a class="header" href="#sequential">Sequential</a></h3>
 <p>The <code>Lane</code> dimension folds into <code>OutTime</code>: each cycle reads 8 column positions from one lane’s <code>Packet</code> (8 values per flit), with <code>Lane</code> iterating across successive cycles.
@@ -264,9 +265,7 @@ OutTime   = [Time, Lane, PadPacket / 8]
 OutPacket = [PadPacket % 8]
 </code></pre>
 <p>For <code>Packet::SIZE &lt; 32</code>, <code>[PadPacket / 8]::SIZE = ceil(Packet::SIZE / 8)</code> is the number of cycles per packet (e.g., 1 cycle for <code>Packet::SIZE = 4</code>, 2 cycles for <code>Packet::SIZE = 16</code>).</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![N = 8, M = 4, P = 16];
@@ -280,7 +279,8 @@ fn lane_sequential&lt;'l, const T: Tu&gt;(
     input.contract_lane::&lt;m![M, N, P / 8], m![P % 8]&gt;(LaneMode::Sequential)
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M], m![P]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![P]&gt; = TrfTensor::zero();
@@ -291,6 +291,8 @@ fn lane_sequential&lt;'l, const T: Tu&gt;(
 </span><span class="boring">    .contract_time::&lt;m![M]&gt;();
 </span><span class="boring">
 </span><span class="boring">let _o = lane_sequential(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
 <p>The Lane Folder has no constraints of its own.

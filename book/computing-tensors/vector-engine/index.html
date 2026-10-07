@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-152b6ab7.js"></script>
+        <script src="../../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -243,9 +243,7 @@ impl&lt;'l, const T: Tu, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M&gt;
 <p>A few representative examples follow to give a feel for what a Vector Engine call looks like, with the full API tour deferred to the child pages <a href="./intra-slice-chain.html">Intra-Slice Chain</a> and <a href="./inter-slice-reducer.html">Inter-Slice Reducer</a>.</p>
 <h3 id="relu-activation"><a class="header" href="#relu-activation">ReLU Activation</a></h3>
 <p>This pass applies ReLU elementwise, computing \(output[b, k, m, n] = \max(input[b, k, m, n], 0)\).</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 2, K = 256, M = 16, N = 16];
@@ -264,16 +262,17 @@ fn relu&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: ContractTensor&lt;'_, _, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]&gt; = ContractTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = relu(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="relu-then-reduce"><a class="header" href="#relu-then-reduce">ReLU Then Reduce</a></h3>
 <p>This pass applies ReLU per slice and then reduces across <code>R</code>, giving \(output[a, b] = \sum_{r \in R} \max(input[a, b, r], 0)\).</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2, R = 4];
@@ -294,16 +293,17 @@ fn relu_then_reduce&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = relu_then_reduce(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="reduce-then-bias"><a class="header" href="#reduce-then-bias">Reduce Then Bias</a></h3>
 <p>This pass reduces across <code>R</code> and then adds a constant bias, giving \(output[a, b] = \left(\sum_{r \in R} input[a, b, r]\right) + 100\).</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2, R = 4];
@@ -324,17 +324,18 @@ fn reduce_then_add&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = reduce_then_add(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="intra--and-inter-slice-reduction"><a class="header" href="#intra--and-inter-slice-reduction">Intra- and Inter-Slice Reduction</a></h3>
 <p>This pass reduces <code>R</code> entirely by combining the intra-slice reducer (over <code>R</code>’s Time and Packet portions) and the inter-slice reducer (over <code>R</code>’s Slice portion).
 The einsum form is <code>BR -&gt; B</code>, with saturating addition.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 2, R = 8192];
@@ -359,17 +360,18 @@ fn full_sum&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![R / 32], m![R % 32 / 4], m![R % 4 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = full_sum(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="pair-add"><a class="header" href="#pair-add">Pair Add</a></h3>
 <p>This pass unzips two interleaved groups along <code>I</code> and adds them pair-wise.
 The einsum form is <code>ABI -&gt; AB</code>.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 2048, B = 2, I = 2];
@@ -388,10 +390,13 @@ fn pair_add&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = pair_add(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 
                     </main>

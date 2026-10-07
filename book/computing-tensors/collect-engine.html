@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -205,9 +205,7 @@ The <code>FetchTensor</code> entry point bypasses the Switch Engine when no slic
 }</code></pre>
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
 <h3 id="single-flit-packet"><a class="header" href="#single-flit-packet">Single-Flit Packet</a></h3>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, B = 32];
@@ -220,10 +218,13 @@ fn collect_identity&lt;'l, const T: Tu&gt;(
     input.collect()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: SwitchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]&gt; = SwitchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = collect_identity(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>When the input packet is already exactly 32 bytes, <code>collect</code> passes it through unchanged (<code>B = 32</code> elements × 1 byte for <code>i8</code> = 32 bytes).</p>
 <pre><code class="language-text">Before:   Time = m![A]
@@ -239,9 +240,7 @@ After:    Time = m![A]
           └──────────────────────────┘
 </code></pre>
 <h3 id="sub-flit-packet"><a class="header" href="#sub-flit-packet">Sub-Flit Packet</a></h3>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, B = 16];
@@ -255,10 +254,13 @@ fn collect_padding&lt;'l, const T: Tu&gt;(
     input.collect()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: SwitchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]&gt; = SwitchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = collect_padding(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>When the input packet is smaller than 32 bytes, <code>collect</code> pads to 32 bytes (<code>B = 16</code> elements × 1 byte for <code>i8</code> = 16 bytes).</p>
 <pre><code class="language-text">Before:   Time = m![A]
@@ -274,9 +276,7 @@ After:    Time = m![A]
           └────────────┴─────────────┘
 </code></pre>
 <h3 id="multi-flit-packet"><a class="header" href="#multi-flit-packet">Multi-Flit Packet</a></h3>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, B = 32];
@@ -290,10 +290,13 @@ fn collect_multi_flit&lt;'l, const T: Tu&gt;(
     input.collect()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: SwitchTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A], m![B]&gt; = SwitchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = collect_multi_flit(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>When the input packet exceeds 32 bytes, <code>collect</code> splits into flits and absorbs the outer flit count into Time (<code>B = 32</code> elements × 2 bytes for <code>bf16</code> = 64 bytes, so <code>B / 16 = 2</code> flits).</p>
 <pre><code class="language-text">Before:   Time = m![A]
@@ -310,9 +313,7 @@ After:    Time = m![A, B / 16]
           └──────────────────────────┘
 </code></pre>
 <h3 id="multi-flit-packet-with-padding"><a class="header" href="#multi-flit-packet-with-padding">Multi-Flit Packet With Padding</a></h3>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 8, B = 56];
@@ -327,10 +328,13 @@ fn collect_multi_flit_padded&lt;'l, const T: Tu&gt;(
     input.collect()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: SwitchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]&gt; = SwitchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { collect_multi_flit_padded(c) }));
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>When the input packet is not aligned to 32 bytes, it is first padded (<code>B = 51</code> elements × 1 byte for <code>i8</code> = 51 bytes, padded to 64).
 Then, <code>collect</code> splits into flits and absorbs the outer flit count (<code>B # 64 / 32 = 2</code>) into Time.</p>

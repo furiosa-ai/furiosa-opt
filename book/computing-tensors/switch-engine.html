@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -228,9 +228,7 @@ Arbitrary <code>Slice</code> sub-dimension permutations not expressible by one o
 <p><code>Forwarding</code> leaves the <code>Slice</code> and <code>Time</code> mappings unchanged: every router outputs its own slice’s input directly, with no cross-slice movement.</p>
 <p><code>SwitchConfig</code> has no <code>Forwarding</code> variant.
 When no inter-slice exchange is needed, skip <code>.switch()</code> and call <a href="./collect-engine.html"><code>.collect()</code></a> directly on the <code>FetchTensor</code>.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 256, B = 64, C = 32];
@@ -241,10 +239,13 @@ fn forwarding&lt;'l, const T: Tu&gt;(
     input.collect()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A], m![B], m![C]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = forwarding(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="broadcast01"><a class="header" href="#broadcast01">Broadcast01</a></h3>
 <p><code>Broadcast01</code> broadcasts each slice’s data to every slice in a sub-ring, moving both inner <code>Slice</code> sub-dimensions (<code>slice0</code> and <code>slice1</code>) into <code>Time</code>.</p>
@@ -266,9 +267,7 @@ Two new broadcast dimensions, labeled <code>X</code> and <code>Y</code>, fill th
 <p>The sub-ring spans <code>ring_size = slice1 × slice0</code> slices, one for each <code>(slice1, slice0)</code> combination at fixed <code>slice2</code>.
 Every slice sends its packet around the sub-ring, and every slice receives all <code>ring_size</code> packets, so each output slice ends up holding the full broadcast group’s data, indexed along the new <code>X</code> and <code>Y</code> axes in the output <code>Slice</code>.</p>
 <h4 id="example"><a class="header" href="#example">Example</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 256, B = 64, C = 63, D = 2, X = 2, Y = 2];
@@ -285,10 +284,13 @@ fn broadcast01&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![D], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o= broadcast01(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 2</code> (size of broadcast <code>X</code>), <code>slice0 = 2</code> (size of broadcast <code>Y</code>), and <code>time0 = 4</code>, the compiler derives <code>slice2 = 64</code>, <code>time1 = 16</code>, and <code>ring_size = 4</code> (64 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 4</code>, <code>slice1 = A / 2 % 2</code>, <code>slice0 = A % 2</code>, <code>time1 = B / 4</code>, <code>time0 = B % 4</code>, giving <code>OutSlice = m![A / 4, X, Y]</code> and <code>OutTime = m![B / 4, A / 2 % 2, B % 4, A % 2]</code>.</p>
@@ -313,9 +315,7 @@ A new broadcast dimension labeled <code>X</code> fills <code>slice1</code>’s v
 But broadcasting happens only along <code>slice1</code>: each output slice receives the <code>slice1</code> packets from sources at the same <code>slice0</code> position, sequenced along the innermost <code>Time</code>.
 The new <code>X</code> axis in the output <code>Slice</code> (sized <code>slice1</code>) replicates this collected data, while <code>slice0</code> itself is preserved at its original position.</p>
 <h4 id="example-1"><a class="header" href="#example-1">Example</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 256, B = 64, C = 63, X = 4];
@@ -331,10 +331,13 @@ fn broadcast1&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = broadcast1(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 4</code> (size of broadcast <code>X</code>) and <code>slice0 = 8</code>, the compiler derives <code>slice2 = 8</code> and <code>ring_size = 32</code> (8 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 32</code>, <code>slice1 = A / 8 % 4</code>, <code>slice0 = A % 8</code>, <code>time0 = B</code>, giving <code>OutSlice = m![A / 32, X, A % 8]</code> and <code>OutTime = m![B, A / 8 % 4]</code>.</p>
@@ -351,9 +354,7 @@ fn broadcast1&lt;'l, const T: Tu&gt;(
 <p>Each sub-ring spans <code>slice0 × slice1</code> slices and circulates data so every slice in the sub-ring ends up holding the value previously held by its swap partner.</p>
 <p><code>Transpose</code> requires input <code>Time</code> and output <code>Time</code> to match (after normalization).</p>
 <h4 id="example-2"><a class="header" href="#example-2">Example</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 256, B = 64, C = 63];
@@ -367,10 +368,13 @@ fn transpose&lt;'l, const T: Tu&gt;(
     })
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = transpose(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 32</code> and <code>slice0 = 2</code>, the compiler derives <code>slice2 = 4</code> and <code>ring_size = 64</code> (4 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 64</code>, <code>slice1 = A / 2 % 32</code>, <code>slice0 = A % 2</code>, <code>time0 = B</code>, giving <code>OutSlice = m![A / 64, A % 2, A / 2 % 32]</code> and <code>OutTime = m![B]</code> (slice0 and slice1 swap; <code>Time</code> is unchanged).</p>
@@ -405,9 +409,7 @@ Use <code>InterTranspose</code> when data must move between slices or from <code
 <li><code>InTime::SIZE</code> is divisible by <code>slice1 × time0</code> so the <code>time2</code> decomposition is integral.</li>
 </ul>
 <h4 id="example-3"><a class="header" href="#example-3">Example</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 256, B = 8, C = 32];
@@ -423,10 +425,13 @@ fn inter_transpose&lt;'l, const T: Tu&gt;(
         })
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = inter_transpose(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 2</code>, <code>slice0 = 16</code>, and <code>time0 = 2</code>, the compiler derives <code>slice2 = 8</code>, <code>time2 = 2</code>, and <code>ring_size = 32</code> (8 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 32</code>, <code>slice1 = A / 16 % 2</code>, <code>slice0 = A % 16</code>, <code>time2 = B / 4</code>, <code>time1 = B / 2 % 2</code>, <code>time0 = B % 2</code>, giving <code>OutSlice = m![A / 32, B / 2 % 2, A % 16]</code> and <code>OutTime = m![B / 4, B % 2, A / 16 % 2]</code> (slice1 and time1 swap between <code>Slice</code> and <code>Time</code>).</p>
@@ -449,9 +454,7 @@ An input tensor structured as:</p>
 </code></pre>
 <p>Each sub-ring spans <code>slice0 × slice1</code> slices and circulates data so every slice ends up with its swap partner’s value, broadcast across the <code>slice0</code> positions at the innermost <code>Time</code> sub-dimension.</p>
 <h4 id="example-4"><a class="header" href="#example-4">Example</a></h4>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 256, B = 16, C = 32, Y = 8];
@@ -467,10 +470,13 @@ fn transposed_broadcast1&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = transposed_broadcast1(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>With <code>slice1 = 8</code> and <code>slice0 = 8</code> (size of broadcast <code>Y</code>), the compiler derives <code>slice2 = 4</code> and <code>ring_size = 64</code> (4 sub-rings span 256 slices).</p>
 <p>Sub-dimensions resolve to <code>slice2 = A / 64</code>, <code>slice1 = A / 8 % 8</code>, <code>slice0 = A % 8</code>, <code>time0 = B</code>, giving <code>OutSlice = m![A / 64, Y, A / 8 % 8]</code> and <code>OutTime = m![B, A % 8]</code>.</p>
@@ -521,9 +527,7 @@ CustomBroadcast {
 While the bitmap is loading, the DMA and sub contexts cannot run any other operation, so the cost manifests as reduced scheduling parallelism rather than a fixed-cycle stall.</p>
 <h3 id="example-1-arbitrary-permutation"><a class="header" href="#example-1-arbitrary-permutation">Example 1: Arbitrary Permutation</a></h3>
 <p>This example reverses the four innermost slice sub-dimensions (<code>A / 4, A % 4, B / 4, B % 4</code>) into <code>[3, 2, 1, 0]</code>, a pattern no regular configuration expresses.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 16, B = 16, C = 8, D = 8, E = 8];
@@ -536,10 +540,13 @@ fn arbitrary_permutation&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = arbitrary_permutation(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>The output <code>Slice = m![B % 4, B / 4, A % 4, A / 4]</code> permutes the input slice shape <code>[0, 1, 2, 3]</code> into <code>[3, 2, 1, 0]</code>, which no regular configuration covers but a custom bitmap does.</p>
 <div class="table-wrapper">
@@ -568,9 +575,7 @@ fn arbitrary_permutation&lt;'l, const T: Tu&gt;(
 <p>The maximum <code>ring_size = 256</code> is necessary because the permutation creates dependencies across all slices with no repeating structure, so input and output slices can be arbitrarily far apart in the ring index, and any smaller sub-ring would fail to cover at least one such pair.</p>
 <h3 id="example-2-multi-dimension-broadcast"><a class="header" href="#example-2-multi-dimension-broadcast">Example 2: Multi-dimension Broadcast</a></h3>
 <p>Unlike Example 1’s pure permutation, this example moves two non-contiguous dimensions (<code>A % 2</code> and <code>B % 2</code>) from <code>Slice</code> to <code>Time</code>, broadcasting at their original positions.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 16, B = 16, C = 8, D = 8, E = 8, X = 2, Y = 2];
@@ -583,10 +588,13 @@ fn multi_axis_broadcast&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = multi_axis_broadcast(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>The output moves <code>A % 2</code> and <code>B % 2</code> from <code>Slice</code> to <code>Time</code>, broadcasting at their original positions via the broadcast dimensions <code>X</code> and <code>Y</code>.
 <code>Broadcast01</code> supports a similar form but requires the broadcast dimensions (<code>slice0</code>, <code>slice1</code>) to be contiguous in the input slice, so it cannot express non-contiguous dimensions moving from <code>Slice</code> to <code>Time</code>.
@@ -614,9 +622,7 @@ A custom bitmap expresses it instead.</p>
 </ul>
 <h3 id="example-3-partial-axis-extraction-slicing"><a class="header" href="#example-3-partial-axis-extraction-slicing">Example 3: Partial Axis Extraction (Slicing)</a></h3>
 <p>Unlike Examples 1 and 2, which include every value of the moved dimensions, here only the 3 valid values of <code>C # 4</code> move from <code>Slice</code> to <code>Time</code>; its padding cell stays behind.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 16, B = 4, C = 3, D = 8, E = 8, X = 4];
@@ -629,10 +635,13 @@ fn partial_axis_extraction&lt;'l, const T: Tu&gt;(
     )
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let f: FetchTensor&lt;'_, _, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]&gt; = FetchTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = partial_axis_extraction(f);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>The output moves <code>C # 4</code> from <code>Slice</code> to <code>Time</code>, placing a broadcast axis <code>X</code> at its vacated <code>Slice</code> position, and the fourth value (<code>C # 4 = 3</code>), a pure padding cell, is dropped, so only the three valid values <code>C</code> are extracted.
 <code>Broadcast1</code> supports a similar form but always moves the entire dimension, so it cannot express a subset.</p>

@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-152b6ab7.js"></script>
+        <script src="../../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -287,9 +287,7 @@ OutPacket = PackPacket
 <p><code>TimeBroadcast</code> factors occupy the <em>innermost</em> positions of <code>OutTime</code>: the same <code>OutPacket</code> is re-sent across those factors before iterating any outer <code>PackTime</code> factor.</p>
 <h3 id="examples"><a class="header" href="#examples">Examples</a></h3>
 <p>The example below exercises both operations: Packing absorbs the innermost size-2 factor <code>L</code> of <code>Time</code> into <code>Packet</code> (<code>PackSize = 2</code>), Lane Broadcast distributes the resulting packet to <code>N = 8</code> lanes, and Time Broadcast tiles the streaming data across a TRF-only <code>B = 5</code> axis.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 16, L = 2, B = 5];
@@ -307,11 +305,14 @@ fn stream_adapter_example&lt;'l, const T: Tu&gt;(
     input.contract_outer::&lt;m![M, B], m![L, K], _, _, _&gt;(trf)
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = stream_adapter_example(a, &amp;b);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
 <ul>
@@ -345,9 +346,7 @@ The compiler picks the largest <code>ReadSize</code> such that <code>Element % R
 The TRF Sequencer uses the same nested-loop configuration as all other <a href="../../moving-tensors/sequencer.html">sequencers</a>.</p>
 <h3 id="examples-1"><a class="header" href="#examples-1">Examples</a></h3>
 <p>In this example, <code>ReadSize</code> covers all of <code>Element</code> in one 64 B read, so <code>Element / ReadSize</code> is trivial and the sequencer iterates only broadcasts:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 32];
@@ -364,16 +363,17 @@ fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
     input.contract_outer::&lt;m![M], m![K], _, _, _&gt;(trf)
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = trf_sequencer_full_read(a, &amp;b);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>In this example, <code>ReadSize</code> covers only part of <code>Element</code>, so <code>Element / ReadSize</code> is non-trivial and the sequencer iterates the outer <code>Element</code> factor alongside a broadcast:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 16, L = 2, O = 2];
@@ -390,15 +390,18 @@ fn trf_sequencer_partial_read&lt;'l, const T: Tu&gt;(
     input.contract_outer::&lt;m![O, M], m![L, K], _, _, _&gt;(trf)
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = trf_sequencer_partial_read(a, &amp;b);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="constraints-1"><a class="header" href="#constraints-1">Constraints</a></h3>
 <ul>
-<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="../../moving-tensors/sequencer.html#configurations">Sequencer</a>).</li>
+<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="../../mapping-tensors/spatial-temporal-dimensions.html#constraints">Spatial and Temporal Dimensions</a>).</li>
 <li><strong>Address alignment</strong>: when <code>Element % ReadSize</code> covers all 64 B, the read spans both TRF banks per lane, so the sequencer’s base address and all strides must align to 64 B.</li>
 </ul>
 <h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>

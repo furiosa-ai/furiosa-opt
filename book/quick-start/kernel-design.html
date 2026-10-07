@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -246,13 +246,14 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() -&gt; Result&lt;(), Error&gt; {
+async fn main() -&gt; eyre::Result&lt;()&gt; {
     let mut device = Device::new(constant_add_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
     let in_hbm = input.to_hbm(&amp;mut device.pdma).await?;
     let _out_hbm = launch(constant_add_kernel, (&amp;mut device, &amp;in_hbm)).await?;
     println!("Constant Add: kernel ran");
+
     Ok(())
 }
 
@@ -261,23 +262,25 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn matches_reference() {
-        let mut device = Device::new(constant_add_kernel.topology()).unwrap();
+    async fn matches_reference() -&gt; eyre::Result&lt;()&gt; {
+        let mut device = Device::new(constant_add_kernel.topology())?;
 
         let mut rng = SmallRng::seed_from_u64(42);
         let input = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
-        let in_hbm = input.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let in_hbm = input.to_hbm(&amp;mut device.pdma).await?;
 
         // Reference: out[i] = in[i] + 1.
         let in_buf: Vec&lt;i32&gt; = input.into_vec();
         let expected: Vec&lt;i32&gt; = in_buf.iter().map(|&amp;x| x.wrapping_add(1)).collect();
 
-        let out_hbm = launch(constant_add_kernel, (&amp;mut device, &amp;in_hbm)).await.unwrap();
+        let out_hbm = launch(constant_add_kernel, (&amp;mut device, &amp;in_hbm)).await?;
 
-        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
+        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut device.pdma).await?.into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             assert_eq!(e, a, "constant_add mismatch at i={i}: expected {e}, actual {a}");
         }
+
+        Ok(())
     }
 }</code></pre>
 <h4 id="pattern-specific-mapping-and-memory"><a class="header" href="#pattern-specific-mapping-and-memory">Pattern-Specific Mapping and Memory</a></h4>
@@ -321,12 +324,14 @@ The Switch Engine connects slices while most stages operate independently within
 <tbody>
 <tr><td><code>HbmTensor</code></td><td>On-package</td><td>48 GB and 1.5 TB/s</td><td>Long-term weight and activation storage.</td></tr>
 <tr><td><code>DmTensor</code></td><td>On-chip SRAM</td><td>256 MB total and 512 KB per slice</td><td>Primary working memory.</td></tr>
+<tr><td><code>SpmTensor</code></td><td>On-chip scratchpad</td><td>4 KB per PE and four PEs per cluster</td><td>Staging for small, reread values such as gather indices.</td></tr>
 <tr><td><code>TrfTensor</code></td><td>On-chip SRAM</td><td>8 KB per lane and eight lanes per slice</td><td>Contraction Engine register file.</td></tr>
 <tr><td><code>VrfTensor</code></td><td>On-chip SRAM</td><td>8 KB per slice</td><td>Vector Engine operand register file.</td></tr>
 </tbody>
 </table>
 </div>
-<p>These choices specialize the constant-add pattern.
+<p>Convert a <code>DmTensor</code> to scratchpad with <code>to_spm</code> and back with <code>to_dm</code>; an SPM gather takes its index directly from an <code>SpmTensor</code>.
+These choices specialize the constant-add pattern.
 See <a href="../mapping-tensors/index.html">Mapping Tensors</a> for the complete mapping model, <a href="../moving-tensors/index.html">Moving Tensors</a> for memory movement, and <a href="../computing-tensors/index.html">Computing Tensors</a> for the pipeline APIs.</p>
 <h2 id="stationary-vector-operand"><a class="header" href="#stationary-vector-operand">Stationary Vector Operand</a></h2>
 <h3 id="elementwise-multiplication"><a class="header" href="#elementwise-multiplication">Elementwise Multiplication</a></h3>
@@ -418,7 +423,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() -&gt; Result&lt;(), Error&gt; {
+async fn main() -&gt; eyre::Result&lt;()&gt; {
     let mut device = Device::new(elementwise_mul_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
@@ -427,6 +432,7 @@ async fn main() -&gt; Result&lt;(), Error&gt; {
     let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await?;
     let _out_hbm = launch(elementwise_mul_kernel, (&amp;mut device, &amp;lhs_hbm, &amp;rhs_hbm)).await?;
     println!("Elementwise Mul: kernel ran");
+
     Ok(())
 }
 
@@ -435,27 +441,29 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn matches_reference() {
-        let mut device = Device::new(elementwise_mul_kernel.topology()).unwrap();
+    async fn matches_reference() -&gt; eyre::Result&lt;()&gt; {
+        let mut device = Device::new(elementwise_mul_kernel.topology())?;
 
         let mut rng = SmallRng::seed_from_u64(42);
         let lhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
         let rhs = HostTensor::&lt;i32, m![A]&gt;::rand(&amp;mut rng);
 
-        let lhs_hbm = lhs.to_hbm(&amp;mut device.pdma).await.unwrap();
-        let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let lhs_hbm = lhs.to_hbm(&amp;mut device.pdma).await?;
+        let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await?;
 
         // Reference: out[i] = lhs[i] * rhs[i].
         let lhs_buf: Vec&lt;i32&gt; = lhs.into_vec();
         let rhs_buf: Vec&lt;i32&gt; = rhs.into_vec();
         let expected: Vec&lt;i32&gt; = lhs_buf.iter().zip(&amp;rhs_buf).map(|(&amp;a, &amp;b)| a.wrapping_mul(b)).collect();
 
-        let out_hbm = launch(elementwise_mul_kernel, (&amp;mut device, &amp;lhs_hbm, &amp;rhs_hbm)).await.unwrap();
+        let out_hbm = launch(elementwise_mul_kernel, (&amp;mut device, &amp;lhs_hbm, &amp;rhs_hbm)).await?;
 
-        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
+        let actual: Vec&lt;i32&gt; = out_hbm.to_host::&lt;m![A]&gt;(&amp;mut device.pdma).await?.into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             assert_eq!(e, a, "elementwise_mul mismatch at i={i}: expected {e}, actual {a}");
         }
+
+        Ok(())
     }
 }</code></pre>
 <h2 id="contraction-patterns"><a class="header" href="#contraction-patterns">Contraction Patterns</a></h2>
@@ -532,7 +540,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() -&gt; Result&lt;(), Error&gt; {
+async fn main() -&gt; eyre::Result&lt;()&gt; {
     let mut device = Device::new(dot_product_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
@@ -541,6 +549,7 @@ async fn main() -&gt; Result&lt;(), Error&gt; {
     let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await?;
     let _out_hbm = device.launch(dot_product_kernel, (&amp;lhs_hbm, &amp;rhs_hbm)).await?;
     println!("Dot Product: kernel ran");
+
     Ok(())
 }
 
@@ -549,15 +558,15 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn matches_reference() {
-        let mut device = Device::new(dot_product_kernel.topology()).unwrap();
+    async fn matches_reference() -&gt; eyre::Result&lt;()&gt; {
+        let mut device = Device::new(dot_product_kernel.topology())?;
 
         let mut rng = SmallRng::seed_from_u64(42);
         let lhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
         let rhs = HostTensor::&lt;bf16, m![A]&gt;::rand(&amp;mut rng);
 
-        let lhs_hbm = lhs.to_hbm(&amp;mut device.pdma).await.unwrap();
-        let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let lhs_hbm = lhs.to_hbm(&amp;mut device.pdma).await?;
+        let rhs_hbm = rhs.to_hbm(&amp;mut device.pdma).await?;
 
         // Reference: sum_i lhs[i] * rhs[i] in f32, then round to bf16.
         let lhs_buf: Vec&lt;bf16&gt; = lhs.into_vec();
@@ -569,9 +578,9 @@ mod tests {
             .sum();
         let expected = bf16::from_f32(expected_f32);
 
-        let out_hbm = device.launch(dot_product_kernel, (&amp;lhs_hbm, &amp;rhs_hbm)).await.unwrap();
+        let out_hbm = device.launch(dot_product_kernel, (&amp;lhs_hbm, &amp;rhs_hbm)).await?;
 
-        let actual_buf: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![1]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
+        let actual_buf: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![1]&gt;(&amp;mut device.pdma).await?.into_vec();
         if let Some(&amp;actual) = actual_buf.first() {
             let diff = (f32::from(actual) - f32::from(expected)).abs();
             let tol = (0.02 * f32::from(expected).abs()).max(0.5);
@@ -580,6 +589,8 @@ mod tests {
                 "dot_product mismatch: expected {expected:?}, actual {actual:?}, diff {diff} &gt; tol {tol}"
             );
         }
+
+        Ok(())
     }
 }</code></pre>
 <h3 id="gemv"><a class="header" href="#gemv">GEMV</a></h3>
@@ -648,7 +659,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() -&gt; Result&lt;(), Error&gt; {
+async fn main() -&gt; eyre::Result&lt;()&gt; {
     let mut device = Device::new(gemv_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let matrix = HostTensor::&lt;bf16, m![I, J]&gt;::rand(&amp;mut rng);
@@ -657,6 +668,7 @@ async fn main() -&gt; Result&lt;(), Error&gt; {
     let vector_hbm = vector.to_hbm(&amp;mut device.pdma).await?;
     let _out_hbm = launch(gemv_kernel, (&amp;mut device, &amp;matrix_hbm, &amp;vector_hbm)).await?;
     println!("GEMV: kernel ran");
+
     Ok(())
 }
 
@@ -665,15 +677,15 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn matches_reference() {
-        let mut device = Device::new(gemv_kernel.topology()).unwrap();
+    async fn matches_reference() -&gt; eyre::Result&lt;()&gt; {
+        let mut device = Device::new(gemv_kernel.topology())?;
 
         let mut rng = SmallRng::seed_from_u64(42);
         let matrix = HostTensor::&lt;bf16, m![I, J]&gt;::rand(&amp;mut rng);
         let vector = HostTensor::&lt;bf16, m![J]&gt;::rand(&amp;mut rng);
 
-        let matrix_hbm = matrix.to_hbm(&amp;mut device.pdma).await.unwrap();
-        let vector_hbm = vector.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let matrix_hbm = matrix.to_hbm(&amp;mut device.pdma).await?;
+        let vector_hbm = vector.to_hbm(&amp;mut device.pdma).await?;
 
         // Reference: y[i] = sum_j matrix[i, j] * vector[j] in f32, rounded to bf16.
         let mat_buf: Vec&lt;bf16&gt; = matrix.into_vec();
@@ -690,9 +702,9 @@ mod tests {
             })
             .collect();
 
-        let out_hbm = launch(gemv_kernel, (&amp;mut device, &amp;matrix_hbm, &amp;vector_hbm)).await.unwrap();
+        let out_hbm = launch(gemv_kernel, (&amp;mut device, &amp;matrix_hbm, &amp;vector_hbm)).await?;
 
-        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
+        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I]&gt;(&amp;mut device.pdma).await?.into_vec();
         for (i, (&amp;e, &amp;a)) in expected.iter().zip(&amp;actual).enumerate() {
             let diff = (f32::from(a) - f32::from(e)).abs();
             let tol = (0.02 * f32::from(e).abs()).max(0.5);
@@ -701,6 +713,8 @@ mod tests {
                 "gemv mismatch at i={i}: expected {e:?}, actual {a:?}, diff {diff} &gt; tol {tol}"
             );
         }
+
+        Ok(())
     }
 }</code></pre>
 <h3 id="gemm"><a class="header" href="#gemm">GEMM</a></h3>
@@ -773,7 +787,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() -&gt; Result&lt;(), Error&gt; {
+async fn main() -&gt; eyre::Result&lt;()&gt; {
     let mut device = Device::new(gemm_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let a = HostTensor::&lt;bf16, m![I, K]&gt;::rand(&amp;mut rng);
@@ -782,6 +796,7 @@ async fn main() -&gt; Result&lt;(), Error&gt; {
     let b_hbm = b.to_hbm(&amp;mut device.pdma).await?;
     let _out_hbm = launch(gemm_kernel, (&amp;mut device, &amp;a_hbm, &amp;b_hbm)).await?;
     println!("GEMM: kernel ran");
+
     Ok(())
 }
 
@@ -790,15 +805,15 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn matches_reference() {
-        let mut device = Device::new(gemm_kernel.topology()).unwrap();
+    async fn matches_reference() -&gt; eyre::Result&lt;()&gt; {
+        let mut device = Device::new(gemm_kernel.topology())?;
 
         let mut rng = SmallRng::seed_from_u64(42);
         let a = HostTensor::&lt;bf16, m![I, K]&gt;::rand(&amp;mut rng);
         let b = HostTensor::&lt;bf16, m![J, K]&gt;::rand(&amp;mut rng);
 
-        let a_hbm = a.to_hbm(&amp;mut device.pdma).await.unwrap();
-        let b_hbm = b.to_hbm(&amp;mut device.pdma).await.unwrap();
+        let a_hbm = a.to_hbm(&amp;mut device.pdma).await?;
+        let b_hbm = b.to_hbm(&amp;mut device.pdma).await?;
 
         // Reference: C[i, j] = sum_k A[i, k] * B[j, k] in f32, rounded to bf16.
         let a_buf: Vec&lt;bf16&gt; = a.into_vec();
@@ -817,14 +832,16 @@ mod tests {
             })
             .collect();
 
-        let out_hbm = launch(gemm_kernel, (&amp;mut device, &amp;a_hbm, &amp;b_hbm)).await.unwrap();
+        let out_hbm = launch(gemm_kernel, (&amp;mut device, &amp;a_hbm, &amp;b_hbm)).await?;
 
-        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I, J]&gt;(&amp;mut device.pdma).await.unwrap().into_vec();
+        let actual: Vec&lt;bf16&gt; = out_hbm.to_host::&lt;m![I, J]&gt;(&amp;mut device.pdma).await?.into_vec();
         for (idx, (&amp;e, &amp;av)) in expected.iter().zip(&amp;actual).enumerate() {
             let diff = (f32::from(av) - f32::from(e)).abs();
             let tol = (0.05 * f32::from(e).abs()).max(1.0);
             assert!(diff &lt;= tol, "gemm mismatch at idx={idx}: expected {e:?}, actual {av:?}");
         }
+
+        Ok(())
     }
 }</code></pre>
 <p>Blocked GEMM extends GEMM with tiling for matrices that exceed on-chip DM capacity.

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Mapping Tensors - Programming Tensor Contraction Processors</title>
+        <title>Case Study: Skip Loop Bodies at Runtime - Programming Tensor Contraction Processors</title>
 
 
         <!-- Custom HTML head -->
@@ -176,203 +176,273 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="mapping-tensors"><a class="header" href="#mapping-tensors">Mapping Tensors</a></h1>
-<p>A mapping is the source of truth for logical order and physical placement.
-Validate its cells and dimensions before selecting movement or compute operations.
-Every mapping expression maps a logical index to a physical location.
-Read the result categories defined in <a href="#position-cell-summary">Position Cell Summary</a> before selecting movement or compute operations.</p>
-<h2 id="place-and-reduce-dimensions"><a class="header" href="#place-and-reduce-dimensions">Place and Reduce Dimensions</a></h2>
-<p>The table places axes before movement or compute operations are selected.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Dimension</th><th>Type</th><th>Defined in</th><th>Reduced in</th></tr>
-</thead>
-<tbody>
-<tr><td><code>Chip</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#spatial-dimensions">HBM, DM</a>, <a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../moving-tensors/dma-engine.html">DMA</a> + <a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
-<tr><td><code>Cluster</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#spatial-dimensions">DM</a>, <a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../moving-tensors/dma-engine.html">DMA</a> + <a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
-<tr><td><code>Slice</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#spatial-dimensions">DM</a>, <a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../computing-tensors/vector-engine/index.html">Vector</a></td></tr>
-<tr><td><code>Lane</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#spatial-dimensions">TRF</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
-<tr><td><code>Time</code></td><td>Temporal</td><td><a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
-<tr><td><code>Packet</code></td><td>Spatial</td><td><a href="./spatial-temporal-dimensions.html#temporal-dimension">Stream</a></td><td><a href="../computing-tensors/contraction-engine/index.html">Contraction</a></td></tr>
-</tbody>
-</table>
-</div>
-<p>Chip and Cluster reductions use DMA redistribution followed by Vector Engine reduction.</p>
-<h2 id="mapping-order-and-performance"><a class="header" href="#mapping-order-and-performance">Mapping Order and Performance</a></h2>
-<p>A tensor has values but no intrinsic storage order.
-A mapping chooses that order, and hardware accesses are most efficient when adjacent values occupy contiguous buffer positions.
-The outermost mapping dimension is major and changes slowest.
-The innermost is minor and changes fastest.
-For a height-by-width tensor, <code>m![H, W]</code> makes rows contiguous, while <code>m![W, H]</code> makes columns contiguous.
-Each order favors locality along a different axis: an H-major mapping makes a scan along W contiguous, while a W-major mapping makes a scan along H contiguous.
-A tiled mapping such as <code>m![H / 2, W / 2, H % 2, W % 2]</code> places small two-dimensional neighborhoods contiguously, so neither H nor W is globally the sole contiguous direction.
-This changes which access patterns map to nearby buffer positions, but does not inherently guarantee faster hardware access.
-The additional mapping state needed to represent the split dimensions is its main extra cost.</p>
-<p>For axes <code>H</code> (six rows) and <code>W</code> (eight columns), the same values can therefore have different physical access patterns:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th style="text-align: center">H\W</th><th style="text-align: center">0</th><th style="text-align: center">1</th><th style="text-align: center">2</th><th style="text-align: center">3</th><th style="text-align: center">4</th><th style="text-align: center">5</th><th style="text-align: center">6</th><th style="text-align: center">7</th></tr>
-</thead>
-<tbody>
-<tr><td style="text-align: center">0</td><td style="text-align: center">a</td><td style="text-align: center">b</td><td style="text-align: center">c</td><td style="text-align: center">d</td><td style="text-align: center">e</td><td style="text-align: center">f</td><td style="text-align: center">g</td><td style="text-align: center">h</td></tr>
-<tr><td style="text-align: center">1</td><td style="text-align: center">i</td><td style="text-align: center">j</td><td style="text-align: center">k</td><td style="text-align: center">l</td><td style="text-align: center">m</td><td style="text-align: center">n</td><td style="text-align: center">o</td><td style="text-align: center">p</td></tr>
-<tr><td style="text-align: center">2</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td></tr>
-<tr><td style="text-align: center">3</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td></tr>
-<tr><td style="text-align: center">4</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td></tr>
-<tr><td style="text-align: center">5</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td><td style="text-align: center">·</td></tr>
-</tbody>
-</table>
-</div>
-<ul>
-<li>
-<p><strong>H-major, W-minor: <code>m![H, W]</code></strong> — a scan along W is contiguous.
-A scan along H touches one value per cache line.</p>
-<table>
-  
-<tr>
-    <th colspan="8" align="center">H=0</th>
-    <th colspan="8" align="center">H=1</th>
-    <th align="center">...</th>
-  </tr>
+                        <h1 id="case-study-skip-loop-bodies-at-runtime"><a class="header" href="#case-study-skip-loop-bodies-at-runtime">Case Study: Skip Loop Bodies at Runtime</a></h1>
+<p>A kernel can use a runtime scalar to execute only the useful part of a statically bounded workload.
+The host stores the value in <code>HbmScalar&lt;T&gt;</code>, the kernel loads it into SPM with <code>to_spm</code>, and a normal <code>if</code> guards the operations that may be skipped.
+The tensor shapes and the loop’s maximum trip count remain compile-time constants.</p>
+<p>This pattern fits MoE expert blocks, variable-length batches, and other kernels with a known maximum amount of work and a runtime valid count.</p>
+<h2 id="guard-a-static-loop"><a class="header" href="#guard-a-static-loop">Guard a Static Loop</a></h2>
+<p>The following tested kernel copies the first <code>active_experts</code> groups and leaves the remaining output groups zero.</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params, proc_macro_hygiene, register_tool)]
+</span><span class="boring">#![register_tool(furiosa_opt)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![Slice = 64, Group = 4, Width = 8];
+type Chip = m![1];
+type Cluster = m![1];
+/// Copies requested expert groups through a guarded vector fetch/commit with a static `Group` bound.
+#[device(chip = 1, pe = 1)]
+pub fn bounded_dynamic_expert_loop(
+    device: &amp;mut Device,
+    input: &amp;HbmTensor&lt;i32, Chip, m![Slice, Group, Width]&gt;,
+    active_experts: &amp;HbmScalar&lt;usize&gt;,
+) -&gt; HbmTensor&lt;i32, Chip, m![Slice, Group, Width]&gt; {
+    let input = input.to_dm::&lt;Cluster, m![Slice], m![Group, Width]&gt;(&amp;mut device.tdma);
+    let mut output = DmTensor::&lt;i32, Chip, Cluster, m![Slice], m![Group, Width]&gt;::new();
+    output.view_mut().memset(0, &amp;mut device.sub);
 
-  
-<tr>
-    <td>a</td><td>b</td><td>c</td><td>d</td><td>e</td><td>f</td><td>g</td><td>h</td>
-    <td>i</td><td>j</td><td>k</td><td>l</td><td>m</td><td>n</td><td>o</td><td>p</td>
-    <td>...</td>
-  </tr>
+    let active_experts = active_experts.to_spm(&amp;mut device.tdma);
+    for group in 0..Group::SIZE {
+        if group &lt; active_experts {
+            let source = input.view().tile::&lt;m![Group], 1, m![1 # { Group::SIZE }, Width]&gt;(group);
+            let target = output
+                .view_mut()
+                .tile::&lt;m![Group], 1, m![1 #{!} { Group::SIZE }, Width]&gt;(group);
+            device
+                .main
+                .begin(source)
+                .fetch::&lt;m![1], m![Width]&gt;()
+                .collect::&lt;m![1], m![Width]&gt;()
+                .commit_trim::&lt;m![Width]&gt;()
+                .commit_view(target);
+        }
+    }
 
-</table>
+    output.to_hbm(&amp;mut device.tdma)
+}
+<span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">    let mut device = Device::new(bounded_dynamic_expert_loop.topology())?;
+</span><span class="boring">    let input = HostTensor::&lt;i32, m![Slice, Group, Width]&gt;::from_vec(
+</span><span class="boring">        (0..&lt;m![Slice, Group, Width]&gt;::SIZE).map(|value| value as i32),
+</span><span class="boring">    ).to_hbm(&amp;mut device.pdma).await?;
+</span><span class="boring">    let active = HbmScalar::from_host(2usize, &amp;mut device.pdma).await?;
+</span><span class="boring">    let output = launch(bounded_dynamic_expert_loop, (&amp;mut device, &amp;input, &amp;active)).await?;
+</span><span class="boring">    let output = output.to_host::&lt;m![Slice, Group, Width]&gt;(&amp;mut device.pdma).await?;
+</span><span class="boring">    assert_eq!(output.into_vec().len(), &lt;m![Slice, Group, Width]&gt;::SIZE);
+</span><span class="boring">    Ok(())
+</span><span class="boring">}</span></code></pre>
+<p>The loop always has the static bound <code>Group::SIZE</code>.
+Each iteration compares its <code>usize</code> induction variable with the <code>usize</code> value loaded from HBM.
+If <code>active_experts</code> is zero, every body is skipped; if it is greater than <code>Group::SIZE</code>, every body runs.
+Initialize any output region that skipped iterations must leave with a defined value, as the example does before the loop.</p>
+<p>The same guard can surround Tensor Unit computation.
+This excerpt from the tested MoE example runs each expert contraction only when its index is below the runtime count:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params, proc_macro_hygiene, register_tool)]
+</span><span class="boring">#![register_tool(furiosa_opt)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![Slice = 64, Expert = 4, MatmulOut = 8, MatmulRed = 16];
+type Chip = m![1];
+type Cluster = m![1];
+/// Runs matmul for the requested experts and leaves the remaining experts zero.
+/// Every `Expert` iteration is scheduled and its body is guarded at runtime.
+#[device(chip = 1, pe = 1)]
+pub fn bounded_dynamic_matmul(
+    device: &amp;mut Device,
+    activation: &amp;HbmTensor&lt;bf16, Chip, m![Slice, MatmulRed]&gt;,
+    weight: &amp;HbmTensor&lt;bf16, Chip, m![Slice, Expert, MatmulOut, MatmulRed]&gt;,
+    active_experts: &amp;HbmScalar&lt;usize&gt;,
+) -&gt; HbmTensor&lt;f32, Chip, m![Slice, Expert, MatmulOut]&gt; {
+    let activation: DmTensor&lt;bf16, Chip, Cluster, m![Slice], m![MatmulRed]&gt; = activation.to_dm(&amp;mut device.tdma);
+    let weight: DmTensor&lt;bf16, Chip, Cluster, m![Slice], m![Expert, MatmulOut, MatmulRed]&gt; =
+        weight.to_dm(&amp;mut device.tdma);
+    let mut output: DmTensor&lt;f32, Chip, Cluster, m![Slice], m![Expert, MatmulOut]&gt; = DmTensor::new();
+    output.view_mut().memset(0.0, &amp;mut device.sub);
 
-</li>
-<li>
-<p><strong>W-major, H-minor: <code>m![W, H]</code></strong> — a scan along H is contiguous.
-A scan along W touches one value per cache line.</p>
-<table>
-  
-<tr>
-    <th colspan="6" align="center">W=0</th>
-    <th colspan="6" align="center">W=1</th>
-    <th colspan="6" align="center">W=2</th>
-    <th align="center">...</th>
-  </tr>
+    let active_experts = active_experts.to_spm(&amp;mut device.tdma);
+    for expert in 0..Expert::SIZE {
+        if expert &lt; active_experts {
+            let weight_group = weight
+                .view()
+                .tile::&lt;m![Expert], 1, m![1 # { Expert::SIZE }, MatmulOut, MatmulRed]&gt;(expert);
+            let weight_trf: TrfTensor&lt;bf16, Chip, Cluster, m![Slice], m![MatmulOut], m![MatmulRed]&gt; = device
+                .sub
+                .begin(weight_group)
+                .fetch::&lt;m![MatmulOut], m![MatmulRed]&gt;()
+                .collect::&lt;m![MatmulOut], m![MatmulRed]&gt;()
+                .to_trf();
 
-  
-<tr>
-    <td>a</td><td>i</td><td>·</td><td>·</td><td>·</td><td>·</td>
-    <td>b</td><td>j</td><td>·</td><td>·</td><td>·</td><td>·</td>
-    <td>c</td><td>k</td><td>·</td><td>·</td><td>·</td><td>·</td>
-    <td>...</td>
-  </tr>
+            device
+                .main
+                .begin(activation.view())
+                .fetch::&lt;m![1], m![MatmulRed]&gt;()
+                .collect::&lt;m![1], m![MatmulRed]&gt;()
+                .contract_outer::&lt;m![1], m![MatmulRed], _, _, _&gt;(&amp;weight_trf)
+                .contract_packet::&lt;m![1]&gt;()
+                .contract_time::&lt;m![1]&gt;()
+                .contract_lane::&lt;m![1], m![MatmulOut]&gt;(LaneMode::Interleaved)
+                .commit_trim::&lt;m![MatmulOut]&gt;()
+                .commit_view(
+                    output
+                        .view_mut()
+                        .tile::&lt;m![Expert], 1, m![1 #{!} { Expert::SIZE }, MatmulOut]&gt;(expert),
+                );
+        }
+    }
+    output.to_hbm(&amp;mut device.tdma)
+}
+<span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">    let mut device = Device::new(bounded_dynamic_matmul.topology())?;
+</span><span class="boring">    let activation = HostTensor::&lt;bf16, m![Slice, MatmulRed]&gt;::from_vec(
+</span><span class="boring">        vec![bf16::from_f32(1.0); &lt;m![Slice, MatmulRed]&gt;::SIZE],
+</span><span class="boring">    ).to_hbm(&amp;mut device.pdma).await?;
+</span><span class="boring">    let weight = HostTensor::&lt;bf16, m![Slice, Expert, MatmulOut, MatmulRed]&gt;::from_vec(
+</span><span class="boring">        vec![bf16::from_f32(1.0); &lt;m![Slice, Expert, MatmulOut, MatmulRed]&gt;::SIZE],
+</span><span class="boring">    ).to_hbm(&amp;mut device.pdma).await?;
+</span><span class="boring">    let active = HbmScalar::from_host(2usize, &amp;mut device.pdma).await?;
+</span><span class="boring">    let output = launch(bounded_dynamic_matmul, (&amp;mut device, &amp;activation, &amp;weight, &amp;active)).await?;
+</span><span class="boring">    let output = output.to_host::&lt;m![Slice, Expert, MatmulOut]&gt;(&amp;mut device.pdma).await?;
+</span><span class="boring">    assert_eq!(output.into_vec().len(), &lt;m![Slice, Expert, MatmulOut]&gt;::SIZE);
+</span><span class="boring">    Ok(())
+</span><span class="boring">}</span></code></pre>
+<h2 id="pass-and-update-a-runtime-scalar"><a class="header" href="#pass-and-update-a-runtime-scalar">Pass and Update a Runtime Scalar</a></h2>
+<p>Create the scalar through the launch context’s PDMA queue, then pass it like another kernel argument:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params, proc_macro_hygiene, register_tool)]
+</span><span class="boring">#![register_tool(furiosa_opt)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span><span class="boring">#[device]
+</span><span class="boring">fn scalar_consumer(device: &amp;mut Device, active: &amp;HbmScalar&lt;usize&gt;) {
+</span><span class="boring">    let _active = active.to_spm(&amp;mut device.tdma);
+</span><span class="boring">}
+</span><span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(scalar_consumer.topology())?;
+</span>let mut active = HbmScalar::&lt;usize&gt;::from_host(0, &amp;mut device.pdma).await?;
 
-</table>
-
-</li>
-<li>
-<p><strong>2×2 tiles: <code>m![H / 2, W / 2, H % 2, W % 2]</code></strong> — H-major and W-major each sacrifice locality along one axis.
-Tiling places small neighborhoods contiguously along both axes, changing the locality distribution without inherently guaranteeing faster hardware access.
-The split dimensions require a non-trivial address formula and additional mapping state.</p>
-<table>
-  
-<tr>
-    <th colspan="4" align="center">t(0,0)</th>
-    <th colspan="4" align="center">t(0,1)</th>
-    <th colspan="4" align="center">t(0,2)</th>
-    <th align="center">...</th>
-  </tr>
-
-  
-<tr>
-    <td>a</td><td>b</td><td>i</td><td>j</td>
-    <td>c</td><td>d</td><td>k</td><td>l</td>
-    <td>e</td><td>f</td><td>m</td><td>n</td>
-    <td>...</td>
-  </tr>
-
-</table>
-
-</li>
-</ul>
-<p>The selected mapping also constrains later execution.
-Changing a representation’s order after allocation generally requires copying or transposing its data, so allocation-time choices affect subsequent operations.
-Hardware geometry, alignment, and scheduling remain architectural constraints that compiler lowering must account for.
-The mapping expresses the logical order rather than a raw address calculation.
-Device-specific alignment checks apply, and misaligned accesses can require read-modify-write cycles with substantial performance cost (historically observed at roughly 50× for affected DM accesses).</p>
-<p>The mapping is the complete technical description of this choice.
-A physical representation is the concrete buffer, device placement, and stream decomposition produced from that mapping.
-The same values can move between different physical representations without changing the logical tensor.</p>
-<h2 id="position-cell-summary"><a class="header" href="#position-cell-summary">Position Cell Summary</a></h2>
-<p>Every mapping expression maps a physical position to a <code>Cell</code>.
-Identify the result category before interpreting any coordinates.</p>
+active.write(3, &amp;mut device.pdma).await?;
+launch(scalar_consumer, (&amp;mut device, &amp;active)).await?;
+<span class="boring">Ok(())
+</span><span class="boring">}</span></code></pre>
+<p><code>from_host</code> allocates one scalar value in every chip’s local HBM and writes the same value to each copy.
+<code>write</code> reuses that allocation for a later launch.
+Inside the kernel, <code>to_spm(&amp;mut device.tdma)</code> stages the value into an SPM scalar visible to device scalar expressions.</p>
+<p><code>HbmScalar</code> supports <code>bool</code>, <code>i32</code>, <code>u32</code>, <code>i64</code>, <code>u64</code>, and <code>usize</code>.
+Use <code>bool</code> for a direct on/off guard and <code>usize</code> for loop bounds and tensor indices.
+The current compiler accepts <code>usize</code> runtime scalars only for a 64-bit Rust frontend target and stores them as unsigned 64-bit values.</p>
+<h2 id="use-if-not-a-runtime-loop-bound"><a class="header" href="#use-if-not-a-runtime-loop-bound">Use <code>if</code>, Not a Runtime Loop Bound</a></h2>
+<p>Runtime <code>if</code> statements are supported, including statement blocks that return no value.
+General <code>break</code> statements and runtime loop bounds are not supported in device functions.
+Write a static maximum loop with a runtime guard:</p>
 <pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span><span class="boring">extern crate furiosa_opt_std;
-</span><span class="boring">extern crate furiosa_mapping;
-</span><span class="boring">use furiosa_opt_std::prelude::*;
-</span>axes![A = 4];
-type E = m![A];
-
-assert_eq!(E::map(0), i![A: 0]);
-assert_eq!(E::map(4), Cell::OutOfBounds);
+</span><span class="boring">struct Expert;
+</span><span class="boring">impl Expert { const SIZE: usize = 4; }
+</span><span class="boring">fn run_expert(_: usize) {}
+</span><span class="boring">let active_experts = 2;
+</span>for expert in 0..Expert::SIZE {
+    if expert &lt; active_experts {
+        run_expert(expert);
+    }
+}
 <span class="boring">}</span></code></pre>
-<p><code>Cell::Index</code> carries live <code>Index</code> terms.
-<code>Cell::OutOfBounds</code> identifies a position outside the mapping.
-<code>Cell::Padding</code> is introduced with padding in <a href="./mapping-expressions.html">Mapping Expressions</a>.</p>
-<p>This section summarizes the result categories.
-After identifying the <code>Cell</code>, use <a href="./mapping-expressions.html">Mapping Expressions</a> for constructors and API syntax.</p>
-<h2 id="representation-and-distribution"><a class="header" href="#representation-and-distribution">Representation and Distribution</a></h2>
-<h3 id="physical-representations"><a class="header" href="#physical-representations">Physical Representations</a></h3>
-<p>Storage and stream tensors split one mapping across hardware dimensions.
-An HBM representation may distribute channels across chips.
-A DM representation may repartition those channels across slices.
-A stream representation may put the remaining dimensions in <code>Time</code> and <code>Packet</code>.
-<a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> follows one NCHW tensor through those representations with a concrete coordinate trace.</p>
-<p>This representation trace closes the chapter: choose a mapping, derive each physical representation, then verify that the value at a traced <code>Index</code> reaches the expected stream cell.
-The formal tensor-value definition is in <a href="./tensor-semantics.html">Tensor Semantics</a>.
-This chapter keeps the explanation operational.</p>
-<p>For a minimal computation over a representation, see the <a href="../computing-tensors/vector-engine/index.html">Vector Engine</a>.
-Elementwise operations belong with that execution API, while this chapter focuses on mapping and representation.</p>
-<h3 id="distribution-across-space-and-time"><a class="header" href="#distribution-across-space-and-time">Distribution Across Space and Time</a></h3>
-<p>Mapping dimensions are assigned explicitly to spatial hardware dimensions (<code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, and <code>Packet</code>) or to the temporal <code>Time</code> loop.
-These names describe where a mapping is consumed, not a second representation vocabulary.
-See <a href="./spatial-temporal-dimensions.html">Spatial and Temporal Dimensions</a> for the tensor declarations and constraints.</p>
-<p>An assignment holds for one stage rather than for the whole pipeline, and four routes move an axis between <code>Time</code> and a spatial dimension.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Route</th><th>Moves</th><th>Available when</th><th>Cost</th></tr>
-</thead>
-<tbody>
-<tr><td><a href="../computing-tensors/switch-engine.html">Switch Engine</a></td><td>an axis either way between <code>Slice</code> and <code>Time</code></td><td>one of its configurations expresses the <code>Slice</code> placement</td><td><code>ring_size × Time::SIZE × flits_per_packet</code> cycles of ring traversal</td></tr>
-<tr><td><a href="../moving-tensors/dma-engine.html">DMA</a></td><td>an axis into <code>Chip</code>, <code>Cluster</code> or <code>Slice</code>, by writing the desired placement</td><td>always</td><td>a transfer of the whole tensor</td></tr>
-<tr><td><a href="../computing-tensors/vector-engine/inter-slice-reducer.html#promotion-from-time-into-outslice">Inter-slice reducer</a></td><td>an axis out of <code>Time</code> into the <code>Slice</code> slot a reduced axis vacates</td><td>the stream is reduced over a <code>Slice</code> axis anyway</td><td>none beyond that reduction</td></tr>
-<tr><td><a href="../moving-tensors/fetch-engine.html#axis-lifting">Axis lifting</a>, at fetch</td><td>an axis out of <code>Time</code> onto <code>Chip</code>, <code>Cluster</code> or <code>Slice</code></td><td>the selected dimension holds a broadcast</td><td>the original read, plus a DMA, a context-local add, and an SFR store for <code>Slice</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>The Switch Engine is the general route across the <code>Slice</code> / <code>Time</code> boundary because it can deliver a value to a slice that does not already contain it.
-The Switch Engine operates only across slices, so moving an axis onto <code>Chip</code> or <code>Cluster</code> requires a DMA that writes the desired placement.</p>
-<p>Axis lifting requires a broadcast on the selected dimension, meaning each chip, cluster, or slice already holds the source region.
-Different read offsets then move the axis out of <code>Time</code> without a data transfer.</p>
-<h3 id="declarative-mapping-context"><a class="header" href="#declarative-mapping-context">Declarative Mapping Context</a></h3>
-<p>Declarative mappings state order in terms of logical axes instead of raw strides or offsets.
-The H×W examples above use <code>m![H, W]</code> for H-major order, <code>m![W, H]</code> for W-major order, and <code>m![H / 2, W / 2, H % 2, W % 2]</code> for 2×2 tiles.
-The first two tile dimensions identify a tile and the last two identify its position within that tile.</p>
-<p>Mapping expressions can be normalized to a standard representation, which makes equivalent constructor forms easier to inspect.
-The tested normalization properties and their limits are documented with <a href="./mapping-expressions.html#equivalent-mappings">Equivalent Mappings</a>.
-This chapter does not claim a universal proof or unique representation.</p>
+<p>The following forms are not supported:</p>
+<pre><code class="language-text">for expert in 0..active_experts {
+    run_expert(expert);
+}
+
+for expert in 0..Expert::SIZE {
+    if expert &gt;= active_experts {
+        break;
+    }
+    run_expert(expert);
+}
+</code></pre>
+<p>The supported form schedules the static maximum number of iterations.
+The guarded Tensor Unit or DMA operations do not run when the condition is false, but evaluating the guard and advancing the outer loop still have a runtime cost.</p>
+<h2 id="unroll-a-small-maximum"><a class="header" href="#unroll-a-small-maximum">Unroll a Small Maximum</a></h2>
+<p><code>#[unroll]</code> may be applied when the maximum trip count is a small compile-time constant:</p>
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params, proc_macro_hygiene, register_tool, stmt_expr_attributes)]
+</span><span class="boring">#![register_tool(furiosa_opt)]
+</span><span class="boring">extern crate furiosa_opt_std;
+</span><span class="boring">extern crate tokio;
+</span><span class="boring">use furiosa_opt_std::prelude::*;
+</span>axes![Slice = 64, Group = 4, Width = 8];
+type Chip = m![1];
+type Cluster = m![1];
+/// Copies requested expert groups after unrolling the static `Group` loop.
+#[device(chip = 1, pe = 1)]
+pub fn unrolled_bounded_dynamic_expert_loop(
+    device: &amp;mut Device,
+    input: &amp;HbmTensor&lt;i32, Chip, m![Slice, Group, Width]&gt;,
+    active_experts: &amp;HbmScalar&lt;usize&gt;,
+) -&gt; HbmTensor&lt;i32, Chip, m![Slice, Group, Width]&gt; {
+    let input = input.to_dm::&lt;Cluster, m![Slice], m![Group, Width]&gt;(&amp;mut device.tdma);
+    let mut output = DmTensor::&lt;i32, Chip, Cluster, m![Slice], m![Group, Width]&gt;::new();
+    output.view_mut().memset(0, &amp;mut device.sub);
+
+    let active_experts = active_experts.to_spm(&amp;mut device.tdma);
+    #[unroll]
+    for group in 0..Group::SIZE {
+        if group &lt; active_experts {
+            let source = input.view().tile::&lt;m![Group], 1, m![1 # { Group::SIZE }, Width]&gt;(group);
+            let target = output
+                .view_mut()
+                .tile::&lt;m![Group], 1, m![1 #{!} { Group::SIZE }, Width]&gt;(group);
+            device
+                .main
+                .begin(source)
+                .fetch::&lt;m![1], m![Width]&gt;()
+                .collect::&lt;m![1], m![Width]&gt;()
+                .commit_trim::&lt;m![Width]&gt;()
+                .commit_view(target);
+        }
+    }
+
+    output.to_hbm(&amp;mut device.tdma)
+}
+<span class="boring">#[tokio::main]
+</span><span class="boring">async fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">    let mut device = Device::new(unrolled_bounded_dynamic_expert_loop.topology())?;
+</span><span class="boring">    let input = HostTensor::&lt;i32, m![Slice, Group, Width]&gt;::from_vec(
+</span><span class="boring">        (0..&lt;m![Slice, Group, Width]&gt;::SIZE).map(|value| value as i32),
+</span><span class="boring">    ).to_hbm(&amp;mut device.pdma).await?;
+</span><span class="boring">    let active = HbmScalar::from_host(2usize, &amp;mut device.pdma).await?;
+</span><span class="boring">    let output = launch(unrolled_bounded_dynamic_expert_loop, (&amp;mut device, &amp;input, &amp;active)).await?;
+</span><span class="boring">    let output = output.to_host::&lt;m![Slice, Group, Width]&gt;(&amp;mut device.pdma).await?;
+</span><span class="boring">    assert_eq!(output.into_vec().len(), &lt;m![Slice, Group, Width]&gt;::SIZE);
+</span><span class="boring">    Ok(())
+</span><span class="boring">}</span></code></pre>
+<p>With <code>Group::SIZE = 4</code>, <code>#[unroll]</code> replaces the loop with four copies of its guarded body. The
+result behaves like this:</p>
+<pre><code class="language-text">if 0 &lt; active_experts { run_group(0); }
+if 1 &lt; active_experts { run_group(1); }
+if 2 &lt; active_experts { run_group(2); }
+if 3 &lt; active_experts { run_group(3); }
+</code></pre>
+<p><code>active_experts</code> is still read at runtime. Unrolling removes the loop control and lets the scheduler
+consider operations from different groups together; it does not remove the four runtime checks.</p>
+<p>The range must start at zero and end at a nonzero compile-time constant. Add <code>#[unroll]</code> to each
+level that should be expanded in a nested loop.</p>
+<p>There is no compiler threshold for a “small” loop. Generated code grows with the static bound, so a
+four-group loop is a reasonable candidate while a 1,024-expert loop should normally remain rolled.
+Compare both forms when the trade-off is unclear.
+See <a href="../scheduling/tuning.html#unroll-a-loop">Unroll a loop</a> for the general scheduling trade-offs.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../quick-start/kernel-validation.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../kernel-examples/transformer.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../mapping-tensors/mapping-expressions.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../scheduling/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -382,11 +452,11 @@ This chapter does not claim a universal proof or unique representation.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../quick-start/kernel-validation.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../kernel-examples/transformer.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../mapping-tensors/mapping-expressions.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../scheduling/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -204,9 +204,7 @@ The compiler derives the rest.</p>
 All dimensions pass through unchanged, except for the <code>Packet</code> layout, which repads so the output still fits one 32-byte flit.</p>
 <p>The example below casts an 8-element <code>i32</code> packet (8 × 4 = 32 bytes) to <code>i8</code>.
 After the cast, the 8 elements occupy 8 bytes, so <code>A # 32</code> pads the output back to 32 bytes:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 4, A = 8];
@@ -217,16 +215,17 @@ fn cast_i32_to_i8&lt;'l, const T: Tu&gt;(
     input.cast()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![B], m![A]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = cast_i32_to_i8(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>The input data may not fill 32 bytes.
 The example below casts an <code>i32</code> input where 4 data elements are padded to 8 (<code>A # 8</code>, 32 bytes) into an <code>i8</code> output where the same 4 elements are padded to 32 (<code>A # 32</code>, also 32 bytes):</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 4];
@@ -237,10 +236,13 @@ fn cast_padded&lt;'l, const T: Tu&gt;(
     input.cast()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = cast_padded(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h2 id="supported-casts"><a class="header" href="#supported-casts">Supported Casts</a></h2>
 <p>Each input is a 32-byte flit.

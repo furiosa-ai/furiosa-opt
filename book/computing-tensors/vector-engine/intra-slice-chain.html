@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-152b6ab7.js"></script>
+        <script src="../../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -183,9 +183,7 @@ For example, computing \(\operatorname{sigmoid}(XW + b)\) runs \(XW\) on the <a 
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p>The example below applies a fixed-point bias, runs sigmoid on the float path (narrowing to 4-way and widening back), and finishes with a ReLU clip.
 It computes \(output[a, b] = \max(\operatorname{sigmoid}(input[a, b] + 100), 0)\).</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2];
@@ -213,10 +211,13 @@ fn staged_pipeline&lt;'l, const T: Tu&gt;(
     .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = staged_pipeline(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="pipeline"><a class="header" href="#pipeline">Pipeline</a></h3>
 <p>The chain starts (as shown above) with <code>vector_intra_slice_tag()</code> (right after <a href="./index.html#interface"><code>vector_init()</code></a> or on the inter-slice reducer’s output), or with <code>vector_intra_slice_unzip()</code> directly after <code>vector_init()</code> for <a href="#pair-mode">Pair Mode</a> (see below).</p>
@@ -541,9 +542,7 @@ Narrowing halves throughput on the float and reduce path, so the same logical te
 </table>
 </div>
 <p>Shape semantics:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2, S = 64];
@@ -564,13 +563,16 @@ fn vector_narrow_trim_semantics&lt;'l, const T: Tu&gt;(
     // shape semantics: [T], [P] -&gt; [T], [P = 4]
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![B], m![S / 4 # 256], m![S % 4], m![A % 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = vector_narrow_split_semantics(i);
 </span><span class="boring">
 </span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let _o = vector_narrow_trim_semantics(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="float-cluster"><a class="header" href="#float-cluster">Float Cluster</a></h3>
 <p>The Float Cluster provides unary, binary, and ternary floating-point operations on <code>f32</code>.
@@ -676,9 +678,7 @@ Later stages (<code>FpToFxp</code>, <code>Clip</code>, <code>Filter</code>, <cod
 </table>
 </div>
 <p>Shape semantics:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2, S = 64, R = 8];
@@ -699,7 +699,8 @@ fn vector_widen_pad_semantics&lt;'l, const T: Tu&gt;(
     // shape semantics: [T], [P] -&gt; [T], [P # 8]
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: VectorBranchTensor&lt;'_, _, i32, m![1], m![B], m![S / 4 # 256], m![R, A / 4 % 2], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let i = i
@@ -711,6 +712,8 @@ fn vector_widen_pad_semantics&lt;'l, const T: Tu&gt;(
 </span><span class="boring">let i: VectorBranchTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }&gt; = VectorBranchTensor::new(&amp;mut device.main, Tensor::zero(), TagMode::Zero);
 </span><span class="boring">let i = i.vector_narrow_trim::&lt;m![A % 2 # 4]&gt;().vector_fp_unary(FpUnaryOp::Exp);
 </span><span class="boring">let _o = vector_widen_pad_semantics(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="fptofxp-conversion"><a class="header" href="#fptofxp-conversion">FpToFxp Conversion</a></h3>
 <p>The FpToFxp Conversion stage converts <code>f32</code> back to <code>i32</code>.
@@ -790,9 +793,7 @@ So a value reaches a reader of the other scalar by reinterpreting first and stas
 <h3 id="i32-pipeline"><a class="header" href="#i32-pipeline"><code>i32</code> Pipeline</a></h3>
 <p>A minimal <code>i32</code> chain that adds a constant after branching.
 The Fxp stage runs 8-way, so no narrow or widen is needed.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 2048, B = 2];
@@ -807,17 +808,18 @@ fn add_constant&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = add_constant(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="f32-pipeline"><a class="header" href="#f32-pipeline"><code>f32</code> Pipeline</a></h3>
 <p><code>vector_narrow_trim()</code> is the <code>Narrow</code> step that converts the tensor from 8-way to 4-way before the float operation.
 <code>vector_widen_pad()</code> is the <code>Widen</code> step that converts back to 8-way afterward.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2];
@@ -834,17 +836,18 @@ fn sigmoid&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = sigmoid(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="bitwise-abs-on-f32"><a class="header" href="#bitwise-abs-on-f32">Bitwise <code>Abs</code> on <code>f32</code></a></h3>
 <p>Clearing the sign bit is \(|x|\), reached with no float ALU: the mask is an ordinary <code>i32</code> literal because the stream is read as <code>i32</code> for the one op that needs it.
 Both reinterprets are free, so this costs exactly one <code>LogicAnd</code>.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2];
@@ -861,16 +864,17 @@ fn abs&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = abs(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="single-stream-argument-mode"><a class="header" href="#single-stream-argument-mode">Single-Stream Argument Mode</a></h3>
 <p><code>BinaryArgMode::Mode10</code> swaps the stream and operand positions, so <code>SubFxp</code> computes <code>operand - stream</code> (here, <code>7 - x</code>) rather than the default <code>stream - operand</code>.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 2048, B = 2];
@@ -885,16 +889,17 @@ fn bias_minus_x&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = bias_minus_x(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="vrf-operand"><a class="header" href="#vrf-operand">VRF Operand</a></h3>
 <p>Pre-loaded VRF data as an operand:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 2048, B = 2, N = 256];
@@ -910,18 +915,19 @@ fn vrf_add&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![N], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let v: VrfTensor&lt;i32, m![1], m![B], m![A / 8], m![A % 8]&gt; = VrfTensor::zero();
 </span><span class="boring">let _o = vrf_add(i, &amp;v);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="stash-on-the-fp-only-path"><a class="header" href="#stash-on-the-fp-only-path">Stash on the Fp-Only Path</a></h3>
 <p>Stash at an early stage, then use it later in a Clip operation.
 This implements <code>max(2 * x, x)</code>:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2];
@@ -940,17 +946,18 @@ fn residual_max&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = residual_max(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="stash-on-the-fxp-only-path"><a class="header" href="#stash-on-the-fxp-only-path">Stash on the Fxp-Only Path</a></h3>
 <p>Stash at an early stage, then use it later in a Clip operation.
 This implements <code>max(x + bias, x)</code>:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 2048, B = 2];
@@ -967,17 +974,18 @@ fn stash_at_fxp&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = stash_at_fxp(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="stash-across-narrow-and-widen"><a class="header" href="#stash-across-narrow-and-widen">Stash Across Narrow and Widen</a></h3>
 <p>Stash before narrowing, consume after widening.
 This computes <code>max(sigmoid(x), x)</code>:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2];
@@ -996,16 +1004,17 @@ fn stash_across_narrow_widen&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = stash_across_narrow_widen(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="pair-add"><a class="header" href="#pair-add">Pair Add</a></h3>
 <p>Zip two interleaved groups with integer add:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 2048, B = 2, I = 2];
@@ -1020,16 +1029,17 @@ fn pair_add&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = pair_add(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="pair-per-side-preprocessing"><a class="header" href="#pair-per-side-preprocessing">Pair Per-Side Preprocessing</a></h3>
 <p>Asymmetric preprocessing scales only group 0 before zip:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 2048, B = 2, I = 2];
@@ -1045,16 +1055,17 @@ fn pair_preprocess_one_side&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = pair_preprocess_one_side(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="pair-float-pipeline-with-zip"><a class="header" href="#pair-float-pipeline-with-zip">Pair Float Pipeline with Zip</a></h3>
 <p>Both groups traverse the float path (narrow -&gt; fp -&gt; zip -&gt; widen):</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2, I = 2];
@@ -1071,16 +1082,17 @@ fn pair_fp_mul_zip&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = pair_fp_mul_zip(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="pair-per-group-preprocessing"><a class="header" href="#pair-per-group-preprocessing">Pair Per-Group Preprocessing</a></h3>
 <p>Apply a different operation to each group before zipping:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2, I = 2];
@@ -1098,16 +1110,17 @@ fn pair_asymmetric_preprocess&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = pair_asymmetric_preprocess(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="pair-zip-argument-mode"><a class="header" href="#pair-zip-argument-mode">Pair Zip Argument Mode</a></h3>
 <p><code>BinaryArgMode::Mode10</code> swaps the two grouped streams when zipping:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2, I = 2];
@@ -1124,10 +1137,13 @@ fn pair_sub_reverse&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let i: CollectTensor&lt;'_, _, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = pair_sub_reverse(i);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
 <p>Throughput is full 8-way (8 elements per cycle) on the Logic, Fxp, and Clip clusters.

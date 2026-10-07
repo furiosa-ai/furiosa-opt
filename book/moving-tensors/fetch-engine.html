@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -304,9 +304,7 @@ impl&lt;
         self,
     ) -&gt; FetchSliceLiftTensor&lt;'l, T, D, Chip, Cluster, OutSlice, OutTime, Packet, B&gt; {</code></pre>
 <h3 id="example-lifting-q-onto-slice"><a class="header" href="#example-lifting-q-onto-slice">Example: Lifting <code>Q</code> onto <code>Slice</code></a></h3>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 128, Q = 4, V = 16];
@@ -319,9 +317,12 @@ fn fetch_halves_per_slice&lt;'l, const T: Tu&gt;(
         .fetch_slice_lift::&lt;m![A, Q / 2], m![Q % 2]&gt;()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">let b: BeginTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_halves_per_slice(b);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>With <code>A = 128</code>, the <code>Slice</code> placement <code>m![A, 2]</code> describes 128 pairs of slices; both slices in each pair hold the same <code>m![Q, V]</code> data.
 A plain <code>fetch</code> reads all four <code>Q</code> values on both slices.
@@ -398,7 +399,7 @@ fn without_broadcast(
 <span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
 <ul>
-<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="./sequencer.html#architecture">Sequencer</a>).</li>
+<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="../mapping-tensors/spatial-temporal-dimensions.html#constraints">Spatial and Temporal Dimensions</a>).</li>
 </ul>
 <h2 id="multi-read-packet"><a class="header" href="#multi-read-packet">Multi-Read Packet</a></h2>
 <p>Preparing a packet may require multiple hardware reads because packet axes may not be contiguous in DM, and the hardware reads at most 32 bytes at once.
@@ -411,9 +412,7 @@ Multi-read occurs whenever <code>Packet::SIZE &gt; read_size</code>.
 For example, a 24-byte packet in the main-context forces <code>read_size = 8</code> and 3 reads per packet.
 The total cycle count is <code>Time::SIZE * (Packet::SIZE / read_size)</code>.</p>
 <p>The following examples fetch the same <code>i4</code> tensor of shape <code>m![N, C, H, W]</code> (with <code>N=4, C=3, H=4, W=16</code>) using four different <code>OutPacket</code> choices.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![N = 4, C = 3, H = 4, W = 16];
@@ -450,7 +449,8 @@ fn fetch_batch_4&lt;'l, const T: Tu&gt;(
     input.fetch()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_1(b);
@@ -463,6 +463,8 @@ fn fetch_batch_4&lt;'l, const T: Tu&gt;(
 </span><span class="boring">
 </span><span class="boring">let b: BeginTensor&lt;'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_batch_4(b);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h2 id="interleaving"><a class="header" href="#interleaving">Interleaving</a></h2>
 <p>Interleaving combines two tensors with identical mappings into a single sequencer operation, reducing overhead when both tensors are needed for the same computation.
@@ -470,9 +472,7 @@ An explicit <code>Time</code> axis encodes alternation between the two tensors.<
 <p>In the following example, the main-context creates an interleaved tensor using <code>begin_interleaved()</code>.
 The first temporal iteration fetches from <code>lhs</code>, the second from <code>rhs</code>, the third from <code>lhs</code> again, and so on.
 At most two tensors can be interleaved in a single fetch operation.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 16, B = 32, I = 2];
@@ -489,11 +489,14 @@ fn fetch_interleaved&lt;'l&gt;(
     device.main.begin_interleaved::&lt;I, _, _, _, _, _&gt;(lhs.view(), rhs.view()).fetch()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let lhs = DmTensor::new();
 </span><span class="boring">let rhs = DmTensor::new();
 </span><span class="boring">let _o = fetch_interleaved(&amp;mut device, &amp;lhs, &amp;rhs);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h2 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h2>
 <p>Three factors determine Fetch Sequencer throughput.</p>
@@ -519,9 +522,7 @@ A 40-byte packet spans two flits (64 bytes total) and zero-pads the final 24 byt
 <h3 id="example-packet-padding"><a class="header" href="#example-packet-padding">Example: Packet padding</a></h3>
 <p>Padding <code>OutPacket</code> to a larger power-of-two element count can increase <code>read_size</code>.
 The three examples below fetch the same 30-byte tensor in 15, 3, and 1 cycles by growing the packet from 2 to 16 to 32 bytes:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 3, B = 5, C = 2];
@@ -548,13 +549,16 @@ fn fetch_packet_ABC&lt;'l, const T: Tu&gt;(
 }
 
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">let x: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_C(x);
 </span><span class="boring">let y: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_BC(y);
 </span><span class="boring">let z: BeginTensor&lt;'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = fetch_packet_ABC(z);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>In these examples, padding reads beyond the actual data, but this is safe because padding values do not affect computation.
 Different padding strategies produce different <code>FetchTensor</code> mappings, which may affect downstream components.</p>

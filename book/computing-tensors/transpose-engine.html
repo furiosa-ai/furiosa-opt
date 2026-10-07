@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -207,9 +207,7 @@ impl&lt;
 <p>The kernel writer chooses <code>OutTime</code> and <code>OutPacket</code> (the output dimension layouts), and the compiler verifies the result against the hardware constraints listed under <a href="#parameters">Parameters</a>.</p>
 <p>The example below transposes an 8×16 <code>i8</code> matrix whose 16-wide rows are each gathered from two input packets (<code>D = 2</code>).
 It is reused as the running example throughout the rest of this page.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![P = 256, B = 2, C = 8, D = 2, E = 8];
@@ -220,10 +218,13 @@ fn basic_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = basic_transpose(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
 <p>The five transpose stages below are illustrated using the running example from <a href="#interface">Interface</a>.</p>
@@ -301,9 +302,7 @@ With <code>in_flits = 16</code>, <code>out_rows = 16</code>, and <code>n = 2</co
 <h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
 <h3 id="small-matrix"><a class="header" href="#small-matrix">Small Matrix</a></h3>
 <p>This example demonstrates the Trim stage discarding padded rows when <code>out_rows &lt; in_cols</code>:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![P = 256, A = 4, B = 2];
@@ -314,10 +313,13 @@ fn small_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![A], m![B # 32]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = small_transpose(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
@@ -344,9 +346,7 @@ fn small_transpose&lt;'l, const T: Tu&gt;(
 With <code>in_flits = 4</code>, <code>out_rows = 2</code>, and <code>n = 1</code>, the total is <code>4 + 0 × max(4, 2) + 2 = 6</code> cycles.</p>
 <h3 id="large-column"><a class="header" href="#large-column">Large Column</a></h3>
 <p>This example forces single buffering by making <code>in_cols &gt; 16</code>, which prevents input and output from overlapping and so increases total cycles:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![P = 256, B = 2, C = 8, D = 4, E = 8];
@@ -357,10 +357,13 @@ fn large_col_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![P], m![B, C, D], m![E # 32]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = large_col_transpose(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
@@ -387,9 +390,7 @@ fn large_col_transpose&lt;'l, const T: Tu&gt;(
 With <code>in_flits = 32</code>, <code>out_rows = 32</code>, and <code>n = 2</code> (B), the total is <code>2 × (32 + 32) = 128</code> cycles.</p>
 <h3 id="16-bit-data-type"><a class="header" href="#16-bit-data-type">16-bit Data Type</a></h3>
 <p>This example uses <code>bf16</code>, where the wider element halves max <code>in_rows</code> (4 instead of 8) and shrinks the 32-byte output flit to 16 elements (instead of 32 for <code>i8</code>):</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![P = 256, C = 8, D = 4, E = 8];
@@ -400,10 +401,13 @@ fn bf16_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, m![1], m![1 # 2], m![P], m![C, D], m![E # 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = bf16_transpose(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
@@ -430,9 +434,7 @@ fn bf16_transpose&lt;'l, const T: Tu&gt;(
 With <code>in_flits = 4</code>, <code>out_rows = 8</code>, and <code>n = 8</code> (C), the total is <code>4 + 7 × max(4, 8) + 8 = 68</code> cycles.</p>
 <h3 id="4-bit-data-type"><a class="header" href="#4-bit-data-type">4-bit Data Type</a></h3>
 <p>This example uses <code>i4</code>, where <code>valid_size = 16</code> doubles the per-cycle element count and max <code>in_rows</code> rises to 16 (16 × 4 bits = 8 bytes), while the 32-byte flit grows to 64 elements:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![P = 256, B = 4, C = 16, E = 16];
@@ -443,10 +445,13 @@ fn i4_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i4, m![1], m![1 # 2], m![P], m![B, C], m![E # 64]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = i4_transpose(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">
@@ -474,9 +479,7 @@ With <code>in_flits = 16</code>, <code>out_rows = 16</code>, and <code>n = 4</co
 <h3 id="32-bit-data-type"><a class="header" href="#32-bit-data-type">32-bit Data Type</a></h3>
 <p>This example uses <code>f32</code>, one of the two 32-bit formats the <a href="./contraction-engine/index.html">Contraction Engine</a> emits (<code>32b × 8</code>, either <code>f32</code> or <code>i32</code>).
 The wider element drops max <code>in_rows</code> to 2 (2 × 4 bytes = 8 bytes) and shrinks the 32-byte flit to 8 elements:</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![P = 256, B = 4, D = 2, E = 8];
@@ -487,10 +490,13 @@ fn f32_transpose&lt;'l, const T: Tu&gt;(
     input.transpose()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![1 # 2], m![P], m![B, D], m![E # 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = f32_transpose(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>Parameters:</p>
 <div class="table-wrapper">

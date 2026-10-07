@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,6 +181,7 @@
 Device tensors split their mapping across multiple dedicated dimensions:</p>
 <ul>
 <li><strong>Spatial dimensions</strong>: <code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> distribute data across the hardware hierarchy.
+<code>SpmTensor</code> uses <code>Pe</code> instead of <code>Slice</code> for scratchpad placement.
 In stream tensors, <code>Packet</code> additionally sizes parallel delivery within each temporal iteration.</li>
 <li><strong>Temporal dimension</strong>: <code>Time</code> sequences the delivery iterations in stream tensors.</li>
 </ul>
@@ -214,21 +215,27 @@ struct TrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Element: 
 struct VrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M&gt; {
     /* ... */
 <span class="boring">    _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Element)&gt;,
+</span>}
+struct SpmTensor&lt;D: Scalar, Chip: M, Cluster: M, Pe: M, Element: M&gt; {
+    /* ... */
+<span class="boring">    _marker: PhantomData&lt;(D, Chip, Cluster, Pe, Element)&gt;,
 </span>}</code></pre>
 <p>HBM tensors distribute data across chips for spatial parallelism: each chip processes its own portion of the data simultaneously.
 For example, <code>HbmTensor&lt;bf16, m![A], m![B]&gt;</code> distributes <code>8 × 512 = 4096</code> elements across 8 chips with 512 elements per chip.
 The <code>i</code>-th chip’s <code>j</code>-th element stores tensor index <code>i![A: i, B: j]</code>.</p>
 <p>SRAM tensor types add <code>Cluster</code> and <code>Slice</code> dimensions for finer-grained parallelism.
+<code>SpmTensor</code> uses <code>Pe</code> for fused-PE placement of scratchpad data: <code>m![4]</code> replicates the payload over every PE, <code>m![1 # 4]</code> keeps it in PE 0, and <code>m![X % 4]</code> partitions it over the four.
+<code>by_positions</code> requires an SPM index kept entirely on PE 0, spelled <code>Pe = m![1 # 4]</code> on a four-PE cluster; see <a href="../moving-tensors/dma-engine.html#gather-and-scatter">Gather and Scatter</a>.
 <code>TrfTensor</code> additionally has a <code>Lane</code> dimension that distributes TRF data across the 8 lanes per slice.
 See <a href="../computing-tensors/contraction-engine/index.html">Contraction Engine</a> for details.</p>
 <p>HBM tensors carry concrete addresses.
-DM, TRF, and VRF tensors may receive addresses from the backend.
+DM, SPM, TRF, and VRF tensors may receive addresses from the backend.
 Host tensors remain host-side values.
 Mapping parameters determine physical representation; storage owns addresses separately.</p>
 <h3 id="constraints"><a class="header" href="#constraints">Constraints</a></h3>
 <ul>
 <li>
-<p><strong><code>Chip</code>, <code>Cluster</code>, and <code>Slice</code> size</strong>: they must exactly match the hardware counts:</p>
+<p><strong><code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, and <code>Pe</code> size</strong>: they must exactly match the hardware counts:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -238,9 +245,11 @@ Mapping parameters determine physical representation; storage owns addresses sep
 <tr><td><code>Chip</code></td><td>System-dependent</td><td><code>Chip::SIZE == NUM_CHIPS</code></td><td><code>m![1 # NUM_CHIPS]</code></td></tr>
 <tr><td><code>Cluster</code></td><td>2 / Chip</td><td><code>Cluster::SIZE == 2</code></td><td><code>m![1 # 2]</code></td></tr>
 <tr><td><code>Slice</code></td><td>256 / Cluster</td><td><code>Slice::SIZE == 256</code></td><td><code>m![X / N # 256]</code></td></tr>
+<tr><td><code>Pe</code></td><td>4 / Cluster</td><td><code>Pe::SIZE == 4</code></td><td><code>m![1 # 4]</code></td></tr>
 </tbody>
 </table>
 </div>
+<p>One PE owns 64 slices, so a DM ↔ SPM transfer additionally requires <code>Pe::SIZE == Slice::SIZE / 64</code>: both sides then name the same slices.</p>
 <p>Any dimension can be padded with <code>#</code> when the kernel uses fewer units than the hardware provides.
 For example, <code>type Cluster = m![1 # 2]</code> uses 1 active cluster and 1 padding-only cluster, satisfying the hardware’s 2-cluster-per-chip requirement.</p>
 <blockquote class="blockquote-tag blockquote-tag-note">
@@ -258,6 +267,7 @@ This may be relaxed in future releases.</p>
 </thead>
 <tbody>
 <tr><td><code>DmTensor</code></td><td>512KB / Slice</td><td><code>Element::SIZE * size_of::&lt;D&gt;() &lt;= 512KB</code></td></tr>
+<tr><td><code>SpmTensor</code></td><td>4KB / PE</td><td><code>Element::SIZE * size_of::&lt;D&gt;() &lt;= 4KB</code></td></tr>
 <tr><td><code>TrfTensor</code></td><td>8KB / Lane</td><td><code>Lane::SIZE &lt;= 8</code>, <code>Element::SIZE * size_of::&lt;D&gt;() &lt;= 8KB</code></td></tr>
 <tr><td><code>VrfTensor</code></td><td>8KB / Slice</td><td><code>Element::SIZE * size_of::&lt;D&gt;() &lt;= 8KB</code></td></tr>
 </tbody>

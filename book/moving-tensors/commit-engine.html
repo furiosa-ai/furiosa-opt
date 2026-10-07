@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -191,7 +191,7 @@ Its <code>Time</code> reflects the temporal unrolling of the computation, and <c
     #[primitive(TuTensor::commit)]
     pub fn commit&lt;Element: M&gt;(self) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element, B&gt; {
         verify_commit::&lt;D, Time, Packet, Element&gt;();
-        DmTensor::from_parts(self.inner.transpose(false), None)
+        DmTensor::from_parts(self.inner.transpose(false))
     }
 
     /// Commits to a mutable tensor view in data memory.
@@ -212,9 +212,7 @@ For performance implications of the <code>Element</code> mapping, see <a href="#
 <p>The following example commits a cast accumulation result to DM as <code>bf16</code>.
 The output <code>DmTensor</code> stores 16 time steps × 8 <code>bf16</code> elements across 256 slices.
 Here <code>D = bf16</code> and <code>Element = m![M, N # 16]</code>.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![P = 256, M = 16, N = 8];
@@ -230,14 +228,17 @@ fn cast_commit&lt;'l, const T: Tu&gt;(
     input.cast::&lt;bf16, m![N # 16]&gt;().commit_trim::&lt;m![N]&gt;().commit()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: ContractTensor&lt;'_, _, f32, m![1], m![1 # 2], m![P], m![M], m![N]&gt; = ContractTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = cast_commit(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
 <ul>
-<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="./sequencer.html#architecture">Sequencer</a>).</li>
+<li><strong>Hardware dimensions</strong>: <code>Chip::SIZE</code>, <code>Cluster::SIZE</code>, and <code>Slice::SIZE</code> must match the hardware configuration (see <a href="../mapping-tensors/spatial-temporal-dimensions.html#constraints">Spatial and Temporal Dimensions</a>).</li>
 <li><strong>Address alignment</strong>: All sequencer strides must be multiples of 8 bytes.</li>
 <li><strong>Write unit alignment</strong>: <code>D[valid_size]</code> must be 8, 16, 24, or 32 bytes (see the <a href="../computing-tensors/commit-adapter.html#trimming">Commit Adapter’s Trimming</a> stage).</li>
 </ul>
@@ -249,9 +250,7 @@ In the <a href="../computing-tensors/index.html#execution-context">sub-context</
 The total cycle count is <code>Time::SIZE * (valid_size / write_size)</code>.
 The division is always exact: in the main-context, <code>valid_size == write_size</code>, so each packet commits in a single cycle.
 In the sub-context, <code>write_size</code> is fixed at 8 bytes and <code>valid_size</code> is one of 8, 16, 24, or 32 bytes (from the trimming constraint), so <code>valid_size / write_size</code> is always 1, 2, 3, or 4.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 4, K = 2, W = 8, N = 16, L = 32];
@@ -293,13 +292,16 @@ fn transpose_with_trimming&lt;'l, const T: Tu&gt;(
 }
 
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">let a: CastTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = no_transpose(a);
 </span><span class="boring">let b: ContractTensor&lt;'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]&gt; = ContractTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = transpose(b);
 </span><span class="boring">let c: CastTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]&gt; = CastTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = transpose_with_trimming(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h2 id="optimizations"><a class="header" href="#optimizations">Optimizations</a></h2>
 <p>Three factors determine Commit Sequencer throughput.</p>

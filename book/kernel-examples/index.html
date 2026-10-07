@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -179,18 +179,17 @@
                         <h1 id="end-to-end-cases"><a class="header" href="#end-to-end-cases">End-to-End Cases</a></h1>
 <p>End-to-End Cases connect the mapping, movement, computation, and scheduling contracts into composed workloads.
 Choose the nearest case below, then verify its referenced API before adapting mappings.</p>
-<p>Legend: <strong>Verified and tested</strong> identifies a reader-ready pattern with current source and tests.
-<strong>Design guide</strong> identifies explanatory material whose API details must be verified before implementation.</p>
 <h2 id="choose-a-starting-point"><a class="header" href="#choose-a-starting-point">Choose a Starting Point</a></h2>
 <p>Start implementation from a <a href="../quick-start.html">Quick Start</a> pattern whenever it can express the required API behavior.
 The remaining pages explain design choices; verify their code against the current API before using it.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Need</th><th>Start with</th><th>Technical focus and status</th></tr>
+<tr><th>Need</th><th>Start with</th><th>Technical focus</th></tr>
 </thead>
 <tbody>
 <tr><td>Qwen3 decoder step</td><td><a href="./transformer.html">Case Study: Transformer</a></td><td>Model mental model, baseline kernel map, decode-only boundaries, portable oracle, and schedule data from the current transformer example.</td></tr>
+<tr><td>Runtime loop-body skipping</td><td><a href="./skip-loop-bodies-at-runtime.html">Case Study: Skip Loop Bodies at Runtime</a></td><td>Load an HBM scalar and guard work inside a statically bounded loop.</td></tr>
 </tbody>
 </table>
 </div>

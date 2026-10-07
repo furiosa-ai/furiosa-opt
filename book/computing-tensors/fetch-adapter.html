@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -336,9 +336,13 @@ fn fetch_with_type_cast&lt;'l, const T: Tu&gt;(
     input.fetch::&lt;m![1], m![A]&gt;().fetch_cast::&lt;i32&gt;()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">let x: BeginTensor&lt;'_, _, i8, m![1], m![1], m![1], m![1], m![A]&gt; = BeginTensor::new(&amp;mut device.main, Tensor::zero());
-</span><span class="boring">let _o = fetch_with_type_cast(x);</span></code></pre>
+</span><span class="boring">let _o = fetch_with_type_cast(x);
+</span><span class="boring">
+</span><span class="boring">Ok(())
+</span><span class="boring">}</span></code></pre>
 <p>Type casting adds an additional limit on <code>read_size</code>.
 The cast output per fetch must fit in a single 32-byte flit (see <a href="./collect-engine.html">Collect Engine</a>).</p>
 <ul>

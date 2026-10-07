@@ -37,10 +37,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-152b6ab7.js"></script>
+        <script src="../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -218,19 +218,18 @@ pub fn fetch_commit_simple(
 use furiosa_opt_std::prelude::*;
 
 #[tokio::test]
-async fn test_fetch_commit_simple_host() {
+async fn test_fetch_commit_simple_host() -&gt; eyre::Result&lt;()&gt; {
     use furiosa_opt_examples::fetch_commit::{A, B};
 
-    let mut device = Device::new(fetch_commit_simple.topology()).unwrap();
+    let mut device = Device::new(fetch_commit_simple.topology())?;
 
     // Create input tensor with shape (A=4096)(B=8).
     let input = HostTensor::&lt;i8, m![A, B]&gt;::from_vec((0..32768).map(|x| x as i8).collect::&lt;Vec&lt;_&gt;&gt;())
         .to_hbm::&lt;m![1], m![A, B]&gt;(&amp;mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
     // Call the device function.
-    let output = launch(fetch_commit_simple, (&amp;mut device, &amp;input)).await.unwrap();
+    let output = launch(fetch_commit_simple, (&amp;mut device, &amp;input)).await?;
 
     let mut expected = vec![0i32; 4096 * 8];
     let mut idx = 0;
@@ -242,9 +241,11 @@ async fn test_fetch_commit_simple_host() {
     }
 
     assert_eq!(
-        output.to_host::&lt;m![B, A]&gt;(&amp;mut device.pdma).await.unwrap().into_inner(),
+        output.to_host::&lt;m![B, A]&gt;(&amp;mut device.pdma).await?.into_inner(),
         Tensor::&lt;_, m![B, A], CurrentBackend&gt;::from_vec(expected)
     );
+
+    Ok(())
 }</code></pre>
 <p>Run <code>cargo furiosa-opt test --test fetch_commit_tests</code> to execute the canonical case.
 The host oracle checks every <code>output[b, a]</code> value against the widened <code>input[a, b]</code> value.

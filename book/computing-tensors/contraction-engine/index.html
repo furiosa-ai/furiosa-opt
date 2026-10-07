@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-152b6ab7.js"></script>
+        <script src="../../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -257,9 +257,7 @@ They share these axes:</p>
 M splits across <code>Cluster</code> and <code>Slice</code>, and V splits as well: <code>V % 16</code> joins <code>Slice</code> while <code>V / 16 = 2</code> joins <code>Time</code> alongside K (V × M = 1024 doesn’t fit the 512 spatial cells per chip on RNGD, so V’s outer chunk must iterate).
 <code>Packet</code> pads to <code>1 # 32</code> and the reduction proceeds sequentially across cycles instead of via the Packet Reducer’s spatial tree, so only 1 of 32 multipliers does useful work per cycle (1/32 MAC utilization for bf16).
 The result is a degenerate kernel, shown only as an educational baseline.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![V = 32, M = 32, N = 8, K = 32];   // V batch, M×N output, K contraction
@@ -290,11 +288,14 @@ fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
          .contract_lane::&lt;m![V / 16], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_k_in_time(a, &amp;b);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <p>To avoid this pathological case, keep K in <code>Packet</code> (parallel reduction via the Packet Reducer’s tree) and spread the surviving axes (V, M, N) across <code>Cluster</code>, <code>Slice</code>, and <code>Lane</code> to maximize spatial parallelism.
 The two strategies below apply this principle, each with one axis per class for simplicity; real kernels may split a single axis across multiple classes when sizes demand.</p>
@@ -304,9 +305,7 @@ M in <code>Time</code>, K in <code>Packet</code>.
 This strategy is applicable when (1) the slice count covers the batch, (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>.
 When K is larger than <code>Packet</code>, split K across <code>Packet</code> (spatial) and <code>Time</code> (temporal).
 It maximizes MAC utilization across lanes.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![V = 32, M = 32, N = 8, K = 32];   // V batch, M×N output, K contraction
@@ -340,20 +339,21 @@ fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
          .contract_lane::&lt;m![M], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_m_in_time(a, &amp;b);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <h3 id="v-in-time"><a class="header" href="#v-in-time">V in Time</a></h3>
 <p>V (batch) in <code>Time</code>, K in <code>Packet</code>.
 M splits across <code>Cluster</code> and <code>Slice</code>.
 This strategy is applicable when (1) the slice count covers M (<code>M / 16</code> in <code>Cluster</code>, <code>M % 16</code> in <code>Slice</code>), (2) N fits in <code>Lane</code>, and (3) K fits in a single <code>Packet</code>.
 Useful when batch is the dominant axis (e.g., batched inference).</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![V = 32, M = 32, N = 8, K = 32];   // V batch, M×N output, K contraction
@@ -384,11 +384,14 @@ fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
          .contract_lane::&lt;m![V], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let a: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let b: TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; = TrfTensor::zero();
 </span><span class="boring">let _o = bmatmul_v_in_time(a, &amp;b);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 
                     </main>

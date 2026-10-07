@@ -37,10 +37,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-e3980f80.js";
+            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-152b6ab7.js"></script>
+        <script src="../../toc-369b31d2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -257,9 +257,7 @@ A dimension that appears on the input side but not on the output side is reduced
 <h3 id="dummy-replacement"><a class="header" href="#dummy-replacement">Dummy Replacement</a></h3>
 <p>This pass sums input across <code>R</code> and places the result in a dummy slot.
 The einsum form is <code>AR -&gt; A</code>.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 512, B = 2, R = 4];
@@ -277,10 +275,13 @@ fn inter_slice_add&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = inter_slice_add(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [A / 8, R]  -&gt;  [A / 8, 1 # 4]
 Time  = [1]         -&gt;  [1]
@@ -288,9 +289,7 @@ Time  = [1]         -&gt;  [1]
 <h3 id="broadcast-into-a-new-slice-dimension"><a class="header" href="#broadcast-into-a-new-slice-dimension">Broadcast Into a New Slice Dimension</a></h3>
 <p>This pass reduces <code>R</code> and broadcasts the result over a fresh dimension <code>X</code>.
 The einsum form is <code>PRW -&gt; PWX</code>, with the fresh <code>X</code> on the output side broadcasting.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 2, P = 8, R = 4, W = 64, X = 4];
@@ -307,10 +306,13 @@ fn broadcast_into_x&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![B], m![W, R], m![1], m![P]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = broadcast_into_x(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [W, R]  -&gt;  [W, X]
 Time  = [1]     -&gt;  [1]
@@ -318,9 +320,7 @@ Time  = [1]     -&gt;  [1]
 <h3 id="promotion-from-time-into-outslice"><a class="header" href="#promotion-from-time-into-outslice">Promotion from <code>Time</code> into <code>OutSlice</code></a></h3>
 <p>This pass reduces <code>R</code> and promotes the <code>Time</code> dimension <code>V</code> into OutSlice.
 The einsum form is <code>PRSUVW -&gt; PSUVW</code>.</p>
-<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span><span class="boring">#![feature(adt_const_params)]
+<pre class="playground"><code class="language-rust edition2024"><span class="boring">#![feature(adt_const_params)]
 </span><span class="boring">extern crate furiosa_opt_std;
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 2, P = 8, R = 4, S = 2, U = 2, V = 4, W = 64];
@@ -337,10 +337,13 @@ fn axis_promotion&lt;'l, const T: Tu&gt;(
         .vector_final()
 }
 <span class="boring">
-</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+</span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
+</span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
 </span><span class="boring">let c: CollectTensor&lt;'_, _, f32, m![1], m![B], m![W, R], m![S, V, U], m![P]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
 </span><span class="boring">let _o = axis_promotion(c);
+</span><span class="boring">
+</span><span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
 <pre><code class="language-text">Slice = [W, R]     -&gt;  [W, V]
 Time  = [S, V, U]  -&gt;  [S, U]
