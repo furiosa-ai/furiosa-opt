@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [v0.9.0]
+
+### Changed
+
+- Replace `dma_gather_scaled` / `dma_gather_unscaled` with
+  `gather::<IndexedAxis, Payload>().by_byte_offsets(index)` / `.by_positions::<Domain>(index)`,
+  followed by `.to_dm(&mut device.tdma)`.
+- Replace `dma_scatter` / `dma_scatter_unscaled` with
+  `dst.view_mut().scatter::<IndexedAxis, Payload>().by_byte_offsets(index)` /
+  `.by_positions::<Domain>(index)`, followed by `.from_dm(&mut device.tdma, updates)`.
+  Use `from_dm_view` to pass an updates view.
+- Low-level `Tensor::gather` is no longer public and `Tensor::scatter` no longer takes a
+  `scaled: bool` argument. Use the staged HBM gather/scatter APIs above.
+- NPU backend `Function::{alloc,write,write_into,read,read_into}` are no longer public.
+  Use `furiosa-opt-rt::Device::alloc`, `HostTensor::to_hbm`, and `HbmTensor::to_host`;
+  use `.output(..)` for transfers into existing tensors.
+- `MappingExt::split_at` returns `Result<(Mapping, Mapping), SplitAtError>`.
+  `FindAxisError::SpanExceedsMapping` and `WindowAxisError::SpanExceedsMapping` become
+  `SpanDoesNotDivide`.
+- Replace `Mapping::remove_padding()` with `remove_outermost_padding()`.
+- `TileError::Split` becomes `SingletonLength`, `IndexNotLocated`, or `WindowDoesNotFit`.
+- `furiosa-opt-lower::ElementSizeError` now has only `NotByteAligned` and `NotElementAligned`;
+  update exhaustive matches accordingly.
+- In `furiosa-opt-rt`, replace `device.alloc(bytes)` with
+  `device.alloc(image::Memory::Dram, bytes)` for HBM, or `image::Memory::Sram` for resident SRAM.
+  Allocation failures use `Error::Allocation(AllocError)`; `FunctionError::UnsupportedSlotMemory`
+  becomes `WrongSlotMemory { slot, expects, has }`.
+- Recompile device functions with the 0.9.0 compiler and update `furiosa-opt-rt` together.
+  Images compiled by older versions are incompatible with the new runtime.
+
+### Added
+
+- `gather::<..>().by_byte_offsets(index).sparse_prefix(valid_length)` adds a runtime prefix
+  limit to a gather.
+- `DmTensorView::to_spm` copies a DM view into an SPM tensor.
+- `HbmScalar<T>` passes a runtime `bool`, `i32`, `u32`, `i64`, `u64`, or 64-bit `usize` value
+  to device code through `from_host`, `write`, and `to_spm`.
+- Device scalar expressions support Rust integer `as` casts among `i32`, `u32`, `i64`, `u64`,
+  and `usize`, including `usize` tensor indices.
+- Runtime scalar conditions can guard work inside statically bounded `for` and `#[unroll]` loops.
+- `DmTensor::alloc(&device)?` allocates SRAM that persists across launches, passed to kernels
+  through `&DmTensor` or `&mut DmTensor`.
+- `furiosa-opt-rt::Device::memory()` and `furiosa-opt-std::Device<Npu>::memory()` report
+  per-chip HBM capacity, available bytes, and the largest contiguous free span.
+- `furiosa-opt-lower` exposes `gather_payload`, `scatter_payload`, and `validate_*` helpers
+  for indirect DMA validation.
+- Mapping inspection adds `MappingExt::{remove_axis,is_broadcast,has_bottom_pad,has_no_padding}`
+  and `Mapping::innermost_writable_size`.
+
+### Fixed
+
+- `DmTensorViewMut::to_dm_view` preserves the destination mapping's `Bottom` padding.
+- Vector pipelines support repeated reads of one VRF value.
+- Runtime loop indices preserve their updated values across iterations in optimized builds.
+- Unsupported register-file stores report compilation errors when they would discard computation.
+- Inter-transpose layouts exceeding the consecutive-transfer limit fail compilation.
+- Kernels exceeding `trace` profiling capacity can still run unprofiled or use `info` / `debug`.
+- Launches reject conflicting argument bindings, overlapping writable buffers, and misaligned
+  SRAM views. Completed launches release temporary buffers.
+- `Ident::new` accepts lowercase ASCII axis names, matching identifiers parsed from strings.
+
 ## [v0.8.1]
 
 ### Fixed
@@ -25,6 +86,10 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
   `to_dm_view` fuses into one SRAM DMA. Repeated slice calls can remove independently located axes.
 - `DmTensor::{asymmetric_chip_slice,asymmetric_cluster_slice}` select one local slice per dimension index
   through the sub-context.
+- `SpmTensor<D, Chip, Cluster, Pe, Element>` places a value in scratchpad memory, with `Pe` naming
+  the fused PEs a cluster's 64-slice groups form. `DmTensor::to_spm` and `SpmTensor::to_dm` move a
+  dense tensor between DM and SPM through Tensor DMA, and require `Pe::SIZE == Slice::SIZE / 64`.
+  `Element` must fit the 4 KiB scratchpad one PE holds, checked at compile time.
 - `furiosa-opt-examples` provides separate chip- and cluster-reduction examples for ReduceScatter,
   AllGather, ring-style AllReduce, and Butterfly AllReduce.
 - The fetch-size rule is published as `config_fetch_volume` / `FetchContext` in `furiosa-opt-lower`.
@@ -51,7 +116,7 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
   Runtime loop indices can select tensor references such as `model.layers[index].weight.x`.
 - Mapping factors accept generic axes and parenthesized counts, such as `m![Width / Factor]`
   and `m![Width / (Width / 256)]`.
-- `#[unroll]` fully expands a static `for` loop before scheduling. See [Unroll a loop](https://furiosa-ai.github.io/furiosa-opt/scheduling/tuning.html#unroll-a-loop).
+- `#[unroll]` fully expands a static `for` loop before scheduling. See [Unroll a loop](https://developer.furiosa.ai/furiosa-opt/book/scheduling/tuning.html#unroll-a-loop).
 - `DmTensorViewMut::slice_tile` creates mutable slice views.
   Indexed writes through these views are not yet supported by NPU compilation.
 
@@ -74,6 +139,10 @@ Breaking changes come first, each with what to write instead.
 - One `Topology`, in `furiosa-opt-rt` and re-exported by `furiosa-opt-std`, which held a second
   copy of the same two fields. Naming exact chips is `Builder::among`'s, so the variant that
   carried a chip list is gone with the conversion that was its only constructor.
+- `HbmTensor::dma_gather_unscaled` takes its raw row-position index as an `SpmTensor<i32>` instead
+  of a `DmTensor<i32>`: the kernel now stages the index into SPM itself with `to_spm` rather than
+  leaving the compiler to insert that transfer. The index's `Pe` must be padding-only (`m![1 # 4]`),
+  since the gather reads the whole list off PE 0.
 - `TuContext::{parallel_copy_chip_slice,parallel_copy_cluster_slice}` are replaced by
   `DmTensor::{asymmetric_chip_slice,asymmetric_cluster_slice}`. The input tensor is now the receiver,
   the sub-context is the first argument, and the input scalar and dimension types plus the number of

@@ -38,10 +38,14 @@ fn staged_pipeline<'l, const T: Tu>(
     .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = staged_pipeline(c);
+#
+# Ok(())
+# }
 ```
 
 ### Pipeline
@@ -373,13 +377,17 @@ fn vector_narrow_trim_semantics<'l, const T: Tu>(
     // shape semantics: [T], [P] -> [T], [P = 4]
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![B], m![S / 4 # 256], m![S % 4], m![A % 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = vector_narrow_split_semantics(i);
 # 
 # let i: VectorBranchTensor<'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = vector_narrow_trim_semantics(i);
+#
+# Ok(())
+# }
 ```
 
 ### Float Cluster
@@ -485,7 +493,8 @@ fn vector_widen_pad_semantics<'l, const T: Tu>(
     // shape semantics: [T], [P] -> [T], [P # 8]
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![B], m![S / 4 # 256], m![R, A / 4 % 2], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let i = i
@@ -497,6 +506,9 @@ fn vector_widen_pad_semantics<'l, const T: Tu>(
 # let i: VectorBranchTensor<'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let i = i.vector_narrow_trim::<m![A % 2 # 4]>().vector_fp_unary(FpUnaryOp::Exp);
 # let _o = vector_widen_pad_semantics(i);
+#
+# Ok(())
+# }
 ```
 
 ### FpToFxp Conversion
@@ -588,10 +600,14 @@ fn add_constant<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = add_constant(i);
+#
+# Ok(())
+# }
 ```
 
 ### `f32` Pipeline
@@ -617,10 +633,14 @@ fn sigmoid<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = sigmoid(i);
+#
+# Ok(())
+# }
 ```
 
 ### Bitwise `Abs` on `f32`
@@ -646,10 +666,14 @@ fn abs<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = abs(i);
+#
+# Ok(())
+# }
 ```
 
 ### Single-Stream Argument Mode
@@ -672,10 +696,14 @@ fn bias_minus_x<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = bias_minus_x(i);
+#
+# Ok(())
+# }
 ```
 
 ### VRF Operand
@@ -699,11 +727,15 @@ fn vrf_add<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![N], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let v: VrfTensor<i32, m![1], m![B], m![A / 8], m![A % 8]> = VrfTensor::zero();
 # let _o = vrf_add(i, &v);
+#
+# Ok(())
+# }
 ```
 
 ### Stash on the Fp-Only Path
@@ -731,10 +763,14 @@ fn residual_max<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = residual_max(i);
+#
+# Ok(())
+# }
 ```
 
 ### Stash on the Fxp-Only Path
@@ -760,10 +796,14 @@ fn stash_at_fxp<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![1], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = stash_at_fxp(i);
+#
+# Ok(())
+# }
 ```
 
 ### Stash Across Narrow and Widen
@@ -791,10 +831,14 @@ fn stash_across_narrow_widen<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, f32, m![1], m![B], m![A / 2], m![1], m![A % 2 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = stash_across_narrow_widen(i);
+#
+# Ok(())
+# }
 ```
 
 ### Pair Add
@@ -817,10 +861,14 @@ fn pair_add<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = pair_add(i);
+#
+# Ok(())
+# }
 ```
 
 ### Pair Per-Side Preprocessing
@@ -844,10 +892,14 @@ fn pair_preprocess_one_side<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = pair_preprocess_one_side(i);
+#
+# Ok(())
+# }
 ```
 
 ### Pair Float Pipeline with Zip
@@ -872,10 +924,14 @@ fn pair_fp_mul_zip<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = pair_fp_mul_zip(i);
+#
+# Ok(())
+# }
 ```
 
 ### Pair Per-Group Preprocessing
@@ -901,10 +957,14 @@ fn pair_asymmetric_preprocess<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = pair_asymmetric_preprocess(i);
+#
+# Ok(())
+# }
 ```
 
 ### Pair Zip Argument Mode
@@ -929,10 +989,14 @@ fn pair_sub_reverse<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let i: CollectTensor<'_, _, f32, m![1], m![B], m![A / 2], m![I], m![A % 2 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = pair_sub_reverse(i);
+#
+# Ok(())
+# }
 ```
 
 ## Performance

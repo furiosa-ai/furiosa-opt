@@ -65,7 +65,7 @@ pub(crate) struct Chip {
 /// those; callers queue transfers there and await the result, waiting for room when the queue
 /// is full.
 pub(crate) struct Engine {
-    allocator: Arc<Mutex<crate::buffer::Allocator>>,
+    pub(crate) allocations: Arc<crate::buffer::Allocations>,
     /// In dense order: a view's chip index is an index here.
     chips: Vec<Chip>,
     /// Each chip's memory as the host can map it, in the same order.
@@ -76,12 +76,7 @@ pub(crate) struct Engine {
 }
 
 impl Engine {
-    pub(super) fn open(
-        clusters: Vec<Cluster>,
-        images: Images,
-        allocator: Arc<Mutex<crate::buffer::Allocator>>,
-        timeout: Duration,
-    ) -> DeviceResult<(Self, Range<usize>)> {
+    pub(super) fn open(clusters: Vec<Cluster>, images: Images, timeout: Duration) -> DeviceResult<Self> {
         let (worker, launcher) = Worker::open(clusters, images, timeout)?;
         let free = worker.free()?;
         let chips = worker.chips()?;
@@ -91,17 +86,14 @@ impl Engine {
             .collect::<DeviceResult<Vec<_>>>()?;
         let (sender, jobs) = mpsc::channel(QUEUE_DEPTH);
         let thread = std::thread::spawn(move || worker.run(jobs));
-        Ok((
-            Self {
-                allocator,
-                chips,
-                windows,
-                launcher: Mutex::new(launcher),
-                sender: Some(sender),
-                thread: Some(thread),
-            },
-            free,
-        ))
+        Ok(Self {
+            allocations: Arc::new(crate::buffer::Allocations::new(free)),
+            chips,
+            windows,
+            launcher: Mutex::new(launcher),
+            sender: Some(sender),
+            thread: Some(thread),
+        })
     }
 
     /// Chips in the device.
@@ -191,10 +183,11 @@ impl Engine {
         Ok(())
     }
 
-    /// The chips `view` covers, as indices into the device. Another device's buffer or rank is
-    /// refused; `host` bytes of the wrong size panic, as a wrong-length `copy_from_slice` would.
+    /// The devices `view` covers, as indices into the group. Another group's buffer or rank, or a
+    /// resident, is refused; `host` bytes of the wrong size panic, as a wrong-length
+    /// `copy_from_slice` would.
     fn pieces(&self, view: &View, host: usize) -> DeviceResult<Range<usize>> {
-        if !view.buffer.belongs_to(&self.allocator) {
+        if !view.buffer.belongs_to(&self.allocations) || view.buffer.memory() != crate::image::Memory::Dram {
             return Err(Error::ForeignBuffer);
         }
         let chips = match view.chip {
@@ -315,9 +308,9 @@ impl<T> std::future::Future for Transfer<T> {
 #[cfg(test)]
 impl Engine {
     /// An engine over `chips` with no hardware behind it, for what never reaches a chip.
-    pub(crate) fn stub(chips: &[u8], allocator: Arc<Mutex<crate::buffer::Allocator>>) -> Self {
+    pub(crate) fn stub(chips: &[u8], allocations: Arc<crate::buffer::Allocations>) -> Self {
         Self {
-            allocator,
+            allocations,
             chips: chips.iter().map(|&index| Chip { index, base: 0 }).collect(),
             windows: Vec::new(),
             launcher: Mutex::default(),
@@ -342,7 +335,7 @@ mod tests {
     use std::panic::AssertUnwindSafe;
 
     use super::*;
-    use crate::buffer::{Allocator, Buffer};
+    use crate::buffer::{Allocations, Buffer};
 
     fn addresses(bytes: &[u8]) -> Range<usize> {
         bytes.as_ptr_range().start.addr()..bytes.as_ptr_range().end.addr()
@@ -375,9 +368,11 @@ mod tests {
     }
 
     fn engine(chips: &[u8]) -> (Engine, Buffer) {
-        let allocator = Arc::new(Mutex::new(Allocator::new(0..256)));
-        let buffer = Buffer::alloc(&allocator, 16).expect("device buffer");
-        (Engine::stub(chips, allocator), buffer)
+        let allocations = Arc::new(Allocations::new(0..256));
+        let buffer = allocations
+            .alloc(crate::image::Memory::Dram, 16)
+            .expect("device buffer");
+        (Engine::stub(chips, allocations), buffer)
     }
 
     #[test]
@@ -464,8 +459,8 @@ mod tests {
     #[test]
     fn rejects_foreign_buffer() {
         let (engine, _) = engine(&[1]);
-        let other = Arc::new(Mutex::new(Allocator::new(0..256)));
-        let foreign = Buffer::alloc(&other, 16).expect("foreign buffer");
+        let other = Arc::new(Allocations::new(0..256));
+        let foreign = other.alloc(crate::image::Memory::Dram, 16).expect("foreign buffer");
         let host = [0u8; 16];
 
         assert!(matches!(

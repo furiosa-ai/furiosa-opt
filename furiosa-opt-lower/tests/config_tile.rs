@@ -189,7 +189,7 @@ mod rejects {
             hole_fill: PaddingKind::Top,
         })
         .unwrap_err();
-        assert!(matches!(error, TileError::Split), "{error}");
+        assert!(matches!(error, TileError::IndexNotLocated { .. }), "{error}");
     }
 
     /// A window wider than the axis, which `Mapping::resize` asserts on.
@@ -204,7 +204,10 @@ mod rejects {
                 hole_fill: PaddingKind::Top,
             })
             .unwrap_err();
-            assert!(matches!(error, TileError::Split), "len {len}: {error}");
+            assert!(
+                matches!(error, TileError::WindowDoesNotFit { .. }),
+                "len {len}: {error}"
+            );
         }
     }
 
@@ -219,6 +222,6 @@ mod rejects {
             hole_fill: PaddingKind::Top,
         })
         .unwrap_err();
-        assert!(matches!(error, TileError::Split), "{error}");
+        assert!(matches!(error, TileError::SingletonLength { .. }), "{error}");
     }
 }

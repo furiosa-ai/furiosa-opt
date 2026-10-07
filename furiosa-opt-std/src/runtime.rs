@@ -220,17 +220,36 @@ pub type Buffers = ArrayVec<Buffer, { Function::MAX_ARGS }>;
 /// # Implements DeviceSend
 ///
 /// - Device memory types: `HbmTensor`, `HbmTensorView`, `HbmTensorViewMut`
+/// - Resident DM tensors by reference only: `&DmTensor`, `&mut DmTensor`
 /// - Device types: `&mut Device`
 /// - Tuples of DeviceSend types (for argument composition)
 ///
 /// # Does NOT implement DeviceSend
 ///
 /// - `HostTensor` - lives in host memory
+/// - `DmTensor` by value, or a struct holding one - a launch borrows a resident, it never
+///   takes it
 /// - Scalars - no NPU binding representation
 /// - `Vec<T>`, `String`, etc. - general collections
 ///
 /// User-defined structs opt in via `#[derive(DeviceSend)]`, which requires every
 /// field to be `DeviceSend` (so a struct is `DeviceSend` iff all its fields are).
+///
+/// ```compile_fail,E0277
+/// use furiosa_opt_std::prelude::*;
+/// fn send<T: furiosa_opt_std::runtime::DeviceSend>(_: T) {}
+/// fn by_value(tensor: DmTensor<bf16, m![1], m![1], m![64], m![8]>) {
+///     send(tensor);
+/// }
+/// ```
+///
+/// ```compile_fail,E0277
+/// use furiosa_opt_std::prelude::*;
+/// fn send<T: furiosa_opt_std::runtime::DeviceSend>(_: T) {}
+/// fn borrowed_tuple(tensors: &(DmTensor<bf16, m![1], m![1], m![64], m![8]>,)) {
+///     send(tensors);
+/// }
+/// ```
 pub trait DeviceSend {
     /// Pushes this value's device buffers onto `buffers`, in declaration order. Fails on an HBM
     /// tensor the runtime never placed.

@@ -633,6 +633,54 @@ pub fn ve_elementwise_multi_vrf(
     result.to_hbm(&mut device.tdma)
 }
 
+/// Reads VRF inputs in x, y, x order in one vector-engine chain.
+#[device(chip = 1)]
+pub fn ve_vrf_read_many_f32(
+    device: &mut Device,
+    input: &HbmTensor<f32, Chip, m![A]>,
+    vrf_data1: &HbmTensor<f32, Chip, m![A]>,
+    vrf_data2: &HbmTensor<f32, Chip, m![A]>,
+) -> HbmTensor<f32, Chip, m![A]> {
+    let input_dm = input.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
+    let vrf_dm1 = vrf_data1.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
+    let vrf_dm2 = vrf_data2.to_dm::<Cluster, m![A / 2], m![A % 2]>(&mut device.tdma);
+
+    let x_vrf: VrfTensor<f32, Chip, Cluster, m![A / 2], m![A % 2 # 8]> = device
+        .sub
+        .begin(vrf_dm1.view())
+        .fetch::<m![1], m![A % 2]>()
+        .fetch_cast::<f32>()
+        .collect::<m![1], m![A % 2 # 8]>()
+        .to_vrf();
+
+    let y_vrf: VrfTensor<f32, Chip, Cluster, m![A / 2], m![A % 2 # 8]> = device
+        .sub
+        .begin(vrf_dm2.view())
+        .fetch::<m![1], m![A % 2]>()
+        .fetch_cast::<f32>()
+        .collect::<m![1], m![A % 2 # 8]>()
+        .to_vrf();
+
+    let result: DmTensor<f32, Chip, Cluster, m![A / 2], m![A % 2]> = device
+        .main
+        .begin(input_dm.view())
+        .fetch::<m![1], m![A % 2]>()
+        .fetch_cast::<f32>()
+        .collect::<m![1], m![A % 2 # 8]>()
+        .vector_init()
+        .vector_intra_slice_tag(TagMode::Zero)
+        .vector_narrow_trim::<m![A % 2 # 4]>()
+        .vector_fp_binary(FpBinaryOp::MulF(FpMulAlu::Mul0), &x_vrf)
+        .vector_fp_binary(FpBinaryOp::MulF(FpMulAlu::Mul1), &y_vrf)
+        .vector_widen_pad::<m![A % 2 # 8]>()
+        .vector_clip(ClipBinaryOpF32::Add, &x_vrf)
+        .vector_final()
+        .commit_trim::<m![A % 2]>()
+        .commit();
+
+    result.to_hbm(&mut device.tdma)
+}
+
 // =============================================================================
 // Group pair operations (ve_group_pair_*)
 // =============================================================================

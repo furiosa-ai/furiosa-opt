@@ -131,7 +131,7 @@ pub fn config_fetch_lift(input: FetchLiftInput) -> Result<Mapping, FetchLiftErro
             stride /= 2;
             continue;
         }
-        if !matches!(&input, Mapping::Broadcast { size: 2 }) {
+        if !input.is_broadcast() {
             return Err(FetchLiftError::PlacementMismatch {
                 dimension,
                 stride,

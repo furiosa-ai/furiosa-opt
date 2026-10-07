@@ -5,29 +5,53 @@ use crate::Error;
 use crate::backend::Backend;
 use crate::runtime::{Buffers, DeviceSend};
 use crate::scalar::Scalar;
-use crate::tensor::memory::{HbmTensor, HbmTensorView, HbmTensorViewMut};
+use crate::tensor::memory::{DmTensor, HbmScalar, HbmTensor, HbmTensorView, HbmTensorViewMut};
 
 /// Cpu and compiler-placed tensors have no device allocation, so a host launch cannot name them.
-fn placed(buffer: Option<Buffer>, buffers: &mut Buffers) -> Result<(), Error> {
+fn bind(buffer: Option<Buffer>, buffers: &mut Buffers) -> Result<(), Error> {
     buffers.push(buffer.ok_or(Error::Unplaced)?);
     Ok(())
 }
 
 impl<D: Scalar, Chip: M, Element: M, B: Backend> DeviceSend for HbmTensor<D, Chip, Element, B> {
     fn bind(&self, buffers: &mut Buffers) -> Result<(), Error> {
-        placed(self.buffer().cloned(), buffers)
+        bind(self.owner().cloned(), buffers)
+    }
+}
+
+impl<D: crate::scalar::RuntimeScalar, B: Backend> DeviceSend for HbmScalar<D, B> {
+    fn bind(&self, buffers: &mut Buffers) -> Result<(), Error> {
+        bind(self.buffer().cloned(), buffers)
     }
 }
 
 impl<D: Scalar, Chip: M, Element: M, B: Backend> DeviceSend for HbmTensorView<'_, D, Chip, Element, B> {
     fn bind(&self, buffers: &mut Buffers) -> Result<(), Error> {
-        placed(self.buffer(), buffers)
+        bind(self.owner(), buffers)
     }
 }
 
 impl<D: Scalar, Chip: M, Element: M, B: Backend> DeviceSend for HbmTensorViewMut<'_, D, Chip, Element, B> {
     fn bind(&self, buffers: &mut Buffers) -> Result<(), Error> {
-        placed(self.buffer(), buffers)
+        bind(self.owner(), buffers)
+    }
+}
+
+// Residents cross only by reference: the launch borrows the SRAM they keep live, it never
+// takes it.
+impl<D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend> DeviceSend
+    for &DmTensor<D, Chip, Cluster, Slice, Element, B>
+{
+    fn bind(&self, buffers: &mut Buffers) -> Result<(), Error> {
+        bind(self.owner().cloned(), buffers)
+    }
+}
+
+impl<D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend> DeviceSend
+    for &mut DmTensor<D, Chip, Cluster, Slice, Element, B>
+{
+    fn bind(&self, buffers: &mut Buffers) -> Result<(), Error> {
+        bind(self.owner().cloned(), buffers)
     }
 }
 

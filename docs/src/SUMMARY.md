@@ -45,6 +45,8 @@
   + [Case Study: Transformer](./kernel-examples/transformer.md)
 
 
+  + [Case Study: Skip Loop Bodies at Runtime](./kernel-examples/skip-loop-bodies-at-runtime.md)
+
 - [Scheduling and Tuning](./scheduling/index.md)
   + [Schedule](./scheduling/schedule.md)
   + [Diagnosis](./scheduling/diagnosis.md)

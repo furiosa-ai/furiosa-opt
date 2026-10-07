@@ -14,8 +14,9 @@ The DMA Engine chains a read sequencer and a write sequencer to move data among 
 The real engine APIs use different types (`DmTensor`, `HbmTensor`, `TuTensor`, …), but every concrete pair maps onto the same `MemTensor` → `StreamTensor` shape illustrated below.
 
 `MemTensor` holds data in some memory mapping `Buf`.
-DM and HBM tensors play this role in the public API.
+DM, SPM, and HBM tensors play this role in the public API.
 
+The DMA Engine chains a read sequencer and a write sequencer to move data among DM, SPM, and HBM without intermediate buffers.
 
 ```rust,ignore
 {{#include ../../../furiosa-opt-std/src/tensor/pseudo.rs:buf_tensor_def}}

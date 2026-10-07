@@ -9,7 +9,9 @@ use crate::tensor::memory::HbmTensor;
 
 impl<D: Scalar, Chip: M, Element: M> From<Buffer> for HbmTensor<D, Chip, Element> {
     fn from(buffer: Buffer) -> Self {
-        HbmTensor::unbacked().placed(buffer)
+        let mut tensor = HbmTensor::unbacked();
+        tensor.own(buffer);
+        tensor
     }
 }
 

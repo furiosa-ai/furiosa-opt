@@ -74,7 +74,7 @@ impl<S: tracing::Subscriber> Layer<S> for Counter {
 }
 
 #[tokio::test]
-async fn profile_i8_contract() {
+async fn profile_i8_contract() -> eyre::Result<()> {
     // Separate from the span assertion below: the runtime records nothing under
     // `info`, and that must not read as a regression in the profiled path.
     let level = std::env::var("FURIOSA_OPT_PROFILE")
@@ -88,14 +88,16 @@ async fn profile_i8_contract() {
     let counter = Counter::default();
     tracing_subscriber::registry().with(counter.clone()).init();
 
-    let mut device = Device::new(i8_contract.topology()).unwrap();
+    let mut device = Device::new(i8_contract.topology())?;
     let input = HostTensor::<i8, m![A, K8]>::from_vec(vec![1; <m![A, K8]>::SIZE]);
     let trf = HostTensor::<i8, m![R, K8]>::from_vec(vec![1; <m![R, K8]>::SIZE]);
-    let input_hbm = input.to_hbm::<Chip, m![A, K8]>(&mut device.pdma).await.unwrap();
-    let trf_hbm = trf.to_hbm::<Chip, m![R, K8]>(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm::<Chip, m![A, K8]>(&mut device.pdma).await?;
+    let trf_hbm = trf.to_hbm::<Chip, m![R, K8]>(&mut device.pdma).await?;
 
-    let _ = launch(i8_contract, (&mut device, &input_hbm, &trf_hbm)).await.unwrap();
+    let _ = launch(i8_contract, (&mut device, &input_hbm, &trf_hbm)).await?;
 
     assert!(counter.read() > 0, "expected on-device profile spans");
     assert!(counter.verifies());
+
+    Ok(())
 }

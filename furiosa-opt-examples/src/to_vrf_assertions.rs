@@ -23,10 +23,14 @@
 //!     input.fetch::<m![1], m![A]>().collect::<m![A / 8], m![A % 8]>().to_vrf()
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A]> =
 //! #     BeginTensor::new(&mut device.sub, Tensor::zero());
 //! # let _vrf = store(input);
+//! #
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! The same bound holds for a main-context store off the vector engine's write port, which takes
@@ -55,10 +59,14 @@
 //!         .to_vrf(sub)
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![1], m![A]> =
 //! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # let _vrf = store(input, &mut device.sub);
+//! #
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! Doubling it overruns the file there too:
@@ -86,10 +94,14 @@
 //!         .to_vrf(sub)
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![1], m![A]> =
 //! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # let _vrf = store(input, &mut device.sub);
+//! #
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ```compile_fail
@@ -106,10 +118,14 @@
 //!     input.fetch::<m![1], m![A]>().collect::<m![A / 8], m![A % 8]>().to_vrf()
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 256], m![1], m![A]> =
 //! #     BeginTensor::new(&mut device.sub, Tensor::zero());
 //! # let _vrf = store(input);
+//! #
+//! # Ok(())
+//! # }
 //! ```
 
 use furiosa_opt_std::prelude::*;

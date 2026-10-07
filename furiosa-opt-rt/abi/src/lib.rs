@@ -9,7 +9,23 @@ extern crate alloc;
 extern crate bincode2 as bincode;
 extern crate thiserror_core as thiserror;
 
+/// Positions the runtime binds in a compiled task address table.
+pub mod args {
+    pub const WEIGHT: usize = 0;
+    pub const RESERVED: usize = WEIGHT + 1;
+    pub const STACK_BEGIN: usize = RESERVED + 1;
+    pub const STACK: usize = STACK_BEGIN;
+    pub const INTERCHIP_STACK: usize = STACK + 1;
+    pub const STACK_COUNT: usize = 2;
+    pub const IO_BEGIN: usize = STACK_BEGIN + STACK_COUNT;
+
+    pub const fn io(slot: usize) -> usize {
+        IO_BEGIN + slot
+    }
+}
+
 pub mod bootloader;
+pub mod dm;
 /// Needs `alloc`: an image owns its tables.
 #[cfg(feature = "alloc")]
 pub mod image;
@@ -20,6 +36,8 @@ pub mod ring;
 pub use image::Image;
 
 /// Revision of the shared host-device ABI.
+// TODO: Decouple compiler metadata from loading, call, and IPC contracts; bump only for incompatible
+// changes to those contracts. Keeping revision 1 does not make earlier image layouts compatible.
 pub const ABI_VERSION: u32 = 1;
 
 /// PEs a device has, in clusters of [`CLUSTER_PES`]. A function uses a prefix of a device's PEs

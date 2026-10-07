@@ -58,10 +58,14 @@ fn forwarding<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![B], m![C]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = forwarding(f);
+#
+# Ok(())
+# }
 ```
 
 ### Broadcast01
@@ -112,10 +116,14 @@ fn broadcast01<'l, const T: Tu>(
     )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, f32, m![1], m![D], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o= broadcast01(f);
+#
+# Ok(())
+# }
 ```
 
 With `slice1 = 2` (size of broadcast `X`), `slice0 = 2` (size of broadcast `Y`), and `time0 = 4`, the compiler derives `slice2 = 64`, `time1 = 16`, and `ring_size = 4` (64 sub-rings span 256 slices).
@@ -170,10 +178,14 @@ fn broadcast1<'l, const T: Tu>(
     )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = broadcast1(f);
+#
+# Ok(())
+# }
 ```
 
 With `slice1 = 4` (size of broadcast `X`) and `slice0 = 8`, the compiler derives `slice2 = 8` and `ring_size = 32` (8 sub-rings span 256 slices).
@@ -217,10 +229,14 @@ fn transpose<'l, const T: Tu>(
     })
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 64]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = transpose(f);
+#
+# Ok(())
+# }
 ```
 
 With `slice1 = 32` and `slice0 = 2`, the compiler derives `slice2 = 4` and `ring_size = 64` (4 sub-rings span 256 slices).
@@ -285,10 +301,14 @@ fn inter_transpose<'l, const T: Tu>(
         })
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = inter_transpose(f);
+#
+# Ok(())
+# }
 ```
 
 With `slice1 = 2`, `slice0 = 16`, and `time0 = 2`, the compiler derives `slice2 = 8`, `time2 = 2`, and `ring_size = 32` (8 sub-rings span 256 slices).
@@ -341,10 +361,14 @@ fn transposed_broadcast1<'l, const T: Tu>(
     )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, i8, m![1], m![1 # 2], m![A], m![B], m![C # 32]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = transposed_broadcast1(f);
+#
+# Ok(())
+# }
 ```
 
 With `slice1 = 8` and `slice0 = 8` (size of broadcast `Y`), the compiler derives `slice2 = 4` and `ring_size = 64` (4 sub-rings span 256 slices).
@@ -433,10 +457,14 @@ fn arbitrary_permutation<'l, const T: Tu>(
     )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = arbitrary_permutation(f);
+#
+# Ok(())
+# }
 ```
 
 The output `Slice = m![B % 4, B / 4, A % 4, A / 4]` permutes the input slice shape `[0, 1, 2, 3]` into `[3, 2, 1, 0]`, which no regular configuration covers but a custom bitmap does.
@@ -478,10 +506,14 @@ fn multi_axis_broadcast<'l, const T: Tu>(
     )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B], m![C], m![D, E]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = multi_axis_broadcast(f);
+#
+# Ok(())
+# }
 ```
 
 The output moves `A % 2` and `B % 2` from `Slice` to `Time`, broadcasting at their original positions via the broadcast dimensions `X` and `Y`.
@@ -521,10 +553,14 @@ fn partial_axis_extraction<'l, const T: Tu>(
     )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let f: FetchTensor<'_, _, f32, m![1], m![1 # 2], m![A, B, C # 4], m![D], m![E]> = FetchTensor::new(&mut device.main, Tensor::zero());
 # let _o = partial_axis_extraction(f);
+#
+# Ok(())
+# }
 ```
 
 The output moves `C # 4` from `Slice` to `Time`, placing a broadcast axis `X` at its vacated `Slice` position, and the fourth value (`C # 4 = 3`), a pure padding cell, is dropped, so only the three valid values `C` are extracted.

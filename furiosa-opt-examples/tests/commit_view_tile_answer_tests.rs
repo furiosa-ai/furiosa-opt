@@ -30,7 +30,7 @@ fn swapped_halves(input: &[bf16]) -> Vec<bf16> {
 /// offset `32`); a byte-unit fetch offset would read element `16 / 2 = 8` and
 /// fail this check.
 #[tokio::test]
-async fn answer_swap_halves() {
+async fn answer_swap_halves() -> eyre::Result<()> {
     let input_vals = ramp();
     let expected = swapped_halves(&input_vals);
     assert_ne!(
@@ -38,17 +38,18 @@ async fn answer_swap_halves() {
         "the swap must actually move data (not an identity)"
     );
 
-    let mut device = Device::new(swap_halves.topology()).unwrap();
+    let mut device = Device::new(swap_halves.topology())?;
     let input_hbm = HostTensor::<bf16, m![A, X]>::from_vec(input_vals)
         .to_hbm::<Chip, m![A, X]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let out = launch(swap_halves, (&mut device, &input_hbm)).await.unwrap();
+    let out = launch(swap_halves, (&mut device, &input_hbm)).await?;
 
     assert_eq!(
         expected,
-        out.to_host::<m![A, X]>(&mut device.pdma).await.unwrap().into_vec(),
+        out.to_host::<m![A, X]>(&mut device.pdma).await?.into_vec(),
         "host oracle (left) vs VISA-sim (right)"
     );
+
+    Ok(())
 }

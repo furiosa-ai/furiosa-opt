@@ -1,4 +1,4 @@
-use furiosa_mapping::{FindAxisError, Mapping, MappingExt, PaddingKind};
+use furiosa_mapping::{FindAxisError, Mapping, MappingExt};
 
 use crate::DM_WRITE_ALIGN_BYTES;
 
@@ -33,6 +33,12 @@ pub enum SliceError {
         element: Mapping,
         #[source]
         source: FindAxisError,
+    },
+    #[error("slice: AxisToSlice {axis} sits at stride {stride}, which does not divide Element {element}")]
+    StrideDoesNotDivide {
+        axis: Mapping,
+        element: Mapping,
+        stride: usize,
     },
     #[error("slice: AxisToSlice {axis} is not a complete axis of Element {element}; the located run contains {found}")]
     IncompleteAxis {
@@ -106,11 +112,15 @@ pub fn config_outermost_dm_slice(
         });
     }
 
-    let (outer, tail) = element.split_at(stride);
+    let (outer, tail) = element.split_at(stride).map_err(|_| SliceError::StrideDoesNotDivide {
+        axis: axis.clone(),
+        element: element.clone(),
+        stride,
+    })?;
     if outer.normalize() != axis.normalize() {
         return Err(SliceError::NotOutermost { axis, element, outer });
     }
-    if has_bottom_padding(&tail) {
+    if tail.has_bottom_pad() {
         return Err(SliceError::BottomHoleTail { tail });
     }
 
@@ -182,15 +192,18 @@ fn slice_layout(axis: &Mapping, element: &Mapping) -> Result<Mapping, SliceError
         element: element.clone(),
         source,
     })?;
-    let (through_axis, inner) = element.split_at(stride);
-    if !through_axis.size().is_multiple_of(axis.size()) {
-        return Err(SliceError::IncompleteAxis {
+    let (through_axis, inner) = element.split_at(stride).map_err(|_| SliceError::StrideDoesNotDivide {
+        axis: axis.clone(),
+        element: element.clone(),
+        stride,
+    })?;
+    let (outer, found) = through_axis
+        .split_at(axis.size())
+        .map_err(|_| SliceError::IncompleteAxis {
             axis: axis.clone(),
             element: element.clone(),
-            found: through_axis,
-        });
-    }
-    let (outer, found) = through_axis.split_at(axis.size());
+            found: through_axis.clone(),
+        })?;
     if found.normalize() != axis.normalize() {
         return Err(SliceError::IncompleteAxis {
             axis: axis.clone(),
@@ -199,15 +212,4 @@ fn slice_layout(axis: &Mapping, element: &Mapping) -> Result<Mapping, SliceError
         });
     }
     Ok(outer.pair(inner).normalize())
-}
-
-fn has_bottom_padding(mapping: &Mapping) -> bool {
-    match mapping {
-        Mapping::Padding { inner, kind, .. } => *kind == PaddingKind::Bottom || has_bottom_padding(inner),
-        Mapping::Stride { inner, .. } | Mapping::Modulo { inner, .. } | Mapping::Resize { inner, .. } => {
-            has_bottom_padding(inner)
-        }
-        Mapping::Pair { left, right } => has_bottom_padding(left) || has_bottom_padding(right),
-        Mapping::Symbol { .. } | Mapping::Broadcast { .. } => false,
-    }
 }

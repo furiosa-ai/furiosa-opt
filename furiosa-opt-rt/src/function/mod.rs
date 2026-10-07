@@ -3,10 +3,11 @@
 
 use std::sync::Arc;
 
+use furiosa_opt_abi::args;
 use furiosa_opt_abi::image::{Image, Memory, Slot};
 use furiosa_opt_ipc::{ProfileRecord, ProfileRequest, Staged};
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, Reservation};
 use crate::{Device, Error, Result};
 
 mod profile;
@@ -21,10 +22,16 @@ pub enum FunctionError {
     InvalidBinding(&'static str),
     #[error("a device allocates device memory, not SRAM")]
     UnsupportedStaticMemory,
-    #[error("slot {slot} expects SRAM, which a device's buffers are not")]
-    UnsupportedSlotMemory { slot: u32 },
-    #[error("slot {slot} needs {needs} bytes on every chip, the buffer has {has}")]
+    #[error("slot {slot} expects a {expects:?} buffer, the argument is a {has:?} one")]
+    WrongSlotMemory { slot: u32, expects: Memory, has: Memory },
+    #[error("slot {slot} needs {needs} bytes on every device, the buffer has {has}")]
     BufferTooSmall { slot: u32, needs: u64, has: u64 },
+    #[error("slot {0} is bound to different buffer bases")]
+    ConflictingSlot(u32),
+    #[error("slots {0} and {1} overlap and at least one is writable")]
+    AliasedSlots(u32, u32),
+    #[error("SRAM slot {0} is not aligned to the resident address alignment")]
+    UnalignedSlot(u32),
     #[error("a {bytes} byte weight does not divide over {chips} chips")]
     WeightNotDivisible { bytes: usize, chips: usize },
     #[error("the image is for {image_chips} chips of {image_pes} PEs, the device has {device_chips} of {device_pes}")]
@@ -44,16 +51,18 @@ pub struct Function {
     staging: Buffer,
     token: u64,
     /// The weight, a reserved slot, then one buffer per stack: the arguments before the caller's.
-    statics: Vec<Buffer>,
+    statics: [Buffer; args::IO_BEGIN],
     signature: Signature,
     profile: Profile,
 }
 
-/// Which argument slots a launch binds, by index past the statics, and what each slot takes.
+/// A launch's argument bindings and memory requirements.
 struct Signature {
     inputs: Vec<u32>,
     outputs: Vec<u32>,
     slots: Vec<Slot>,
+    /// One past the highest physical SRAM byte the function's temporaries use.
+    sram_end: u64,
 }
 
 impl Function {
@@ -86,21 +95,27 @@ impl Function {
                     }
                     .into());
                 }
-                let buffer = device.alloc(weight.bytes.len() / chips)?;
+                let buffer = device.alloc(Memory::Dram, weight.bytes.len() / chips)?;
                 device.write([(weight.bytes, buffer.on_all())]).await?;
                 buffer
             }
-            None => device.alloc(0)?,
+            None => device.alloc(Memory::Dram, 0)?,
         };
-        let mut statics = vec![weight, device.alloc(0)?];
-        for stack in image.stacks() {
-            dram(stack.kind)?;
-            let size = usize::try_from(stack.size)
-                .map_err(|_| FunctionError::InvalidBinding("a stack does not fit this platform"))?;
-            statics.push(device.alloc(size)?);
-        }
+        let statics = std::array::try_from_fn(|slot| -> Result<Buffer> {
+            match slot {
+                args::WEIGHT => Ok(weight.clone()),
+                args::RESERVED => device.alloc(Memory::Dram, 0),
+                _ => {
+                    let stack = &image.stacks()[slot - args::STACK_BEGIN];
+                    dram(stack.kind)?;
+                    let size = usize::try_from(stack.size)
+                        .map_err(|_| FunctionError::InvalidBinding("a stack does not fit this platform"))?;
+                    device.alloc(Memory::Dram, size)
+                }
+            }
+        })?;
         let bytes = image.staging().map_err(FunctionError::Image)?;
-        let staging = device.alloc(bytes.len())?;
+        let staging = device.alloc(Memory::Dram, bytes.len())?;
         device
             .write(device.ranks().map(|rank| (bytes.as_slice(), staging.on(rank))))
             .await?;
@@ -113,6 +128,7 @@ impl Function {
                 inputs: image.inputs().to_vec(),
                 outputs: image.outputs().to_vec(),
                 slots: image.slots().to_vec(),
+                sram_end: image.sram_end(),
             },
             profile: Profile::new(image)?,
         })
@@ -143,24 +159,30 @@ impl Function {
         if !inputs
             .iter()
             .chain(outputs)
-            .all(|buffer| buffer.belongs_to(&self.device.allocator))
+            .all(|buffer| buffer.belongs_to(&self.device.allocations))
         {
             return Err(Error::ForeignBuffer);
         }
-        let args = self.signature.bind(&self.statics, inputs, outputs)?;
+        let buffers = self.signature.bind(&self.statics, inputs, outputs)?;
+        // Admitted before submission: until the device answers, no resident may be placed under
+        // the function's temporaries.
+        let reservation = self.device.allocations.reserve(self.signature.sram_end as usize)?;
         let ticket = self.device.engine.submit(&crate::device::engine::Launch {
             image: Staged {
                 addr: self.staging.addr() as u64,
                 len: self.staging.size() as u64,
                 token: self.token,
             },
-            args: args.words(),
+            args: &buffers,
             profile,
         })?;
         Ok(Launch {
-            ticket: Some(ticket),
             function: self,
-            operands: inputs.iter().chain(outputs).cloned().collect(),
+            pending: Some(Pending {
+                ticket,
+                buffers,
+                reservation,
+            }),
         })
     }
 }
@@ -168,14 +190,18 @@ impl Function {
 /// One submitted launch. `wait` consumes it, so a launch completes once.
 #[must_use = "a call holds its answer slot until it is waited"]
 pub struct Launch<'function> {
+    function: &'function Function,
+    pending: Option<Pending>,
+}
+
+struct Pending {
     /// Held until the device has answered, through a wait or, for a launch dropped before
     /// that, a drain on drop: the operands go back only then.
-    ticket: Option<crate::device::engine::Ticket>,
-    function: &'function Function,
+    ticket: crate::device::engine::Ticket,
     /// The device addresses these until it answers, so the launch holds them rather than trusting
     /// the caller to keep its own handles alive.
-    #[allow(dead_code)]
-    operands: Vec<Buffer>,
+    buffers: Vec<Buffer>,
+    reservation: Reservation,
 }
 
 impl Launch<'_> {
@@ -186,12 +212,22 @@ impl Launch<'_> {
     /// Waits for the device's answer and lets go of the ticket only then: a wait dropped part-way
     /// leaves the ticket for the drop to drain.
     async fn collect(&mut self) -> Result<Vec<Vec<ProfileRecord>>> {
-        let Some(ticket) = self.ticket.as_mut() else {
+        let Some(pending) = self.pending.as_mut() else {
             return Ok(Vec::new());
         };
-        let answered = self.function.device.engine.wait(ticket).await;
-        self.ticket = None;
+        let answered = self.function.device.engine.wait(&mut pending.ticket).await;
+        self.finish();
         answered
+    }
+
+    fn finish(&mut self) {
+        if let Some(Pending {
+            buffers, reservation, ..
+        }) = self.pending.take()
+        {
+            drop(buffers);
+            drop(reservation);
+        }
     }
 }
 
@@ -199,9 +235,10 @@ impl Drop for Launch<'_> {
     fn drop(&mut self) {
         // Dropping unwaited would hand a running launch's operands to the next caller, so the
         // answer is collected here instead.
-        if let Some(ticket) = self.ticket.as_mut() {
-            self.function.device.engine.drain(ticket);
+        if let Some(pending) = self.pending.as_mut() {
+            self.function.device.engine.drain(&mut pending.ticket);
         }
+        self.finish();
     }
 }
 
@@ -232,32 +269,42 @@ impl Trace<'_> {
 }
 
 impl Signature {
-    /// The launch's arguments as offsets into device memory: the statics, then each slot's buffer.
+    /// The launch's argument buffers: the statics, then each slot's buffer.
     /// Every slot must be bound, by an input, an output, or an input that doubles as the output
-    /// when `outputs` is empty.
-    fn bind(&self, statics: &[Buffer], inputs: &[Buffer], outputs: &[Buffer]) -> Result<Args> {
+    /// when `outputs` is empty. Retains the buffers until the launch completes.
+    fn bind(&self, statics: &[Buffer], inputs: &[Buffer], outputs: &[Buffer]) -> Result<Vec<Buffer>> {
         if inputs.len() != self.inputs.len()
             || (!outputs.is_empty() && outputs.len() != self.outputs.len())
             || (outputs.is_empty() && self.outputs.iter().any(|slot| !self.inputs.contains(slot)))
         {
             return Err(FunctionError::InvalidBinding("the supplied args do not match the image").into());
         }
-        let bound = |slot: u32| {
-            self.inputs
-                .iter()
-                .zip(inputs)
-                .chain(self.outputs.iter().zip(outputs))
-                .rev()
-                .find_map(|(&bound, buffer)| (bound == slot).then_some(buffer))
-        };
-        let mut args = Args::default();
-        for buffer in statics {
-            args.push(buffer)?;
+        let mut bound: Vec<Option<&Buffer>> = vec![None; self.slots.len()];
+        for (&index, buffer) in self.inputs.iter().zip(inputs).chain(self.outputs.iter().zip(outputs)) {
+            if self.slots[index as usize].kind == Memory::Sram
+                && let Some(previous) = bound[index as usize]
+                && !previous.same_base(buffer)
+            {
+                return Err(FunctionError::ConflictingSlot(index).into());
+            }
+            bound[index as usize] = Some(buffer);
         }
+        if statics.len() + self.slots.len() > Function::MAX_ARGS {
+            return Err(
+                FunctionError::InvalidBinding("the function takes more arguments than a launch carries").into(),
+            );
+        }
+        let mut args = statics.to_vec();
         for (index, slot) in (0..).zip(&self.slots) {
-            let buffer = bound(index).ok_or(FunctionError::InvalidBinding("an arg slot is not bound"))?;
-            if slot.kind != Memory::Dram {
-                return Err(FunctionError::UnsupportedSlotMemory { slot: index }.into());
+            let buffer = bound[index as usize].ok_or(FunctionError::InvalidBinding("an arg slot is not bound"))?;
+            let has = buffer.memory();
+            if slot.kind != has {
+                return Err(FunctionError::WrongSlotMemory {
+                    slot: index,
+                    expects: slot.kind,
+                    has,
+                }
+                .into());
             }
             if (buffer.size() as u64) < slot.size {
                 return Err(FunctionError::BufferTooSmall {
@@ -267,48 +314,35 @@ impl Signature {
                 }
                 .into());
             }
-            args.push(buffer)?;
+            if has == Memory::Sram && !(buffer.addr() as u64).is_multiple_of(furiosa_opt_abi::dm::ALIGNMENT) {
+                return Err(FunctionError::UnalignedSlot(index).into());
+            }
+            args.push(buffer.clone());
+        }
+        for (i, first) in bound.iter().enumerate() {
+            for (j, second) in bound.iter().enumerate().skip(i + 1) {
+                if self.slots[i].kind == Memory::Sram
+                    && (self.outputs.contains(&(i as u32)) || self.outputs.contains(&(j as u32)))
+                    && first.unwrap().overlaps(
+                        self.slots[i].size as usize,
+                        second.unwrap(),
+                        self.slots[j].size as usize,
+                    )
+                {
+                    return Err(FunctionError::AliasedSlots(i as u32, j as u32).into());
+                }
+            }
         }
         Ok(args)
     }
 }
 
-/// A launch's arguments as offsets into the runtime's device memory.
-struct Args {
-    words: [u64; Function::MAX_ARGS],
-    len: usize,
-}
-
-impl Default for Args {
-    fn default() -> Self {
-        Self {
-            words: [0; Function::MAX_ARGS],
-            len: 0,
-        }
-    }
-}
-
-impl Args {
-    fn push(&mut self, buffer: &Buffer) -> Result<()> {
-        let slot = self.words.get_mut(self.len).ok_or(FunctionError::InvalidBinding(
-            "the function takes more arguments than a launch carries",
-        ))?;
-        *slot = buffer.addr() as u64;
-        self.len += 1;
-        Ok(())
-    }
-
-    fn words(&self) -> &[u64] {
-        &self.words[..self.len]
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use super::*;
-    use crate::buffer::Allocator;
+    use crate::buffer::Allocations;
 
     fn dram(size: u64) -> Slot {
         Slot {
@@ -318,23 +352,35 @@ mod tests {
     }
 
     fn signature(inputs: Vec<u32>, outputs: Vec<u32>, slots: Vec<Slot>) -> Signature {
-        Signature { inputs, outputs, slots }
+        Signature {
+            inputs,
+            outputs,
+            slots,
+            sram_end: 0,
+        }
     }
 
     fn buffer(size: usize) -> Buffer {
-        let allocator = Arc::new(Mutex::new(Allocator::new(0..4096)));
-        Buffer::alloc(&allocator, size).expect("buffer")
+        let allocations = Arc::new(Allocations::new(0..4096));
+        allocations.alloc(Memory::Dram, size).expect("buffer")
     }
 
     #[tokio::test]
     async fn rejects_other_topology_image() {
         let device = Arc::new(Device::stub(&[0], 8));
         let image = Image::new(furiosa_opt_abi::image::Parts {
+            stacks: vec![
+                furiosa_opt_abi::image::Stack {
+                    kind: furiosa_opt_abi::image::Memory::Dram,
+                    size: 0,
+                };
+                furiosa_opt_abi::args::STACK_COUNT
+            ],
             chips: 2,
             pes: 8,
             tasks: vec![vec![&[][..]; 4]],
             profile: furiosa_opt_abi::image::Profile {
-                depth: 0,
+                depth: Default::default(),
                 spans: vec![vec![]],
             },
             ..Default::default()
@@ -369,7 +415,10 @@ mod tests {
             .bind(&[], std::slice::from_ref(&buffer), &[])
             .expect("aliased output binds");
 
-        assert_eq!(args.words(), &[buffer.addr() as u64]);
+        assert_eq!(
+            args.iter().map(|buffer| buffer.bind(0)).collect::<Vec<_>>(),
+            &[buffer.addr() as u64]
+        );
     }
 
     #[test]
@@ -380,6 +429,94 @@ mod tests {
             signature(vec![0], vec![1], vec![dram(1), dram(1)])
                 .bind(&[], std::slice::from_ref(&buffer), &[])
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn repeated_slot_base() {
+        let allocations = Arc::new(Allocations::new(0..4096));
+        let buffer = allocations.alloc(Memory::Sram, 512).unwrap();
+        let signature = signature(
+            vec![0],
+            vec![0],
+            vec![Slot {
+                kind: Memory::Sram,
+                size: 256,
+            }],
+        );
+        assert!(
+            signature
+                .bind(&[], std::slice::from_ref(&buffer), std::slice::from_ref(&buffer))
+                .is_ok()
+        );
+        assert_eq!(
+            signature
+                .bind(&[], std::slice::from_ref(&buffer), &[buffer.slice(256..512)])
+                .err(),
+            Some(Error::Function(FunctionError::ConflictingSlot(0)))
+        );
+    }
+
+    #[test]
+    fn preserves_dram_binding() {
+        let buffer = buffer(512);
+        let shared = [buffer.clone(), buffer.clone()];
+        assert!(
+            signature(vec![0, 1], vec![1], vec![dram(256); 2])
+                .bind(&[], &shared, &[])
+                .is_ok()
+        );
+        let output = buffer.slice(256..512);
+        let args = signature(vec![0], vec![0], vec![dram(256)])
+            .bind(&[], std::slice::from_ref(&buffer), std::slice::from_ref(&output))
+            .unwrap();
+        assert_eq!(
+            args.iter().map(|buffer| buffer.bind(0)).collect::<Vec<_>>(),
+            &[output.addr() as u64]
+        );
+    }
+
+    #[test]
+    fn rejects_writable_overlap() {
+        let allocations = Arc::new(Allocations::new(0..4096));
+        let buffer = allocations.alloc(Memory::Sram, 768).unwrap();
+        let slot = Slot {
+            kind: Memory::Sram,
+            size: 512,
+        };
+        let inputs = [buffer.clone(), buffer.slice(256..768)];
+        assert!(
+            signature(vec![0, 1], vec![], vec![slot; 2])
+                .bind(&[], &inputs, &[])
+                .is_ok()
+        );
+        assert_eq!(
+            signature(vec![0, 1], vec![1], vec![slot; 2])
+                .bind(&[], &inputs, &[])
+                .err(),
+            Some(Error::Function(FunctionError::AliasedSlots(0, 1)))
+        );
+        let slot = Slot { size: 256, ..slot };
+        assert!(
+            signature(vec![0, 1], vec![1], vec![slot; 2])
+                .bind(&[], &inputs, &[])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_unaligned_slices() {
+        let allocations = Arc::new(Allocations::new(0..4096));
+        let buffer = allocations.alloc(Memory::Sram, 512).unwrap();
+        let slot = Slot {
+            kind: Memory::Sram,
+            size: 256,
+        };
+        assert_eq!(
+            signature(vec![0], vec![], vec![slot])
+                .bind(&[], &[buffer.slice(1..257)], &[])
+                .err(),
+            Some(Error::Function(FunctionError::UnalignedSlot(0)))
         );
     }
 
@@ -405,8 +542,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_device_buffer_in_an_sram_slot() {
-        let buffer = buffer(256);
+    fn rejects_wrong_memory() {
+        let dram_buffer = buffer(256);
+        let allocations = Arc::new(Allocations::new(0..4096));
+        let resident = allocations.alloc(Memory::Sram, 256).expect("resident");
         let sram = Slot {
             kind: Memory::Sram,
             size: 256,
@@ -414,9 +553,88 @@ mod tests {
 
         assert_eq!(
             signature(vec![0], vec![0], vec![sram])
-                .bind(&[], std::slice::from_ref(&buffer), &[])
+                .bind(&[], std::slice::from_ref(&dram_buffer), &[])
                 .err(),
-            Some(Error::Function(FunctionError::UnsupportedSlotMemory { slot: 0 }))
+            Some(Error::Function(FunctionError::WrongSlotMemory {
+                slot: 0,
+                expects: Memory::Sram,
+                has: Memory::Dram,
+            }))
         );
+        assert_eq!(
+            signature(vec![0], vec![0], vec![dram(256)])
+                .bind(&[], std::slice::from_ref(&resident), &[])
+                .err(),
+            Some(Error::Function(FunctionError::WrongSlotMemory {
+                slot: 0,
+                expects: Memory::Dram,
+                has: Memory::Sram,
+            }))
+        );
+        let args = signature(vec![0], vec![0], vec![sram])
+            .bind(&[], std::slice::from_ref(&resident), &[])
+            .expect("a resident binds an SRAM slot");
+        assert_eq!(args.iter().map(Buffer::memory).collect::<Vec<_>>(), &[Memory::Sram]);
+        assert_eq!(
+            args.iter().map(|buffer| buffer.bind(0)).collect::<Vec<_>>(),
+            &[resident.addr() as u64]
+        );
+    }
+
+    #[tokio::test]
+    async fn releases_completed_launches() {
+        let device = Arc::new(Device::stub(&[0], 1));
+        let image = Image::new(furiosa_opt_abi::image::Parts {
+            stacks: vec![
+                furiosa_opt_abi::image::Stack {
+                    kind: furiosa_opt_abi::image::Memory::Dram,
+                    size: 0,
+                };
+                furiosa_opt_abi::args::STACK_COUNT
+            ],
+            chips: 1,
+            pes: 1,
+            tasks: vec![vec![&[][..]]],
+            profile: furiosa_opt_abi::image::Profile {
+                spans: vec![vec![]],
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .unwrap();
+        let function = Function {
+            device: Arc::clone(&device),
+            staging: device.alloc(Memory::Dram, 1).unwrap(),
+            token: 0,
+            statics: std::array::from_fn(|_| device.alloc(Memory::Dram, 0).unwrap()),
+            signature: Signature {
+                sram_end: crate::dm::RESIDENT_END,
+                ..signature(vec![0], vec![], vec![dram(1)])
+            },
+            profile: Profile::new(&image).unwrap(),
+        };
+        let filler = device.alloc(Memory::Dram, 2560).unwrap();
+        for wait in [false, true] {
+            let input = device.alloc(Memory::Dram, 1).unwrap();
+            let address = input.addr();
+            let launch = function.launch(std::slice::from_ref(&input), &[]).unwrap();
+            drop(input);
+            assert!(matches!(
+                device.alloc(Memory::Dram, 1),
+                Err(Error::Allocation(crate::AllocError::OutOfMemory { .. }))
+            ));
+            assert!(matches!(
+                device.alloc(Memory::Sram, 1),
+                Err(Error::Allocation(crate::AllocError::Busy { .. }))
+            ));
+            if wait {
+                launch.wait().await.unwrap();
+            } else {
+                drop(launch);
+            }
+            assert_eq!(device.alloc(Memory::Dram, 1).unwrap().addr(), address);
+            assert!(device.alloc(Memory::Sram, 1).is_ok());
+        }
+        drop(filler);
     }
 }

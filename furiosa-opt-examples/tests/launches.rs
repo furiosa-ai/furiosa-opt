@@ -11,16 +11,18 @@ fn missing<T>() -> T {
     panic!("build-only fixture")
 }
 
-async fn launches() {
+async fn launches() -> eyre::Result<()> {
     type InputC = HbmTensor<i32, m![1], m![B, C]>;
     type InputD = HbmTensor<i32, m![1], m![B, D]>;
     type InputE = HbmTensor<i32, m![1], m![B, E]>;
     let (mut device, c, d, e): (Device, InputC, InputD, InputE) = missing();
-    launch(bundle_copy, (&mut device, &c)).await.unwrap();
-    launch(bundle_copy, (&mut device, &d)).await.unwrap();
-    launch(bundle_copy, (&mut device, &e)).await.unwrap();
-    launch(pair_copy, (&mut device, &c)).await.unwrap();
-    launch(pair_copy, (&mut device, &d)).await.unwrap();
+    launch(bundle_copy, (&mut device, &c)).await?;
+    launch(bundle_copy, (&mut device, &d)).await?;
+    launch(bundle_copy, (&mut device, &e)).await?;
+    launch(pair_copy, (&mut device, &c)).await?;
+    launch(pair_copy, (&mut device, &d)).await?;
+
+    Ok(())
 }
 
 #[test]

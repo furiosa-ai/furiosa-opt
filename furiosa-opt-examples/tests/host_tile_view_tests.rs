@@ -13,24 +13,22 @@ fn table() -> Vec<bf16> {
 /// Both ends tiled on the host. Reading row 3 and writing row 5 keeps the two failures apart: a
 /// dropped read offset puts row 0 on row 5, a dropped write offset puts row 3 on row 0.
 #[tokio::test]
-async fn test_host_tile_moves_the_requested_row_to_the_requested_row() {
-    let mut device = Device::new(tile_move.topology()).unwrap();
+async fn test_host_tile_moves_the_requested_row_to_the_requested_row() -> eyre::Result<()> {
+    let mut device = Device::new(tile_move.topology())?;
 
     let table = HostTensor::<bf16, m![C, H]>::from_vec(table())
         .to_hbm::<Chip, m![C, H]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     // -1.0 marks a row the kernel never wrote, which no source row can be mistaken for.
     let mut out = HostTensor::<bf16, m![C, H]>::from_vec(vec![bf16::from_f32(-1.0); C::SIZE * H::SIZE])
         .to_hbm::<Chip, m![C, H]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
     let src = table.view().tile::<m![C], 1, SmallRow>(3);
     let dst = out.view_mut().tile::<m![C], 1, SmallRowMut>(5);
-    launch(tile_move, (&mut device, src, dst)).await.unwrap();
+    launch(tile_move, (&mut device, src, dst)).await?;
 
-    let actual = out.to_host::<m![C, H]>(&mut device.pdma).await.unwrap().into_vec();
+    let actual = out.to_host::<m![C, H]>(&mut device.pdma).await?.into_vec();
     for r in 0..C::SIZE {
         let want = if r == 5 { 3.0 } else { -1.0 };
         assert_eq!(
@@ -39,22 +37,22 @@ async fn test_host_tile_moves_the_requested_row_to_the_requested_row() {
             "row {r} after moving row 3 to row 5"
         );
     }
+
+    Ok(())
 }
 
 /// `tile`'s `start` is a plain `usize`, so a host loop can select a different row each iteration,
 /// which is what an embedding lookup does per token.
 #[tokio::test]
-async fn test_host_tile_offsets_may_be_runtime_values() {
-    let mut device = Device::new(tile_move.topology()).unwrap();
+async fn test_host_tile_offsets_may_be_runtime_values() -> eyre::Result<()> {
+    let mut device = Device::new(tile_move.topology())?;
 
     let table = HostTensor::<bf16, m![C, H]>::from_vec(table())
         .to_hbm::<Chip, m![C, H]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let mut out = HostTensor::<bf16, m![C, H]>::from_vec(vec![bf16::from_f32(-1.0); C::SIZE * H::SIZE])
         .to_hbm::<Chip, m![C, H]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
     // Cross the allocation's first, middle, and last rows on both the immutable source view and
     // mutable destination view. Under the NPU build, every pair goes through the view-to-buffer
@@ -63,10 +61,10 @@ async fn test_host_tile_offsets_may_be_runtime_values() {
     for &(src_row, dst_row) in &moves {
         let src = table.view().tile::<m![C], 1, SmallRow>(src_row);
         let dst = out.view_mut().tile::<m![C], 1, SmallRowMut>(dst_row);
-        launch(tile_move, (&mut device, src, dst)).await.unwrap();
+        launch(tile_move, (&mut device, src, dst)).await?;
     }
 
-    let actual = out.to_host::<m![C, H]>(&mut device.pdma).await.unwrap().into_vec();
+    let actual = out.to_host::<m![C, H]>(&mut device.pdma).await?.into_vec();
     for r in 0..C::SIZE {
         let want = moves
             .iter()
@@ -78,4 +76,6 @@ async fn test_host_tile_offsets_may_be_runtime_values() {
             "row {r} after the loop"
         );
     }
+
+    Ok(())
 }

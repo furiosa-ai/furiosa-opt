@@ -95,11 +95,15 @@ fn stream_adapter_example<'l, const T: Tu>(
     input.contract_outer::<m![M, B], m![L, K], _, _, _>(trf)
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]> = TrfTensor::zero();
 # let _o = stream_adapter_example(a, &b);
+#
+# Ok(())
+# }
 ```
 
 ### Constraints
@@ -167,11 +171,15 @@ fn trf_sequencer_full_read<'l, const T: Tu>(
     input.contract_outer::<m![M], m![K], _, _, _>(trf)
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]> = TrfTensor::zero();
 # let _o = trf_sequencer_full_read(a, &b);
+#
+# Ok(())
+# }
 ```
 
 In this example, `ReadSize` covers only part of `Element`, so `Element / ReadSize` is non-trivial and the sequencer iterates the outer `Element` factor alongside a broadcast:
@@ -194,16 +202,20 @@ fn trf_sequencer_partial_read<'l, const T: Tu>(
     input.contract_outer::<m![O, M], m![L, K], _, _, _>(trf)
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let a: CollectTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]> = TrfTensor::zero();
 # let _o = trf_sequencer_partial_read(a, &b);
+#
+# Ok(())
+# }
 ```
 
 ### Constraints
 
-- **Hardware dimensions**: `Chip::SIZE`, `Cluster::SIZE`, and `Slice::SIZE` must match the hardware configuration (see [Sequencer](../../moving-tensors/sequencer.md#configurations)).
+- **Hardware dimensions**: `Chip::SIZE`, `Cluster::SIZE`, and `Slice::SIZE` must match the hardware configuration (see [Spatial and Temporal Dimensions](../../mapping-tensors/spatial-temporal-dimensions.md#constraints)).
 - **Address alignment**: when `Element % ReadSize` covers all 64 B, the read spans both TRF banks per lane, so the sequencer's base address and all strides must align to 64 B.
 
 ### Architecture

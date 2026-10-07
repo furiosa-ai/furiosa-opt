@@ -9,7 +9,7 @@
 
 use alloc::vec::Vec;
 
-use crate::{ABI_VERSION, CHIP_PES, CLUSTER_PES};
+use crate::{ABI_VERSION, CHIP_PES, CLUSTER_PES, args, dm};
 
 const MAGIC: [u8; 4] = *b"FOPT";
 /// Every task chunk starts on this boundary and owns whole lines up to the next one.
@@ -27,6 +27,10 @@ pub enum Error {
     Truncated,
     #[error("image metadata is malformed")]
     Malformed,
+    #[error("SRAM temporary end {0} exceeds the physical SRAM size")]
+    SramEnd(u64),
+    #[error("image has {0} stacks; the task ABI requires two")]
+    StackCount(usize),
     #[error("a task chunk exceeds {TASK_CHUNK_LIMIT} bytes")]
     Chunk,
     #[error("{chips} chips of {pes} PEs is no topology: a function uses 1 to {CHIP_PES} PEs of each chip")]
@@ -76,16 +80,23 @@ pub struct Span<'a> {
     pub end: u16,
 }
 
-/// What a profiled call records: `depth` marker hits per chunk, and the spans those hits bound,
-/// per chunk.
+/// Maximum marker hits in one chunk at each profiling level.
+#[derive(bincode::Encode, bincode::BorrowDecode, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Depth {
+    pub info: u32,
+    pub debug: u32,
+    pub trace: u32,
+}
+
+/// Hit bounds per chunk at Info, Debug, and Trace, and the spans those hits bound.
 #[derive(bincode::Encode, bincode::BorrowDecode, Clone, Debug, PartialEq, Eq, Default)]
 pub struct Profile<'a> {
-    pub depth: u32,
+    pub depth: Depth,
     pub spans: Vec<Vec<Span<'a>>>,
 }
 
-/// What the compiler states about one device function; [`Image::new`] checks it. Arguments are the
-/// weight, one buffer per stack, then one per slot; `inputs` and `outputs` index into `slots`.
+/// What the compiler states about one device function; [`Image::new`] checks it. Arguments follow [`crate::args`];
+/// `inputs` and `outputs` index into `slots`.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Parts<'a> {
     /// Devices the function runs on, and the PEs of each it uses.
@@ -99,6 +110,9 @@ pub struct Parts<'a> {
     pub inputs: Vec<u32>,
     pub outputs: Vec<u32>,
     pub profile: Profile<'a>,
+    /// One past the highest SRAM byte the function's temporaries reach on a slice. Residents (see
+    /// [`crate::dm`]) live above it; the host admits a launch only while that holds.
+    pub sram_end: u64,
 }
 
 /// One compiled device function, checked once: see [`Parts`] for what it holds.
@@ -120,12 +134,19 @@ struct Header<'a> {
     inputs: Vec<u32>,
     outputs: Vec<u32>,
     profile: Profile<'a>,
+    sram_end: u64,
 }
 
 impl<'a> Image<'a> {
     /// The image `parts` describe, once they agree: one task column per cluster of the topology,
     /// every input and output naming a slot, every span's markers ids a profile hit can carry.
     pub fn new(parts: Parts<'a>) -> Result<Self, Error> {
+        if parts.stacks.len() != args::STACK_COUNT {
+            return Err(Error::StackCount(parts.stacks.len()));
+        }
+        if parts.sram_end > dm::RESIDENT_END {
+            return Err(Error::SramEnd(parts.sram_end));
+        }
         if parts.chips == 0 || !(1..=CHIP_PES).contains(&parts.pes) {
             return Err(Error::Topology {
                 chips: parts.chips,
@@ -208,6 +229,10 @@ impl<'a> Image<'a> {
         &self.0.profile
     }
 
+    pub fn sram_end(&self) -> u64 {
+        self.0.sram_end
+    }
+
     /// The bytes the compiler writes: everything, the weight's bytes included.
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         let Parts {
@@ -220,6 +245,7 @@ impl<'a> Image<'a> {
             inputs,
             outputs,
             profile,
+            sram_end,
         } = &self.0;
         let header = Header {
             magic: MAGIC,
@@ -236,6 +262,7 @@ impl<'a> Image<'a> {
             inputs: inputs.clone(),
             outputs: outputs.clone(),
             profile: profile.clone(),
+            sram_end: *sram_end,
         };
         let mut out = bincode::encode_to_vec(header, config()).map_err(|_| Error::Malformed)?;
         for task in tasks.iter().flatten() {
@@ -246,12 +273,16 @@ impl<'a> Image<'a> {
         Ok(out)
     }
 
-    /// The bytes a cluster reads: the header and the tasks. The weight goes to a buffer of its own
-    /// on the device, so its kind rides here and its bytes do not.
+    /// Device tasks and bindings. Weight bytes are staged separately; span tables stay on the host
+    /// to keep their size independent of the firmware heap.
     pub fn staging(&self) -> Result<Vec<u8>, Error> {
         let weight = self.0.weight.map(|weight| Weight { bytes: &[], ..weight });
         Self(Parts {
             weight,
+            profile: Profile {
+                depth: self.0.profile.depth,
+                spans: self.0.tasks.iter().map(|_| Vec::new()).collect(),
+            },
             ..self.0.clone()
         })
         .encode()
@@ -261,11 +292,12 @@ impl<'a> Image<'a> {
         if bytes.get(..MAGIC.len()) != Some(&MAGIC) {
             return Err(Error::Magic);
         }
+        let version = u32::from_le_bytes(bytes.get(4..8).ok_or(Error::Truncated)?.try_into().unwrap());
+        if version != ABI_VERSION {
+            return Err(Error::Version(version));
+        }
         let (header, used): (Header<'a>, _) =
             bincode::borrow_decode_from_slice(bytes, config()).map_err(|_| Error::Truncated)?;
-        if header.version != ABI_VERSION {
-            return Err(Error::Version(header.version));
-        }
         let mut at = used;
         let mut tasks = Vec::with_capacity(header.tasks.len());
         for chunk in &header.tasks {
@@ -291,6 +323,7 @@ impl<'a> Image<'a> {
             inputs: header.inputs,
             outputs: header.outputs,
             profile: header.profile,
+            sram_end: header.sram_end,
         })
     }
 }
@@ -321,10 +354,13 @@ mod tests {
                 kind: Memory::Dram,
                 bytes: b"weights",
             }),
-            stacks: vec![Stack {
-                kind: Memory::Sram,
-                size: 4096,
-            }],
+            stacks: vec![
+                Stack {
+                    kind: Memory::Sram,
+                    size: 4096,
+                };
+                args::STACK_COUNT
+            ],
             slots: vec![
                 Slot {
                     kind: Memory::Dram,
@@ -342,7 +378,11 @@ mod tests {
             inputs: vec![0, 1],
             outputs: vec![2],
             profile: Profile {
-                depth: 8,
+                depth: Depth {
+                    info: 2,
+                    debug: 4,
+                    trace: 8,
+                },
                 spans: vec![
                     vec![Span {
                         name: "first",
@@ -352,11 +392,27 @@ mod tests {
                     vec![],
                 ],
             },
+            sram_end: 65536,
         }
     }
 
     fn image() -> Image<'static> {
         Image::new(parts()).expect("well formed")
+    }
+
+    #[test]
+    fn rejects_stack_count() {
+        for count in [0, 1, 3] {
+            let mut parts = parts();
+            parts.stacks.resize(
+                count,
+                Stack {
+                    kind: Memory::Dram,
+                    size: 0,
+                },
+            );
+            assert_eq!(Image::new(parts), Err(Error::StackCount(count)));
+        }
     }
 
     #[test]
@@ -375,6 +431,45 @@ mod tests {
         assert_eq!(staged.weight().map(|weight| weight.bytes), Some(&[][..]));
         assert_eq!(staged.weight().map(|weight| weight.kind), Some(Memory::Dram));
         assert_eq!((staged.chips(), staged.pes(), staged.tasks()), (2, 8, image().tasks()));
+    }
+
+    #[test]
+    fn depth_preserves_encoding() {
+        let depth = Depth {
+            info: 2,
+            debug: 100,
+            trace: 2208,
+        };
+        let bytes = bincode::encode_to_vec(depth, config()).unwrap();
+        assert_eq!(bytes, bincode::encode_to_vec([2u32, 100, 2208], config()).unwrap());
+        let (decoded, used): (Depth, _) = bincode::borrow_decode_from_slice(&bytes, config()).unwrap();
+        assert_eq!(decoded, depth);
+        assert_eq!(used, bytes.len());
+    }
+
+    #[test]
+    fn staging_omits_spans() {
+        let mut parts = parts();
+        parts.profile.spans = vec![
+            vec![
+                Span {
+                    name: "task",
+                    begin: 1,
+                    end: 2
+                };
+                8192
+            ];
+            2
+        ];
+        let image = Image::new(parts).expect("well formed");
+        let bytes = image.staging().expect("stages");
+        let staged = Image::parse(&bytes).expect("parses");
+
+        assert!(staged.profile().spans.iter().all(Vec::is_empty));
+        assert_eq!(staged.profile().spans.len(), image.tasks().len());
+        assert_eq!(staged.tasks(), image.tasks());
+        assert_eq!(image.profile().spans[0].len(), 8192);
+        assert!(bytes.len() < image.encode().expect("encodes").len());
     }
 
     #[test]
@@ -408,6 +503,13 @@ mod tests {
         let mut unbound = parts();
         unbound.outputs = vec![3];
         assert_eq!(Image::new(unbound), Err(Error::Malformed));
+    }
+
+    #[test]
+    fn rejects_sram_overflow() {
+        let mut parts = parts();
+        parts.sram_end = dm::RESIDENT_END + 1;
+        assert_eq!(Image::new(parts), Err(Error::SramEnd(dm::RESIDENT_END + 1)));
     }
 
     #[test]

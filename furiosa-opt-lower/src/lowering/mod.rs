@@ -228,15 +228,23 @@ pub fn tile_mapping(input: TileMappingInput) -> Result<Mapping, TileError> {
     let size = index.size();
     if size == 1 {
         if len != 1 {
-            return Err(TileError::Split);
+            return Err(TileError::SingletonLength { len });
         }
         Ok(element.normalize())
     } else {
         // A located axis may contain a padded final chunk whose live extent is not divisible by its stride.
-        let stride = element.find_axis(&index).map_err(|_| TileError::Split)?;
+        let stride = element.find_axis(&index).map_err(|_| TileError::IndexNotLocated {
+            index: index.clone(),
+            element: element.clone(),
+        })?;
         element
             .window_axis(stride, size, len, hole_fill)
-            .map_err(|_| TileError::Split)
+            .map_err(|_| TileError::WindowDoesNotFit {
+                stride,
+                size,
+                len,
+                element: element.clone(),
+            })
     }
 }
 

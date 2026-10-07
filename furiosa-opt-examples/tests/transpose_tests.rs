@@ -6,12 +6,12 @@ use furiosa_opt_examples::transpose::{transpose_i8_tu, transpose_i16_tu, transpo
 use furiosa_opt_std::prelude::*;
 
 #[tokio::test]
-async fn test_transpose_simple() {
+async fn test_transpose_simple() -> eyre::Result<()> {
     use furiosa_opt_examples::transpose::{A, B, C};
 
     let _ = env_logger::try_init();
 
-    let mut device = Device::new(transpose_simple.topology()).unwrap();
+    let mut device = Device::new(transpose_simple.topology())?;
 
     // Create input tensor with values 0..A*B*C
     let total = 8 * 16 * 32;
@@ -19,16 +19,11 @@ async fn test_transpose_simple() {
 
     let hbm_input: HbmTensor<f32, m![1], m![A, B, C]> = HostTensor::<f32, m![A, B, C]>::from_vec(input_data.clone())
         .to_hbm::<m![1], m![A, B, C]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let output = launch(transpose_simple, (&mut device, &hbm_input)).await.unwrap();
+    let output = launch(transpose_simple, (&mut device, &hbm_input)).await?;
 
-    let actual = output
-        .to_host::<m![C, A, B]>(&mut device.pdma)
-        .await
-        .unwrap()
-        .into_inner();
+    let actual = output.to_host::<m![C, A, B]>(&mut device.pdma).await?.into_inner();
 
     let mut expected = vec![0f32; total];
     let mut idx = 0;
@@ -41,26 +36,23 @@ async fn test_transpose_simple() {
         }
     }
     assert_eq!(actual, Tensor::<_, m![C, A, B], CurrentBackend>::from_vec(expected));
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_transpose_i8_tu() {
+async fn test_transpose_i8_tu() -> eyre::Result<()> {
     use furiosa_opt_examples::transpose::{A, B, P};
 
-    let mut device = Device::new(transpose_i8_tu.topology()).unwrap();
+    let mut device = Device::new(transpose_i8_tu.topology())?;
     let total = 64 * 8 * 16;
     let input_data: Vec<i8> = (0..total).map(|x| (x % 127) as i8).collect();
     let hbm_input = HostTensor::<i8, m![P, A, B]>::from_vec(input_data.clone())
         .to_hbm::<m![1], m![P, A, B]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let output = launch(transpose_i8_tu, (&mut device, &hbm_input)).await.unwrap();
-    let actual = output
-        .to_host::<m![P, B, A]>(&mut device.pdma)
-        .await
-        .unwrap()
-        .into_inner();
+    let output = launch(transpose_i8_tu, (&mut device, &hbm_input)).await?;
+    let actual = output.to_host::<m![P, B, A]>(&mut device.pdma).await?.into_inner();
 
     let mut expected = Vec::with_capacity(total);
     for p in 0..64 {
@@ -71,26 +63,23 @@ async fn test_transpose_i8_tu() {
         }
     }
     assert_eq!(actual, Tensor::<_, m![P, B, A], CurrentBackend>::from_vec(expected));
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_transpose_i16_tu() {
+async fn test_transpose_i16_tu() -> eyre::Result<()> {
     use furiosa_opt_examples::transpose::{B, D, P};
 
-    let mut device = Device::new(transpose_i16_tu.topology()).unwrap();
+    let mut device = Device::new(transpose_i16_tu.topology())?;
     let total = 64 * 4 * 16;
     let input_data: Vec<i16> = (0..total).map(|x| x as i16).collect();
     let hbm_input = HostTensor::<i16, m![P, D, B]>::from_vec(input_data.clone())
         .to_hbm::<m![1], m![P, D, B]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let output = launch(transpose_i16_tu, (&mut device, &hbm_input)).await.unwrap();
-    let actual = output
-        .to_host::<m![P, B, D]>(&mut device.pdma)
-        .await
-        .unwrap()
-        .into_inner();
+    let output = launch(transpose_i16_tu, (&mut device, &hbm_input)).await?;
+    let actual = output.to_host::<m![P, B, D]>(&mut device.pdma).await?.into_inner();
 
     let mut expected = Vec::with_capacity(total);
     for p in 0..64 {
@@ -101,4 +90,6 @@ async fn test_transpose_i16_tu() {
         }
     }
     assert_eq!(actual, Tensor::<_, m![P, B, D], CurrentBackend>::from_vec(expected));
+
+    Ok(())
 }

@@ -98,9 +98,13 @@ fn fetch_halves_per_slice<'l, const T: Tu>(
         .fetch_slice_lift::<m![A, Q / 2], m![Q % 2]>()
 }
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let b: BeginTensor<'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![Q, V]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_halves_per_slice(b);
+#
+# Ok(())
+# }
 ```
 
 With `A = 128`, the `Slice` placement `m![A, 2]` describes 128 pairs of slices; both slices in each pair hold the same `m![Q, V]` data.
@@ -175,7 +179,7 @@ fn without_broadcast(
 
 ## Constraints
 
-- **Hardware dimensions**: `Chip::SIZE`, `Cluster::SIZE`, and `Slice::SIZE` must match the hardware configuration (see [Sequencer](./sequencer.md#architecture)).
+- **Hardware dimensions**: `Chip::SIZE`, `Cluster::SIZE`, and `Slice::SIZE` must match the hardware configuration (see [Spatial and Temporal Dimensions](../mapping-tensors/spatial-temporal-dimensions.md#constraints)).
 
 ## Multi-Read Packet
 
@@ -228,7 +232,8 @@ fn fetch_batch_4<'l, const T: Tu>(
     input.fetch()
 }
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_batch_1(b);
@@ -241,6 +246,9 @@ fn fetch_batch_4<'l, const T: Tu>(
 #
 # let b: BeginTensor<'_, _, i4, m![1], m![1 # 2], m![1 # 256], m![1], m![N, C, H, W]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_batch_4(b);
+#
+# Ok(())
+# }
 ```
 
 ## Interleaving
@@ -270,11 +278,15 @@ fn fetch_interleaved<'l>(
     device.main.begin_interleaved::<I, _, _, _, _, _>(lhs.view(), rhs.view()).fetch()
 }
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let lhs = DmTensor::new();
 # let rhs = DmTensor::new();
 # let _o = fetch_interleaved(&mut device, &lhs, &rhs);
+#
+# Ok(())
+# }
 ```
 
 ## Optimizations
@@ -328,13 +340,17 @@ fn fetch_packet_ABC<'l, const T: Tu>(
 }
 
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let x: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_packet_C(x);
 # let y: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_packet_BC(y);
 # let z: BeginTensor<'_, _, f8e4m3, m![1], m![1 # 2], m![1 # 256], m![1], m![A, B, C]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_packet_ABC(z);
+#
+# Ok(())
+# }
 ```
 
 In these examples, padding reads beyond the actual data, but this is safe because padding values do not affect computation.

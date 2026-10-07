@@ -85,10 +85,14 @@
 //!     unsafe { operand.reshape() }
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, _, i32, m![1], m![1 # 2], m![1 # 128], m![1], m![B]> =
 //! #     BeginTensor::new(&mut device.sub, Tensor::zero());
 //! # let _ = relabel(store(input));
+//! #
+//! # Ok(())
+//! # }
 //! ```
 
 use furiosa_opt_std::prelude::*;

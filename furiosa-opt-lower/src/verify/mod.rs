@@ -25,6 +25,9 @@ use furiosa_mapping::{Mapping, MappingExt};
 use crate::{DivideError, DivideInput, DivideTerm};
 
 pub mod engine;
+mod gather;
+mod indirect;
+mod scatter;
 mod slice;
 
 pub use engine::{
@@ -40,26 +43,25 @@ pub use engine::{
     config_vector_narrow_split, config_vector_narrow_trim, config_vector_widen_concat, config_vector_widen_pad,
     config_vrf_operand,
 };
+pub use gather::{
+    GatherMappingError, GatherPayload, GatherValidationError, gather_payload, validate_gather_output,
+    validate_gather_payload,
+};
+pub use indirect::{
+    DmPlacement, IndexChipError, IndexMapping, IndexPaddingError, SpmIndirectIndexError, SpmPlacement,
+    validate_index_chip, validate_spm_indirect_index,
+};
+pub use scatter::{
+    ScatterPayload, ScatterValidationError, scatter_payload, validate_scatter_payload, validate_scatter_updates,
+};
 pub use slice::*;
 
 /// Why an element count cannot be represented as an exact byte count.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ElementSizeError {
-    /// Element width is zero.
-    #[error("element width must be nonzero")]
-    ZeroWidth,
-    /// Multiplying the element count by its width overflowed.
-    #[error("{elements} elements x {element_bits} bits overflows usize")]
-    BitCountOverflow { elements: usize, element_bits: usize },
-    /// Multiplying element extents overflowed.
-    #[error("{left} x {right} elements overflows usize")]
-    ElementCountOverflow { left: usize, right: usize },
     /// The element sequence ends inside a byte.
     #[error("{elements} elements x {element_bits} bits is not byte-aligned")]
     NotByteAligned { elements: usize, element_bits: usize },
-    /// Multiplying a byte count by eight overflowed.
-    #[error("a byte-count calculation starting from {bytes} bytes overflows usize")]
-    ByteCountOverflow { bytes: usize },
     /// The byte sequence ends inside an element.
     #[error("{bytes} bytes does not contain a whole number of {element_bits}-bit elements")]
     NotElementAligned { bytes: usize, element_bits: usize },
@@ -97,6 +99,8 @@ pub const BITS_PER_BYTE: usize = 8;
 pub const FLIT_BYTES: usize = 32;
 /// Vector register file capacity in bytes, per slice. One `to_vrf` operand must fit this.
 pub const VRF_BYTES: usize = 8 * 1024;
+/// Scratchpad memory capacity in bytes, per fused PE. One `SpmTensor`'s `Element` must fit this.
+pub const SPM_BYTES_PER_PE: usize = 4 * 1024;
 /// Vector register-file cache capacity in bytes. One interleaved unzip group must fit this.
 pub const VRF_CACHE_BYTES: usize = 1024;
 /// Vector-engine element width in bits: the engine computes on 32-bit lanes only.
@@ -117,12 +121,11 @@ pub(crate) const HALF_FLIT_ELEMENTS: usize = 4;
 
 /// Returns the exact byte size of an element sequence.
 pub(crate) fn size_in_bytes(element_bits: usize, elements: usize) -> Result<usize, ElementSizeError> {
-    if element_bits == 0 {
-        return Err(ElementSizeError::ZeroWidth);
-    }
+    // An element width comes from a `Scalar`, and a mapping's extent is nowhere near the cells this
+    // would need to overflow.
     let bits = elements
         .checked_mul(element_bits)
-        .ok_or(ElementSizeError::BitCountOverflow { elements, element_bits })?;
+        .expect("an element count times its width stays inside usize");
     if !bits.is_multiple_of(BITS_PER_BYTE) {
         return Err(ElementSizeError::NotByteAligned { elements, element_bits });
     }
@@ -138,12 +141,9 @@ pub(crate) fn require_one_flit(side: PacketSide, elements: usize, bytes: usize) 
 
 /// Returns the exact element count contained in a byte sequence.
 pub(crate) fn length_from_bytes(element_bits: usize, bytes: usize) -> Result<usize, ElementSizeError> {
-    if element_bits == 0 {
-        return Err(ElementSizeError::ZeroWidth);
-    }
     let bits = bytes
         .checked_mul(BITS_PER_BYTE)
-        .ok_or(ElementSizeError::ByteCountOverflow { bytes })?;
+        .expect("a byte count times eight stays inside usize");
     if !bits.is_multiple_of(element_bits) {
         return Err(ElementSizeError::NotElementAligned { bytes, element_bits });
     }

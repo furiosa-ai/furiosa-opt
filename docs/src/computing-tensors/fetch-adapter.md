@@ -109,9 +109,13 @@ fn fetch_with_type_cast<'l, const T: Tu>(
     input.fetch::<m![1], m![A]>().fetch_cast::<i32>()
 }
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let x: BeginTensor<'_, _, i8, m![1], m![1], m![1], m![1], m![A]> = BeginTensor::new(&mut device.main, Tensor::zero());
 # let _o = fetch_with_type_cast(x);
+#
+# Ok(())
+# }
 ```
 
 Type casting adds an additional limit on `read_size`.

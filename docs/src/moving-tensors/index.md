@@ -1,7 +1,7 @@
 # Moving Tensors
 
 Furiosa-opt kernels are Rust functions compiled for the Furiosa NPU.
-This chapter explains how a kernel transfers tensor data between host memory, HBM, DM, and the Tensor Unit.
+This chapter explains how a kernel transfers tensor data between host memory, HBM, DM, SPM, and the Tensor Unit.
 The [Quick Start kernel design](../quick-start/kernel-design.md#pattern-specific-mapping-and-memory) introduces these tiers in a complete kernel.
 Choose the source and destination in the movement table before reading the worked transfer.
 The [Sequencer](./sequencer.md) describes the common loop model.
@@ -20,6 +20,8 @@ It gives the operation and context for each public boundary.
 | `DmTensor` | `HbmTensor` | `DmTensor::to_hbm` with `Device::tdma`; see [DMA Engine](./dma-engine.md) |
 | `HbmTensor` | `HbmTensor` | `HbmTensor::to_hbm` with the DMA context required by the call; see [DMA Engine](./dma-engine.md) |
 | `DmTensor` | `DmTensor` | `DmTensor::to_dm` with `Device::tdma`, or a fetch/commit round trip through the Tensor Unit; see [DMA Engine](./dma-engine.md) and [Commit Engine](./commit-engine.md) |
+| `DmTensor` | `SpmTensor` | `DmTensor::to_spm` with `Device::tdma`; see [DMA Engine](./dma-engine.md) |
+| `SpmTensor` | `DmTensor` | `SpmTensor::to_dm` with `Device::tdma`; see [DMA Engine](./dma-engine.md) |
 | `DmTensorView` | Tensor Unit stream | `TuContext::begin`, then [`fetch`](./fetch-engine.md) |
 | Tensor Unit stream | `DmTensor` | [`commit`](./commit-engine.md), or [`commit_view`](./commit-engine.md) for an existing mutable view |
 
@@ -86,9 +88,8 @@ Do not read a destination before its producing transfer or commit has completed,
 * **[Commit](./commit-engine.md)** writes a Tensor Unit stream to DM.
   Its `Element` mapping chooses the destination layout and can transpose stream axes during the write.
 * **[DMA](./dma-engine.md)** pairs read and write sequencers for memory-to-memory movement.
-  The supported public paths are HBM to HBM, HBM to DM, DM to HBM, and DM to DM.
-  Indirect gather/scatter APIs have separate index-unit contracts: unscaled gather uses a `DmTensor` index with raw row positions, while unscaled scatter is currently unimplemented.
-  SPM has no public tensor type.
+  The supported public paths are HBM to HBM, HBM to DM, DM to HBM, DM to DM, and DM to SPM with SPM to DM.
+  Indirect gather/scatter APIs name their index unit in the call that takes the index: `by_byte_offsets` consumes HBM-resident byte offsets and `by_positions` consumes positions from an `SpmTensor<i32>`, on both operations.
 
 The Tensor Unit pipeline is therefore:
 
@@ -120,7 +121,7 @@ Conflicting DM-bank patterns can starve DMA.
 See [Memory Performance](./memory-performance.md) for the bank-starvation rule, HBM interleaving, and packet-size trade-offs.
 
 For a complete end-to-end movement pattern, see [Case Study: Tensor Unit I/O](./tensor-unit-io.md).
-For indirect HBM row movement, see [DMA gather and scatter](./dma-engine.md#scatter-and-gather).
+For indirect HBM row movement, see [DMA gather and scatter](./dma-engine.md#gather-and-scatter).
 
 ## See also
 

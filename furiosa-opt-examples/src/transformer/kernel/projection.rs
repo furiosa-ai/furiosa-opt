@@ -108,7 +108,11 @@ pub(crate) fn proj_v(
     v_cache: &mut HbmTensor<bf16, Chip, m![T, N, D]>,
 ) {
     let result = proj_p(device, input, weight);
-    result.dma_scatter::<m![1], _, _>(kv_offset, v_cache);
+    v_cache
+        .view_mut()
+        .scatter::<m![T], m![N, 1 # 32, D]>()
+        .by_byte_offsets::<m![1]>(kv_offset.view())
+        .from_dm(&mut device.tdma, result);
 }
 
 pub(crate) fn proj_o(

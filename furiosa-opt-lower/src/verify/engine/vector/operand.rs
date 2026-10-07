@@ -6,7 +6,7 @@
 //! it again, as an internal error. The second rule, that the stream match every named axis of the
 //! operand, is the DSL's own policy.
 
-use furiosa_mapping::{Mapping, PaddingKind, SequencerError, SequencerMode, sequence};
+use furiosa_mapping::{Mapping, MappingExt, SequencerError, SequencerMode, sequence};
 
 use crate::verify::{HALF_FLIT_ELEMENTS, ONE_FLIT_ELEMENTS};
 
@@ -92,7 +92,8 @@ pub fn config_vrf_operand(input: VrfOperandInput) -> Result<(), VrfOperandError>
     };
 
     // On the whole operand: a hole the carve folds into a stride goes unseen below.
-    if has_write_hole(&vrf_element) {
+    // A `Bottom` pad is the marker a `view_mut` write hole leaves behind.
+    if vrf_element.has_bottom_pad() {
         return Err(unreadable(UnreadableCause::WriteHole));
     }
 
@@ -137,23 +138,6 @@ fn packet_reads_one_access(element: &Mapping, packet: &Mapping) -> bool {
         (Some(run), None) if run.memory_stride == 1 && run.mapping.size() == packet.size()
     );
     broadcast || contiguous
-}
-
-/// Whether the mapping carries a `Bottom` pad anywhere, which is the marker a `view_mut` write hole
-/// leaves behind.
-fn has_write_hole(mapping: &Mapping) -> bool {
-    match mapping {
-        Mapping::Padding {
-            kind: PaddingKind::Bottom,
-            ..
-        } => true,
-        Mapping::Stride { inner, .. }
-        | Mapping::Modulo { inner, .. }
-        | Mapping::Resize { inner, .. }
-        | Mapping::Padding { inner, .. } => has_write_hole(inner),
-        Mapping::Pair { left, right } => has_write_hole(left) || has_write_hole(right),
-        Mapping::Symbol { .. } | Mapping::Broadcast { .. } => false,
-    }
 }
 
 #[cfg(test)]

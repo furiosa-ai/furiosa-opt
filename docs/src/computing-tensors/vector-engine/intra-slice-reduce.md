@@ -43,10 +43,14 @@ fn reduce_time<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 2], m![R], m![A % 2 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time(i);
+#
+# Ok(())
+# }
 ```
 
 ### Reduction in `Packet`
@@ -73,10 +77,14 @@ fn reduce_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A / 2], m![A % 2], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_packet(i);
+#
+# Ok(())
+# }
 ```
 
 ### Reduction in Both
@@ -105,10 +113,14 @@ fn reduce_time_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![A], m![R / 4], m![R % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_packet(i);
+#
+# Ok(())
+# }
 ```
 
 ### Per-Slice Reduction
@@ -137,10 +149,14 @@ fn reduce_slice_time_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 32 / 8 # 256], m![R # 32 / 4 % 2], m![R # 32 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_slice_time_packet(i);
+#
+# Ok(())
+# }
 ```
 
 ## Architecture
@@ -177,10 +193,14 @@ fn invalid_too_many_slots<'l, const T: Tu>(
     // Rejected: 12 accumulator slots required, but only 8 are available.
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![A / 3 # 256], m![R, A % 3, B % 4], m![B / 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = invalid_too_many_slots(i);
+#
+# Ok(())
+# }
 ```
 
 ### Reduction in `Packet`

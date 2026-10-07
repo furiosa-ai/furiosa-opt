@@ -18,15 +18,21 @@ use furiosa_mapping::M;
 
 use crate::scalar::Scalar;
 
-/// Bits in a byte / flit byte size / VRF capacity, single-sourced from the published verifier crate.
+/// Bits in a byte / flit byte size / VRF and per-PE SPM capacity, single-sourced from the published
+/// verifier crate.
 pub(crate) use furiosa_opt_lower::{
     BITS_PER_BYTE, FETCH_VALID_CLUSTER_SIZES as CLUSTER_SIZES, FETCH_VALID_SLICE_SIZES as SLICE_SIZES, FLIT_BYTES,
-    VRF_BYTES,
+    SPM_BYTES_PER_PE, VRF_BYTES,
 };
 
 /// Byte width of one SRAM access word.
 pub(crate) const PACKET_ALIGN_BYTES: usize = 8;
 
+/// Slices one fused PE owns
+pub const SLICES_PER_PE: usize = 64;
+
+/// Fused-PE counts per cluster a device can have.
+pub(crate) const PE_SIZES: [usize; 3] = [1, 2, 4];
 /// Asserts the `Cluster` dimension is one of the [`CLUSTER_SIZES`].
 pub(crate) fn assert_cluster_size<Cluster: M>() {
     const {
@@ -50,6 +56,28 @@ pub(crate) fn assert_slice_size<Slice: M>() {
             i += 1;
         }
         assert!(ok, "Slice::SIZE must be 64, 128, or 256");
+    };
+}
+
+/// Asserts the `Pe` dimension is one of the [`PE_SIZES`].
+pub(crate) fn assert_pe_size<Pe: M>() {
+    const {
+        let mut i = 0;
+        let mut ok = false;
+        while i < PE_SIZES.len() {
+            ok |= PE_SIZES[i] == Pe::SIZE;
+            i += 1;
+        }
+        assert!(ok, "Pe::SIZE must be 1, 2, or 4");
+    };
+}
+
+pub(crate) fn assert_pe_matches_slice<Pe: M, Slice: M>() {
+    const {
+        assert!(
+            Pe::SIZE * SLICES_PER_PE == Slice::SIZE,
+            "Pe::SIZE must be Slice::SIZE / 64, the slices one fused PE owns"
+        );
     };
 }
 
@@ -106,6 +134,18 @@ pub(crate) fn assert_vrf_capacity<D: Scalar, Element: M>() {
         assert!(
             size_in_bytes(D::BITS, Element::SIZE) <= VRF_BYTES,
             "VRF data must fit the vector register file (8192 bytes per slice)"
+        );
+    };
+}
+
+/// Asserts one fused PE's scratchpad payload fits [`SPM_BYTES_PER_PE`].
+///
+/// `Element` is the in-PE extent of the SPM mapping, so this is the whole per-PE footprint.
+pub(crate) fn assert_spm_capacity<D: Scalar, Element: M>() {
+    const {
+        assert!(
+            size_in_bytes(D::BITS, Element::SIZE) <= SPM_BYTES_PER_PE,
+            "SPM data must fit the scratchpad one fused PE holds (4096 bytes per PE)"
         );
     };
 }

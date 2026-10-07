@@ -52,13 +52,13 @@ pub fn config_contract_packet(input: ContractPacketInput) -> Result<(), Contract
         return Err(ContractPacketError::OutPacketNotPow2(out_packet_elems));
     }
 
-    // The Packet Reducer removes `ReducePacket`'s outermost padding, keeping only the live columns, so
-    // `OutPacket` matches whether or not that padding is declared. `remove_padding` peels the outer spine,
-    // so normalize first to surface it.
-    let out_packet_norm = out_packet.normalize().remove_padding();
+    // Normalize first to expose the outer padding that Packet Reducer drops.
+    let out_packet_norm = out_packet.normalize().remove_outermost_padding();
     let is_valid_contraction = (0..=in_packet.size().trailing_zeros()).any(|depth| {
         let split = 1usize << depth;
-        in_packet.split_at(split).0.normalize().remove_padding() == out_packet_norm
+        in_packet
+            .split_at(split)
+            .is_ok_and(|(outer, _)| outer.normalize().remove_outermost_padding() == out_packet_norm)
     });
     if !is_valid_contraction {
         return Err(ContractPacketError::NotAContraction {

@@ -120,11 +120,15 @@ fn bmatmul_k_in_time<'l, const T: Tu>(
          .contract_lane::<m![V / 16], m![N]>(LaneMode::Interleaved)
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let a: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::zero();
 # let _o = bmatmul_k_in_time(a, &b);
+#
+# Ok(())
+# }
 ```
 
 To avoid this pathological case, keep K in `Packet` (parallel reduction via the Packet Reducer's tree) and spread the surviving axes (V, M, N) across `Cluster`, `Slice`, and `Lane` to maximize spatial parallelism.
@@ -173,11 +177,15 @@ fn bmatmul_m_in_time<'l, const T: Tu>(
          .contract_lane::<m![M], m![N]>(LaneMode::Interleaved)
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let a: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::zero();
 # let _o = bmatmul_m_in_time(a, &b);
+#
+# Ok(())
+# }
 ```
 
 ### V in Time
@@ -219,9 +227,13 @@ fn bmatmul_v_in_time<'l, const T: Tu>(
          .contract_lane::<m![V], m![N]>(LaneMode::Interleaved)
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let a: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let b: TrfTensor<bf16, Chip, Cluster, Slice, Lane, m![K]> = TrfTensor::zero();
 # let _o = bmatmul_v_in_time(a, &b);
+#
+# Ok(())
+# }
 ```

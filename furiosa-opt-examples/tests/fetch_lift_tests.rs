@@ -38,22 +38,24 @@ macro_rules! visa_answer_tests {
         $(
             $(#[$attr])*
             #[tokio::test]
-            async fn $kernel() {
-                let mut device = Device::new(kernels::$kernel.topology()).unwrap();
+            async fn $kernel() -> eyre::Result<()> {
+                let mut device = Device::new(kernels::$kernel.topology())?;
 
                 let input = HostTensor::<_, $in>::from_vec(
                     (0..<$in>::SIZE).map($ramp).collect::<Vec<_>>(),
                 )
                 .to_hbm::<$chip, $in>(&mut device.pdma)
-                .await.unwrap();
+                .await?;
 
-                let output = launch(kernels::$kernel, (&mut device, &input)).await.unwrap();
+                let output = launch(kernels::$kernel, (&mut device, &input)).await?;
 
                 let expected = (0..<$out>::SIZE).map(|$i: usize| $cell).collect::<Vec<_>>();
                 assert_eq!(
-                    output.to_host::<$out>(&mut device.pdma).await.unwrap().into_inner(),
+                    output.to_host::<$out>(&mut device.pdma).await?.into_inner(),
                     Tensor::<_, $out, CurrentBackend>::from_vec(expected)
                 );
+
+                Ok(())
             }
         )*
     };
@@ -137,30 +139,32 @@ macro_rules! vrf_answer_tests {
     ($($kernel:ident;)*) => {
         $(
             #[tokio::test]
-            async fn $kernel() {
-                let mut device = Device::new(kernels::$kernel.topology()).unwrap();
+            async fn $kernel() -> eyre::Result<()> {
+                let mut device = Device::new(kernels::$kernel.topology())?;
                 let input = HostTensor::<i32, m![A, H, Word]>::from_vec(
                     (0..<m![A, H, Word]>::SIZE).map(word).collect::<Vec<_>>(),
                 )
                 .to_hbm::<m![1], m![A, H, Word]>(&mut device.pdma)
-                .await.unwrap();
+                .await?;
                 let addend = HostTensor::<i32, m![A, H, Word]>::from_vec(
                     (0..<m![A, H, Word]>::SIZE)
                         .map(|i| (i % 97) as i32)
                         .collect::<Vec<_>>(),
                 )
                 .to_hbm::<m![1], m![A, H, Word]>(&mut device.pdma)
-                .await.unwrap();
+                .await?;
 
-                let output = launch(kernels::$kernel, (&mut device, &input, &addend)).await.unwrap();
+                let output = launch(kernels::$kernel, (&mut device, &input, &addend)).await?;
                 let expected = (0..<m![A, H, Word]>::SIZE)
                     .map(|i| word(i) + (i % 97) as i32)
                     .collect::<Vec<_>>();
 
                 assert_eq!(
-                    output.to_host::<m![A, H, Word]>(&mut device.pdma).await.unwrap().into_inner(),
+                    output.to_host::<m![A, H, Word]>(&mut device.pdma).await?.into_inner(),
                     Tensor::<_, m![A, H, Word], CurrentBackend>::from_vec(expected)
                 );
+
+                Ok(())
             }
         )*
     };
@@ -267,8 +271,8 @@ mod zero_point {
     use super::*;
 
     #[tokio::test]
-    async fn lift_zero_point_sub_contract_matches_dot_product() {
-        let mut device = Device::new(lift_zero_point_sub_contract.topology()).unwrap();
+    async fn lift_zero_point_sub_contract_matches_dot_product() -> eyre::Result<()> {
+        let mut device = Device::new(lift_zero_point_sub_contract.topology())?;
         let input_values = (0..<m![P128, Zp, Act, Dot]>::SIZE)
             .map(|i| (i % 31) as i8)
             .collect::<Vec<_>>();
@@ -277,16 +281,12 @@ mod zero_point {
             .collect::<Vec<_>>();
         let input = HostTensor::<i8, m![P128, Zp, Act, Dot]>::from_vec(input_values.clone())
             .to_hbm::<m![1], m![P128, Zp, Act, Dot]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
         let weight = HostTensor::<i8, m![P128, Zp, Out, Dot]>::from_vec(weight_values.clone())
             .to_hbm::<m![1], m![P128, Zp, Out, Dot]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
 
-        let output = launch(lift_zero_point_sub_contract, (&mut device, &input, &weight))
-            .await
-            .unwrap();
+        let output = launch(lift_zero_point_sub_contract, (&mut device, &input, &weight)).await?;
         let expected = (0..<m![P128, Zp, Act, Out]>::SIZE)
             .map(|i| {
                 let (p, z, act, out) = (i / (2 * 8 * 8), (i / (8 * 8)) % 2, (i / 8) % 8, i % 8);
@@ -303,11 +303,12 @@ mod zero_point {
         assert_eq!(
             output
                 .to_host::<m![P128, Zp, Act, Out]>(&mut device.pdma)
-                .await
-                .unwrap()
+                .await?
                 .into_inner(),
             Tensor::<_, m![P128, Zp, Act, Out], CurrentBackend>::from_vec(expected)
         );
+
+        Ok(())
     }
 }
 
@@ -317,8 +318,8 @@ mod trf {
     use super::*;
 
     #[tokio::test]
-    async fn lift_to_trf_contract_matches_dot_product() {
-        let mut device = Device::new(lift_to_trf_contract.topology()).unwrap();
+    async fn lift_to_trf_contract_matches_dot_product() -> eyre::Result<()> {
+        let mut device = Device::new(lift_to_trf_contract.topology())?;
         let act_values = (0..<m![Row, Grp, Act, Dot]>::SIZE)
             .map(|i| (i % 31) as i8)
             .collect::<Vec<_>>();
@@ -327,16 +328,12 @@ mod trf {
             .collect::<Vec<_>>();
         let act = HostTensor::<i8, m![Row, Grp, Act, Dot]>::from_vec(act_values.clone())
             .to_hbm::<m![1], m![Row, Grp, Act, Dot]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
         let weight = HostTensor::<i8, m![Row, Grp, Col, Dot]>::from_vec(weight_values.clone())
             .to_hbm::<m![1], m![Row, Grp, Col, Dot]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
 
-        let output = launch(lift_to_trf_contract, (&mut device, &act, &weight))
-            .await
-            .unwrap();
+        let output = launch(lift_to_trf_contract, (&mut device, &act, &weight)).await?;
         let expected = (0..<m![Row, Grp, Act, Col]>::SIZE)
             .map(|i| {
                 let (row, group, act, col) = (i / (2 * 8 * 8), (i / (8 * 8)) % 2, (i / 8) % 8, i % 8);
@@ -353,28 +350,27 @@ mod trf {
         assert_eq!(
             output
                 .to_host::<m![Row, Grp, Act, Col]>(&mut device.pdma)
-                .await
-                .unwrap()
+                .await?
                 .into_inner(),
             Tensor::<_, m![Row, Grp, Act, Col], CurrentBackend>::from_vec(expected)
         );
+
+        Ok(())
     }
 }
 
 #[tokio::test]
-async fn reshaped_without_broadcast_uses_the_cpu_broadcast_origin() {
-    let mut device = Device::new(kernels::reshape::fetch_slice_lift_reshaped_without_broadcast.topology()).unwrap();
+async fn reshaped_without_broadcast_uses_the_cpu_broadcast_origin() -> eyre::Result<()> {
+    let mut device = Device::new(kernels::reshape::fetch_slice_lift_reshaped_without_broadcast.topology())?;
     let input = HostTensor::<bf16, m![A, G, H, V]>::from_vec(ramp(<m![A, G, H, V]>::SIZE))
         .to_hbm::<m![1], m![A, G, H, V]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
     let output = launch(
         kernels::reshape::fetch_slice_lift_reshaped_without_broadcast,
         (&mut device, &input),
     )
-    .await
-    .unwrap();
+    .await?;
     let expected = (0..<m![A, H, V]>::SIZE)
         .map(|i| {
             let (a, h, v) = (i / (2 * 16), (i / 16) % 2, i % 16);
@@ -383,11 +379,9 @@ async fn reshaped_without_broadcast_uses_the_cpu_broadcast_origin() {
         .collect::<Vec<_>>();
 
     assert_eq!(
-        output
-            .to_host::<m![A, H, V]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_inner(),
+        output.to_host::<m![A, H, V]>(&mut device.pdma).await?.into_inner(),
         Tensor::<_, m![A, H, V], CurrentBackend>::from_vec(expected)
     );
+
+    Ok(())
 }

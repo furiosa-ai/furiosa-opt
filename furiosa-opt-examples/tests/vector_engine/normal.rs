@@ -4,6 +4,7 @@ use furiosa_opt_examples::vector_engine::{
     ve_elementwise_multi_vrf, ve_elementwise_reinterpret_abs_f32, ve_elementwise_reinterpret_chain_f32,
     ve_elementwise_stash_f32, ve_elementwise_stash_i32, ve_elementwise_ternary, ve_elementwise_ternary_stash,
     ve_elementwise_vrf, ve_stash_after_reinterpret_f32, ve_stash_after_widen_f32, ve_stash_fxp_fxp,
+    ve_vrf_read_many_f32,
 };
 use furiosa_opt_std::prelude::*;
 use rand::SeedableRng;
@@ -14,40 +15,38 @@ use rand::rngs::SmallRng;
 // =============================================================================
 
 #[tokio::test]
-async fn test_ve_elementwise_fxp_const() {
-    let mut device = Device::new(ve_elementwise_fxp_const.topology()).unwrap();
+async fn test_ve_elementwise_fxp_const() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_fxp_const.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_fxp_const, (&mut device, &input_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_elementwise_fxp_const, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = input + 100
     let expected = input.into_inner().map(|x| x.wrapping_add(100));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_elementwise_full_pipeline() {
-    let mut device = Device::new(ve_elementwise_full_pipeline.topology()).unwrap();
+async fn test_ve_elementwise_full_pipeline() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_full_pipeline.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_full_pipeline, (&mut device, &input_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_elementwise_full_pipeline, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = clamp(((input + 100) as f32 * 2.5) as i32, 0, 1000)
     let expected = input.into_inner().map(|x| {
@@ -56,67 +55,71 @@ async fn test_ve_elementwise_full_pipeline() {
     });
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_elementwise_stash_f32() {
-    let mut device = Device::new(ve_elementwise_stash_f32.topology()).unwrap();
+async fn test_ve_elementwise_stash_f32() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_stash_f32.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_stash_f32, (&mut device, &input_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_elementwise_stash_f32, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = max(input * 2.0, input)
     let expected = input.into_inner().map(|x| f32::max(x * 2.0, x));
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_elementwise_stash_i32() {
-    let mut device = Device::new(ve_elementwise_stash_i32.topology()).unwrap();
+async fn test_ve_elementwise_stash_i32() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_stash_i32.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_stash_i32, (&mut device, &input_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_elementwise_stash_i32, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = max(input * 2, input)
     let expected = input.into_inner().map(|x| i32::max(x.wrapping_mul(2), x));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_stash_fxp_fxp() {
-    let mut device = Device::new(ve_stash_fxp_fxp.topology()).unwrap();
+async fn test_ve_stash_fxp_fxp() -> eyre::Result<()> {
+    let mut device = Device::new(ve_stash_fxp_fxp.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_stash_fxp_fxp, (&mut device, &input_hbm)).await.unwrap();
+    let out_hbm = launch(ve_stash_fxp_fxp, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = max(input * 2, input)
     let expected = input.into_inner().map(|x| i32::max(x.wrapping_mul(2), x));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 /// Corner cases for the reinterpret kernels: both signed zeros (the sign bit the mask must clear),
@@ -145,119 +148,119 @@ fn cycled(values: &[f32]) -> Vec<f32> {
 }
 
 #[tokio::test]
-async fn test_ve_elementwise_reinterpret_abs_f32() {
-    let mut device = Device::new(ve_elementwise_reinterpret_abs_f32.topology()).unwrap();
+async fn test_ve_elementwise_reinterpret_abs_f32() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_reinterpret_abs_f32.topology())?;
 
     let input = HostTensor::<f32, m![A]>::from_vec(cycled(&REINTERPRET_CORNERS));
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_reinterpret_abs_f32, (&mut device, &input_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_elementwise_reinterpret_abs_f32, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Clearing the sign bit is `abs`, reached here without a float ALU. Compared bitwise, so `-0.0`
     // reaching the output would fail rather than compare equal to `0.0`.
     let expected = input.into_inner().map(f32::abs);
 
     assert_f32_bits_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_elementwise_reinterpret_chain_f32() {
-    let mut device = Device::new(ve_elementwise_reinterpret_chain_f32.topology()).unwrap();
+async fn test_ve_elementwise_reinterpret_chain_f32() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_reinterpret_chain_f32.topology())?;
 
     let input = HostTensor::<f32, m![A]>::from_vec(cycled(&REINTERPRET_CORNERS));
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_reinterpret_chain_f32, (&mut device, &input_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_elementwise_reinterpret_chain_f32, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     assert_f32_bits_eq(&cycled(&REINTERPRET_CHAIN_EXPECTED), &result.into_vec());
+
+    Ok(())
 }
 
 /// The stash takes what the stream carries at the write, so the masked `|x|` is what the clip reads
 /// back: `2|x|`. Bitwise, so a `-0.0` surviving the mask would fail.
 #[tokio::test]
-async fn test_ve_stash_after_reinterpret_f32() {
-    let mut device = Device::new(ve_stash_after_reinterpret_f32.topology()).unwrap();
+async fn test_ve_stash_after_reinterpret_f32() -> eyre::Result<()> {
+    let mut device = Device::new(ve_stash_after_reinterpret_f32.topology())?;
 
     let input = HostTensor::<f32, m![A]>::from_vec(cycled(&REINTERPRET_CORNERS));
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_stash_after_reinterpret_f32, (&mut device, &input_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_stash_after_reinterpret_f32, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     let expected = input.into_inner().map(|x| 2.0 * f32::abs(x));
 
     assert_f32_bits_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 /// A 4-way result reaches the stash through the widen: the write rides the first clip op and the
 /// read the second, so both sit on 8-way ALUs.
 #[tokio::test]
-async fn test_ve_stash_after_widen_f32() {
-    let mut device = Device::new(ve_stash_after_widen_f32.topology()).unwrap();
+async fn test_ve_stash_after_widen_f32() -> eyre::Result<()> {
+    let mut device = Device::new(ve_stash_after_widen_f32.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_stash_after_widen_f32, (&mut device, &input_hbm))
-        .await
-        .unwrap();
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let out_hbm = launch(ve_stash_after_widen_f32, (&mut device, &input_hbm)).await?;
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = 2 * max(input * 2, 0)
     let expected = input.into_inner().map(|x| 2.0 * f32::max(x * 2.0, 0.0));
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_elementwise_logic() {
-    let mut device = Device::new(ve_elementwise_logic.topology()).unwrap();
+async fn test_ve_elementwise_logic() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_logic.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_logic, (&mut device, &input_hbm)).await.unwrap();
+    let out_hbm = launch(ve_elementwise_logic, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = (input & 0xFF) | 0x100
     let expected = input.into_inner().map(|x| (x & 0xFF) | 0x100);
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "Failing on cpu"]
-async fn test_ve_elementwise_vrf() {
-    let mut device = Device::new(ve_elementwise_vrf.topology()).unwrap();
+async fn test_ve_elementwise_vrf() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_vrf.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A, B]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![B]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_vrf, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_elementwise_vrf, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A, B]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A, B]>(&mut device.pdma).await?;
 
     // Verify: output = lhs + rhs (broadcasted)
     let expected = lhs
@@ -265,29 +268,30 @@ async fn test_ve_elementwise_vrf() {
         .zip_with(&rhs.into_inner().transpose(true), |x, y| x + y);
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_elementwise_multi_vrf() {
-    let mut device = Device::new(ve_elementwise_multi_vrf.topology()).unwrap();
+async fn test_ve_elementwise_multi_vrf() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_multi_vrf.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<i32, m![A, B]>::rand(&mut rng);
     let vrf1 = HostTensor::<i32, m![B]>::rand(&mut rng);
     let vrf2 = HostTensor::<i32, m![B]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
-    let vrf1_hbm = vrf1.to_hbm(&mut device.pdma).await.unwrap();
-    let vrf2_hbm = vrf2.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
+    let vrf1_hbm = vrf1.to_hbm(&mut device.pdma).await?;
+    let vrf2_hbm = vrf2.to_hbm(&mut device.pdma).await?;
 
     let out_hbm = launch(
         ve_elementwise_multi_vrf,
         (&mut device, &input_hbm, &vrf1_hbm, &vrf2_hbm),
     )
-    .await
-    .unwrap();
+    .await?;
 
-    let result = out_hbm.to_host::<m![A, B]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A, B]>(&mut device.pdma).await?;
 
     // Verify: output = ((input + vrf1) * vrf2) + vrf1 (broadcasted)
     let vrf1_inner = vrf1.into_inner();
@@ -300,6 +304,36 @@ async fn test_ve_elementwise_multi_vrf() {
         .zip_with(&vrf1_t, |x, y| x.wrapping_add(y));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
+}
+
+/// Checks x, y, x VRF reads against `(s * x) * y + x` on the host runtime.
+#[tokio::test]
+async fn test_ve_vrf_read_many_f32() {
+    let mut device = Device::new(ve_vrf_read_many_f32.topology()).unwrap();
+
+    let input = HostTensor::<f32, m![A]>::from_vec((0..<m![A]>::SIZE).map(|i| ((i % 31) as f32 - 15.0) / 8.0));
+    let vrf1 = HostTensor::<f32, m![A]>::from_vec((0..<m![A]>::SIZE).map(|i| ((i % 13) as f32 + 1.0) / 4.0));
+    let vrf2 = HostTensor::<f32, m![A]>::from_vec((0..<m![A]>::SIZE).map(|i| -((i % 17) as f32 + 2.0) / 8.0));
+    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let vrf1_hbm = vrf1.to_hbm(&mut device.pdma).await.unwrap();
+    let vrf2_hbm = vrf2.to_hbm(&mut device.pdma).await.unwrap();
+
+    let output = launch(ve_vrf_read_many_f32, (&mut device, &input_hbm, &vrf1_hbm, &vrf2_hbm))
+        .await
+        .unwrap();
+    let actual = output.to_host::<m![A]>(&mut device.pdma).await.unwrap().into_vec();
+    let x = vrf1.into_inner();
+    let y = vrf2.into_inner();
+    let expected = input
+        .into_inner()
+        .zip_with(&x, |s, x| s * x)
+        .zip_with(&y, |sx, y| sx * y)
+        .zip_with(&x, |sxy, x| sxy + x)
+        .into_vec();
+
+    assert_f32_vec_eq(&expected, &actual);
 }
 
 // =============================================================================
@@ -307,69 +341,68 @@ async fn test_ve_elementwise_multi_vrf() {
 // =============================================================================
 
 #[tokio::test]
-async fn test_ve_elementwise_ternary() {
-    let mut device = Device::new(ve_elementwise_ternary.topology()).unwrap();
+async fn test_ve_elementwise_ternary() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_ternary.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_ternary, (&mut device, &input_hbm)).await.unwrap();
+    let out_hbm = launch(ve_elementwise_ternary, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: FmaF = input * 2.0 + 3.0
     let expected = input.into_inner().map(|x| x.mul_add(2.0, 3.0));
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_elementwise_ternary_stash() {
-    let mut device = Device::new(ve_elementwise_ternary_stash.topology()).unwrap();
+async fn test_ve_elementwise_ternary_stash() -> eyre::Result<()> {
+    let mut device = Device::new(ve_elementwise_ternary_stash.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let input_hbm = input.to_hbm(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_elementwise_ternary_stash, (&mut device, &input_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_elementwise_ternary_stash, (&mut device, &input_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: FmaF with stash = input * input + 1.0 = input^2 + 1.0
     let expected = input.into_inner().map(|x| x.mul_add(x, 1.0));
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 /// A dot product stored to the VRF and read back: `act` and `weight` are all ones over `W = 64`, so
 /// each output channel's dot product is 64 and its square root 8, which scales `scale[p] = p`.
 #[tokio::test]
-async fn test_ve_contract_to_vrf() {
-    let mut device = Device::new(ve_contract_to_vrf.topology()).unwrap();
+async fn test_ve_contract_to_vrf() -> eyre::Result<()> {
+    let mut device = Device::new(ve_contract_to_vrf.topology())?;
 
     let act = HostTensor::<f8e4m3, m![W]>::from_vec(vec![f8e4m3::from_f32(1.0); <m![W]>::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let weight = HostTensor::<f8e4m3, m![P, W]>::from_vec(vec![f8e4m3::from_f32(1.0); <m![P, W]>::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let scale = HostTensor::<f32, m![P]>::from_vec((0..<m![P]>::SIZE).map(|p| p as f32).collect::<Vec<_>>())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let out = launch(ve_contract_to_vrf, (&mut device, &act, &weight, &scale))
-        .await
-        .unwrap();
-    let got = out.to_host::<m![P]>(&mut device.pdma).await.unwrap().into_vec();
+    let out = launch(ve_contract_to_vrf, (&mut device, &act, &weight, &scale)).await?;
+    let got = out.to_host::<m![P]>(&mut device.pdma).await?.into_vec();
 
     let expected: Vec<f32> = (0..<m![P]>::SIZE).map(|p| 8.0 * p as f32).collect();
     assert_f32_vec_eq(&got, &expected);
+
+    Ok(())
 }

@@ -1483,7 +1483,8 @@ where
     /// # #![feature(adt_const_params)]
     /// use furiosa_opt_std::prelude::*;
     /// axes![A = 2048, B = 2, I = 2, R = 8];
-    /// let mut device = Device::new(Topology { chips: 1, pes: 1 }).unwrap();
+    /// # fn main() -> Result<(), Error> {
+    /// let mut device = Device::new(Topology { chips: 1, pes: 1 })?;
     /// let input: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![R, I], m![A % 8]> =
     ///     CollectTensor::new(&mut device.main, Tensor::zero());
     /// let _zipped_reduce = input
@@ -1493,6 +1494,9 @@ where
     ///     .vector_narrow_split::<m![R, A / 4 % 2], m![A % 4]>()
     ///     .vector_fp_zip(FpBinaryOp::MulF(FpMulAlu::Mul0))
     ///     .vector_intra_slice_reduce::<R, m![A / 4 % 2], m![A % 4]>(IntraSliceReduceOpF32::Add);
+    /// #
+    /// # Ok(())
+    /// # }
     /// ```
     #[primitive(VectorTensor::vector_intra_slice_reduce)]
     pub fn vector_intra_slice_reduce<Reduce: AxisName, OutTime: M, OutPacket: M>(

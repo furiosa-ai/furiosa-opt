@@ -15,44 +15,42 @@ use rand::rngs::SmallRng;
 // =============================================================================
 
 #[tokio::test]
-async fn test_ve_group_pair_add() {
-    let mut device = Device::new(ve_group_pair_add.topology()).unwrap();
+async fn test_ve_group_pair_add() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_add.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_add, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_add, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = lhs + rhs
     let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |x, y| x.wrapping_add(y));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_preprocess_both() {
-    let mut device = Device::new(ve_group_pair_preprocess_both.topology()).unwrap();
+async fn test_ve_group_pair_preprocess_both() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_preprocess_both.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_preprocess_both, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_preprocess_both, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = (lhs * 2) + (rhs * 3)
     let expected = lhs
@@ -61,24 +59,24 @@ async fn test_ve_group_pair_preprocess_both() {
         .zip_with(&rhs.into_inner().map(|x| x.wrapping_mul(3)), |x, y| x.wrapping_add(y));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_preprocess_g0() {
-    let mut device = Device::new(ve_group_pair_preprocess_g0.topology()).unwrap();
+async fn test_ve_group_pair_preprocess_g0() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_preprocess_g0.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_preprocess_g0, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_preprocess_g0, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = (lhs * 10) + rhs
     let expected = lhs
@@ -87,24 +85,24 @@ async fn test_ve_group_pair_preprocess_g0() {
         .zip_with(&rhs.into_inner(), |x, y| x.wrapping_add(y));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_preprocess_g1() {
-    let mut device = Device::new(ve_group_pair_preprocess_g1.topology()).unwrap();
+async fn test_ve_group_pair_preprocess_g1() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_preprocess_g1.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_preprocess_g1, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_preprocess_g1, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = lhs + (rhs * 10)
     let expected = lhs
@@ -112,24 +110,24 @@ async fn test_ve_group_pair_preprocess_g1() {
         .zip_with(&rhs.into_inner().map(|x| x.wrapping_mul(10)), |x, y| x.wrapping_add(y));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_chain() {
-    let mut device = Device::new(ve_group_pair_chain.topology()).unwrap();
+async fn test_ve_group_pair_chain() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_chain.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_chain, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_chain, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = ((lhs + 10) * 2) + ((rhs + 20) * 3)
     let lhs_processed = lhs.into_inner().map(|x| x.wrapping_add(10).wrapping_mul(2));
@@ -137,52 +135,54 @@ async fn test_ve_group_pair_chain() {
     let expected = lhs_processed.zip_with(&rhs_processed, |x, y| x.wrapping_add(y));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_fxp() {
-    let mut device = Device::new(ve_group_pair_fxp.topology()).unwrap();
+async fn test_ve_group_pair_fxp() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_fxp.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_fxp, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_fxp, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = lhs * rhs
     let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |x, y| x.wrapping_mul(y));
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_logic() {
-    let mut device = Device::new(ve_group_pair_logic.topology()).unwrap();
+async fn test_ve_group_pair_logic() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_logic.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_logic, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_logic, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: output = lhs ^ rhs (BitXor)
     let expected = lhs.into_inner().zip_with(&rhs.into_inner(), |x, y| x ^ y);
 
     assert_eq!(expected.into_vec(), result.into_vec());
+
+    Ok(())
 }
 
 /// `(lhs, rhs)` pairs and the `scale(lhs, 1) + scale(rhs, 2)` the pair kernel must produce, where
@@ -198,8 +198,8 @@ const PAIR_SCALE_CASES: [(f32, f32, f32); 4] = [
 ];
 
 #[tokio::test]
-async fn test_ve_group_pair_reinterpret_scale_f32() {
-    let mut device = Device::new(ve_group_pair_reinterpret_scale_f32.topology()).unwrap();
+async fn test_ve_group_pair_reinterpret_scale_f32() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_reinterpret_scale_f32.topology())?;
 
     let pick = |f: fn(&(f32, f32, f32)) -> f32| {
         (0..A::SIZE)
@@ -209,23 +209,23 @@ async fn test_ve_group_pair_reinterpret_scale_f32() {
     let lhs = HostTensor::<f32, m![A]>::from_vec(pick(|case| case.0));
     let rhs = HostTensor::<f32, m![A]>::from_vec(pick(|case| case.1));
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_reinterpret_scale_f32, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_reinterpret_scale_f32, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     assert_f32_bits_eq(&pick(|case| case.2), &result.into_vec());
+
+    Ok(())
 }
 
 /// `|a| + |b|` with the sign bit cleared per group. Bitwise, so a `-0.0` surviving the mask fails,
 /// and `-0.0 + 0.0` must come out `0.0`.
 #[tokio::test]
-async fn test_ve_group_pair_logic_abs_add_f32() {
-    let mut device = Device::new(ve_group_pair_logic_abs_add_f32.topology()).unwrap();
+async fn test_ve_group_pair_logic_abs_add_f32() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_logic_abs_add_f32.topology())?;
 
     let cases: [(f32, f32); 5] = [
         (0.0, -0.0),
@@ -238,14 +238,12 @@ async fn test_ve_group_pair_logic_abs_add_f32() {
     let lhs = HostTensor::<f32, m![A]>::from_vec(pick(|case| case.0));
     let rhs = HostTensor::<f32, m![A]>::from_vec(pick(|case| case.1));
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_logic_abs_add_f32, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_logic_abs_add_f32, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     let expected: Vec<f32> = (0..A::SIZE)
         .map(|i| {
@@ -255,25 +253,25 @@ async fn test_ve_group_pair_logic_abs_add_f32() {
         .collect();
 
     assert_f32_bits_eq(&expected, &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_fp() {
-    let mut device = Device::new(ve_group_pair_fp.topology()).unwrap();
+async fn test_ve_group_pair_fp() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_fp.topology())?;
 
     // Input is i32, output is f32
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_fp, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_fp, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: fxp_to_fp(31) then multiply -> (lhs as f32) * (rhs as f32)
     let expected = lhs
@@ -281,25 +279,25 @@ async fn test_ve_group_pair_fp() {
         .zip_with(&rhs.into_inner(), |x, y| (x as f32) * (y as f32));
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_unary() {
-    let mut device = Device::new(ve_group_pair_unary.topology()).unwrap();
+async fn test_ve_group_pair_unary() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_unary.topology())?;
 
     // Input is i32, output is f32
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_unary, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_unary, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: fxp_to_fp(31) -> sqrt(both) -> add
     // output = sqrt(lhs as f32) + sqrt(rhs as f32)
@@ -308,25 +306,25 @@ async fn test_ve_group_pair_unary() {
         .zip_with(&rhs.into_inner(), |x, y| (x as f32).sqrt() + (y as f32).sqrt());
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_unary_selective() {
-    let mut device = Device::new(ve_group_pair_unary_selective.topology()).unwrap();
+async fn test_ve_group_pair_unary_selective() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_unary_selective.topology())?;
 
     // Input is i32, output is f32
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<i32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<i32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_unary_selective, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_unary_selective, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: fxp_to_fp(31) -> exp(g0 only) -> add
     // output = exp(lhs as f32) + (rhs as f32)
@@ -335,24 +333,24 @@ async fn test_ve_group_pair_unary_selective() {
         .zip_with(&rhs.into_inner(), |x, y| (x as f32).exp() + (y as f32));
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_ternary() {
-    let mut device = Device::new(ve_group_pair_ternary.topology()).unwrap();
+async fn test_ve_group_pair_ternary() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_ternary.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<f32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_ternary, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_ternary, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: (lhs * 2.0 + 1.0) + (rhs * 3.0 + 2.0)
     let expected = lhs
@@ -360,24 +358,24 @@ async fn test_ve_group_pair_ternary() {
         .zip_with(&rhs.into_inner(), |x, y| x.mul_add(2.0, 1.0) * y.mul_add(3.0, 2.0));
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_ve_group_pair_ternary_selective() {
-    let mut device = Device::new(ve_group_pair_ternary_selective.topology()).unwrap();
+async fn test_ve_group_pair_ternary_selective() -> eyre::Result<()> {
+    let mut device = Device::new(ve_group_pair_ternary_selective.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let lhs = HostTensor::<f32, m![A]>::rand(&mut rng);
     let rhs = HostTensor::<f32, m![A]>::rand(&mut rng);
 
-    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await.unwrap();
-    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await.unwrap();
+    let lhs_hbm = lhs.to_hbm(&mut device.pdma).await?;
+    let rhs_hbm = rhs.to_hbm(&mut device.pdma).await?;
 
-    let out_hbm = launch(ve_group_pair_ternary_selective, (&mut device, &lhs_hbm, &rhs_hbm))
-        .await
-        .unwrap();
+    let out_hbm = launch(ve_group_pair_ternary_selective, (&mut device, &lhs_hbm, &rhs_hbm)).await?;
 
-    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await.unwrap();
+    let result = out_hbm.to_host::<m![A]>(&mut device.pdma).await?;
 
     // Verify: (lhs * 2.0 + 1.0) / rhs (rhs unchanged, no ternary)
     let expected = lhs
@@ -385,4 +383,6 @@ async fn test_ve_group_pair_ternary_selective() {
         .zip_with(&rhs.into_inner(), |x, y| x.mul_add(2.0, 1.0) / y);
 
     assert_f32_vec_eq(&expected.into_vec(), &result.into_vec());
+
+    Ok(())
 }

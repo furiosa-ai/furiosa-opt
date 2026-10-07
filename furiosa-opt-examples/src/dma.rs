@@ -74,6 +74,19 @@ pub fn mixed_inplace_and_returned_outputs(
     for_return.to_hbm(&mut device.tdma)
 }
 
+/// Oracle: `output == input`.
+#[device(chip = 1)]
+pub fn spm_roundtrip(
+    device: &mut Device,
+    input: &HbmTensor<i32, Chip, m![PA, PV]>,
+) -> HbmTensor<i32, Chip, m![PA, PV]> {
+    let dm: DmTensor<i32, Chip, Cluster, m![PA], m![PV]> = input.to_dm(&mut device.tdma);
+    let spm: SpmTensor<i32, Chip, Cluster, m![PA % 4], m![PA / 4, PV]> = dm.to_spm(&mut device.tdma);
+    let back: DmTensor<i32, Chip, Cluster, m![PA], m![PV]> = spm.to_dm(&mut device.tdma);
+
+    back.to_hbm(&mut device.tdma)
+}
+
 /// Regression guard for the padded-tail DMA path: an in-slice tail axis whose live size is not
 /// DMA-aligned round-trips only when padded to an aligned packet. Here `PC = 5` (i32 = 20 bytes)
 /// pads to `8` (32 bytes) on both the HBM and DM sides; the tail alignment pins to the Access-class

@@ -4,6 +4,7 @@
 Device tensors split their mapping across multiple dedicated dimensions:
 
 - **Spatial dimensions**: `Chip`, `Cluster`, and `Slice` distribute data across the hardware hierarchy.
+  `SpmTensor` uses `Pe` instead of `Slice` for scratchpad placement.
   In stream tensors, `Packet` additionally sizes parallel delivery within each temporal iteration.
 - **Temporal dimension**: `Time` sequences the delivery iterations in stream tensors.
 
@@ -42,6 +43,10 @@ struct VrfTensor<D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M> {
     /* ... */
     # _marker: PhantomData<(D, Chip, Cluster, Slice, Element)>,
 }
+struct SpmTensor<D: Scalar, Chip: M, Cluster: M, Pe: M, Element: M> {
+    /* ... */
+    # _marker: PhantomData<(D, Chip, Cluster, Pe, Element)>,
+}
 ```
 
 HBM tensors distribute data across chips for spatial parallelism: each chip processes its own portion of the data simultaneously.
@@ -49,23 +54,28 @@ For example, `HbmTensor<bf16, m![A], m![B]>` distributes `8 × 512 = 4096` eleme
 The `i`-th chip's `j`-th element stores tensor index `i![A: i, B: j]`.
 
 SRAM tensor types add `Cluster` and `Slice` dimensions for finer-grained parallelism.
+`SpmTensor` uses `Pe` for fused-PE placement of scratchpad data: `m![4]` replicates the payload over every PE, `m![1 # 4]` keeps it in PE 0, and `m![X % 4]` partitions it over the four.
+`by_positions` requires an SPM index kept entirely on PE 0, spelled `Pe = m![1 # 4]` on a four-PE cluster; see [Gather and Scatter](../moving-tensors/dma-engine.md#gather-and-scatter).
 `TrfTensor` additionally has a `Lane` dimension that distributes TRF data across the 8 lanes per slice.
 See [Contraction Engine](../computing-tensors/contraction-engine/index.md) for details.
 
 HBM tensors carry concrete addresses.
-DM, TRF, and VRF tensors may receive addresses from the backend.
+DM, SPM, TRF, and VRF tensors may receive addresses from the backend.
 Host tensors remain host-side values.
 Mapping parameters determine physical representation; storage owns addresses separately.
 
 ### Constraints
 
-- **`Chip`, `Cluster`, and `Slice` size**: they must exactly match the hardware counts:
+- **`Chip`, `Cluster`, `Slice`, and `Pe` size**: they must exactly match the hardware counts:
 
   | Unit      | Count            | Constraint                  | Padding Example        |
   |-----------|------------------|-----------------------------|------------------------|
   | `Chip`    | System-dependent | `Chip::SIZE == NUM_CHIPS`   | `m![1 # NUM_CHIPS]`    |
   | `Cluster` | 2 / Chip         | `Cluster::SIZE == 2`        | `m![1 # 2]`            |
   | `Slice`   | 256 / Cluster    | `Slice::SIZE == 256`        | `m![X / N # 256]`      |
+  | `Pe`      | 4 / Cluster      | `Pe::SIZE == 4`             | `m![1 # 4]`            |
+
+  One PE owns 64 slices, so a DM ↔ SPM transfer additionally requires `Pe::SIZE == Slice::SIZE / 64`: both sides then name the same slices.
 
   Any dimension can be padded with `#` when the kernel uses fewer units than the hardware provides.
   For example, `type Cluster = m![1 # 2]` uses 1 active cluster and 1 padding-only cluster, satisfying the hardware's 2-cluster-per-chip requirement.
@@ -79,6 +89,7 @@ Mapping parameters determine physical representation; storage owns addresses sep
   | Type        | Unit          | Constraint                                    |
   |-------------|---------------|-----------------------------------------------|
   | `DmTensor`  | 512KB / Slice | `Element::SIZE * size_of::<D>() <= 512KB`     |
+  | `SpmTensor` | 4KB / PE      | `Element::SIZE * size_of::<D>() <= 4KB`       |
   | `TrfTensor` | 8KB / Lane     | `Lane::SIZE <= 8`, `Element::SIZE * size_of::<D>() <= 8KB` |
   | `VrfTensor` | 8KB / Slice   | `Element::SIZE * size_of::<D>() <= 8KB`      |
 

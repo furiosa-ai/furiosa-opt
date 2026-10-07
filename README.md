@@ -101,14 +101,14 @@ It delegates regular Rust language-server behavior to `rust-analyzer` and rewrit
 
 ![furiosa-rust-analyzer-proxy demo](assets/furiosa-rust-analyzer-proxy-demo.png)
 
-For installation and configuration, see the [Language Server documentation](https://developer.furiosa.ai/furiosa-opt/book/appendix/language-server.html).
+For installation and configuration, see the [Language Server documentation](https://developer.furiosa.ai/furiosa-opt/book/tools/language-server.html).
 
 ### Schedule Viewer
 
 The Schedule Viewer visualizes the execution timeline to help identify performance bottlenecks.
 Use `furiosa-opt` to export a schedule JSON file, then open it with `furiosa-schedule-viewer`.
 
-For installation and usage, see the [Schedule Viewer documentation](https://developer.furiosa.ai/furiosa-opt/book/appendix/schedule-viewer.html).
+For installation and usage, see the [Schedule Viewer documentation](https://developer.furiosa.ai/furiosa-opt/book/tools/schedule-viewer.html).
 
 ## License
 

@@ -60,10 +60,8 @@ pub trait MappingExt: Sized {
     fn dma_tails(&self, dst: &Self) -> (usize, usize, usize);
     /// Returns true if `self` is a resize (innermost prefix) of `original`.
     fn is_resize_of(&self, original: &Self) -> bool;
-    /// Splits at buffer `target` into `(outer, inner)`: `outer` strides past the first `target`
-    /// cells, `inner` keeps them, and `outer.pair(inner)` reads the same buffer. `target` must
-    /// divide the size.
-    fn split_at(&self, target: usize) -> (Self, Self);
+    /// Splits the mapping into `(outer, inner)` at a positive divisor of its size.
+    fn split_at(&self, target: usize) -> Result<(Self, Self), SplitAtError>;
     /// The read at buffer `position`, an [`Index`] of per-axis contributions with composites kept
     /// WHOLE. Call [`IndexExt::finalize`] on a live index, or [`CellExt::finalize`] on the cell with
     /// an explicit out-of-bounds fill kind.
@@ -73,6 +71,12 @@ pub trait MappingExt: Sized {
     fn indexes(&self) -> Vec<Cell>;
     /// The live axis terms (its [`AxisTerm`]s, resolved symbols), padding excluded.
     fn axes(&self) -> Vec<AxisTerm>;
+    /// Whether every position reads the same cell across this mapping's extent.
+    fn is_broadcast(&self) -> bool;
+    /// Whether this mapping contains inaccessible [`PaddingKind::Bottom`] cells.
+    fn has_bottom_pad(&self) -> bool;
+    /// Whether every position of this mapping holds a cell of its own: no padding of any kind.
+    fn has_no_padding(&self) -> bool;
     /// A lazy iterator over where this mapping's cells land in a buffer laid out by `axes`, each offset
     /// shifted by `base`: one `Option<usize>` per physical cell in canonical order (`Some(off)` live,
     /// `None` padding). `padding` picks the traversal: `true` visits every physical cell (the wire order
@@ -103,10 +107,20 @@ pub trait MappingExt: Sized {
         window: usize,
         hole: PaddingKind,
     ) -> Result<Self, WindowAxisError>;
-    /// The cells one position of `axis` advances in this mapping. The axis must lie in one strided run,
-    /// so symbols this mapping holds apart are refused. Sound but not complete: a context a modulo has
-    /// discarded is not checked, so `m![A # 12 % 4]` is located in a 10-cell `m![A]`.
+    /// Returns the stride of one consecutive region occupied by `axis`.
     fn find_axis(&self, axis: &Self) -> Result<usize, FindAxisError>;
+    /// Removes `axis` as one exact region, leaving the surrounding mapping.
+    fn remove_axis(&self, axis: &Self) -> Result<Self, FindAxisError>;
+}
+
+/// Why a mapping cannot be split at the requested size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("cannot split a mapping of {size} cells at {target}: both sizes must be positive and target must divide size")]
+pub struct SplitAtError {
+    /// The mapping's extent in cells.
+    pub size: usize,
+    /// The requested inner extent in cells.
+    pub target: usize,
 }
 
 /// Why [`MappingExt::window_axis`] could not narrow an axis.
@@ -122,7 +136,7 @@ pub enum WindowAxisError {
     },
     /// The axis's span does not divide the mapping.
     #[error("an axis of {stride} x {size} does not fit a mapping of {cells} cells")]
-    SpanExceedsMapping {
+    SpanDoesNotDivide {
         /// Cells one position of the axis advances.
         stride: usize,
         /// The axis extent, padding included.
@@ -143,9 +157,10 @@ pub enum FindAxisError {
     /// stride advances it.
     #[error("this mapping holds the axis in pieces, not in one strided run")]
     ScatteredInMapping,
-    /// The axis span reaches past the mapping.
-    #[error("the axis span reaches past the mapping")]
-    SpanExceedsMapping,
+    /// The axis span is not a region this mapping can be cut at: it reaches past the mapping, or
+    /// stops short of it at a span that does not divide it.
+    #[error("an axis spanning {} cells does not divide this mapping of {} cells", .0.target, .0.size)]
+    SpanDoesNotDivide(#[from] SplitAtError),
 }
 
 /// Matches each of `streams` against the `memories`, each its own address space (the fetch engine's
@@ -200,9 +215,13 @@ impl MappingExt for Mapping {
         n <= original.size() && self.normalize() == original.clone().resize(n).normalize()
     }
 
-    fn split_at(&self, target: usize) -> (Self, Self) {
+    fn split_at(&self, target: usize) -> Result<(Self, Self), SplitAtError> {
+        let size = self.size();
+        if size == 0 || target == 0 || !size.is_multiple_of(target) {
+            return Err(SplitAtError { size, target });
+        }
         let Tuple2(outer, inner) = unsafe { sys::mapping_split_at(self, target) };
-        (outer, inner)
+        Ok((outer, inner))
     }
 
     fn index(&self, position: usize) -> Cell {
@@ -215,6 +234,32 @@ impl MappingExt for Mapping {
 
     fn axes(&self) -> Vec<AxisTerm> {
         unsafe { sys::mapping_axes(self) }.into_iter().collect()
+    }
+
+    fn is_broadcast(&self) -> bool {
+        self.normalize() == Mapping::Broadcast { size: self.size() }
+    }
+
+    fn has_bottom_pad(&self) -> bool {
+        match self {
+            Mapping::Padding { inner, kind, .. } => *kind == PaddingKind::Bottom || inner.has_bottom_pad(),
+            Mapping::Stride { inner, .. } | Mapping::Modulo { inner, .. } | Mapping::Resize { inner, .. } => {
+                inner.has_bottom_pad()
+            }
+            Mapping::Pair { left, right } => left.has_bottom_pad() || right.has_bottom_pad(),
+            Mapping::Symbol { .. } | Mapping::Broadcast { .. } => false,
+        }
+    }
+
+    fn has_no_padding(&self) -> bool {
+        match self {
+            Mapping::Padding { .. } => false,
+            Mapping::Stride { inner, .. } | Mapping::Modulo { inner, .. } | Mapping::Resize { inner, .. } => {
+                inner.has_no_padding()
+            }
+            Mapping::Pair { left, right } => left.has_no_padding() && right.has_no_padding(),
+            Mapping::Symbol { .. } | Mapping::Broadcast { .. } => true,
+        }
     }
 
     fn iter(&self, axes: &[AxisTerm], base: &Index, padding: bool) -> MappingIter {
@@ -243,19 +288,20 @@ impl MappingExt for Mapping {
         window: usize,
         hole: PaddingKind,
     ) -> Result<Self, WindowAxisError> {
-        // `resize` and `split_at` assert on these, so report them before reaching either.
         if window == 0 || window > size {
             return Err(WindowAxisError::WindowExceedsAxis { window, size });
         }
-        let cells = self.size();
-        let span_fits = stride
-            .checked_mul(size)
-            .filter(|span| *span > 0 && cells > 0 && cells.is_multiple_of(*span));
-        let Some(span) = span_fits else {
-            return Err(WindowAxisError::SpanExceedsMapping { stride, size, cells });
+        // An axis whose span overflows `usize` divides no mapping either, so both refusals below
+        // are the same one.
+        let error = WindowAxisError::SpanDoesNotDivide {
+            stride,
+            size,
+            cells: self.size(),
         };
-        let (above, axis_and_below) = self.split_at(span);
-        let (axis, below) = axis_and_below.split_at(stride);
+        let span = stride.checked_mul(size).ok_or(error)?;
+        let (above, axis_and_below) = self.split_at(span).map_err(|_| error)?;
+        // `span` is `stride * size`, so the axis divides the region the first split cut out.
+        let (axis, below) = axis_and_below.split_at(stride).expect("a stride divides its own span");
         Ok(above
             .pair(axis.resize(window).padding(size, hole))
             .pair(below)
@@ -293,11 +339,32 @@ impl MappingExt for Mapping {
         // still reports stride 32, twice the 128 cells present.
         let span = stride
             .checked_mul(axis.size())
-            .ok_or(FindAxisError::SpanExceedsMapping)?;
+            .expect("an axis span stays inside usize");
         if span > self.size() {
-            return Err(FindAxisError::SpanExceedsMapping);
+            return Err(SplitAtError {
+                size: self.size(),
+                target: span,
+            }
+            .into());
         }
         Ok(stride)
+    }
+
+    fn remove_axis(&self, axis: &Self) -> Result<Self, FindAxisError> {
+        if axis.size() == 1 {
+            return Ok(self.clone());
+        }
+        let stride = self.find_axis(axis)?;
+        // `find_axis` returns a stride whose span fits the mapping, so this cannot overflow.
+        let span = stride * axis.size();
+        let (outer, axis_and_inner) = self.split_at(span)?;
+        // `span` is `stride * axis.size()`, so the axis divides the region just cut out.
+        let (found, inner) = axis_and_inner.split_at(stride).expect("a stride divides its own span");
+        // Compare the extracted digit itself; rebuilding a truncated axis can change it.
+        if found.normalize() != axis.normalize() {
+            return Err(FindAxisError::NotInMapping);
+        }
+        Ok(outer.pair(inner))
     }
 }
 

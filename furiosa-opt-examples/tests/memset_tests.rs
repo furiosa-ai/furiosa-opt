@@ -19,23 +19,20 @@ type OutMap = m![A / 2, A % 2, B];
 macro_rules! whole_region_answer_test {
     ($name:ident, $d:ty, $fn:ident, $input:expr, $fill:expr $(,)?) => {
         #[tokio::test]
-        async fn $name() {
-            let mut device = Device::new($fn.topology()).unwrap();
+        async fn $name() -> eyre::Result<()> {
+            let mut device = Device::new($fn.topology())?;
             let input_vals: Vec<$d> = $input;
             let input = HostTensor::<$d, m![A, B]>::from_vec(input_vals)
                 .to_hbm::<m![1], m![A, B]>(&mut device.pdma)
-                .await
-                .unwrap();
-            let output = launch($fn, (&mut device, &input)).await.unwrap();
+                .await?;
+            let output = launch($fn, (&mut device, &input)).await?;
             let answer: Vec<$d> = std::iter::repeat_n($fill, <OutMap>::SIZE).collect();
             assert_eq!(
-                output
-                    .to_host::<OutMap>(&mut device.pdma)
-                    .await
-                    .unwrap()
-                    .into_vec(),
+                output.to_host::<OutMap>(&mut device.pdma).await?.into_vec(),
                 answer
             );
+
+            Ok(())
         }
     };
 }

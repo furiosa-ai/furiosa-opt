@@ -40,53 +40,6 @@ pub(crate) fn broadcast_axes(src: &Mapping, dst: &Mapping) -> Mapping {
     Mapping::from_terms(axes)
 }
 
-/// Scatter payload mapping and destination axis term. Used by every backend whose
-/// `Tensor::scatter` body iterates the host. Panics on ill-formed scatters.
-pub(crate) fn scatter_params(src: &Mapping, dst: &Mapping, key: &Mapping) -> (Mapping, AxisTerm) {
-    let payload = src.carve(key);
-    let dst_term = dst
-        .carve(&payload)
-        .axes()
-        .into_iter()
-        .next()
-        .expect("scatter dst residue has no live target axis");
-    (payload, dst_term)
-}
-
-/// Derived parameters for `Tensor::gather`.
-///
-/// Inverse of [`scatter_params`]:
-/// - scatter: `src ÷ key = payload`, `dst ÷ payload = dst_term` (the indexed axis on dst).
-/// - gather:  `dst ÷ idx_axes = payload`, `src ÷ payload = src_term` (the indexed axis on src/table).
-pub(crate) struct GatherParams {
-    /// Axes shared by `src` (the table) and `dst` (the gather output), iterated identically
-    /// on both sides. Derived as `dst ÷ idx_axes`.
-    pub payload: Mapping,
-    /// Single-term locator on the `src` side identifying the indexed (lookup) axis. The runtime
-    /// indices tensor's values index into this axis. Derived as the surviving term in
-    /// `src ÷ payload`.
-    pub src_term: AxisTerm,
-}
-
-/// Compute [`GatherParams`] for a gather op. Used by every backend whose
-/// `Tensor::gather` body iterates the host. Panics on ill-formed gathers.
-///
-/// `idx` is the full mapping of the indices tensor; the "key-axes-replacement" inside `dst` is
-/// derived as `dst ÷ payload`. `BufStorage::gather` (the sole caller) derives that residue from its
-/// own `Idx` type parameter instead, so the result here is discarded (`let _ = ...`); `carve` still
-/// runs for its ill-formed-mapping panic.
-pub(crate) fn gather_params(src: &Mapping, dst: &Mapping, idx: &Mapping) -> GatherParams {
-    let payload = dst.carve(idx);
-    let _ = dst.carve(&payload);
-    let src_term = src
-        .carve(&payload)
-        .axes()
-        .into_iter()
-        .next()
-        .expect("gather src residue has no live target axis");
-    GatherParams { payload, src_term }
-}
-
 #[cfg(test)]
 mod tests {
     use furiosa_mapping::*;

@@ -20,34 +20,30 @@ fn rows(count: usize) -> Vec<bf16> {
 
 /// The tutorial's own shape, whose live rows do not divide into its three chunks.
 #[tokio::test]
-async fn test_tutorial_shape_reads_the_requested_chunk() {
-    let mut device = Device::new(padded_axis_chunk_read.topology()).unwrap();
+async fn test_tutorial_shape_reads_the_requested_chunk() -> eyre::Result<()> {
+    let mut device = Device::new(padded_axis_chunk_read.topology())?;
     let input = HostTensor::<bf16, Chunked>::from_vec(rows(24))
         .to_hbm::<Chip, Chunked>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let output = launch(padded_axis_chunk_read, (&mut device, &input)).await.unwrap();
+    let output = launch(padded_axis_chunk_read, (&mut device, &input)).await?;
 
-    let actual = output.to_host::<Chunk>(&mut device.pdma).await.unwrap().into_vec();
+    let actual = output.to_host::<Chunk>(&mut device.pdma).await?.into_vec();
     assert_eq!(actual[0].to_f32(), WANT as f32, "asked for chunk {WANT}");
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_padded_symbol_chunk_copy_keeps_each_chunk() {
-    let mut device = Device::new(padded_symbol_chunk_copy.topology()).unwrap();
+async fn test_padded_symbol_chunk_copy_keeps_each_chunk() -> eyre::Result<()> {
+    let mut device = Device::new(padded_symbol_chunk_copy.topology())?;
     let input = HostTensor::<bf16, ChunkedPadded>::from_vec(rows(24))
         .to_hbm::<Chip, ChunkedPadded>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let output = launch(padded_symbol_chunk_copy, (&mut device, &input)).await.unwrap();
+    let output = launch(padded_symbol_chunk_copy, (&mut device, &input)).await?;
 
-    let actual = output
-        .to_host::<ChunkedPadded>(&mut device.pdma)
-        .await
-        .unwrap()
-        .into_vec();
+    let actual = output.to_host::<ChunkedPadded>(&mut device.pdma).await?.into_vec();
     for (r, cell) in actual.iter().step_by(H::SIZE).enumerate().take(Padded::SIZE) {
         assert_eq!(
             cell.to_f32(),
@@ -55,6 +51,8 @@ async fn test_padded_symbol_chunk_copy_keeps_each_chunk() {
             "row {r} after the chunk-by-chunk copy"
         );
     }
+
+    Ok(())
 }
 
 /// `Live # 24 / 8` is not `Padded / 8`: a projection carries one term per symbol, at its live size.
@@ -88,37 +86,34 @@ fn test_wide_padding_has_a_chunk_with_no_live_rows() {
 
 /// The lowering side: 4 chunks, 3 with live rows, and the read must return the chunk it asked for.
 #[tokio::test]
-async fn test_divisible_padding_reads_the_requested_chunk() {
-    let mut device = Device::new(divisible_chunk_read.topology()).unwrap();
+async fn test_divisible_padding_reads_the_requested_chunk() -> eyre::Result<()> {
+    let mut device = Device::new(divisible_chunk_read.topology())?;
     let input = HostTensor::<bf16, ChunkedDivisible>::from_vec(rows(PADDED_CHUNKS * CHUNK))
         .to_hbm::<Chip, ChunkedDivisible>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let output = launch(divisible_chunk_read, (&mut device, &input)).await.unwrap();
+    let output = launch(divisible_chunk_read, (&mut device, &input)).await?;
 
     let actual = output
         .to_host::<m![Divisible # 32 % 8, H]>(&mut device.pdma)
-        .await
-        .unwrap()
+        .await?
         .into_vec();
     assert_eq!(actual[0].to_f32(), WANT as f32, "asked for chunk {WANT}");
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_plain_chunk_read_reads_the_requested_chunk() {
-    let mut device = Device::new(plain_chunk_read.topology()).unwrap();
+async fn test_plain_chunk_read_reads_the_requested_chunk() -> eyre::Result<()> {
+    let mut device = Device::new(plain_chunk_read.topology())?;
     let input = HostTensor::<bf16, ChunkedPlain>::from_vec(rows(Plain::SIZE))
         .to_hbm::<Chip, ChunkedPlain>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    let output = launch(plain_chunk_read, (&mut device, &input)).await.unwrap();
+    let output = launch(plain_chunk_read, (&mut device, &input)).await?;
 
-    let actual = output
-        .to_host::<m![Plain % 8, H]>(&mut device.pdma)
-        .await
-        .unwrap()
-        .into_vec();
+    let actual = output.to_host::<m![Plain % 8, H]>(&mut device.pdma).await?.into_vec();
     assert_eq!(actual[0].to_f32(), WANT as f32, "asked for chunk {WANT}");
+
+    Ok(())
 }

@@ -80,10 +80,14 @@ fn inter_slice_add<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = inter_slice_add(c);
+#
+# Ok(())
+# }
 ```
 
 ```text
@@ -114,10 +118,14 @@ fn broadcast_into_x<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, f32, m![1], m![B], m![W, R], m![1], m![P]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = broadcast_into_x(c);
+#
+# Ok(())
+# }
 ```
 
 ```text
@@ -148,10 +156,14 @@ fn axis_promotion<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, f32, m![1], m![B], m![W, R], m![S, V, U], m![P]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = axis_promotion(c);
+#
+# Ok(())
+# }
 ```
 
 ```text

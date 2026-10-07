@@ -4,7 +4,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> eyre::Result<()> {
     let mut device = Device::new(gemm_kernel.topology())?;
     let mut rng = SmallRng::seed_from_u64(42);
     let a = HostTensor::<bf16, m![I, K]>::rand(&mut rng);
@@ -13,6 +13,7 @@ async fn main() -> Result<(), Error> {
     let b_hbm = b.to_hbm(&mut device.pdma).await?;
     let _out_hbm = launch(gemm_kernel, (&mut device, &a_hbm, &b_hbm)).await?;
     println!("GEMM: kernel ran");
+
     Ok(())
 }
 
@@ -21,15 +22,15 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn matches_reference() {
-        let mut device = Device::new(gemm_kernel.topology()).unwrap();
+    async fn matches_reference() -> eyre::Result<()> {
+        let mut device = Device::new(gemm_kernel.topology())?;
 
         let mut rng = SmallRng::seed_from_u64(42);
         let a = HostTensor::<bf16, m![I, K]>::rand(&mut rng);
         let b = HostTensor::<bf16, m![J, K]>::rand(&mut rng);
 
-        let a_hbm = a.to_hbm(&mut device.pdma).await.unwrap();
-        let b_hbm = b.to_hbm(&mut device.pdma).await.unwrap();
+        let a_hbm = a.to_hbm(&mut device.pdma).await?;
+        let b_hbm = b.to_hbm(&mut device.pdma).await?;
 
         // Reference: C[i, j] = sum_k A[i, k] * B[j, k] in f32, rounded to bf16.
         let a_buf: Vec<bf16> = a.into_vec();
@@ -48,13 +49,15 @@ mod tests {
             })
             .collect();
 
-        let out_hbm = launch(gemm_kernel, (&mut device, &a_hbm, &b_hbm)).await.unwrap();
+        let out_hbm = launch(gemm_kernel, (&mut device, &a_hbm, &b_hbm)).await?;
 
-        let actual: Vec<bf16> = out_hbm.to_host::<m![I, J]>(&mut device.pdma).await.unwrap().into_vec();
+        let actual: Vec<bf16> = out_hbm.to_host::<m![I, J]>(&mut device.pdma).await?.into_vec();
         for (idx, (&e, &av)) in expected.iter().zip(&actual).enumerate() {
             let diff = (f32::from(av) - f32::from(e)).abs();
             let tol = (0.05 * f32::from(e).abs()).max(1.0);
             assert!(diff <= tol, "gemm mismatch at idx={idx}: expected {e:?}, actual {av:?}");
         }
+
+        Ok(())
     }
 }

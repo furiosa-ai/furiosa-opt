@@ -17,9 +17,9 @@ Every contraction consists of broadcast, multiply, and reduce steps.
 
 | Operation | Einsum | Broadcast | Multiply | Reduce |
 |-----------|--------|-----------|----------|--------|
-| Dot product | \(I, I \rightarrow 1\) | None. | \(x_i y_i\) | \(\sum_i x_i y_i\) |
-| GEMV | \(IJ, J \rightarrow I\) | \(x\) across \(I\). | \(A_{ij} x_j\) | \(y_i = \sum_j A_{ij} x_j\) |
-| GEMM | \(IK, KJ \rightarrow IJ\) | \(A\) across \(J\) and \(B\) across \(I\). | \(A_{ik} B_{kj}\) | \(C_{ij} = \sum_k A_{ik} B_{kj}\) |
+| Dot product | \\(I, I \rightarrow 1\\) | None. | \\(x_i y_i\\) | \\(\sum_i x_i y_i\\) |
+| GEMV | \\(IJ, J \rightarrow I\\) | \\(x\\) across \\(I\\). | \\(A_{ij} x_j\\) | \\(y_i = \sum_j A_{ij} x_j\\) |
+| GEMM | \\(IK, KJ \rightarrow IJ\\) | \\(A\\) across \\(J\\) and \\(B\\) across \\(I\\). | \\(A_{ik} B_{kj}\\) | \\(C_{ij} = \sum_k A_{ik} B_{kj}\\) |
 
 This page owns the introductory math only.
 Mapping, movement, and engine contracts remain in their respective reference chapters.

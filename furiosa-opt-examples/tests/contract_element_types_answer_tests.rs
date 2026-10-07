@@ -16,7 +16,7 @@ type Chip = m![1];
 // (VISA-sim == true math) means the sub-mac contraction bug is in the LIR
 // lowering, not the eDSL/simulation.
 #[tokio::test]
-async fn answer_i8_contract() {
+async fn answer_i8_contract() -> eyre::Result<()> {
     const AN: usize = 8;
     const RN: usize = 8;
     const KN: usize = 32;
@@ -38,17 +38,19 @@ async fn answer_i8_contract() {
         }
     }
 
-    let mut device = Device::new(i8_contract.topology()).unwrap();
+    let mut device = Device::new(i8_contract.topology())?;
     let input = HostTensor::<i8, m![A, K8]>::from_vec(input_vals);
     let trf = HostTensor::<i8, m![R, K8]>::from_vec(trf_vals);
-    let input_hbm = input.to_hbm::<Chip, m![A, K8]>(&mut device.pdma).await.unwrap();
-    let trf_hbm = trf.to_hbm::<Chip, m![R, K8]>(&mut device.pdma).await.unwrap();
+    let input_hbm = input.to_hbm::<Chip, m![A, K8]>(&mut device.pdma).await?;
+    let trf_hbm = trf.to_hbm::<Chip, m![R, K8]>(&mut device.pdma).await?;
 
-    let out = launch(i8_contract, (&mut device, &input_hbm, &trf_hbm)).await.unwrap();
+    let out = launch(i8_contract, (&mut device, &input_hbm, &trf_hbm)).await?;
 
     assert_eq!(
         expected,
-        out.to_host::<m![A, R # 8]>(&mut device.pdma).await.unwrap().into_vec(),
+        out.to_host::<m![A, R # 8]>(&mut device.pdma).await?.into_vec(),
         "true-math oracle (left) vs VISA-sim (right)"
     );
+
+    Ok(())
 }

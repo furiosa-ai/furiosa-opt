@@ -1,6 +1,8 @@
 //! Host runtime for device functions: opens a device's chips, loads their images on them and
 //! launches them on device buffers. `DESIGN.md` says why it is shaped this way.
 
+#![feature(array_try_from_fn)]
+
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     #[error("invalid NPU topology: {0}")]
@@ -25,6 +27,8 @@ pub enum Error {
     ForeignBuffer,
     #[error(transparent)]
     Function(#[from] FunctionError),
+    #[error(transparent)]
+    Allocation(#[from] AllocError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -34,8 +38,9 @@ mod device;
 mod function;
 mod pinned;
 
-pub use buffer::{Buffer, View};
-pub use device::{Builder, ChipRank, Device, Topology};
+pub use buffer::{AllocError, Buffer, View};
+pub use device::{Builder, ChipRank, Device, Memory, Topology};
 pub use function::{Function, FunctionError, Launch, Profiled, Span, Trace};
+pub use furiosa_opt_abi::dm;
 pub use furiosa_opt_abi::image::{self, Image};
 pub use pinned::Pinned;

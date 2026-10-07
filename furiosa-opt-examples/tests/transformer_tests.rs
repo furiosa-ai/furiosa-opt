@@ -39,74 +39,34 @@ fn rms(values: &[f32], weight: &[bf16], eps: f32) -> Vec<f32> {
 }
 
 #[tokio::test]
-async fn test_embedding() {
-    let mut device = Device::new(ops::embedding.topology()).unwrap();
+async fn test_embedding() -> eyre::Result<()> {
+    let mut device = Device::new(ops::embedding.topology())?;
 
-    let input = HostTensor::<bf16, m![H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut out = HostTensor::<bf16, m![H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+    let input = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut out = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut device.pdma).await?;
 
-    launch(ops::embedding, (&mut device, &input, &mut out)).await.unwrap();
+    launch(ops::embedding, (&mut device, &input, &mut out)).await?;
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_projection() {
-    let mut device = Device::new(ops::projection.topology()).unwrap();
+async fn test_projection() -> eyre::Result<()> {
+    let mut device = Device::new(ops::projection.topology())?;
 
-    let x = HostTensor::<bf16, m![H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let q_weight = HostTensor::<bf16, m![Q, H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let k_weight = HostTensor::<bf16, m![P, H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let v_weight = HostTensor::<bf16, m![P, H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let input_rms_weight = HostTensor::<bf16, m![H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let q_rms_weight = HostTensor::<bf16, m![D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let k_rms_weight = HostTensor::<bf16, m![D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let kv_offset = HostTensor::<i32, m![1]>::zero().to_hbm(&mut device.pdma).await.unwrap();
-    let cos = HostTensor::<bf16, m![D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let sin = HostTensor::<bf16, m![D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut k_cache = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut v_cache = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut q_out = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+    let x = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut device.pdma).await?;
+    let q_weight = HostTensor::<bf16, m![Q, H]>::zero().to_hbm(&mut device.pdma).await?;
+    let k_weight = HostTensor::<bf16, m![P, H]>::zero().to_hbm(&mut device.pdma).await?;
+    let v_weight = HostTensor::<bf16, m![P, H]>::zero().to_hbm(&mut device.pdma).await?;
+    let input_rms_weight = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut device.pdma).await?;
+    let q_rms_weight = HostTensor::<bf16, m![D]>::zero().to_hbm(&mut device.pdma).await?;
+    let k_rms_weight = HostTensor::<bf16, m![D]>::zero().to_hbm(&mut device.pdma).await?;
+    let kv_offset = HostTensor::<i32, m![1]>::zero().to_hbm(&mut device.pdma).await?;
+    let cos = HostTensor::<bf16, m![D]>::zero().to_hbm(&mut device.pdma).await?;
+    let sin = HostTensor::<bf16, m![D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut k_cache = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut v_cache = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut q_out = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
 
     launch(
         ops::projection,
@@ -127,14 +87,15 @@ async fn test_projection() {
             &mut q_out,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_projection_matches_scalar_reference() {
+async fn test_projection_matches_scalar_reference() -> eyre::Result<()> {
     let mut rng = SmallRng::seed_from_u64(0x51_7e);
-    let mut device = Device::new(ops::projection.topology()).unwrap();
+    let mut device = Device::new(ops::projection.topology())?;
     let x = seeded_bf16(&mut rng, H::SIZE, 0.25);
     let q_weight = seeded_bf16(&mut rng, Q::SIZE * H::SIZE, 0.1);
     let k_weight = seeded_bf16(&mut rng, P::SIZE * H::SIZE, 0.1);
@@ -144,56 +105,37 @@ async fn test_projection_matches_scalar_reference() {
     let k_rms_weight = seeded_bf16(&mut rng, D::SIZE, 1.0);
     let x_hbm = HostTensor::<bf16, m![H]>::from_vec(x.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let q_weight_hbm = HostTensor::<bf16, m![Q, H]>::from_vec(q_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let k_weight_hbm = HostTensor::<bf16, m![P, H]>::from_vec(k_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let v_weight_hbm = HostTensor::<bf16, m![P, H]>::from_vec(v_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let input_rms_hbm = HostTensor::<bf16, m![H]>::from_vec(input_rms_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let q_rms_hbm = HostTensor::<bf16, m![D]>::from_vec(q_rms_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let k_rms_hbm = HostTensor::<bf16, m![D]>::from_vec(k_rms_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let offset = HostTensor::<i32, m![1]>::from_vec(vec![0])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let cos = HostTensor::<bf16, m![D]>::from_vec(vec![bf16::from_f32(1.0); D::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let sin = HostTensor::<bf16, m![D]>::from_vec(vec![bf16::from_f32(0.0); D::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut k_cache = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut v_cache = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut q_out = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
+    let mut k_cache = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut v_cache = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut q_out = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
 
     launch(
         ops::projection,
@@ -214,8 +156,7 @@ async fn test_projection_matches_scalar_reference() {
             &mut q_out,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
 
     let x_f32: Vec<_> = x.iter().map(|value| value.to_f32()).collect();
     let x_norm = rms(&x_f32, &input_rms_weight, 6.25e-8);
@@ -258,115 +199,75 @@ async fn test_projection_matches_scalar_reference() {
         k_expected[head * D::SIZE..(head + 1) * D::SIZE].copy_from_slice(&k);
     }
     assert_close(
-        &q_out.to_host::<m![N, G, D]>(&mut device.pdma).await.unwrap().into_vec(),
+        &q_out.to_host::<m![N, G, D]>(&mut device.pdma).await?.into_vec(),
         &q_expected,
         0.08,
         0.08,
     );
     assert_close(
-        &k_cache
-            .to_host::<m![T, N, D]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_vec()[..N::SIZE * D::SIZE],
+        &k_cache.to_host::<m![T, N, D]>(&mut device.pdma).await?.into_vec()[..N::SIZE * D::SIZE],
         &k_expected,
         0.08,
         0.08,
     );
     assert_close(
-        &v_cache
-            .to_host::<m![T, N, D]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_vec()[..N::SIZE * D::SIZE],
+        &v_cache.to_host::<m![T, N, D]>(&mut device.pdma).await?.into_vec()[..N::SIZE * D::SIZE],
         &v_expected,
         0.08,
         0.08,
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_attention_forward_first() {
-    let mut device = Device::new(ops::attention_forward_first.topology()).unwrap();
+async fn test_attention_forward_first() -> eyre::Result<()> {
+    let mut device = Device::new(ops::attention_forward_first.topology())?;
 
-    let q = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let k = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let v = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mask = HostTensor::<f32, m![T]>::zero().to_hbm(&mut device.pdma).await.unwrap();
-    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut out_hbm = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+    let q = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let k = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let v = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mask = HostTensor::<f32, m![T]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut out_hbm = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
 
     launch(
         ops::attention_forward_first,
         (&mut device, &q, &k, &v, &mask, &mut max_hbm, &mut sum_hbm, &mut out_hbm),
     )
-    .await
-    .unwrap();
+    .await?;
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_attention_forward() {
-    let mut device = Device::new(ops::attention_forward.topology()).unwrap();
+async fn test_attention_forward() -> eyre::Result<()> {
+    let mut device = Device::new(ops::attention_forward.topology())?;
 
-    let q = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let k = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let v = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mask = HostTensor::<f32, m![T]>::zero().to_hbm(&mut device.pdma).await.unwrap();
-    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut out_hbm = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+    let q = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let k = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let v = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mask = HostTensor::<f32, m![T]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut out_hbm = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
 
     launch(
         ops::attention_forward,
         (&mut device, &q, &k, &v, &mask, &mut max_hbm, &mut sum_hbm, &mut out_hbm),
     )
-    .await
-    .unwrap();
+    .await?;
+
+    Ok(())
 }
 
 /// Each `forward` must persist the max it folded, or a later chunk rescales the accumulated sum
 /// and output against chunk 0's max. Takes three chunks to see: with two, the stored max and the
 /// running one still agree. Only the max is asserted, since that is the state that went missing.
 #[tokio::test]
-async fn test_attention_forward_persists_running_max() {
-    let mut device = Device::new(ops::attention_forward_first.topology()).unwrap();
+async fn test_attention_forward_persists_running_max() -> eyre::Result<()> {
+    let mut device = Device::new(ops::attention_forward_first.topology())?;
 
     // Middle chunk's keys of 1 raise the max to `D / sqrt(D)` between two zeroed chunks, so the
     // third chunk sees `sqrt(D)` only if the second one stored it. v/mask stay zero: the max is
@@ -375,48 +276,35 @@ async fn test_attention_forward_persists_running_max() {
     let q = HostTensor::<bf16, m![N, G, D]>::from_vec(ones(N::SIZE * G::SIZE * D::SIZE));
     let k_one = HostTensor::<bf16, m![T, N, D]>::from_vec(ones(T::SIZE * N::SIZE * D::SIZE));
 
-    let q = q.to_hbm(&mut device.pdma).await.unwrap();
-    let k_one = k_one.to_hbm(&mut device.pdma).await.unwrap();
-    let k_zero = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let v = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mask = HostTensor::<f32, m![T]>::zero().to_hbm(&mut device.pdma).await.unwrap();
-    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut out_hbm = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+    let q = q.to_hbm(&mut device.pdma).await?;
+    let k_one = k_one.to_hbm(&mut device.pdma).await?;
+    let k_zero = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let v = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mask = HostTensor::<f32, m![T]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut out_hbm = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
 
     for (chunk, k) in [&k_zero, &k_one, &k_zero].into_iter().enumerate() {
         let args = (&mut device, &q, k, &v, &mask, &mut max_hbm, &mut sum_hbm, &mut out_hbm);
         match chunk {
-            0 => launch(ops::attention_forward_first, args).await.unwrap(),
-            _ => launch(ops::attention_forward, args).await.unwrap(),
+            0 => launch(ops::attention_forward_first, args).await?,
+            _ => launch(ops::attention_forward, args).await?,
         }
     }
 
     let expected = (D::SIZE as f32).sqrt();
-    for max in max_hbm.to_host::<m![N, G]>(&mut device.pdma).await.unwrap().into_vec() {
+    for max in max_hbm.to_host::<m![N, G]>(&mut device.pdma).await?.into_vec() {
         assert!((max - expected).abs() < 0.05, "running max {max} is not {expected}");
     }
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_attention_two_chunks_matches_scalar_reference() {
+async fn test_attention_two_chunks_matches_scalar_reference() -> eyre::Result<()> {
     let mut rng = SmallRng::seed_from_u64(0x00a7_7e17);
-    let mut device = Device::new(ops::attention_forward_first.topology()).unwrap();
+    let mut device = Device::new(ops::attention_forward_first.topology())?;
     let q = seeded_bf16(&mut rng, N::SIZE * G::SIZE * D::SIZE, 0.2);
     let k0 = seeded_bf16(&mut rng, T::SIZE * N::SIZE * D::SIZE, 0.2);
     let k1 = seeded_bf16(&mut rng, T::SIZE * N::SIZE * D::SIZE, 0.2);
@@ -424,40 +312,25 @@ async fn test_attention_two_chunks_matches_scalar_reference() {
     let v1 = seeded_bf16(&mut rng, T::SIZE * N::SIZE * D::SIZE, 0.2);
     let q_hbm = HostTensor::<bf16, m![N, G, D]>::from_vec(q.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let k0_hbm = HostTensor::<bf16, m![T, N, D]>::from_vec(k0.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let k1_hbm = HostTensor::<bf16, m![T, N, D]>::from_vec(k1.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let v0_hbm = HostTensor::<bf16, m![T, N, D]>::from_vec(v0.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let v1_hbm = HostTensor::<bf16, m![T, N, D]>::from_vec(v1.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let mask = HostTensor::<f32, m![T]>::from_vec(vec![1.0; T::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut out_hbm = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
+    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut out_hbm = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
     launch(
         ops::attention_forward_first,
         (
@@ -471,8 +344,7 @@ async fn test_attention_two_chunks_matches_scalar_reference() {
             &mut out_hbm,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
     launch(
         ops::attention_forward,
         (
@@ -486,8 +358,7 @@ async fn test_attention_two_chunks_matches_scalar_reference() {
             &mut out_hbm,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
 
     let mut expected = vec![0.0; N::SIZE * G::SIZE * D::SIZE];
     let mut expected_max = vec![f32::NEG_INFINITY; N::SIZE * G::SIZE];
@@ -524,12 +395,8 @@ async fn test_attention_two_chunks_matches_scalar_reference() {
             expected[head * D::SIZE + d] /= expected_sum[head];
         }
     }
-    let sums = sum_hbm.to_host::<m![N, G]>(&mut device.pdma).await.unwrap().into_vec();
-    let actual = out_hbm
-        .to_host::<m![N, G, D]>(&mut device.pdma)
-        .await
-        .unwrap()
-        .into_vec();
+    let sums = sum_hbm.to_host::<m![N, G]>(&mut device.pdma).await?.into_vec();
+    let actual = out_hbm.to_host::<m![N, G, D]>(&mut device.pdma).await?.into_vec();
     let actual_normalized: Vec<_> = actual
         .iter()
         .enumerate()
@@ -538,8 +405,7 @@ async fn test_attention_two_chunks_matches_scalar_reference() {
     assert_close(&actual_normalized, &expected, 0.12, 0.12);
     for (actual, expected) in max_hbm
         .to_host::<m![N, G]>(&mut device.pdma)
-        .await
-        .unwrap()
+        .await?
         .into_vec()
         .iter()
         .zip(expected_max)
@@ -549,15 +415,17 @@ async fn test_attention_two_chunks_matches_scalar_reference() {
             "attention max actual={actual} expected={expected}"
         );
     }
+
+    Ok(())
 }
 
 /// Wires one host-prepared token through projection, one attention chunk, and decoder.
 /// Zero weights make the independent end-to-end oracle the residual identity while still
 /// exercising the real tensor shapes and intermediate HBM boundaries.
 #[tokio::test]
-async fn test_decoder_step_wires_kernel_boundaries() {
+async fn test_decoder_step_wires_kernel_boundaries() -> eyre::Result<()> {
     let mut rng = SmallRng::seed_from_u64(0x_dec0de);
-    let mut device = Device::new(ops::projection.topology()).unwrap();
+    let mut device = Device::new(ops::projection.topology())?;
     let input = seeded_bf16(&mut rng, H::SIZE, 0.2);
     let residual = seeded_bf16(&mut rng, H::SIZE, 0.2);
     let zeros_q = vec![bf16::from_f32(0.0); Q::SIZE * H::SIZE];
@@ -566,56 +434,37 @@ async fn test_decoder_step_wires_kernel_boundaries() {
     let zeros_l = vec![bf16::from_f32(0.0); L::SIZE * H::SIZE];
     let input_hbm = HostTensor::<bf16, m![H]>::from_vec(input)
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let q_weight = HostTensor::<bf16, m![Q, H]>::from_vec(zeros_q)
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let k_weight = HostTensor::<bf16, m![P, H]>::from_vec(zeros_p.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let v_weight = HostTensor::<bf16, m![P, H]>::from_vec(zeros_p)
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let rms_hbm = HostTensor::<bf16, m![H]>::from_vec(vec![bf16::from_f32(1.0); H::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let q_rms = HostTensor::<bf16, m![D]>::from_vec(vec![bf16::from_f32(1.0); D::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let k_rms = HostTensor::<bf16, m![D]>::from_vec(vec![bf16::from_f32(1.0); D::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let offset = HostTensor::<i32, m![1]>::from_vec(vec![0])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let cos = HostTensor::<bf16, m![D]>::from_vec(vec![bf16::from_f32(1.0); D::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let sin = HostTensor::<bf16, m![D]>::from_vec(vec![bf16::from_f32(0.0); D::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut k_cache = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut v_cache = HostTensor::<bf16, m![T, N, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut q_out = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
+    let mut k_cache = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut v_cache = HostTensor::<bf16, m![T, N, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut q_out = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
     launch(
         ops::projection,
         (
@@ -635,24 +484,13 @@ async fn test_decoder_step_wires_kernel_boundaries() {
             &mut q_out,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
     let mask = HostTensor::<f32, m![T]>::from_vec(vec![1.0; T::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut attn_out = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
+    let mut max_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut sum_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut attn_out = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
     launch(
         ops::attention_forward_first,
         (
@@ -666,32 +504,25 @@ async fn test_decoder_step_wires_kernel_boundaries() {
             &mut attn_out,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
     let mut residual_hbm = HostTensor::<bf16, m![H]>::from_vec(residual.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let o_weight = HostTensor::<bf16, m![H, Q]>::from_vec(vec![bf16::from_f32(0.0); H::SIZE * Q::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let post = HostTensor::<bf16, m![H]>::from_vec(zeros_h)
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let up = HostTensor::<bf16, m![L, H]>::from_vec(zeros_l.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let gate = HostTensor::<bf16, m![L, H]>::from_vec(zeros_l)
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let down = HostTensor::<bf16, m![H, L]>::from_vec(vec![bf16::from_f32(0.0); H::SIZE * L::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     launch(
         ops::decoder,
         (
@@ -706,56 +537,29 @@ async fn test_decoder_step_wires_kernel_boundaries() {
             &down,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
     assert_close(
-        &residual_hbm
-            .to_host::<m![H]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_vec(),
+        &residual_hbm.to_host::<m![H]>(&mut device.pdma).await?.into_vec(),
         &residual.iter().map(|value| value.to_f32()).collect::<Vec<_>>(),
         0.05,
         0.05,
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_decoder() {
-    let mut device = Device::new(ops::decoder.topology()).unwrap();
+async fn test_decoder() -> eyre::Result<()> {
+    let mut device = Device::new(ops::decoder.topology())?;
 
-    let x = HostTensor::<bf16, m![N, G, D]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let sum_hbm = HostTensor::<f32, m![N, G]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut rx_hbm = HostTensor::<bf16, m![H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let o_weight = HostTensor::<bf16, m![H, Q]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let post_rms_weight = HostTensor::<bf16, m![H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let up_weight = HostTensor::<bf16, m![L, H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let gate_weight = HostTensor::<bf16, m![L, H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let down_weight = HostTensor::<bf16, m![H, L]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+    let x = HostTensor::<bf16, m![N, G, D]>::zero().to_hbm(&mut device.pdma).await?;
+    let sum_hbm = HostTensor::<f32, m![N, G]>::zero().to_hbm(&mut device.pdma).await?;
+    let mut rx_hbm = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut device.pdma).await?;
+    let o_weight = HostTensor::<bf16, m![H, Q]>::zero().to_hbm(&mut device.pdma).await?;
+    let post_rms_weight = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut device.pdma).await?;
+    let up_weight = HostTensor::<bf16, m![L, H]>::zero().to_hbm(&mut device.pdma).await?;
+    let gate_weight = HostTensor::<bf16, m![L, H]>::zero().to_hbm(&mut device.pdma).await?;
+    let down_weight = HostTensor::<bf16, m![H, L]>::zero().to_hbm(&mut device.pdma).await?;
 
     launch(
         ops::decoder,
@@ -771,14 +575,15 @@ async fn test_decoder() {
             &down_weight,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_decoder_matches_scalar_reference() {
+async fn test_decoder_matches_scalar_reference() -> eyre::Result<()> {
     let mut rng = SmallRng::seed_from_u64(0x_de_c0_de);
-    let mut device = Device::new(ops::decoder.topology()).unwrap();
+    let mut device = Device::new(ops::decoder.topology())?;
     let x = seeded_bf16(&mut rng, Q::SIZE, 0.05);
     let residual = seeded_bf16(&mut rng, H::SIZE, 0.05);
     let o_weight = seeded_bf16(&mut rng, H::SIZE * Q::SIZE, 0.02);
@@ -788,36 +593,28 @@ async fn test_decoder_matches_scalar_reference() {
     let down_weight = seeded_bf16(&mut rng, H::SIZE * L::SIZE, 0.01);
     let x_hbm = HostTensor::<bf16, m![N, G, D]>::from_vec(x.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let sum_hbm = HostTensor::<f32, m![N, G]>::from_vec(vec![1.0; N::SIZE * G::SIZE])
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let mut residual_hbm = HostTensor::<bf16, m![H]>::from_vec(residual.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let o_hbm = HostTensor::<bf16, m![H, Q]>::from_vec(o_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let post_hbm = HostTensor::<bf16, m![H]>::from_vec(post_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let up_hbm = HostTensor::<bf16, m![L, H]>::from_vec(up_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let gate_hbm = HostTensor::<bf16, m![L, H]>::from_vec(gate_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let down_hbm = HostTensor::<bf16, m![H, L]>::from_vec(down_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     launch(
         ops::decoder,
         (
@@ -832,8 +629,7 @@ async fn test_decoder_matches_scalar_reference() {
             &down_hbm,
         ),
     )
-    .await
-    .unwrap();
+    .await?;
 
     let x_f32: Vec<_> = x.iter().map(|value| value.to_f32()).collect();
     let residual_f32: Vec<_> = residual.iter().map(|value| value.to_f32()).collect();
@@ -864,50 +660,39 @@ async fn test_decoder_matches_scalar_reference() {
             .sum::<f32>();
     }
     assert_close(
-        &residual_hbm
-            .to_host::<m![H]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_vec(),
+        &residual_hbm.to_host::<m![H]>(&mut device.pdma).await?.into_vec(),
         &expected,
         0.25,
         0.2,
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_final_layer() {
-    let mut device = Device::new(ops::final_layer.topology()).unwrap();
+async fn test_final_layer() -> eyre::Result<()> {
+    let mut device = Device::new(ops::final_layer.topology())?;
 
-    let input = HostTensor::<bf16, m![H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let rms_weight = HostTensor::<bf16, m![H]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+    let input = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut device.pdma).await?;
+    let rms_weight = HostTensor::<bf16, m![H]>::zero().to_hbm(&mut device.pdma).await?;
     let lm_head_weight = HostTensor::<bf16, m![W # 155648 / 8192, W # 155648 % 8192, H]>::zero()
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut out = HostTensor::<bf16, m![Wp]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
+    let mut out = HostTensor::<bf16, m![Wp]>::zero().to_hbm(&mut device.pdma).await?;
 
     launch(
         ops::final_layer,
         (&mut device, &input, &rms_weight, &lm_head_weight, &mut out),
     )
-    .await
-    .unwrap();
+    .await?;
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_final_layer_matches_scalar_reference() {
+async fn test_final_layer_matches_scalar_reference() -> eyre::Result<()> {
     let mut rng = SmallRng::seed_from_u64(0xf1_a1);
-    let mut device = Device::new(ops::final_layer.topology()).unwrap();
+    let mut device = Device::new(ops::final_layer.topology())?;
     let input = seeded_bf16(&mut rng, H::SIZE, 0.1);
     let rms_weight = seeded_bf16(&mut rng, H::SIZE, 1.0);
     let mut lm_head_weight = vec![bf16::from_f32(0.0); Wp::SIZE * H::SIZE];
@@ -916,32 +701,27 @@ async fn test_final_layer_matches_scalar_reference() {
     }
     let input_hbm = HostTensor::<bf16, m![H]>::from_vec(input.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let rms_hbm = HostTensor::<bf16, m![H]>::from_vec(rms_weight.clone())
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let weight_hbm = HostTensor::<bf16, m![W # 155648 / 8192, W # 155648 % 8192, H]>::from_vec(lm_head_weight)
         .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
-    let mut out_hbm = HostTensor::<bf16, m![Wp]>::zero()
-        .to_hbm(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
+    let mut out_hbm = HostTensor::<bf16, m![Wp]>::zero().to_hbm(&mut device.pdma).await?;
     launch(
         ops::final_layer,
         (&mut device, &input_hbm, &rms_hbm, &weight_hbm, &mut out_hbm),
     )
-    .await
-    .unwrap();
+    .await?;
 
     let input_f32: Vec<_> = input.iter().map(|value| value.to_f32()).collect();
     let normalized = rms(&input_f32, &rms_weight, 6.25e-8);
     let expected: Vec<_> = (0..W::SIZE)
         .map(|row| normalized[0] * ((row % 17) as f32 * 0.01 - 0.08))
         .collect();
-    let actual = out_hbm.to_host::<m![Wp]>(&mut device.pdma).await.unwrap().into_vec();
+    let actual = out_hbm.to_host::<m![Wp]>(&mut device.pdma).await?.into_vec();
     assert_close(&actual[..W::SIZE], &expected, 0.08, 0.08);
+
+    Ok(())
 }

@@ -44,9 +44,41 @@ pub enum PadError {
 #[repr(C)]
 #[derive(StableAbi, Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TileError {
-    /// The index expression does not split the element view as requested.
-    #[error("tile: failed to split by the index expression")]
-    Split,
+    /// An index of one position tiles one position.
+    #[error(
+        "tile: failed to split by the index expression: an index of one position tiles one \
+             position, not {len}"
+    )]
+    SingletonLength {
+        /// The requested tile length.
+        len: usize,
+    },
+    /// The index expression was not located in the element view as one strided run.
+    #[error(
+        "tile: failed to split by the index expression: {index} is not one strided run of \
+             {element}"
+    )]
+    IndexNotLocated {
+        /// The index expression.
+        index: Mapping,
+        /// The element view it indexes.
+        element: Mapping,
+    },
+    /// The located axis does not narrow to the requested window.
+    #[error(
+        "tile: failed to split by the index expression: an axis of {size} positions at stride \
+             {stride} in {element} does not narrow to {len}"
+    )]
+    WindowDoesNotFit {
+        /// Cells one position of the located axis advances.
+        stride: usize,
+        /// The located axis extent.
+        size: usize,
+        /// The requested tile length.
+        len: usize,
+        /// The element view it indexes.
+        element: Mapping,
+    },
     /// The split view differs from the requested view.
     #[error(
         "tile: the view type after the split does not match the requested view. \

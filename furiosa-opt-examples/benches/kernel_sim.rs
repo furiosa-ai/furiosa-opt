@@ -16,17 +16,17 @@ use std::time::Instant;
 use furiosa_opt_examples::matmul::matmul_4096;
 use furiosa_opt_std::prelude::*;
 
-async fn run_matmul(device: &mut Device) {
+async fn run_matmul(device: &mut Device) -> eyre::Result<()> {
     use matmul_4096::{A, B};
     let lhs = HostTensor::<i8, m![A, B]>::zero()
         .to_hbm::<m![1], m![A, B]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
     let rhs = HostTensor::<i8, m![B]>::zero()
         .to_hbm::<m![1], m![B]>(&mut device.pdma)
-        .await
-        .unwrap();
-    let _ = launch(matmul_4096::matmul_4096, (device, &lhs, &rhs)).await.unwrap();
+        .await?;
+    let _ = launch(matmul_4096::matmul_4096, (device, &lhs, &rhs)).await?;
+
+    Ok(())
 }
 
 /// The kernel this harness can drive. Parsed once from argv so the dispatch `match` is exhaustive and
@@ -36,11 +36,12 @@ enum Kernel {
 }
 
 impl std::str::FromStr for Kernel {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, String> {
+    type Err = eyre::Report;
+
+    fn from_str(s: &str) -> eyre::Result<Self> {
         match s {
             "matmul" => Ok(Self::Matmul),
-            other => Err(format!("unknown kernel {other:?}; use matmul")),
+            other => Err(eyre::eyre!("unknown kernel {other:?}; use matmul")),
         }
     }
 }
@@ -52,33 +53,33 @@ impl Kernel {
         }
     }
 
-    async fn run(&self, device: &mut Device) {
+    async fn run(&self, device: &mut Device) -> eyre::Result<()> {
         match self {
             Self::Matmul => run_matmul(device).await,
         }
     }
 }
 
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> eyre::Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let kernel: Kernel = args
-        .get(1)
-        .map_or(Ok(Kernel::Matmul), |s| s.parse())
-        .unwrap_or_else(|e| panic!("{e}"));
-    let iters: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(3);
+    let kernel: Kernel = args.get(1).map_or(Ok(Kernel::Matmul), |s| s.parse())?;
+    let iters = match args.get(2) {
+        Some(iters) => iters.parse()?,
+        None => 3,
+    };
 
     // The kernels are `#[device(chip = 1)]` with the `#[device]` default `pe = 8`, so this harness
     // runs the 1chip/8PE topology. The CPU backend derives storage layout from the tensor
     // `m!` shapes alone and never reads a global NPU config, so no config pin is needed here.
 
-    let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-    rt.block_on(async {
-        for i in 0..iters {
-            let mut device = Device::new(matmul_4096::matmul_4096.topology()).unwrap();
-            let t = Instant::now();
-            kernel.run(&mut device).await;
-            let dt = t.elapsed();
-            println!("{} iter {i}: {:.3} s", kernel.name(), dt.as_secs_f64());
-        }
-    });
+    for i in 0..iters {
+        let mut device = Device::new(matmul_4096::matmul_4096.topology())?;
+        let t = Instant::now();
+        kernel.run(&mut device).await?;
+        let dt = t.elapsed();
+        println!("{} iter {i}: {:.3} s", kernel.name(), dt.as_secs_f64());
+    }
+
+    Ok(())
 }

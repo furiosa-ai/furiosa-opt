@@ -4,26 +4,28 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 #[tokio::test]
-async fn test_dm_relayout() {
-    let mut device = Device::new(dm_relayout.topology()).unwrap();
+async fn test_dm_relayout() -> eyre::Result<()> {
+    let mut device = Device::new(dm_relayout.topology())?;
     let hbm: HbmTensor<i32, m![1], m![A, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..256 * 4096).collect::<Vec<_>>())
             .to_hbm::<m![1], m![A, B]>(&mut device.pdma)
-            .await
-            .unwrap();
-    launch(dm_relayout, (&mut device, &hbm)).await.unwrap();
+            .await?;
+    launch(dm_relayout, (&mut device, &hbm)).await?;
+
+    Ok(())
 }
 
 /// `commit_view` into a down-padded tiled `view_mut` — checks bottom padding.
 #[tokio::test]
-async fn test_commit_view_bottom_pad() {
-    let mut device = Device::new(commit_view_bottom_pad.topology()).unwrap();
+async fn test_commit_view_bottom_pad() -> eyre::Result<()> {
+    let mut device = Device::new(commit_view_bottom_pad.topology())?;
 
     let mut rng = SmallRng::seed_from_u64(42);
     let input = HostTensor::<f32, m![T, Q % 56 = 8]>::rand(&mut rng)
         .to_hbm::<m![1], m![T, Q % 56 = 8]>(&mut device.pdma)
-        .await
-        .unwrap();
+        .await?;
 
-    launch(commit_view_bottom_pad, (&mut device, &input)).await.unwrap();
+    launch(commit_view_bottom_pad, (&mut device, &input)).await?;
+
+    Ok(())
 }

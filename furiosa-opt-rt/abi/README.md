@@ -12,7 +12,10 @@ The encoding is a bincode header with fixed-width little-endian integers, follow
 Each chunk starts on a 256-byte line, so a DMA engine can carry one chunk without touching its neighbors.
 A chunk is at most one MiB, the size of a slot on the device.
 
-A call passes its arguments as offsets into device memory: the weight, one reserved word, one word per stack, then one word per bound slot.
+`args` defines the task address table: weight, reserved, local stack, interchip stack, then IO.
+Every image declares exactly two stacks, including empty ones. DRAM addresses include the chip's
+window base; SRAM arguments use the fixed virtual mapping. The compiler assigns normalized IO
+slots before code generation, and the host binds buffers in that same order.
 Outputs are buffers the caller provides, so a completion carries only a status word.
 
 ## Registers and rings

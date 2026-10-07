@@ -43,10 +43,14 @@
 //!         .commit()
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, _, bf16, m![1], m![1 # 2], m![A], m![1], m![H, V]> =
 //! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # let _dm = resized(input);
+//! #
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! Resizing `Slice` from 256 to the next supported width, 128:
@@ -69,10 +73,14 @@
 //!         .commit()
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, _, bf16, m![1], m![1 # 2], m![A, 2], m![1], m![H, V]> =
 //! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # let _dm = resized_slice(input);
+//! #
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! A lift output time that does not divide its input time:
@@ -92,10 +100,14 @@
 //!         .fetch_cluster_lift::<m![H], m![Four]>();
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, _, bf16, m![1], m![2], m![A], m![1], m![Six, V]> =
 //! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # nondivisible(input);
+//! #
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! Taking more out of the stream than the dimension can hold, which its size alone rules out:
@@ -118,10 +130,14 @@
 //!         .commit()
 //! }
 //! #
-//! # let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+//! # fn main() -> Result<(), Error> {
+//! # let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 //! # let input: BeginTensor<'_, _, bf16, m![1], m![2], m![A, 2], m![1], m![H, G, Q, V]> =
 //! #     BeginTensor::new(&mut device.main, Tensor::zero());
 //! # let _dm = overshoots(input);
+//! #
+//! # Ok(())
+//! # }
 //! ```
 //!
 

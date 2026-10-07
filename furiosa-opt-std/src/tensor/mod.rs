@@ -9,6 +9,7 @@ use self::view::*;
 use crate::scalar::*;
 
 use crate::backend::Backend;
+use crate::backend::indirect::IndexUnit;
 use crate::cast::{ContractionAccumulator, ContractionCast};
 use crate::runtime::CurrentBackend;
 
@@ -307,22 +308,37 @@ impl<D: Scalar, Mapping: M, B: Backend> Tensor<D, Mapping, B> {
 
     /// Scatter elements from self into dst at positions given by index tensor. Delegates to
     /// [`Backend::scatter`].
-    pub fn scatter<Key: M, Dst: M, Idx: M>(
+    pub fn scatter<Domain: M, IndexedAxis: M, Dst: M, Idx: M>(
         &self,
         dst: &mut Tensor<D, Dst, B>,
         index: &Tensor<i32, Idx, B>,
-        scaled: bool,
+        chip: &::furiosa_mapping::Mapping,
+        unit: IndexUnit,
     ) {
-        B::scatter::<D, Mapping, Key, Dst, Idx>(&self.inner, &mut dst.inner, &index.inner, scaled);
+        B::scatter::<D, Mapping, Domain, IndexedAxis, Dst, Idx>(&self.inner, &mut dst.inner, &index.inner, chip, unit);
     }
 
-    /// Gather elements from self (table) into dst at positions given by index tensor. Delegates
-    /// to [`Backend::gather`].
-    pub fn gather<Dst: M, Idx: M>(&self, dst: &mut Tensor<D, Dst, B>, index: &Tensor<i32, Idx, B>, scaled: bool)
-    where
+    /// Gathers all entries or a requested prefix on each chip.
+    pub(crate) fn gather<IndexedAxis: M, Dst: M, Idx: M>(
+        &self,
+        dst: &mut Tensor<D, Dst, B>,
+        index: &Tensor<i32, Idx, B>,
+        domain: &::furiosa_mapping::Mapping,
+        chip: &::furiosa_mapping::Mapping,
+        prefix: Option<usize>,
+        unit: IndexUnit,
+    ) where
         D: MaterializableScalar,
     {
-        B::gather::<D, Mapping, Dst, Idx>(&self.inner, &mut dst.inner, &index.inner, scaled);
+        B::gather::<D, Mapping, IndexedAxis, Dst, Idx>(
+            &self.inner,
+            &mut dst.inner,
+            &index.inner,
+            domain,
+            chip,
+            prefix,
+            unit,
+        );
     }
 }
 
@@ -366,20 +382,24 @@ mod tests {
         assert_eq!(emu_t.into_vec(), expected, "Cpu (sequencer) composite reorder");
     }
 
-    /// `write_gather` round-trip, `scaled=false` (raw row-position indices): gather a small table
-    /// by a list of indices and confirm we get table rows back in indexed order. Mirrors the
-    /// inverse-of-scatter contract documented on `HbmTensor::dma_gather`. The `scaled=true` path is
-    /// covered by [`cpu_write_gather_roundtrip_scaled`].
     #[test]
-    fn cpu_write_gather_roundtrip_unscaled() {
-        // table: [W=3, V=2] = [[10,11], [20,21], [30,31]]. gather-key = W.
+    fn cpu_write_gather_roundtrip_spm_indices() {
+        // table: [W=3, V=2] = [[10,11], [20,21], [30,31]]. indexed axis = W.
         // indices select rows 0, 2, 1, 0. output: [K=4, V=2].
         axes![W = 3, V = 2, K = 4];
 
         let table = Tensor::<i32, m![W, V], Cpu>::from_vec(vec![10, 11, 20, 21, 30, 31]);
         let index = Tensor::<i32, m![K], Cpu>::from_vec(vec![0, 2, 1, 0]);
         let mut output = Tensor::<i32, m![K, V], Cpu>::zeroed();
-        table.gather::<_, _>(&mut output, &index, false);
+        let domain = <m![K]>::to_value();
+        table.gather::<m![W], _, _>(
+            &mut output,
+            &index,
+            &domain,
+            &<m![1]>::to_value(),
+            None,
+            IndexUnit::Positions,
+        );
 
         assert_eq!(output.into_vec(), vec![10, 11, 30, 31, 20, 21, 10, 11]);
     }
@@ -548,19 +568,78 @@ mod tests {
         assert_eq!(result.into_vec(), vec![1, 1, 5, 5]);
     }
 
-    /// `write_gather` round-trip, `scaled=true`: indices are in byte-offset units (e.g. row 1 of
-    /// `[W, V=2]` of i32 = byte offset `1*2*4 = 8`). The `scaled=false` path is covered by
-    /// [`cpu_write_gather_roundtrip_unscaled`].
     #[test]
-    fn cpu_write_gather_roundtrip_scaled() {
+    fn cpu_write_gather_roundtrip_byte_offsets() {
         axes![W = 3, V = 2, K = 4];
 
         let table = Tensor::<i32, m![W, V], Cpu>::from_vec(vec![10, 11, 20, 21, 30, 31]);
         let index = Tensor::<i32, m![K], Cpu>::from_vec(vec![0, 16, 8, 0]);
         let mut output = Tensor::<i32, m![K, V], Cpu>::zeroed();
-        table.gather::<_, _>(&mut output, &index, true);
+        table.gather::<m![W], _, _>(
+            &mut output,
+            &index,
+            &<m![K]>::to_value(),
+            &<m![1]>::to_value(),
+            None,
+            row_bytes(V::SIZE),
+        );
 
         assert_eq!(output.into_vec(), vec![10, 11, 30, 31, 20, 21, 10, 11]);
+    }
+
+    fn row_bytes(width: usize) -> IndexUnit {
+        IndexUnit::Bytes(std::num::NonZeroUsize::new(width * std::mem::size_of::<i32>()).unwrap())
+    }
+
+    #[test]
+    fn cpu_sparse_gather_leaves_the_suffix_untouched() {
+        axes![W = 3, V = 2, K = 4];
+
+        let table = Tensor::<i32, m![W, V], Cpu>::from_vec(vec![10, 11, 20, 21, 30, 31]);
+        let index = Tensor::<i32, m![K], Cpu>::from_vec(vec![0, 16, 8, 0]);
+        for (requested, expected) in [
+            (0, vec![-1; 8]),
+            (2, vec![10, 11, 30, 31, -1, -1, -1, -1]),
+            (4, vec![10, 11, 30, 31, 20, 21, 10, 11]),
+            (usize::MAX, vec![10, 11, 30, 31, 20, 21, 10, 11]),
+        ] {
+            let mut output = Tensor::<i32, m![K, V], Cpu>::from_vec(vec![-1; 8]);
+            table.gather::<m![W], _, _>(
+                &mut output,
+                &index,
+                &<m![K]>::to_value(),
+                &<m![1]>::to_value(),
+                Some(requested),
+                row_bytes(V::SIZE),
+            );
+
+            assert_eq!(output.into_vec(), expected);
+        }
+    }
+
+    #[test]
+    fn cpu_scatter_takes_an_update_axis_between_payload_axes() {
+        axes![A = 2, K = 3, V = 2, W = 4];
+
+        // source[a, k, v] = 100a + 10k + v, scattered to row `index[k]` of a `[A, W, V]` table.
+        let values = (0..A::SIZE)
+            .flat_map(|a| (0..K::SIZE).flat_map(move |k| (0..V::SIZE).map(move |v| (100 * a + 10 * k + v) as i32)))
+            .collect::<Vec<_>>();
+        let source = Tensor::<i32, m![A, K, V], Cpu>::from_vec(values);
+        let index = Tensor::<i32, m![K], Cpu>::from_vec(vec![2, 0, 1]);
+        let mut output = Tensor::<i32, m![A, W, V], Cpu>::zeroed();
+
+        source.scatter::<m![K], m![W], _, _>(&mut output, &index, &<m![1]>::to_value(), IndexUnit::Positions);
+
+        let mut expected = vec![0; <m![A, W, V]>::SIZE];
+        for a in 0..A::SIZE {
+            for (k, row) in [2, 0, 1].into_iter().enumerate() {
+                for v in 0..V::SIZE {
+                    expected[(a * W::SIZE + row) * V::SIZE + v] = (100 * a + 10 * k + v) as i32;
+                }
+            }
+        }
+        assert_eq!(output.into_vec(), expected);
     }
 
     /// `write_scatter` round-trip: scatter rows of a `[K, V]` source into a `[W, V]` destination at
@@ -572,7 +651,7 @@ mod tests {
         let source = Tensor::<i32, m![K, V], Cpu>::from_vec(vec![10, 11, 20, 21, 30, 31]);
         let index = Tensor::<i32, m![K], Cpu>::from_vec(vec![2, 0, 1]);
         let mut output = Tensor::<i32, m![W, V], Cpu>::zeroed();
-        source.scatter::<m![K], _, _>(&mut output, &index, false);
+        source.scatter::<m![K], m![W], _, _>(&mut output, &index, &<m![1]>::to_value(), IndexUnit::Positions);
 
         // row k of source lands at row index[k]: 0→W2, 1→W0, 2→W1.
         assert_eq!(output.into_vec(), vec![20, 21, 30, 31, 10, 11]);

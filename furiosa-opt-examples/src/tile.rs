@@ -302,3 +302,33 @@ pub mod dm_inner_digit {
         }
     }
 }
+
+pub mod dm_bottom_padding {
+    use furiosa_opt_std::prelude::*;
+
+    axes![P = 64, R = 4, L = 1920];
+
+    pub type Chip = m![1];
+    type Cluster = m![1];
+    type Slice = m![P];
+
+    #[device(chip = 1, pe = 1)]
+    pub fn update_first_half(
+        device: &mut Device,
+        updates: &HbmTensor<f4e2m1, Chip, m![P, R, L]>,
+        initial: &HbmTensor<f4e2m1, Chip, m![P, R, L]>,
+    ) -> HbmTensor<f4e2m1, Chip, m![P, R, L]> {
+        let updates: DmTensor<f4e2m1, Chip, Cluster, Slice, m![R = 2, L]> = updates
+            .view()
+            .tile::<m![R], 2, m![P, R = 2 # 4, L]>(0)
+            .to_dm(&mut device.tdma);
+        let mut output: DmTensor<f4e2m1, Chip, Cluster, Slice, m![R, L]> = initial.to_dm(&mut device.tdma);
+
+        updates.view().to_dm_view(
+            &mut device.tdma,
+            output.view_mut().tile::<m![R], 2, m![R = 2 #{!} 4, L]>(0),
+        );
+
+        output.to_hbm(&mut device.tdma)
+    }
+}

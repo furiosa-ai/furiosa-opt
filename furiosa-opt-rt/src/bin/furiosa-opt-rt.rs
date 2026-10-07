@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
+use furiosa_opt_rt::image::Memory;
 use furiosa_opt_rt::{Device, Function, FunctionError, Image};
 
 #[derive(Debug, Parser)]
@@ -65,7 +66,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .into());
             }
-            Ok((bytes, device.alloc(slot(index))?))
+            Ok((bytes, device.alloc(Memory::Dram, slot(index))?))
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
     device
@@ -74,7 +75,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let outputs = image
         .outputs()
         .iter()
-        .map(|&index| device.alloc(slot(index)))
+        .map(|&index| device.alloc(Memory::Dram, slot(index)))
         .collect::<Result<Vec<_>, _>>()?;
 
     let inputs = inputs.into_iter().map(|(_, buffer)| buffer).collect::<Vec<_>>();

@@ -42,6 +42,9 @@ pub enum VectorError {
     /// `vector_widen_concat` input packet is not Way4.
     #[error("Concat requires Packet of 4 elements (Way4 mode).")]
     ConcatRequiresWay4,
+    /// `vector_widen_concat` needs two inner time cells.
+    #[error("Concat requires a positive, even Time size, got {0}")]
+    ConcatTimeSize(usize),
     /// `vector_widen_concat` output packet is not one flit.
     #[error("Vector_Concat output Packet2 must have 8 elements (one flit), got: {0}")]
     ConcatOutputSize(usize),
@@ -219,7 +222,9 @@ pub fn config_vector_narrow_split(input: VectorNarrowSplitInput) -> Result<(), V
     if in_packet.size() != ONE_FLIT_ELEMENTS {
         return Err(VectorError::SplitRequiresOneFlit);
     }
-    let (packet_outer, packet_inner) = in_packet.split_at(HALF_FLIT_ELEMENTS);
+    let (packet_outer, packet_inner) = in_packet
+        .split_at(HALF_FLIT_ELEMENTS)
+        .expect("8-element packet splits at 4");
     let expected_time = in_time.pair(packet_outer).normalize();
     let expected_packet = packet_inner.normalize();
 
@@ -255,7 +260,9 @@ pub fn config_vector_widen_concat(input: VectorWidenConcatInput) -> Result<(), V
     if in_packet.size() != HALF_FLIT_ELEMENTS {
         return Err(VectorError::ConcatRequiresWay4);
     }
-    let (time_outer, time_inner) = in_time.split_at(WAY4_TIME_INNER);
+    let (time_outer, time_inner) = in_time
+        .split_at(WAY4_TIME_INNER)
+        .map_err(|_| VectorError::ConcatTimeSize(in_time.size()))?;
     let expected_time = time_outer.normalize();
     let expected_packet = time_inner.pair(in_packet).normalize();
 
@@ -285,7 +292,9 @@ pub fn config_vector_narrow_trim(input: VectorNarrowTrimInput) -> Result<(), Vec
     if in_packet.size() != ONE_FLIT_ELEMENTS {
         return Err(VectorError::TrimInputSize(in_packet.size()));
     }
-    let (packet_outer, packet_inner) = in_packet.split_at(HALF_FLIT_ELEMENTS);
+    let (packet_outer, packet_inner) = in_packet
+        .split_at(HALF_FLIT_ELEMENTS)
+        .expect("8-element packet splits at 4");
     // The back 4 must be dummy padding (`[1 # 2]`); otherwise use vector_narrow_split.
     if packet_outer.normalize() != <m![1 # 2]>::to_value().normalize() {
         return Err(VectorError::TrimBackNotDummy(packet_outer));
@@ -408,6 +417,19 @@ pub fn config_reduce_label(input: ReduceLabelInput) -> Result<(), VectorError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn widen_concat_rejects_odd_time_size() {
+        assert_eq!(
+            config_vector_widen_concat(VectorWidenConcatInput {
+                in_time: Mapping::Broadcast { size: 3 },
+                in_packet: Mapping::Broadcast { size: 4 },
+                out_time: Mapping::Broadcast { size: 1 },
+                out_packet: Mapping::Broadcast { size: 8 },
+            }),
+            Err(VectorError::ConcatTimeSize(3))
+        );
+    }
 
     axes![R = 19, A = 2, I = 2, G = 512, H = 264, S = 16, U = 12, V = 8, W = 4];
 

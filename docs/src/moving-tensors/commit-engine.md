@@ -42,15 +42,19 @@ fn cast_commit<'l, const T: Tu>(
     input.cast::<bf16, m![N # 16]>().commit_trim::<m![N]>().commit()
 }
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let c: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![P], m![M], m![N]> = ContractTensor::new(&mut device.main, Tensor::zero());
 # let _o = cast_commit(c);
+#
+# Ok(())
+# }
 ```
 
 ## Constraints
 
-- **Hardware dimensions**: `Chip::SIZE`, `Cluster::SIZE`, and `Slice::SIZE` must match the hardware configuration (see [Sequencer](./sequencer.md#architecture)).
+- **Hardware dimensions**: `Chip::SIZE`, `Cluster::SIZE`, and `Slice::SIZE` must match the hardware configuration (see [Spatial and Temporal Dimensions](../mapping-tensors/spatial-temporal-dimensions.md#constraints)).
 - **Address alignment**: All sequencer strides must be multiples of 8 bytes.
 - **Write unit alignment**: `D[valid_size]` must be 8, 16, 24, or 32 bytes (see the [Commit Adapter's Trimming](../computing-tensors/commit-adapter.md#trimming) stage).
 
@@ -107,13 +111,17 @@ fn transpose_with_trimming<'l, const T: Tu>(
 }
 
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let a: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![L]> = CastTensor::new(&mut device.main, Tensor::zero());
 # let _o = no_transpose(a);
 # let b: ContractTensor<'_, _, f32, m![1], m![1 # 2], m![1 # 256], m![M, K], m![W]> = ContractTensor::new(&mut device.main, Tensor::zero());
 # let _o = transpose(b);
 # let c: CastTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![M, K], m![N # 32]> = CastTensor::new(&mut device.main, Tensor::zero());
 # let _o = transpose_with_trimming(c);
+#
+# Ok(())
+# }
 ```
 
 

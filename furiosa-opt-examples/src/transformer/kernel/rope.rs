@@ -176,7 +176,11 @@ pub(crate) fn apply_rope(
         .commit_trim::<m![D % 8]>()
         .commit();
 
-    result_k.dma_scatter::<m![1], _, _>(kv_offset, k_cache);
+    k_cache
+        .view_mut()
+        .scatter::<m![T], m![N, 1 # 32, D]>()
+        .by_byte_offsets::<m![1]>(kv_offset.view())
+        .from_dm(&mut device.tdma, result_k);
 
     result_q
 }

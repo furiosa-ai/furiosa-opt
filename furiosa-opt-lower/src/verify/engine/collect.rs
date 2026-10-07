@@ -154,7 +154,10 @@ pub fn config_collect(input: CollectInput) -> Result<(), CollectError> {
     require_one_flit(PacketSide::Output, out_packet.size(), out_packet_bytes)?;
 
     let padded = in_packet.padding(length_from_bytes(element_bits, aligned_bytes)?, PaddingKind::Top);
-    let (in_outer, in_flit) = padded.split_at(flit_elements);
+    // The padding rounds the packet up to whole flits, so the flit always divides it.
+    let (in_outer, in_flit) = padded
+        .split_at(flit_elements)
+        .expect("a flit divides a flit-aligned packet");
 
     let expected_packet = in_flit.normalize();
     let out_packet = out_packet.normalize();
@@ -196,10 +199,7 @@ pub fn config_to_trf(input: ToTrfInput) -> Result<(), ToTrfError> {
 
     let element_count = lane_size
         .checked_mul(trf_element.size())
-        .ok_or(ElementSizeError::ElementCountOverflow {
-            left: lane_size,
-            right: trf_element.size(),
-        })?;
+        .expect("a lane count times a TRF element extent stays inside usize");
     let total_trf_bytes = size_in_bytes(element_bits, element_count)?;
     if total_trf_bytes > capacity {
         return Err(ToTrfError::ExceedsCapacity {
@@ -217,7 +217,11 @@ pub fn config_to_trf(input: ToTrfInput) -> Result<(), ToTrfError> {
             stream_time_size: time_size,
         });
     }
-    let (time_outer, time_inner) = stream_time.split_at(time_size / lane_size);
+    // The lane divides the time, so its quotient does too.
+    let split = time_size / lane_size;
+    let (time_outer, time_inner) = stream_time
+        .split_at(split)
+        .expect("a quotient divides what it came from");
     let time_outer = time_outer.normalize();
     let lane_n = stream_lane.normalize();
     if time_outer != lane_n {

@@ -11,21 +11,20 @@ use furiosa_opt_examples::cluster_chip_shuffle_slice::{
 use furiosa_opt_std::prelude::*;
 
 #[tokio::test]
-async fn test_chip_shuffle() {
+async fn test_chip_shuffle() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(chip_shuffle.topology()).unwrap();
+    let mut device = Device::new(chip_shuffle.topology())?;
 
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..A::SIZE * B::SIZE).map(|value| value as i32).collect::<Vec<_>>())
             .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
 
-    let output = launch(chip_shuffle, (&mut device, &hbm_tensor)).await.unwrap();
+    let output = launch(chip_shuffle, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
-        output.to_host::<m![A, B]>(&mut device.pdma).await.unwrap().into_inner(),
+        output.to_host::<m![A, B]>(&mut device.pdma).await?.into_inner(),
         Tensor::<_, m![A, B], CurrentBackend>::from_vec(
             (0i32..A::SIZE as i32 * B::SIZE as i32)
                 .map(|x| {
@@ -44,22 +43,23 @@ async fn test_chip_shuffle() {
                 .collect::<Vec<_>>()
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_hbm_chip_shuffle() {
+async fn test_hbm_chip_shuffle() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(hbm_chip_shuffle.topology()).unwrap();
+    let mut device = Device::new(hbm_chip_shuffle.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..A::SIZE * B::SIZE).map(|value| value as i32).collect::<Vec<_>>())
             .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
-            .await
-            .unwrap();
-    let output = launch(hbm_chip_shuffle, (&mut device, &hbm_tensor)).await.unwrap();
+            .await?;
+    let output = launch(hbm_chip_shuffle, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
-        output.to_host::<m![A, B]>(&mut device.pdma).await.unwrap().into_inner(),
+        output.to_host::<m![A, B]>(&mut device.pdma).await?.into_inner(),
         Tensor::<_, m![A, B], CurrentBackend>::from_vec(
             (0i32..A::SIZE as i32 * B::SIZE as i32)
                 .map(|x| {
@@ -77,27 +77,27 @@ async fn test_hbm_chip_shuffle() {
                 .collect::<Vec<_>>(),
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_chip_slice() {
+async fn test_chip_slice() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(chip_slice.topology()).unwrap();
+    let mut device = Device::new(chip_slice.topology())?;
 
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..A::SIZE * B::SIZE).map(|value| value as i32).collect::<Vec<_>>())
             .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
 
-    let output = launch(chip_slice, (&mut device, &hbm_tensor)).await.unwrap();
+    let output = launch(chip_slice, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
         output
             .to_host::<m![A, B % 512, B / 2048]>(&mut device.pdma)
-            .await
-            .unwrap()
+            .await?
             .into_inner(),
         Tensor::<_, m![A, B % 512, B / 2048], CurrentBackend>::from_vec(
             (0..A::SIZE * (B::SIZE / 4))
@@ -118,53 +118,55 @@ async fn test_chip_slice() {
                 .collect::<Vec<_>>()
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_cluster_slice() {
+async fn test_cluster_slice() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(cluster_slice.topology()).unwrap();
+    let mut device = Device::new(cluster_slice.topology())?;
 
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..A::SIZE * B::SIZE).map(|value| value as i32).collect::<Vec<_>>())
             .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
 
-    let output = launch(cluster_slice, (&mut device, &hbm_tensor)).await.unwrap();
+    let output = launch(cluster_slice, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
         output
             .to_host::<m![A, B % 512, B / 1024]>(&mut device.pdma)
-            .await
-            .unwrap()
+            .await?
             .into_inner(),
         Tensor::<_, m![A, B % 512, B / 1024], CurrentBackend>::from_vec(cluster_slice_expected()),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_dma_cluster_slice() {
+async fn test_dma_cluster_slice() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(dma_cluster_slice.topology()).unwrap();
+    let mut device = Device::new(dma_cluster_slice.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..A::SIZE * B::SIZE).map(|value| value as i32).collect::<Vec<_>>())
             .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
 
-    let output = launch(dma_cluster_slice, (&mut device, &hbm_tensor)).await.unwrap();
+    let output = launch(dma_cluster_slice, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
         output
             .to_host::<m![A, B % 512, B / 1024]>(&mut device.pdma)
-            .await
-            .unwrap()
+            .await?
             .into_inner(),
         Tensor::<_, m![A, B % 512, B / 1024], CurrentBackend>::from_vec(cluster_slice_expected()),
     );
+
+    Ok(())
 }
 
 fn cluster_slice_expected() -> Vec<i32> {
@@ -185,25 +187,21 @@ fn cluster_slice_expected() -> Vec<i32> {
 }
 
 #[tokio::test]
-async fn test_chip_shuffle_cluster_slice() {
+async fn test_chip_shuffle_cluster_slice() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(chip_shuffle_cluster_slice.topology()).unwrap();
+    let mut device = Device::new(chip_shuffle_cluster_slice.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..A::SIZE * B::SIZE).map(|value| value as i32).collect::<Vec<_>>())
             .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
-            .await
-            .unwrap();
+            .await?;
 
-    let output = launch(chip_shuffle_cluster_slice, (&mut device, &hbm_tensor))
-        .await
-        .unwrap();
+    let output = launch(chip_shuffle_cluster_slice, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
         output
             .to_host::<m![A, B % 512, B / 1024]>(&mut device.pdma)
-            .await
-            .unwrap()
+            .await?
             .into_inner(),
         Tensor::<_, m![A, B % 512, B / 1024], CurrentBackend>::from_vec(
             (0..A::SIZE * (B::SIZE / 2))
@@ -223,30 +221,27 @@ async fn test_chip_shuffle_cluster_slice() {
                 .collect::<Vec<_>>(),
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_shuffle_slice_middle_axis() {
+async fn test_shuffle_slice_middle_axis() -> eyre::Result<()> {
     use furiosa_opt_examples::chip_reduce::{A, B, C, D};
 
-    let mut device = Device::new(shuffle_slice_middle.topology()).unwrap();
+    let mut device = Device::new(shuffle_slice_middle.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A], m![B, C, D]> = HostTensor::<i32, m![A, B, C, D]>::from_vec(
         (0..A::SIZE * B::SIZE * C::SIZE * D::SIZE)
             .map(|x| x as i32)
             .collect::<Vec<_>>(),
     )
     .to_hbm::<m![A], m![B, C, D]>(&mut device.pdma)
-    .await
-    .unwrap();
+    .await?;
 
-    let output = launch(shuffle_slice_middle, (&mut device, &hbm_tensor)).await.unwrap();
+    let output = launch(shuffle_slice_middle, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
-        output
-            .to_host::<m![A, C, D]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_inner(),
+        output.to_host::<m![A, C, D]>(&mut device.pdma).await?.into_inner(),
         Tensor::<_, m![A, C, D], CurrentBackend>::from_vec(
             (0..A::SIZE * C::SIZE * D::SIZE)
                 .map(|x| {
@@ -260,31 +255,26 @@ async fn test_shuffle_slice_middle_axis() {
                 .collect::<Vec<_>>()
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_shuffle_slice_identity() {
+async fn test_shuffle_slice_identity() -> eyre::Result<()> {
     use furiosa_opt_examples::chip_reduce::{A, B, C, D};
 
-    let mut device = Device::new(shuffle_slice_identity.topology()).unwrap();
+    let mut device = Device::new(shuffle_slice_identity.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A], m![B, C, D]> = HostTensor::<i32, m![A, B, C, D]>::from_vec(
         (0..A::SIZE * B::SIZE * C::SIZE * D::SIZE)
             .map(|x| x as i32)
             .collect::<Vec<_>>(),
     )
     .to_hbm(&mut device.pdma)
-    .await
-    .unwrap();
-    let output = launch(shuffle_slice_identity, (&mut device, &hbm_tensor))
-        .await
-        .unwrap();
+    .await?;
+    let output = launch(shuffle_slice_identity, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
-        output
-            .to_host::<m![A, C, D]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_vec(),
+        output.to_host::<m![A, C, D]>(&mut device.pdma).await?.into_vec(),
         (0..A::SIZE * C::SIZE * D::SIZE)
             .map(|x| {
                 let chip = x / (C::SIZE * D::SIZE);
@@ -294,29 +284,26 @@ async fn test_shuffle_slice_identity() {
             })
             .collect::<Vec<_>>()
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_redistribute_element_tile() {
+async fn test_redistribute_element_tile() -> eyre::Result<()> {
     use furiosa_opt_examples::chip_reduce::{A, B, C, D, X};
 
-    let mut device = Device::new(redistribute_element_tile.topology()).unwrap();
+    let mut device = Device::new(redistribute_element_tile.topology())?;
     let hbm: HbmTensor<i32, m![A], m![B, X, C, D]> = HostTensor::<i32, m![A, B, X, C, D]>::from_vec(
         (0..A::SIZE * B::SIZE * X::SIZE * C::SIZE * D::SIZE)
             .map(|x| x as i32)
             .collect::<Vec<_>>(),
     )
     .to_hbm(&mut device.pdma)
-    .await
-    .unwrap();
-    let output = launch(redistribute_element_tile, (&mut device, &hbm)).await.unwrap();
+    .await?;
+    let output = launch(redistribute_element_tile, (&mut device, &hbm)).await?;
 
     assert_eq!(
-        output
-            .to_host::<m![A, C, D]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_vec(),
+        output.to_host::<m![A, C, D]>(&mut device.pdma).await?.into_vec(),
         (0..A::SIZE * C::SIZE * D::SIZE)
             .map(|output_index| {
                 let chip = output_index / (C::SIZE * D::SIZE);
@@ -326,32 +313,27 @@ async fn test_redistribute_element_tile() {
             })
             .collect::<Vec<_>>()
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_shuffle_slice_middle_place() {
+async fn test_shuffle_slice_middle_place() -> eyre::Result<()> {
     use furiosa_opt_examples::chip_reduce::{A, B, C, D, MIDDLE_TARGET_POSITION};
 
-    let mut device = Device::new(shuffle_slice_middle_place.topology()).unwrap();
+    let mut device = Device::new(shuffle_slice_middle_place.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A], m![B, C, D]> = HostTensor::<i32, m![A, B, C, D]>::from_vec(
         (0..A::SIZE * B::SIZE * C::SIZE * D::SIZE)
             .map(|x| x as i32)
             .collect::<Vec<_>>(),
     )
     .to_hbm(&mut device.pdma)
-    .await
-    .unwrap();
-    let output = launch(shuffle_slice_middle_place, (&mut device, &hbm_tensor))
-        .await
-        .unwrap();
+    .await?;
+    let output = launch(shuffle_slice_middle_place, (&mut device, &hbm_tensor)).await?;
     let source_chips = [1, 2, 3, 0];
 
     assert_eq!(
-        output
-            .to_host::<m![A, C, B, D]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_vec(),
+        output.to_host::<m![A, C, B, D]>(&mut device.pdma).await?.into_vec(),
         (0..A::SIZE * C::SIZE * B::SIZE * D::SIZE)
             .map(|x| {
                 let target = x / (C::SIZE * B::SIZE * D::SIZE);
@@ -366,34 +348,29 @@ async fn test_shuffle_slice_middle_place() {
             })
             .collect::<Vec<_>>()
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_shuffle_slice_noncontiguous_axes() {
+async fn test_shuffle_slice_noncontiguous_axes() -> eyre::Result<()> {
     use furiosa_opt_examples::chip_reduce::{A, B, C, D, X};
 
-    let mut device = Device::new(shuffle_slice_noncontiguous_axes.topology()).unwrap();
+    let mut device = Device::new(shuffle_slice_noncontiguous_axes.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A], m![B, X, C, D]> = HostTensor::<i32, m![A, B, X, C, D]>::from_vec(
         (0..A::SIZE * B::SIZE * X::SIZE * C::SIZE * D::SIZE)
             .map(|x| x as i32)
             .collect::<Vec<_>>(),
     )
     .to_hbm::<m![A], m![B, X, C, D]>(&mut device.pdma)
-    .await
-    .unwrap();
+    .await?;
 
-    let output = launch(shuffle_slice_noncontiguous_axes, (&mut device, &hbm_tensor))
-        .await
-        .unwrap();
+    let output = launch(shuffle_slice_noncontiguous_axes, (&mut device, &hbm_tensor)).await?;
     let source_chips = [1, 2, 3, 0];
     let coordinates = [(0, 3), (1, 0), (2, 5), (3, 7)];
 
     assert_eq!(
-        output
-            .to_host::<m![A, X, D]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_inner(),
+        output.to_host::<m![A, X, D]>(&mut device.pdma).await?.into_inner(),
         Tensor::<_, m![A, X, D], CurrentBackend>::from_vec(
             (0..A::SIZE * X::SIZE * D::SIZE)
                 .map(|output_index| {
@@ -408,32 +385,27 @@ async fn test_shuffle_slice_noncontiguous_axes() {
                 .collect::<Vec<_>>(),
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_shuffle_slice_padded_tail() {
+async fn test_shuffle_slice_padded_tail() -> eyre::Result<()> {
     use furiosa_opt_examples::chip_reduce::{A, B, C, D};
 
-    let mut device = Device::new(shuffle_slice_padded_tail.topology()).unwrap();
+    let mut device = Device::new(shuffle_slice_padded_tail.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A], m![B, C, D]> = HostTensor::<i32, m![A, B, C, D]>::from_vec(
         (0..A::SIZE * B::SIZE * C::SIZE * D::SIZE)
             .map(|x| x as i32)
             .collect::<Vec<_>>(),
     )
     .to_hbm::<m![A], m![B, C, D]>(&mut device.pdma)
-    .await
-    .unwrap();
+    .await?;
 
-    let output = launch(shuffle_slice_padded_tail, (&mut device, &hbm_tensor))
-        .await
-        .unwrap();
+    let output = launch(shuffle_slice_padded_tail, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
-        output
-            .to_host::<m![A, C, D]>(&mut device.pdma)
-            .await
-            .unwrap()
-            .into_inner(),
+        output.to_host::<m![A, C, D]>(&mut device.pdma).await?.into_inner(),
         Tensor::<_, m![A, C, D], CurrentBackend>::from_vec(
             (0..A::SIZE * C::SIZE * D::SIZE)
                 .map(|output_index| {
@@ -445,22 +417,23 @@ async fn test_shuffle_slice_padded_tail() {
                 .collect::<Vec<_>>(),
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_cluster_swap() {
+async fn test_cluster_swap() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(cluster_swap.topology()).unwrap();
+    let mut device = Device::new(cluster_swap.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A / 16, A % 4, B]> =
         HostTensor::<i32, m![A, B]>::from_vec((0..256 * 4096).collect::<Vec<_>>())
             .to_hbm::<m![A / 4 % 4], m![A / 16, A % 4, B]>(&mut device.pdma)
-            .await
-            .unwrap();
-    let output = launch(cluster_swap, (&mut device, &hbm_tensor)).await.unwrap();
+            .await?;
+    let output = launch(cluster_swap, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
-        output.to_host::<m![A, B]>(&mut device.pdma).await.unwrap().into_inner(),
+        output.to_host::<m![A, B]>(&mut device.pdma).await?.into_inner(),
         Tensor::<_, m![A, B], CurrentBackend>::from_vec(
             (0i32..256 * 4096)
                 .map(|x| {
@@ -476,52 +449,52 @@ async fn test_cluster_swap() {
                 .collect::<Vec<_>>()
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_cluster_swap_padded() {
+async fn test_cluster_swap_padded() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(cluster_swap_padded.topology()).unwrap();
+    let mut device = Device::new(cluster_swap_padded.topology())?;
     let hbm_tensor: HbmTensor<i32, m![A / 4 % 4], m![A % 2, B / 1024]> =
         HostTensor::<i32, m![A / 4 % 4, A % 2, B / 1024]>::from_vec((0..32).collect::<Vec<_>>())
             .to_hbm::<m![A / 4 % 4], m![A % 2, B / 1024]>(&mut device.pdma)
-            .await
-            .unwrap();
-    let output = launch(cluster_swap_padded, (&mut device, &hbm_tensor)).await.unwrap();
+            .await?;
+    let output = launch(cluster_swap_padded, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
         output
             .to_host::<m![A / 4 % 4, A % 2, B / 1024]>(&mut device.pdma)
-            .await
-            .unwrap()
+            .await?
             .into_inner(),
         Tensor::<_, m![A / 4 % 4, A % 2, B / 1024], CurrentBackend>::from_vec(
             (0i32..32).map(|x| x / 8 * 8 + (x + 4) % 8).collect::<Vec<_>>()
         ),
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_cluster_swap_read_only_padded() {
+async fn test_cluster_swap_read_only_padded() -> eyre::Result<()> {
     use furiosa_opt_examples::cluster_chip_shuffle_slice::{A, B};
 
-    let mut device = Device::new(cluster_swap_read_only_padded.topology()).unwrap();
+    let mut device = Device::new(cluster_swap_read_only_padded.topology())?;
     let hbm_tensor: HbmTensor<i32, m![1 # 4], m![A % 2, B / 1024, B % 2]> =
         HostTensor::<i32, m![1, A % 2, B / 1024, B % 2]>::from_vec((0..16).collect::<Vec<_>>())
             .to_hbm::<m![1 # 4], m![A % 2, B / 1024, B % 2]>(&mut device.pdma)
-            .await
-            .unwrap();
-    let output = launch(cluster_swap_read_only_padded, (&mut device, &hbm_tensor))
-        .await
-        .unwrap();
+            .await?;
+    let output = launch(cluster_swap_read_only_padded, (&mut device, &hbm_tensor)).await?;
 
     assert_eq!(
         output
             .to_host::<m![1, A % 2, B / 1024, B % 2]>(&mut device.pdma)
-            .await
-            .unwrap()
+            .await?
             .into_vec(),
         (0i32..16).map(|x| (x + 8) % 16).collect::<Vec<_>>()
     );
+
+    Ok(())
 }

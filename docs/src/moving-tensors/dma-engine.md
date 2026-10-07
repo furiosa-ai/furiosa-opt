@@ -2,7 +2,7 @@
 
 The DMA Engine moves tensors directly between memory tiers without engaging the Tensor Unit pipeline, so use it for residency or layout changes that require no compute stage.
 
-Choose DMA for HBM↔HBM, HBM↔DM, or DM↔DM movement when no Fetch, compute, or Commit stage is needed.
+Choose DMA for HBM↔HBM, HBM↔DM, DM↔DM, or DM↔SPM movement when no Fetch, compute, or Commit stage is needed.
 The Interface examples show how source tensors, destination mappings, and `tdma` or `pdma` contexts combine.
 Each transfer pairs two coordinated stages:
 - **[Read Sequencer](#architecture)**: Reads from the source tier.
@@ -11,14 +11,13 @@ Each transfer pairs two coordinated stages:
 A DMA transfer is a [mathematical tensor move](../mapping-tensors/tensor-semantics.md#mathematical-tensor-move): the output holds the same mathematical tensor as the input even when the layouts differ.
 Tensor DMA spans cross-DMN, cross-cluster, and cross-chip transfers, with chip IDs globally agreed across the system.
 
-
 See [Optimizations](#optimizations) for transfer throughput considerations.
 
 ## Interface
 
 A DMA transfer takes a tensor in one memory tier and produces a tensor in another (or the same) tier.
 The kernel writer calls `.to_dm()`, `.to_hbm()`, or related methods on the source tensor, passing in a `DmaContext`:
-- `Device::tdma`: Tensor DMA context for on-chip transfers (HBM ↔ HBM, HBM ↔ DM, DM ↔ DM).
+- `Device::tdma`: Tensor DMA context for on-chip transfers (HBM ↔ HBM, HBM ↔ DM, DM ↔ DM, DM ↔ SPM).
 - `Device::pdma`: PCIe DMA context for host ↔ HBM transfers (see [PCIe DMA](#pcie-dma)).
 
 ```rust,ignore
@@ -47,9 +46,13 @@ fn transpose_simple(
     intermediate.to_hbm(&mut device.tdma)
 }
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let in_hbm = HbmTensor::<f32, m![1], m![A, B, C]>::new();
 # let _out_hbm = transpose_simple(&mut device, &in_hbm);
+#
+# Ok(())
+# }
 ```
 
 A transfer that crosses tiers also takes a layout transformation through the destination type's mapping.
@@ -67,9 +70,13 @@ fn hbm_to_dm(
     input.to_dm::<m![1 # 2], m![A / 8], m![A % 8]>(&mut device.tdma)
 }
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let in_hbm = HbmTensor::<i8, m![1], m![A]>::new();
 # let _out_dm = hbm_to_dm(&mut device, &in_hbm);
+#
+# Ok(())
+# }
 ```
 
 Here the 2,048-element vector is distributed as 256 elements per slice (`Slice = m![A / 8]`) with 8 elements per slice (`Element = m![A % 8]`), spread across 2 clusters.
@@ -188,6 +195,7 @@ Violations cause correctness errors or hardware exceptions, not just performance
   |------|------|-------|
   | HBM | 1 byte | 1 byte |
   | DM (SRAM) | 1 byte | 8 bytes |
+  | SPM | 1 byte | 1 byte |
 
   HBM ↔ DM transfers additionally require 8-byte alignment for the read address, write address, and packet size, regardless of the table above.
   The asymmetric DM rule reflects asymmetric SRAM hardware.
@@ -210,6 +218,7 @@ Each tier has a peak bandwidth that bounds achievable throughput, and the actual
 |------|----------------|
 | HBM | 1.5 TB/s per chip (32 channels × 48 GB/s per channel at 0.75 GHz) |
 | DM | 256 B/cycle per cluster (with DMN interleaving, 128 B/cycle per DMN) |
+| SPM | 128 B/cycle per cluster (same-chip only) |
 | PCIe | 30 B/cycle for both reads and writes (see [PCIe DMA](#pcie-dma)) |
 
 Each DMA Engine moves up to 256 B/cycle on its own.
@@ -735,74 +744,294 @@ SRAM redistribution follows the DMA [alignment and packet constraints](#constrai
 As a rule of thumb, choose an `Element` mapping with aligned DM writes and long contiguous runs so the compiler can form efficient packets.
 Use a sub-context slice for one local axis, or use the `DmTensorView` chain when a slice must be fused with a shuffle or when several axes must be sliced in one DMA.
 
-## Scatter and Gather
+## Gather and Scatter
 
-Scatter and gather move tensor elements at addresses computed from an index tensor rather than at fixed strides.
+Gather reads HBM values at positions named by an index list; scatter writes HBM values at those positions.
+In the examples below, `I` is the indexed axis, `D` is the domain the index is defined over, and `P` is the payload.
+The lowercase `d` and `p` are positions on `D` and `P`; `position[d]` is a position on `I`.
 
-`DmTensor::dma_scatter` writes DM values to HBM rows chosen by an index tensor.
-`HbmTensor::dma_gather_scaled` and `HbmTensor::dma_gather_unscaled` read HBM rows into DM at rows chosen by an index tensor.
-The two gather variants differ only in where the index lives and how its values are read, described below.
+Each row lists the operands in the order the chain takes them, starting at the HBM tensor the index addresses.
+
+| Operation | Operands | Meaning |
+| --- | --- | --- |
+| Gather | table `[I,P]`, index `[D]`, result `[D,P]` | `result[d, p] = table[position[d], p]`, `position[d]` in `0..I::SIZE` |
+| Scatter | destination `[I,P]`, index `[D]`, updates `[D,P]` | `destination[position[d], p] = updates[d, p]`, `position[d]` in `0..I::SIZE` |
+
+`by_positions` takes that position directly from an SPM index.
+`by_byte_offsets` takes an HBM index whose value is the position multiplied by the byte stride of `I`.
+That offset is relative to the table or destination HBM view's base, and must be a whole multiple of the stride.
+For `[I,P]` with `bf16` elements and `P = 128`, the stride is 256 bytes, so position 3 is byte offset 768.
+
+An index is a map `position: D -> I`, and the type parameters name its parts.
+The domain is what it is defined over, `IndexedAxis` is where its values land, and `Payload` rides along a position it does not touch.
+
+On a gather, `IndexedAxis` names `I` in the table and `Payload` names `P`; `D` is the index's own mapping, so nothing declares it.
+On a scatter, the same two are declared on the destination, where `IndexedAxis` names `I`; `Domain` is the index's own mapping there too.
+Both chains start at the tensor the index addresses, so the index has its unit before any value is supplied: a gather reads the table, a scatter writes the destination.
+
+| Operation | Index source | API chain |
+| --- | --- | --- |
+| Gather | HBM byte offsets | `gather::<IndexedAxis, Payload>().by_byte_offsets::<Domain>(...).to_dm(...)` |
+| Gather | SPM positions | `gather::<IndexedAxis, Payload>().by_positions::<Domain>(...).to_dm(...)` |
+| Scatter | HBM byte offsets | `scatter::<IndexedAxis, Payload>().by_byte_offsets::<Domain>(...).from_dm(...)` |
+| Scatter | SPM positions | `scatter::<IndexedAxis, Payload>().by_positions::<Domain>(...).from_dm(...)` |
+
+The following calls cover both operations with both index sources.
 
 ```rust
 # extern crate furiosa_opt_std;
 # extern crate tokio;
 # use furiosa_opt_std::prelude::*;
-axes![K = 512, D = 128, C = 612, G = 512, CL = 2];
+axes![I = 612, D = 512, P = 128, F = 2, CL = 2];
+
+fn gather_minimal(
+    device: &mut Device,
+    table: &HbmTensor<bf16, m![1], m![I, P]>,
+    index: &HbmTensor<i32, m![1], m![D]>,
+) -> DmTensor<bf16, m![1], m![1 # 2], m![D / 2], m![D % 2, P]> {
+    table
+        .gather::<m![I], m![P]>()
+        .by_byte_offsets::<m![D]>(index)
+        .to_dm(&mut device.tdma)
+}
 
 fn scatter_minimal(
     device: &mut Device,
-    data: &HbmTensor<bf16, m![1], m![K, D]>,
-    index: &HbmTensor<i32, m![1], m![K]>,
-    output: &mut HbmTensor<bf16, m![1], m![C, D]>,
+    updates: &HbmTensor<bf16, m![1], m![D, P]>,
+    index: &HbmTensor<i32, m![1], m![D]>,
+    destination: &mut HbmTensor<bf16, m![1], m![I, P]>,
 ) {
-    let data_dm: DmTensor<bf16, m![1], m![1 # 2], m![K / 2], m![K % 2, D]> =
-        data.to_dm(&mut device.tdma);
+    let updates_dm: DmTensor<bf16, m![1], m![1 # 2], m![D / 2], m![D % 2, P]> =
+        updates.to_dm(&mut device.tdma);
 
-    data_dm.dma_scatter::<m![K], _, _>(index, output);
+    destination
+        .view_mut()
+        .scatter::<m![I], m![P]>()
+        .by_byte_offsets::<m![D]>(index.view())
+        .from_dm(&mut device.tdma, updates_dm);
 }
 
-fn gather_minimal(
-    table: &HbmTensor<bf16, m![1], m![K, D]>,
-    index: &HbmTensor<i32, m![1], m![G]>,
-    // The gather axis itself partitions into Slice x Element (`G / 2 = 256`, a valid slice count)
-    // with `D` folded into the Element side alongside the `G % 2` remainder; `C = 612` (used above
-    // for the scatter cache) has no divisor landing on a valid 64 | 128 | 256 slice count, so the
-    // gather count here is the separate, slice-friendly `G` instead.
-) -> DmTensor<bf16, m![1], m![1 # 2], m![G / 2], m![G % 2, D]> {
-    table.dma_gather_scaled(index)
-}
-
-fn gather_unscaled(
+fn gather_spm(
     device: &mut Device,
-    table: &HbmTensor<bf16, m![1], m![K, D]>,
-    // Raw row positions per cluster. The kernel stages the index on-chip with `to_dm`;
-    // a real per-cluster (`CL`) partition avoids broadcast padding.
-    index: &HbmTensor<i32, m![1], m![CL, G]>,
-) -> DmTensor<bf16, m![1], m![CL], m![G / 2], m![G % 2, D]> {
-    let index_dm: DmTensor<i32, m![1], m![CL], m![G / 2], m![G % 2]> =
+    table: &HbmTensor<bf16, m![1], m![I, P]>,
+    index: &HbmTensor<i32, m![1], m![CL, D]>,
+) -> DmTensor<bf16, m![1], m![CL], m![D / 2], m![D % 2, P]> {
+    let index_dm: DmTensor<i32, m![1], m![CL], m![D / 2], m![D % 2]> =
         index.to_dm(&mut device.tdma);
-    table.dma_gather_unscaled(&index_dm)
+    let index_spm: SpmTensor<i32, m![1], m![CL], m![1 # 4], m![D]> =
+        index_dm.to_spm(&mut device.tdma);
+
+    table
+        .gather::<m![I], m![P]>()
+        .by_positions::<m![CL, D]>(&index_spm)
+        .to_dm(&mut device.tdma)
 }
+
+fn scatter_spm(
+    device: &mut Device,
+    updates: &HbmTensor<bf16, m![1], m![D, P]>,
+    index: &HbmTensor<i32, m![1], m![D]>,
+    destination: &mut HbmTensor<bf16, m![1], m![I, P]>,
+) {
+    let updates_dm: DmTensor<bf16, m![1], m![1 # 2], m![D / 2], m![D % 2, P]> =
+        updates.to_dm(&mut device.tdma);
+    let index_dm: DmTensor<i32, m![1], m![1 # 2], m![1 # 256], m![D]> =
+        index.to_dm(&mut device.tdma);
+    let index_spm: SpmTensor<i32, m![1], m![1 # 2], m![1 # 4], m![D]> =
+        index_dm.to_spm(&mut device.tdma);
+
+    destination
+        .view_mut()
+        .scatter::<m![I], m![P]>()
+        .by_positions::<m![D]>(&index_spm)
+        .from_dm(&mut device.tdma, updates_dm);
+}
+
+fn scatter_consecutive_axes(
+    device: &mut Device,
+    updates: &HbmTensor<bf16, m![1], m![D, P]>,
+    index: &HbmTensor<i32, m![1], m![D]>,
+    destination: &mut HbmTensor<bf16, m![1], m![I, F, P]>,
+) {
+    let updates_dm: DmTensor<bf16, m![1], m![1 # 2], m![D / 2], m![D % 2, P]> =
+        updates.to_dm(&mut device.tdma);
+
+    destination
+        .view_mut()
+        .scatter::<m![I, F], m![P]>()
+        .by_byte_offsets::<m![D]>(index.view())
+        .from_dm(&mut device.tdma, updates_dm);
+}
+/// The updates carry `D` in two pieces with `F` between them, so the domain `m![D]` is two runs of
+/// the updates and the payload `m![F, P]` is the other two.
+fn scatter_split_domain(
+    device: &mut Device,
+    updates: &HbmTensor<bf16, m![1], m![D, F, P]>,
+    index: &HbmTensor<i32, m![1], m![D]>,
+    destination: &mut HbmTensor<bf16, m![1], m![I, F, P]>,
+) {
+    let updates_dm: DmTensor<bf16, m![1], m![1 # 2], m![D / 2], m![F, D % 2, P]> =
+        updates.to_dm(&mut device.tdma);
+
+    destination
+        .view_mut()
+        .scatter::<m![I], m![F, P]>()
+        .by_byte_offsets::<m![D]>(index.view())
+        .from_dm(&mut device.tdma, updates_dm);
+}
+
 #
 # #[tokio::main]
-# async fn main() {
-#     let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
-# 
-#     let index = &(HostTensor::<i32, m![K]>::zero().to_hbm(&mut device.pdma).await.unwrap());
-#     let data = HbmTensor::<bf16, m![1], m![K, D]>::new();
-#     let mut output_hbm = HbmTensor::<bf16, m![1], m![C, D]>::new();
-# 
-#     scatter_minimal(&mut device, &data, &index, &mut output_hbm);
-#     gather_minimal(&data, &(HostTensor::<i32, m![G]>::zero().to_hbm(&mut device.pdma).await.unwrap()));
-#     let placed_index = &(HostTensor::<i32, m![CL, G]>::zero().to_hbm(&mut device.pdma).await.unwrap());
-#     gather_unscaled(&mut device, &data, placed_index);
+# async fn main() -> Result<(), Error> {
+#     let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
+#     let table = HbmTensor::<bf16, m![1], m![I, P]>::new();
+#     let updates = HbmTensor::<bf16, m![1], m![D, P]>::new();
+#     let index = HostTensor::<i32, m![D]>::zero().to_hbm(&mut device.pdma).await?;
+#     let placed_index = HostTensor::<i32, m![CL, D]>::zero().to_hbm(&mut device.pdma).await?;
+#     let mut destination = HbmTensor::<bf16, m![1], m![I, P]>::new();
+#     let mut destination_group = HbmTensor::<bf16, m![1], m![I, F, P]>::new();
+#     gather_minimal(&mut device, &table, &index);
+#     scatter_minimal(&mut device, &updates, &index, &mut destination);
+#     gather_spm(&mut device, &table, &placed_index);
+#     scatter_spm(&mut device, &updates, &index, &mut destination);
+#     scatter_consecutive_axes(&mut device, &updates, &index, &mut destination_group);
+#     let split_updates = HbmTensor::<bf16, m![1], m![D, F, P]>::new();
+#     scatter_split_domain(&mut device, &split_updates, &index, &mut destination_group);
+#     Ok(())
 # }
 ```
 
+### Mapping requirements
 
-The scaled variants (`dma_gather_scaled`, `dma_scatter`) take the index from an `HbmTensor` in DRAM and read its values as byte offsets along the gather/scatter axis.
-To address row `r`, pass `r` times one row's byte size (its element count times the element's byte size, for example `128 * 2 = 256` for a 128-wide `bf16` row).
-`dma_gather_unscaled` instead takes an on-chip `DmTensor` index, staged from DRAM with `to_dm`, and reads its values as raw row positions, for indices computed on-chip such as paged-attention block tables.
+One rule separates the three.
+`IndexedAxis` has to be one consecutive region; `Domain` and `Payload` do not, and the two may be interleaved with each other.
+
+`IndexedAxis` names one consecutive region.
+The region may be several declared axes: `m![I]` in the gather example, `m![I, F]` in the scatter.
+Removing the region leaves `Payload`, padding included.
+An index value for `m![I, F]` runs over `0..(I::SIZE * F::SIZE)`.
+One step spans one payload.
+This one is a hardware rule: a descriptor advances the indexed axis by a single stride, so a region it holds in pieces has no stride to advance by.
+
+`Domain` and `Payload` carry no such rule.
+The sequencer places them in the tensor the values come from or go to.
+Either may be several runs with the other between them, and either may reach across that tensor's `Cluster`, `Slice` and `Element`.
+
+Neither list may have padding: every domain position holds a value.
+
+#### A gather's domain, from an HBM index
+
+The index is `HbmTensor<i32, Chip, Domain>`, which has no `Cluster` or `Slice`.
+Its element mapping is the domain.
+`by_byte_offsets` infers `Domain` from the index and also accepts it as an annotation.
+The annotation names the index's own type, so it must be spelled the way the index is.
+
+#### A gather's domain, from an SPM index
+
+The index is `SpmTensor<i32, Chip, IdxCluster, IdxPe, IdxElement>`.
+Two of those compose the domain.
+`IdxCluster` contributes its named axes, in front.
+`IdxElement` contributes the list one cluster holds.
+`IdxPe` never contributes, because the list has to sit on PE 0, spelled `m![1 # 4]`.
+
+No single type carries the result.
+`by_positions::<Domain>` declares it, and the declaration is checked.
+
+`gather_spm` above reads `SpmTensor<i32, m![1], m![CL], m![1 # 4], m![D]>`.
+`IdxCluster = m![CL]` contributes `CL`, `IdxPe = m![1 # 4]` contributes nothing, and `IdxElement = m![D]` contributes the list, so the domain is `m![CL, D]`.
+`IdxCluster = m![2]` or `m![1 # 2]` names no axis; every cluster then holds the same list and the domain is `m![D]`.
+
+The same domain can come from a different placement.
+`SpmTensor<i32, m![1], m![2], m![1 # 4], m![CL, D]>` broadcasts one list to every cluster and carries `CL` in its element mapping instead, and `by_positions::<m![CL, D]>` is still what names it.
+The two differ in where the list sits, not in what the entries key.
+
+#### What a gather's DM output must hold
+
+The payload comes off the table's `Element` alone, since an HBM tensor has no `Slice`.
+The `to_dm` output is then checked over `Cluster`, `Slice` and `Element` together.
+The output only has to hold that payload once per domain position, and may split and reorder both.
+The example output splits `D` across `Slice = m![D / 2]` and `Element = m![D % 2, P]`.
+
+#### What a scatter's DM updates must hold
+
+The updates hold the same place a gather's output does, under the same rule.
+`Payload` is declared, and the updates are checked over `Cluster`, `Slice` and `Element` together.
+They only have to hold that payload once per domain position, and may split and reorder both.
+
+`scatter_split_domain` above holds its updates as `DmTensor<bf16, m![1], m![1 # 2], m![D / 2], m![F, D % 2, P]>`.
+Its `Slice` is `m![D / 2]` and its `Element` is `m![F, D % 2, P]`, so the domain `m![D]` is the first and third runs while the payload `m![F, P]` is the second and fourth.
+A domain may also reach into the DM tensor's `Cluster`.
+`DmTensor<bf16, m![1], m![CL], m![D / 2], m![D % 2, P]>` carries the domain `m![CL, D]` across all three placement mappings, one index list per cluster.
+
+### Sparse gather
+
+A byte-offset gather can call `sparse_prefix(valid_length)` to execute a runtime prefix of its index list.
+The prefix counts positions in `Domain`, the index tensor's own mapping.
+If `Domain` has several axes, they are flattened in the original index mapping order into one list whose entries `valid_length` counts.
+`IndexedAxis` names the table region addressed by each index value; `valid_length` does not restrict the positions those values may address.
+The index list's full length is its capacity.
+The runtime `i32` length is clamped to `0..=capacity`; call the clamped length `requested`.
+
+The device stops at a coarser boundary than `requested`, so it executes at least that many positions and often more.
+How much more depends on the skip unit lowering finds for the placement, which the kernel cannot predict; compiling the kernel is what tells you.
+
+Two rules follow, and neither needs that number.
+Every position in the index list must hold a valid byte offset, `requested` or not, because the device may read any of them.
+Results are defined up to `requested`; past it they are unspecified until the executed length, and zero after that.
+A `requested` of zero executes nothing and reads no index.
+
+Here `IndexedAxis` is `m![I]` and `Domain` is `m![D]`: the host requests the first five index entries along `D`, each carrying the full payload `m![P]`, but initializes all 512 index positions.
+Zero is a valid byte offset when the table has a first row.
+
+```rust
+# extern crate furiosa_opt_std;
+# extern crate tokio;
+# use furiosa_opt_std::prelude::*;
+# axes![I = 612, D = 512, P = 128];
+async fn gather_first_five(
+    device: &mut Device,
+    table: &HbmTensor<bf16, m![1], m![I, P]>,
+    index: &HbmTensor<i32, m![1], m![D]>,
+) -> Result<DmTensor<bf16, m![1], m![1 # 2], m![D / 2], m![D % 2, P]>, Error> {
+    let valid_length = HbmScalar::<i32>::from_host(5, &mut device.pdma).await?;
+    let valid_length = valid_length.to_spm(&mut device.tdma);
+    Ok(table
+        .gather::<m![I], m![P]>()
+        .by_byte_offsets::<m![D]>(index)
+        .sparse_prefix(valid_length)
+        .to_dm(&mut device.tdma))
+}
+#
+# #[tokio::main]
+# async fn main() -> Result<(), Error> {
+#     let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
+#     let table = HbmTensor::<bf16, m![1], m![I, P]>::new();
+#     let index = HostTensor::<i32, m![D]>::zero().to_hbm(&mut device.pdma).await?;
+#     gather_first_five(&mut device, &table, &index).await?;
+#     Ok(())
+# }
+```
+
+The device shortens the index list along one axis of the placement, so the `to_dm` placement decides how coarse the stepping is.
+The runtime length steps over the outermost of the consecutive axes the index list occupies.
+The axes below the stepped one ride along whole, and their size is the skip unit.
+
+A digit in `Slice` does not keep its size, though.
+DMA compilation cuts a slice axis into DMN units, which splits the index list across descriptors and coarsens the unit.
+
+Take `A = 512` split into the digits `A / 2` and `A % 2`, over a `QP` by `QD` payload.
+`A / 2` is the outer digit, so it is the stepped axis in either placement, and the rule leaves `512 / 256 = 2` below it.
+On the default one-chip 8PE configuration:
+
+| `Slice` | `Element` | By the rule | Compiled |
+| --- | --- | ---: | ---: |
+| `m![A % 2]` | `m![A / 2, QP, QD]` | 2 | 2 |
+| `m![A / 2]` | `m![A % 2, QP, QD]` | 2 | 64 |
+
+Only the placement that puts `A / 2` in `Slice` pays the cut, because only there does the stepped axis get split.
+
+The compiled unit is not reported today.
+A build that succeeds does not say which unit it got, and the tooling to surface it is still to come.
 
 ## PCIe DMA
 
@@ -828,6 +1057,7 @@ async fn upload_and_download(device: &mut Device) -> Result<(), Error> {
 
     // HBM → host (back to system memory)
     let _round_tripped: HostTensor<i8, m![A, B]> = hbm.to_host(&mut device.pdma).await?;
+
     Ok(())
 }
 ```

@@ -50,10 +50,14 @@ fn load_trf<'l, const T: Tu>(
     input.to_trf()
 }
 #
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 #
 # let c: CollectTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = load_trf(c);
+#
+# Ok(())
+# }
 ```
 
 For example, in a matmul kernel `Lane` holds output channels and `Element` holds the contracted axis.
@@ -77,10 +81,14 @@ fn store_bmatmul_trf<'l, const T: Tu>(
     input.to_trf()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = store_bmatmul_trf(c);
+#
+# Ok(())
+# }
 ```
 
 #### From the Vector Engine
@@ -108,8 +116,12 @@ fn store_pass(device: &mut Device) -> VrfTensor<f32, m![1], m![1 # 2], m![1 # 25
         .to_vrf(&mut device.sub)
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let _o = store_pass(&mut device);
+#
+# Ok(())
+# }
 ```
 
 The two positions are different data paths, not two spellings of one.
@@ -235,10 +247,14 @@ fn store_vrf<'l>(
     input.to_vrf()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, { Tu::Sub }, i32, m![1], m![1 # 2], m![1 # 256], m![B / 8], m![B % 8]> = CollectTensor::new(&mut device.sub, Tensor::zero());
 # let _o = store_vrf(c);
+#
+# Ok(())
+# }
 ```
 
 The store has one signature per context, and the example above takes the sub context's.

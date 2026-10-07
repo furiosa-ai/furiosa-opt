@@ -25,7 +25,7 @@ impl<'l, const T: Tu, P: CanApplyCommit, D: Scalar, Chip: M, Cluster: M, Slice: 
     #[primitive(TuTensor::commit)]
     pub fn commit<Element: M>(self) -> DmTensor<D, Chip, Cluster, Slice, Element, B> {
         verify_commit::<D, Time, Packet, Element>();
-        DmTensor::from_parts(self.inner.transpose(false), None)
+        DmTensor::from_parts(self.inner.transpose(false))
     }
 
     /// Commits to a mutable tensor view in data memory.

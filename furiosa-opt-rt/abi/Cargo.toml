@@ -1,6 +1,6 @@
 [package]
 name = "furiosa-opt-abi"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "ABI contracts shared by the Furiosa Opt host and device runtimes."

@@ -76,6 +76,18 @@ argument must be, and a launch that does not satisfy it is refused before it rea
 Launching returns as soon as every cluster has the request; a `Launch` keeps its arguments alive
 until the device has answered, whether or not it is waited.
 
+Each device owns independent DRAM and SRAM allocators. Both use the same range allocator;
+DRAM grows upward and resident SRAM grows downward. A `Buffer` retains the device's allocation
+owner and derives its address from its allocation and slice offset. Submission adds the chip's
+DRAM window base or uses the fixed SRAM virtual mapping.
+
+SRAM combines its allocator with a counted set of temporary prefix reservations. Allocation
+and reservation check and commit under the same lock. Equal prefixes may overlap, and each
+reservation remains until its launch completes or drains on Drop. New residents fit above all
+reserved prefixes; new prefixes fit below all live residents. DRAM uses its own lock.
+A poisoned memory rejects new operations; existing owners can still release their records.
+Poison remains set, and the other memory stays usable.
+
 ```mermaid
 sequenceDiagram
     participant H as Host thread

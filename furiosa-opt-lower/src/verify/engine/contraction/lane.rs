@@ -173,7 +173,10 @@ pub fn config_contract_lane(input: ContractLaneInput) -> Result<(), ContractLane
                 align_up(in_packet.size(), CONTRACT_LANE_OUT_PACKET_ELEMENTS),
                 PaddingKind::Top,
             );
-            let (packet_outer, packet_inner) = padded.split_at(CONTRACT_LANE_OUT_PACKET_ELEMENTS);
+            // The padding rounds the packet up to whole OutPackets, so one always divides it.
+            let (packet_outer, packet_inner) = padded
+                .split_at(CONTRACT_LANE_OUT_PACKET_ELEMENTS)
+                .expect("an OutPacket divides a packet padded up to it");
 
             if packet_inner.normalize() != out_packet.normalize() {
                 return Err(ContractLaneError::OutPacketMismatch {
@@ -232,10 +235,9 @@ fn split_inner_time(out_time: &Mapping, inner: &Mapping, mode: LaneMode) -> Resu
         expected: inner.clone(),
         got,
     };
-    if !out_time.size().is_multiple_of(inner.size()) {
-        return Err(mismatch(out_time.clone()));
-    }
-    let (outer_time, inner_time) = out_time.split_at(inner.size());
+    let (outer_time, inner_time) = out_time
+        .split_at(inner.size())
+        .map_err(|_| mismatch(out_time.clone()))?;
     if inner_time.normalize() != inner.normalize() {
         return Err(mismatch(inner_time));
     }

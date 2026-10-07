@@ -5,9 +5,10 @@ use crate::Error;
 use crate::scalar::{MaterializableScalar, Scalar};
 use crate::storage::BufStorage;
 use crate::tensor::Tensor;
-use crate::tensor::memory::{HbmTensor, HostTensor};
+use crate::tensor::memory::{DmAllocError, DmTensor, HbmScalar, HbmTensor, HostTensor};
 
 use crate::backend::Backend;
+use crate::backend::indirect::IndexUnit;
 use crate::cast::{ContractionAccumulator, ContractionCast};
 use crate::context::{Dma, DmaContext};
 use crate::runtime::Topology;
@@ -43,6 +44,12 @@ impl Backend for Cpu {
     /// placeholder every host-side handle carries.
     fn alloc_hbm<D: Scalar, Chip: M, Element: M>() -> HbmTensor<D, Chip, Element, Self> {
         HbmTensor::from_parts(Tensor::zeroed())
+    }
+
+    fn alloc_dm<D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M>(
+        _group: &Self::Device,
+    ) -> Result<DmTensor<D, Chip, Cluster, Slice, Element, Self>, DmAllocError> {
+        Ok(DmTensor::from_parts(Tensor::zeroed()))
     }
 
     fn zeroed<D: Scalar>(mapping: &Mapping) -> Self::Storage<D> {
@@ -125,22 +132,26 @@ impl Backend for Cpu {
         BufStorage::contraction_prewidened(lhs, rhs, lhs_map, rhs_map, pre_reduce, out)
     }
 
-    fn scatter<D: Scalar, Src: M, Key: M, Dst: M, Idx: M>(
+    fn scatter<D: Scalar, Src: M, Domain: M, IndexedAxis: M, Dst: M, Idx: M>(
         src: &Self::Storage<D>,
         dst: &mut Self::Storage<D>,
         index: &Self::Storage<i32>,
-        scaled: bool,
+        chip: &Mapping,
+        unit: IndexUnit,
     ) {
-        src.scatter::<Src, Key, Dst, Idx>(dst, index, scaled);
+        src.scatter::<Src, Domain, IndexedAxis, Dst, Idx>(dst, index, chip, unit);
     }
 
-    fn gather<D: MaterializableScalar, Src: M, Dst: M, Idx: M>(
+    fn gather<D: MaterializableScalar, Src: M, IndexedAxis: M, Dst: M, Idx: M>(
         src: &Self::Storage<D>,
         dst: &mut Self::Storage<D>,
         index: &Self::Storage<i32>,
-        scaled: bool,
+        domain: &Mapping,
+        chip: &Mapping,
+        prefix: Option<usize>,
+        unit: IndexUnit,
     ) {
-        src.gather::<Src, Dst, Idx>(dst, index, scaled);
+        src.gather::<Src, IndexedAxis, Dst, Idx>(dst, index, domain, chip, prefix, unit);
     }
 
     fn reshape<D: Scalar, Src: M, Dst: M>(src: &Self::Storage<D>) -> Self::Storage<D> {
@@ -175,6 +186,22 @@ impl Backend for Cpu {
         hbm: &mut HbmTensor<D, Chip, Element2, Self>,
     ) -> Result<(), Error> {
         *hbm = Self::to_hbm(host, dma).await?;
+        Ok(())
+    }
+
+    async fn to_hbm_scalar<D: crate::scalar::RuntimeScalar>(
+        value: D,
+        _dma: &DmaContext<{ Dma::Pcie }, Self>,
+    ) -> Result<HbmScalar<D, Self>, Error> {
+        Ok(HbmScalar::from_value(value))
+    }
+
+    async fn to_hbm_scalar_into<D: crate::scalar::RuntimeScalar>(
+        value: D,
+        _dma: &DmaContext<{ Dma::Pcie }, Self>,
+        hbm: &mut HbmScalar<D, Self>,
+    ) -> Result<(), Error> {
+        hbm.set_value(value);
         Ok(())
     }
 

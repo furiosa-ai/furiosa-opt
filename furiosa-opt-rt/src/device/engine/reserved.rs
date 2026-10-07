@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::os::fd::AsRawFd;
 use std::time::{Duration, Instant};
 
+use crate::Buffer;
 use crate::device::dma::DmaQueue;
 use crate::function::FunctionError;
 use crate::{Error, Result};
@@ -109,7 +110,7 @@ pub(crate) struct Launcher {
 /// device's memory, which every cluster translates through its own window.
 pub(crate) struct Launch<'a> {
     pub(crate) image: Staged,
-    pub(crate) args: &'a [u64],
+    pub(crate) args: &'a [Buffer],
     pub(crate) profile: Option<ProfileRequest>,
 }
 
@@ -449,8 +450,8 @@ impl Launcher {
                 .map_or_else(Vec::new, |_| vec![Vec::new(); self.links.len()]),
         };
         for (rank, (link, &window)) in self.links.iter_mut().zip(&self.windows).enumerate() {
-            for (word, &offset) in args.iter_mut().zip(launch.args) {
-                *word = window + offset;
+            for (word, buffer) in args.iter_mut().zip(launch.args) {
+                *word = buffer.bind(window);
             }
             let submitted = link.submit(
                 &Request::Launch {

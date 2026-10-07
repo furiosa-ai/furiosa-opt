@@ -77,8 +77,8 @@ pub trait AxesToSlice: std::fmt::Debug + Clone {
     fn slice_indices(indices: Self::Indices) -> Vec<usize>;
 }
 
-/// A deferred SRAM redistribution whose source choices are not encoded by its output mapping.
-/// Materialize it with `to_dm` or `to_dm_view`.
+/// A deferred SRAM redistribution whose type tracks its mapping and valid next stages.
+/// Continue with shuffle or slice methods, then materialize with `to_dm` or `to_dm_view`.
 #[primitive(DmRedistributeView)]
 #[derive(Debug)]
 pub struct DmRedistributeView<

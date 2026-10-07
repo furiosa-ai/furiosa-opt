@@ -15,7 +15,7 @@ The proxy runs `rust-analyzer` underneath, forwards normal Rust language-server 
 
    ```bash
    curl -L -o furiosa-rust-analyzer-proxy \
-     https://github.com/furiosa-ai/furiosa-opt/releases/latest/download/furiosa-rust-analyzer-proxy-x86_64-unknown-linux-gnu
+     https://github.com/furiosa-ai/furiosa-opt/releases/latest/download/furiosa-rust-analyzer-proxy-v<VERSION>-x86_64-unknown-linux-gnu
    chmod +x furiosa-rust-analyzer-proxy
    ```
 

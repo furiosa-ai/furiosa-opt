@@ -47,17 +47,28 @@ for group in 0..Group::SIZE {
 }
 # }
 # #[tokio::main]
-# async fn main() {
-#     let mut device = Device::new(example.topology()).unwrap();
-#     launch(example, &mut device).await.unwrap();
+# async fn main() -> Result<(), Error> {
+#     let mut device = Device::new(example.topology())?;
+#     launch(example, &mut device).await?;
+#
+#     Ok(())
 # }
 ```
 
 The kernel crate requires `#![feature(proc_macro_hygiene, stmt_expr_attributes)]`.
-The trip count must be a compile-time constant.
+The loop must start at zero, run at least once, and have a compile-time constant end. `#[unroll]`
+fully expands that trip count; there is no source-level partial-unroll factor or hard maximum trip
+count. In practice, generated IR and code grow with the trip count, so reserve it for small loops.
+
+A runtime `if` inside the body is supported and is copied into every expanded iteration. A runtime
+loop end such as `0..valid_len` is rejected before unrolling because the compiler has no fixed
+number of body copies to create.
 The loop may be in a device entry point or a helper called by one.
 Nested loops are not unrolled automatically.
 To unroll every level, add `#[unroll]` to each loop.
+A nested loop with its own constant end is supported. An end that depends on an outer loop counter,
+such as `for j in 0..i`, is a runtime loop end and is rejected even when the outer loop has
+`#[unroll]`; loop construction currently happens before unrolling.
 
 The compiler checks for remaining loops after applying `#[unroll]`.
 Register-file reuse is enabled only when no loop remains anywhere in the kernel.
@@ -99,11 +110,13 @@ Therefore, `Contraction(i)` and `StoTrf(i + 1)` cannot overlap.
 # axes![Tok = 16, Red = 64, Out = 8, Group = 20];
 {{#include ../../../furiosa-opt-examples/src/double_buffering/rolled_kernel.rs:2:}}
 # #[tokio::main]
-# async fn main() {
-# let mut device = Device::new(rolled.topology()).unwrap();
+# async fn main() -> Result<(), Error> {
+# let mut device = Device::new(rolled.topology())?;
 # let activation = HbmTensor::<bf16, m![1], m![Tok, Red]>::new();
 # let weight = HbmTensor::<bf16, m![1], m![Group, Out, Red]>::new();
-# let _output = launch(rolled, (&mut device, &activation, &weight)).await.unwrap();
+# let _output = launch(rolled, (&mut device, &activation, &weight)).await?;
+#
+#     Ok(())
 # }
 ```
 
@@ -124,11 +137,13 @@ This makes `Contraction(first)` and `StoTrf(second)` available to the scheduler 
 # axes![Tok = 16, Red = 64, Out = 8, Group = 20, Pairs = 10];
 {{#include ../../../furiosa-opt-examples/src/double_buffering/software_pipelined_kernel.rs:2:}}
 # #[tokio::main]
-# async fn main() {
-# let mut device = Device::new(software_pipelined.topology()).unwrap();
+# async fn main() -> Result<(), Error> {
+# let mut device = Device::new(software_pipelined.topology())?;
 # let activation = HbmTensor::<bf16, m![1], m![Tok, Red]>::new();
 # let weight = HbmTensor::<bf16, m![1], m![Group, Out, Red]>::new();
-# let _output = launch(software_pipelined, (&mut device, &activation, &weight)).await.unwrap();
+# let _output = launch(software_pipelined, (&mut device, &activation, &weight)).await?;
+#
+#     Ok(())
 # }
 ```
 
@@ -148,11 +163,13 @@ This makes `Contraction(first)` and `StoTrf(second)` available to the scheduler 
 # axes![Tok = 16, Red = 64, Out = 8, Group = 20];
 {{#include ../../../furiosa-opt-examples/src/double_buffering/unrolled_kernel.rs:2:}}
 # #[tokio::main]
-# async fn main() {
-# let mut device = Device::new(unrolled.topology()).unwrap();
+# async fn main() -> Result<(), Error> {
+# let mut device = Device::new(unrolled.topology())?;
 # let activation = HbmTensor::<bf16, m![1], m![Tok, Red]>::new();
 # let weight = HbmTensor::<bf16, m![1], m![Group, Out, Red]>::new();
-# let _output = launch(unrolled, (&mut device, &activation, &weight)).await.unwrap();
+# let _output = launch(unrolled, (&mut device, &activation, &weight)).await?;
+#
+#     Ok(())
 # }
 ```
 

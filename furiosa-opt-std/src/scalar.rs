@@ -113,8 +113,8 @@ pub trait ScalarBytes: Scalar {
     fn from_le_bytes(bytes: &[u8]) -> Self;
 }
 
-/// A [`Scalar`] that may live in host/HBM/DM memory or be materialized by the
-/// commit, to-TRF, or transpose paths.
+/// A [`Scalar`] that may be used as a host/HBM/DM tensor element or materialized by the commit,
+/// to-TRF, or transpose paths.
 ///
 /// Every real tensor dtype implements this. The zero-point-subtracted
 /// contraction-engine stagings [`i5`]/[`i9`] deliberately do **not**: as a
@@ -139,10 +139,77 @@ pub trait ScalarBytes: Scalar {
 /// ```
 pub trait MaterializableScalar: Scalar {}
 
+/// A value that can be loaded from HBM and used as a device runtime scalar.
+/// `Storage` fixes its physical HBM representation independently of Rust's source type.
+///
+/// Runtime-only scalar types do not thereby become tensor-unit element types:
+/// ```compile_fail
+/// use furiosa_opt_std::prelude::*;
+/// fn tensor_element<D: MaterializableScalar>() {}
+/// tensor_element::<u64>();
+/// ```
+pub trait RuntimeScalar: Copy + Send + Sync + runtime_scalar_sealed::Sealed {
+    /// Fixed-width value written to HBM.
+    type Storage: Scalar;
+
+    /// Converts this value to its HBM representation.
+    fn into_storage(self) -> Self::Storage;
+}
+
+macro_rules! impl_runtime_scalar_identity {
+    ($($t:ty);* $(;)?) => {
+        $(
+            impl RuntimeScalar for $t {
+                type Storage = Self;
+
+                fn into_storage(self) -> Self::Storage {
+                    self
+                }
+            }
+        )*
+    };
+}
+
+impl_runtime_scalar_identity! {
+    i32;
+    u32;
+    i64;
+    u64;
+}
+
+impl RuntimeScalar for bool {
+    type Storage = u8;
+
+    fn into_storage(self) -> Self::Storage {
+        self.into()
+    }
+}
+
+#[cfg(target_pointer_width = "64")]
+impl RuntimeScalar for usize {
+    type Storage = u64;
+
+    fn into_storage(self) -> Self::Storage {
+        self as u64
+    }
+}
+
+mod runtime_scalar_sealed {
+    pub trait Sealed {}
+
+    impl Sealed for i32 {}
+    impl Sealed for u32 {}
+    impl Sealed for i64 {}
+    impl Sealed for u64 {}
+    impl Sealed for bool {}
+    #[cfg(target_pointer_width = "64")]
+    impl Sealed for usize {}
+}
+
 /// Implements [`Scalar`] (`BITS = size_of * 8`) and [`ScalarBytes`] (delegating to the type's inherent
 /// `from_le_bytes([u8; BITS/8])`) for each byte-aligned type. `bf16`/`f8e4m3`/`f8e5m2` are defined later
 /// in the module and supply their own inherent `from_le_bytes`. Sub-byte `i4` is hand-written below.
-macro_rules! impl_scalar {
+macro_rules! impl_scalar_repr {
     ($($t:ty);* $(;)?) => {
         $(
             impl Scalar for $t {
@@ -164,13 +231,19 @@ macro_rules! impl_scalar {
                     <$t>::from_le_bytes(arr)
                 }
             }
-            impl MaterializableScalar for $t {}
         )*
     };
 }
 
+macro_rules! impl_materializable_scalar {
+    ($($t:ty);* $(;)?) => {
+        impl_scalar_repr!($($t);*);
+        $(impl MaterializableScalar for $t {})*
+    };
+}
+
 // The byte-aligned scalars.
-impl_scalar! {
+impl_materializable_scalar! {
     i8;
     u8;
     i16;
@@ -179,6 +252,13 @@ impl_scalar! {
     f8e5m2;
     bf16;
     f32;
+}
+
+// These runtime-only types have a byte representation but are not tensor-unit element types.
+impl_scalar_repr! {
+    u32;
+    i64;
+    u64;
 }
 
 /// A data type that can be either initialized or uninitialized.

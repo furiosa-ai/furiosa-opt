@@ -39,9 +39,11 @@ mod tests {
         panic!("build-only fixture")
     }
 
-    async fn launches() {
+    async fn launches() -> eyre::Result<()> {
         let (mut device, f): (Device, HbmTensor<i32, m![1], m![B, F]>) = missing();
-        launch(bundle_copy, (&mut device, &f)).await.unwrap();
+        launch(bundle_copy, (&mut device, &f)).await?;
+
+        Ok(())
     }
 
     #[test]

@@ -23,12 +23,14 @@
 //! device-translation rule rather than an arithmetic one. The answer-key tests exercise that,
 //! asserting the panic where the emulator catches it too; only compilation must fail.
 //!
-//! The rejections rustc itself enforces, the VRF operand partition rules in [`vector_engine`],
-//! cannot be kernels here at all: stating one would stop this crate compiling. They live as
-//! `compile_fail` doctests in that module's docs, so `cargo test --doc` is their whole gate, and they
-//! appear in neither `snapshot.toml` nor the refused / compiled counts.
+//! The rejections rustc itself enforces -- the VRF operand partition rules in [`vector_engine`],
+//! the per-PE SPM budget in [`scatter_gather`] -- cannot be kernels here at all: stating one would
+//! stop this crate compiling. They live as `compile_fail` doctests in those modules' docs, so
+//! `cargo test --doc` is their whole gate, and they appear in neither `snapshot.toml` nor the
+//! refused / compiled counts.
 
 pub mod array_index;
+pub mod blocking_flits;
 pub mod contract_outer_assertions;
 pub mod dm_slice;
 pub mod dma;

@@ -10,6 +10,8 @@
 pub(crate) mod op_prep;
 
 mod cpu;
+/// Index units and validation for indirect DMA.
+pub mod indirect;
 /// NPU backend.
 pub mod npu;
 
@@ -21,10 +23,11 @@ use crate::Error;
 use crate::cast::{ContractionAccumulator, ContractionCast};
 use crate::context::{Dma, DmaContext};
 use crate::runtime::Topology;
-use crate::scalar::{MaterializableScalar, Scalar};
-use crate::tensor::memory::{HbmTensor, HostTensor};
+use crate::scalar::{MaterializableScalar, RuntimeScalar, Scalar};
+use crate::tensor::memory::{DmAllocError, DmTensor, HbmScalar, HbmTensor, HostTensor};
 
 pub use cpu::Cpu;
+pub use indirect::{IndexUnit, IndexValueError};
 pub use npu::Npu;
 
 /// Backend for tensor operations.
@@ -79,6 +82,13 @@ pub trait Backend: Sized + 'static {
     /// Required, no default: whether an HBM tensor needs a device allocation is a backend's own call.
     /// `Npu` takes one and hands its ownership to the tensor; the host-side backends hold bytes.
     fn alloc_hbm<D: Scalar, Chip: M, Element: M>() -> HbmTensor<D, Chip, Element, Self>;
+
+    /// A runtime-owned DM tensor on `group` (see
+    /// [`crate::tensor::memory::DmTensor::alloc`]). `Npu` takes a resident SRAM allocation the
+    /// tensor owns; the host-side backends hold bytes.
+    fn alloc_dm<D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M>(
+        group: &Self::Device,
+    ) -> Result<DmTensor<D, Chip, Cluster, Slice, Element, Self>, DmAllocError>;
 
     /// Serialize the storage to a flat `D` buffer in `mapping`-order (the physical / wire layout),
     /// consuming the storage, delegating to the concrete storage's inherent serializer.
@@ -201,19 +211,24 @@ pub trait Backend: Sized + 'static {
     ) -> Self::Storage<D>;
 
     /// Scatters `src` into `dst` at positions read from the same-backend `i32` index tensor.
-    fn scatter<D: Scalar, Src: M, Key: M, Dst: M, Idx: M>(
+    fn scatter<D: Scalar, Src: M, Domain: M, IndexedAxis: M, Dst: M, Idx: M>(
         src: &Self::Storage<D>,
         dst: &mut Self::Storage<D>,
         index: &Self::Storage<i32>,
-        scaled: bool,
+        chip: &Mapping,
+        unit: IndexUnit,
     );
 
-    /// Gathers from `src` (table) into `dst` at positions read from the index tensor.
-    fn gather<D: MaterializableScalar, Src: M, Dst: M, Idx: M>(
+    /// Gathers from `src` along `IndexedAxis`, validating every index entry.
+    /// `prefix` limits output entries per chip; `None` gathers the whole list.
+    fn gather<D: MaterializableScalar, Src: M, IndexedAxis: M, Dst: M, Idx: M>(
         src: &Self::Storage<D>,
         dst: &mut Self::Storage<D>,
         index: &Self::Storage<i32>,
-        scaled: bool,
+        domain: &Mapping,
+        chip: &Mapping,
+        prefix: Option<usize>,
+        unit: IndexUnit,
     );
 
     /// Reinterprets `src`'s buffer under a new mapping `Dst`, returning the result. A relabeling, not
@@ -259,6 +274,19 @@ pub trait Backend: Sized + 'static {
         host: &HostTensor<D, Element, Self>,
         dma: &DmaContext<{ Dma::Pcie }, Self>,
         hbm: &mut HbmTensor<D, Chip, Element2, Self>,
+    ) -> impl std::future::Future<Output = Result<(), Error>>;
+
+    /// Replicates one scalar into the local HBM of every device in the DMA context.
+    fn to_hbm_scalar<D: RuntimeScalar>(
+        value: D,
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+    ) -> impl std::future::Future<Output = Result<HbmScalar<D, Self>, Error>>;
+
+    /// Updates an existing replicated HBM scalar allocation.
+    fn to_hbm_scalar_into<D: RuntimeScalar>(
+        value: D,
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+        hbm: &mut HbmScalar<D, Self>,
     ) -> impl std::future::Future<Output = Result<(), Error>>;
 
     /// Transfer an HBM tensor into `host`'s own memory: pinned memory is the DMA's destination,

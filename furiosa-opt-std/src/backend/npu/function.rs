@@ -9,10 +9,35 @@ use furiosa_opt_rt::{self as rt, Buffer, View};
 use crate::Error;
 use crate::context::{Dma, DmaContext};
 use crate::prelude::HostTensor;
-use crate::scalar::MaterializableScalar;
+use crate::scalar::{MaterializableScalar, RuntimeScalar, Scalar};
 use crate::storage::BufStorage;
 use crate::tensor::Tensor;
-use crate::tensor::memory::HbmTensor;
+use crate::tensor::memory::{HbmScalar, HbmTensor};
+
+trait HbmBuffer {
+    fn buffer(&self) -> Option<&Buffer>;
+    fn place(&mut self, buffer: Buffer);
+}
+
+impl<D: Scalar, Chip: M, Element: M> HbmBuffer for HbmTensor<D, Chip, Element, Npu> {
+    fn buffer(&self) -> Option<&Buffer> {
+        HbmTensor::owner(self)
+    }
+
+    fn place(&mut self, buffer: Buffer) {
+        HbmTensor::own(self, buffer);
+    }
+}
+
+impl<D: RuntimeScalar> HbmBuffer for HbmScalar<D, Npu> {
+    fn buffer(&self) -> Option<&Buffer> {
+        HbmScalar::buffer(self)
+    }
+
+    fn place(&mut self, buffer: Buffer) {
+        HbmScalar::place(self, buffer);
+    }
+}
 
 /// A device function loaded on the NPU backend's device: what a `#[device]` fn launches through.
 pub struct Function(Arc<furiosa_opt_rt::Function>);
@@ -73,10 +98,12 @@ impl Function {
         }
         Ok(())
     }
+}
 
+impl Function {
     /// Allocates `size` bytes on every chip of the function's device.
-    pub fn alloc(&self, size: usize) -> Result<Buffer, Error> {
-        Ok(self.0.device().alloc(size)?)
+    pub(super) fn alloc(&self, size: usize) -> Result<Buffer, Error> {
+        Ok(self.0.device().alloc(rt::image::Memory::Dram, size)?)
     }
 
     /// Bytes one chip holds of an HBM tensor spread over `Chip` chips: the device binds per
@@ -91,7 +118,7 @@ impl Function {
     }
 
     /// Writes a host tensor into a fresh device allocation.
-    pub async fn write<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
+    pub(super) async fn write<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
         dma: &DmaContext<{ Dma::Pcie }, Npu>,
         host: &HostTensor<D, Element, Npu>,
     ) -> Result<HbmTensor<D, Chip, Element2, Npu>, Error> {
@@ -101,33 +128,48 @@ impl Function {
     }
 
     /// Writes a host tensor into `hbm`, allocating on the device only when `hbm` is unplaced.
-    pub async fn write_into<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
+    pub(super) async fn write_into<D: MaterializableScalar, Element: M, Chip: M, Element2: M>(
         dma: &DmaContext<{ Dma::Pcie }, Npu>,
         host: &HostTensor<D, Element, Npu>,
         hbm: &mut HbmTensor<D, Chip, Element2, Npu>,
     ) -> Result<(), Error> {
         let device = dma.device().inner();
-        let buffer = match hbm.buffer() {
-            Some(buffer) => buffer.clone(),
-            None => {
-                let buffer = device.alloc(Self::device_bytes::<Chip>(D::size_in_bytes_from_length(Element::SIZE)))?;
-                hbm.place(buffer.clone());
-                buffer
-            }
-        };
+        let bytes_per_chip = Self::device_bytes::<Chip>(D::size_in_bytes_from_length(Element::SIZE));
+        let buffer = Self::buffer_for_write(device, hbm, bytes_per_chip)?;
         let bytes: &[u8] = host.storage().inner().as_ref();
         device
-            .write(
-                Self::views::<Chip>(device, &buffer)
-                    .into_iter()
-                    .map(|view| (bytes, view)),
-            )
+            .write([(bytes, Self::all_chip_view::<Chip>(device, &buffer)?)])
             .await?;
         Ok(())
     }
 
+    /// Writes one value into the local HBM allocation of every chip in the group.
+    pub(super) async fn write_scalar<D: RuntimeScalar>(
+        dma: &DmaContext<{ Dma::Pcie }, Npu>,
+        value: D,
+    ) -> Result<HbmScalar<D, Npu>, Error> {
+        let mut hbm = HbmScalar::from_value(value);
+        Self::write_scalar_into(dma, value, &mut hbm).await?;
+        Ok(hbm)
+    }
+
+    /// Updates a scalar allocation on every chip in the group.
+    pub(super) async fn write_scalar_into<D: RuntimeScalar>(
+        dma: &DmaContext<{ Dma::Pcie }, Npu>,
+        value: D,
+        hbm: &mut HbmScalar<D, Npu>,
+    ) -> Result<(), Error> {
+        let device = dma.device().inner();
+        let value_bytes = HbmScalar::<D, Npu>::encode(value);
+        let buffer = Self::buffer_for_write(device, hbm, value_bytes.len())?;
+        let all_chip_bytes = value_bytes.repeat(device.ranks().count());
+        device.write([(all_chip_bytes.as_slice(), buffer.on_all())]).await?;
+        hbm.set_value(value);
+        Ok(())
+    }
+
     /// Reads a device tensor into fresh host memory.
-    pub async fn read<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
+    pub(super) async fn read<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
         dma: &DmaContext<{ Dma::Pcie }, Npu>,
         hbm: &HbmTensor<D, Chip, Element, Npu>,
     ) -> Result<HostTensor<D, Element2, Npu>, Error> {
@@ -139,27 +181,46 @@ impl Function {
     }
 
     /// Reads a device tensor into `host`'s own memory; pinned memory receives the DMA directly.
-    pub async fn read_into<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
+    pub(super) async fn read_into<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(
         dma: &DmaContext<{ Dma::Pcie }, Npu>,
         hbm: &HbmTensor<D, Chip, Element, Npu>,
         host: &mut HostTensor<D, Element2, Npu>,
     ) -> Result<(), Error> {
         let device = dma.device().inner();
-        let buffer = hbm.buffer().ok_or(Error::Unplaced)?;
-        // Replicated chips hold identical bytes, so the first chip's view is the whole tensor.
-        let view = Self::views::<Chip>(device, buffer).swap_remove(0);
+        let buffer = hbm.owner().ok_or(Error::Unplaced)?;
+        let view = Self::all_chip_view::<Chip>(device, buffer)?;
         device.read([(view, host.storage_mut().inner_mut().as_mut())]).await?;
         Ok(())
     }
+}
 
-    /// A one-device axis replicates the host bytes, one view per device; a wider axis deals the
-    /// host bytes across the chips through one view.
-    fn views<Chip: M>(device: &rt::Device, buffer: &Buffer) -> Vec<View> {
-        if Chip::SIZE == 1 {
-            device.ranks().map(|rank| buffer.on(rank)).collect()
-        } else {
-            vec![buffer.on_all()]
+impl Function {
+    fn buffer_for_write(
+        device: &rt::Device,
+        target: &mut impl HbmBuffer,
+        bytes_per_chip: usize,
+    ) -> Result<Buffer, Error> {
+        if let Some(buffer) = target.buffer() {
+            return Ok(buffer.clone());
         }
+        let buffer = device.alloc(rt::image::Memory::Dram, bytes_per_chip)?;
+        target.place(buffer.clone());
+        Ok(buffer)
+    }
+
+    fn all_chip_view<Chip: M>(device: &rt::Device, buffer: &Buffer) -> Result<View, Error> {
+        let devices = device.ranks().count();
+        Self::ensure_device_extent(Chip::SIZE, devices)?;
+        Ok(buffer.on_all())
+    }
+
+    fn ensure_device_extent(chip_extent: usize, devices: usize) -> Result<(), Error> {
+        if chip_extent != devices {
+            return Err(Error::Chips(format!(
+                "HBM chip extent {chip_extent} does not match the device group size {devices}"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -189,5 +250,11 @@ mod tests {
         assert_eq!(Function::device_bytes::<m![2]>(64), 32);
         assert!(std::panic::catch_unwind(|| Function::device_bytes::<m![0]>(64)).is_err());
         assert!(std::panic::catch_unwind(|| Function::device_bytes::<m![2]>(63)).is_err());
+    }
+
+    #[test]
+    fn rejects_a_smaller_chip_extent_instead_of_replicating_it() {
+        assert!(Function::ensure_device_extent(1, 4).is_err());
+        assert!(Function::ensure_device_extent(4, 4).is_ok());
     }
 }

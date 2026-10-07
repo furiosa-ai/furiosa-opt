@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use furiosa_mapping::*;
 use rayon::prelude::*;
 
-use crate::backend::op_prep::{broadcast_axes, gather_params, scatter_params, transpose_broadcast};
+use crate::backend::indirect::{IndexUnit, IndexValueError};
+use crate::backend::op_prep::{broadcast_axes, transpose_broadcast};
 use crate::cast::{Cast, ContractionAccumulator, ContractionCast};
 use crate::scalar::*;
 use crate::storage::par_iters::MappingPositions;
@@ -497,98 +498,143 @@ impl<D: Scalar, B: Buf> BufStorage<D, B> {
         Self::contraction_in::<D>(lhs, rhs, lhs_map, rhs_map, pre_reduce, out_map)
     }
 
-    /// Scatters `self` into `dst` at positions read from the `i32` index tensor. Backs
-    /// [`crate::backend::Backend::scatter`].
-    pub(crate) fn scatter<Src: M, Key: M, Dst: M, Idx: M>(
+    /// Scatters into each physical chip's destination, skipping chip and payload padding.
+    pub(crate) fn scatter<Src: M, Domain: M, IndexedAxis: M, Dst: M, Idx: M>(
         &self,
         dst: &mut BufStorage<D, B>,
         index: &BufStorage<i32, B>,
-        scaled: bool,
+        chip: &Mapping,
+        unit: IndexUnit,
     ) {
-        let key = Key::to_value();
-        let (payload, dst_term) = scatter_params(&Src::to_value(), &Dst::to_value(), &key);
-        let payload = payload.remove_padding();
-        let scatter_axis = Mapping::from_terms(std::iter::once(dst_term.to_term()));
-        // The index tensor's buffer holds exactly one element per `Idx` position, which is why
-        // `decode_indices` reads it whole.
-        debug_assert_eq!(index.len(), Idx::SIZE);
-        let indices = decode_indices(index, decode_stride::<D>(&payload, scaled));
+        let updates = in_chip_elements(&Src::to_value(), chip);
+        let destination = in_chip_elements(&Dst::to_value(), chip);
+        let domain = Domain::to_value();
+        let indexed_axis = IndexedAxis::to_value();
 
-        let key_size = key.size();
-        let axis_size = scatter_axis.size();
-        let src_off: Vec<usize> = sequence(&[&Src::to_value()], &[&payload.clone().pair(key)], SequencerMode::Read)
-            .expect("scatter: Src factors into payload x key")[0]
-            .iter()
-            .collect();
-        let dst_off: Vec<usize> = sequence(&[&Dst::to_value()], &[&payload.pair(scatter_axis)], SequencerMode::Read)
-            .expect("scatter: Dst factors into payload x scatter-axis")[0]
-            .iter()
-            .collect();
-        // Serial element copy through the accessor (scatter is inherently serial: distinct keys can map to
-        // the same dst element, so the last write wins). The accessor keeps it correct for a packed dst.
-        for payload_pos in 0..src_off.len() / key_size {
-            for key_pos in 0..key_size {
-                let src_elem = src_off[payload_pos * key_size + key_pos];
-                let dst_elem = dst_off[payload_pos * axis_size + indices[key_pos]];
-                let v = self.get(src_elem);
-                dst.set(dst_elem, v);
+        let domain_size = domain.iter_positions().flatten().count();
+        let indexed_axis_size = indexed_axis.iter_positions().flatten().count();
+        let index_positions =
+            axis_positions_by_chip(index, &Idx::to_value(), chip, unit, indexed_axis_size, domain_size);
+
+        let (update_offsets, destination_offsets) = {
+            let payload = destination
+                .remove_axis(&indexed_axis)
+                .unwrap_or_else(|error| {
+                    panic!("scatter destination {destination} does not hold {indexed_axis} as one region: {error}")
+                })
+                .normalize();
+            let update_offsets = live_offsets_by(
+                &updates,
+                &payload,
+                &domain,
+                "scatter: updates factor into payload x domain",
+            );
+            let destination_offsets = live_offsets_by(
+                &destination,
+                &payload,
+                &indexed_axis,
+                "scatter: destination factors into payload x indexed axis",
+            );
+            (update_offsets, destination_offsets)
+        };
+
+        for (physical_chip, positions) in index_positions.iter().enumerate() {
+            let Some(positions) = positions else { continue };
+            let update_base = physical_chip * updates.size();
+            let destination_base = physical_chip * destination.size();
+            for (update_row, destination_row) in update_offsets
+                .chunks_exact(domain_size)
+                .zip(destination_offsets.chunks_exact(indexed_axis_size))
+            {
+                // Each row fixes one payload coordinate; domain order makes the last update win.
+                for (domain_position, &update_offset) in update_row.iter().enumerate() {
+                    let indexed_position = positions[domain_position];
+                    let destination_offset = destination_base + destination_row[indexed_position];
+                    let value = self.get(update_base + update_offset);
+                    dst.set(destination_offset, value);
+                }
             }
         }
     }
 
-    /// Gathers from `self` (table) into `dst` at positions read from the index tensor. Backs
-    /// [`crate::backend::Backend::gather`].
-    pub(crate) fn gather<Src: M, Dst: M, Idx: M>(
+    /// Gathers on each physical chip, skipping chip padding and validating the full index list.
+    pub(crate) fn gather<Src: M, IndexedAxis: M, Dst: M, Idx: M>(
         &self,
         dst: &mut BufStorage<D, B>,
         index: &BufStorage<i32, B>,
-        scaled: bool,
+        domain: &Mapping,
+        chip: &Mapping,
+        prefix: Option<usize>,
+        unit: IndexUnit,
     ) where
         D: MaterializableScalar,
         B: Sync,
     {
-        let params = gather_params(&Src::to_value(), &Dst::to_value(), &Idx::to_value());
-        let payload = params.payload.remove_padding();
-        let gather_axis = Mapping::from_terms(std::iter::once(params.src_term.to_term()));
-        // The compact residue axes are exactly the index tensor's mapping.
-        let idx_residue = Idx::to_value();
-        let indices = decode_indices(index, decode_stride::<D>(&payload, scaled));
+        let table = in_chip_elements(&Src::to_value(), chip);
+        let output = in_chip_elements(&Dst::to_value(), chip);
+        let indexed_axis = IndexedAxis::to_value();
 
-        let axis_size = gather_axis.size();
-        let residue_size = idx_residue.size();
-        let src_off: Vec<usize> = sequence(
-            &[&Src::to_value()],
-            &[&payload.clone().pair(gather_axis)],
-            SequencerMode::Read,
-        )
-        .expect("gather: Src table factors into payload x gather-axis")[0]
-            .iter()
-            .collect();
-        let dst_off: Vec<usize> = sequence(&[&Dst::to_value()], &[&payload.pair(idx_residue)], SequencerMode::Read)
-            .expect("gather: Dst factors into payload x idx-residue")[0]
-            .iter()
-            .collect();
-        // Each payload block writes its `residue_size` dst elements, and `dst_off` is a permutation of dst
-        // positions (distinct), so the blocks scatter into disjoint slots. The index only repeats *reads*
-        // (`src_off[... + indices[r]]`), never a write. The dst positions `dst_off` names are permuted, not
-        // a contiguous range, so range-partitioning the dst (the uniform safe scatter) needs the inverse:
-        // `writer[dst_elem]` is the `(payload_pos, r)` flat index that writes `dst_elem`, or `None` for a
-        // dst position the gather does not touch (which then keeps its prior value).
-        let mut writer: Vec<Option<usize>> = vec![None; dst.len()];
-        for (flat, &dst_elem) in dst_off.iter().enumerate() {
-            writer[dst_elem] = Some(flat);
-        }
-        // Range-partition the dst: each rayon job owns a contiguous, byte-aligned element range, reads its
-        // permuted source through the shared `&` source (a race-free read), and writes only positions it
-        // owns. Safe for every width, no branch on packing.
-        dst.par_chunks_mut(min_cells_per_job(residue_size).saturating_mul(residue_size))
+        let domain_size = domain.iter_positions().flatten().count();
+        let indexed_axis_size = indexed_axis.iter_positions().flatten().count();
+        // DMA may execute past the prefix, so every index value must be valid.
+        let index_positions =
+            axis_positions_by_chip(index, &Idx::to_value(), chip, unit, indexed_axis_size, domain_size);
+
+        let source_by_output = {
+            let payload = table
+                .remove_axis(&indexed_axis)
+                .unwrap_or_else(|error| {
+                    panic!("gather table {table} does not hold {indexed_axis} as one region: {error}")
+                })
+                .normalize();
+            let table_offsets = live_offsets_by(
+                &table,
+                &payload,
+                &indexed_axis,
+                "gather: table factors into payload x indexed axis",
+            );
+            let output_offsets = live_offsets_by(
+                &output,
+                &payload,
+                domain,
+                "gather: output factors into payload x domain",
+            );
+            let requested = prefix.unwrap_or(domain_size).min(domain_size);
+            let mut source_by_output = vec![None; dst.len()];
+            for (physical_chip, positions) in index_positions.iter().enumerate() {
+                let Some(positions) = positions else { continue };
+                let table_base = physical_chip * table.size();
+                let output_base = physical_chip * output.size();
+                // Matching rows retain the payload coordinate while replacing the indexed axis with domain.
+                for (table_row, output_row) in table_offsets
+                    .chunks_exact(indexed_axis_size)
+                    .zip(output_offsets.chunks_exact(domain_size))
+                {
+                    for (domain_position, &output_offset) in output_row.iter().take(requested).enumerate() {
+                        let indexed_position = positions[domain_position];
+                        let table_offset = table_base + table_row[indexed_position];
+                        let output_offset = output_base + output_offset;
+                        assert!(
+                            source_by_output[output_offset].is_none(),
+                            "destination slot {output_offset} is written by two stream positions"
+                        );
+                        source_by_output[output_offset] = Some(table_offset);
+                    }
+                }
+            }
+            source_by_output
+        };
+
+        // Byte-aligned chunks keep packed sub-byte writes disjoint across workers.
+        dst.par_chunks_mut(min_cells_per_job(domain_size).saturating_mul(domain_size))
             .in_pool(&BUF_POOL)
             .for_each(|mut chunk| {
-                for dst_elem in chunk.range() {
-                    let Some(flat) = writer[dst_elem] else { continue };
-                    let (payload_pos, r) = (flat / residue_size, flat % residue_size);
-                    let src_elem = src_off[payload_pos * axis_size + indices[r]];
-                    chunk.set(dst_elem, self.get(src_elem));
+                for output_offset in chunk.range() {
+                    let Some(table_offset) = source_by_output[output_offset] else {
+                        continue;
+                    };
+                    let value = self.get(table_offset);
+                    chunk.set(output_offset, value);
                 }
             });
     }
@@ -812,36 +858,98 @@ fn place_live_elems<D: Scalar>(dst_map: &Mapping, mut live: impl Iterator<Item =
     data
 }
 
-/// Decodes a `BufStorage`-backed `i32` index tensor to element positions: each value divided by the
-/// stride from [`decode_stride`] (a byte stride when scaled, else 1). `BufStorage` offsets are
-/// physical and `data` already holds exactly the index mapping's cells, so the whole buffer is read.
-/// Shared by scatter and gather.
-fn decode_indices<B: Buf>(index: &BufStorage<i32, B>, index_stride: usize) -> Vec<usize> {
-    // The index buffer holds exactly the index mapping's elements; read them in order (an `i32` decode is
-    // a whole-value read, so this is the cheap byte-multiple path).
-    (0..index.len())
-        .map(|i| {
-            let raw = index.get(i);
-            let pos = usize::try_from(raw)
-                .unwrap_or_else(|_| panic!("scatter/gather index at cell {i} must be non-negative, got {raw}"));
-            pos / index_stride
+fn lcm(a: usize, b: usize) -> usize {
+    a / gcd(a, b) * b
+}
+
+/// The element layout within one physical chip slot of an outermost-chip mapping.
+fn in_chip_elements(mapping: &Mapping, chip: &Mapping) -> Mapping {
+    assert_ne!(chip.size(), 0, "indirect DMA must span at least one chip");
+    assert!(
+        mapping.size().is_multiple_of(chip.size()),
+        "tensor must contain whole physical chip slots"
+    );
+    mapping
+        .split_at(mapping.size() / chip.size())
+        .expect("tensor must have an outermost chip mapping")
+        .1
+}
+
+/// Decodes all live index values per active chip, retaining physical chip numbers.
+fn axis_positions_by_chip<B: Buf>(
+    index: &BufStorage<i32, B>,
+    mapping: &Mapping,
+    chip: &Mapping,
+    unit: IndexUnit,
+    axis_size: usize,
+    entries: usize,
+) -> Vec<Option<Vec<usize>>> {
+    assert_eq!(
+        index.len(),
+        mapping.size(),
+        "index buffer holds exactly one cell per declared index position"
+    );
+    let elements = in_chip_elements(mapping, chip);
+    let cells = live_cells(&elements);
+    assert!(
+        entries <= cells.len(),
+        "a chip's index cells must carry every domain entry"
+    );
+    chip.iter_positions()
+        .enumerate()
+        .map(|(physical_chip, live)| {
+            live.map(|_| {
+                let base = physical_chip * elements.size();
+                let cells = cells.iter().map(|cell| base + cell).collect::<Vec<_>>();
+                all_axis_positions(index, &cells, unit, axis_size).unwrap_or_else(|error| panic!("{error}"))
+            })
         })
         .collect()
 }
 
-/// The divisor [`decode_indices`] applies: a scaled index tensor holds byte offsets into
-/// payload-sized blocks (divide by the block's byte size); an unscaled one holds element indices.
-fn decode_stride<D>(payload: &Mapping, scaled: bool) -> usize {
-    if scaled {
-        payload.size() * std::mem::size_of::<D>()
-    } else {
-        1
-    }
+/// Live offsets when `mapping` factors as `payload` then `axis`; panics otherwise.
+fn live_offsets_by(mapping: &Mapping, payload: &Mapping, axis: &Mapping, what: &str) -> Vec<usize> {
+    let stream = payload.clone().pair(axis.clone());
+    // The sequencer includes padded stream positions; keep only their live cells.
+    sequence(&[mapping], &[&stream], SequencerMode::Read).expect(what)[0]
+        .iter()
+        .zip(stream.iter_positions())
+        .filter_map(|(offset, live)| live.map(|_| offset))
+        .collect()
 }
 
-/// Least common multiple, for the byte-alignment quantum of a [`BufStorage::par_chunks_mut`] chunk.
-fn lcm(a: usize, b: usize) -> usize {
-    a / gcd(a, b) * b
+fn live_cells(mapping: &Mapping) -> Vec<usize> {
+    mapping
+        .iter_positions()
+        .enumerate()
+        .filter_map(|(cell, live)| live.map(|_| cell))
+        .collect()
+}
+
+/// Decodes one index value to its position along the indexed axis.
+fn decode_axis_position(value: i32, cell: usize, unit: IndexUnit, axis_size: usize) -> Result<usize, IndexValueError> {
+    let axis_position = unit.decode(value, cell)?;
+    if axis_position >= axis_size {
+        return Err(IndexValueError::PastEnd {
+            cell,
+            position: axis_position,
+            axis_size,
+        });
+    }
+    Ok(axis_position)
+}
+
+/// The axis position every entry selects, for an operation that reads the whole list.
+fn all_axis_positions<B: Buf>(
+    index: &BufStorage<i32, B>,
+    cells: &[usize],
+    unit: IndexUnit,
+    axis_size: usize,
+) -> Result<Vec<usize>, IndexValueError> {
+    cells
+        .iter()
+        .map(|&cell| decode_axis_position(index.get(cell), cell, unit, axis_size))
+        .collect()
 }
 
 fn gcd(mut a: usize, mut b: usize) -> usize {
@@ -854,6 +962,75 @@ fn gcd(mut a: usize, mut b: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroUsize;
+
+    #[test]
+    fn a_byte_offset_between_two_rows_is_refused() {
+        let stride = NonZeroUsize::new(8).unwrap();
+
+        assert_eq!(
+            decode_axis_position(9, 0, IndexUnit::Bytes(stride), 4),
+            Err(IndexValueError::OffBoundary {
+                cell: 0,
+                raw: 9,
+                stride: 8,
+            }),
+        );
+    }
+
+    #[test]
+    fn an_index_past_the_end_of_the_axis_is_refused() {
+        assert_eq!(
+            decode_axis_position(4, 0, IndexUnit::Positions, 4),
+            Err(IndexValueError::PastEnd {
+                cell: 0,
+                position: 4,
+                axis_size: 4,
+            }),
+        );
+    }
+
+    #[test]
+    fn a_negative_index_is_refused() {
+        assert_eq!(
+            decode_axis_position(-1, 0, IndexUnit::Positions, 4),
+            Err(IndexValueError::Negative { cell: 0, raw: -1 }),
+        );
+    }
+
+    #[test]
+    fn a_padded_index_mapping_gathers_by_live_entry() {
+        axes![K = 4, D = 2, G = 3];
+        // Row `k` is `[10k, 10k + 1]`, so a gathered row names the position it came from.
+        let table = BufStorage::<_, Vec<u8>>::from_vec((0..K::SIZE).flat_map(|k| [10 * k as i32, 10 * k as i32 + 1]));
+        // SPM padding expands the declared cells, but the entry stride remains three.
+        let mut index = BufStorage::<_, Vec<u8>>::from_vec(vec![0i32; <m![1 # 4, G]>::SIZE]);
+        for (cell, position) in [2i32, 0, 3].into_iter().enumerate() {
+            index.set(cell, position);
+        }
+        let mut output = BufStorage::<_, Vec<u8>>::from_vec(vec![0i32; <m![G, D]>::SIZE]);
+
+        table.gather::<m![K, D], m![K], m![G, D], m![1 # 4, G]>(
+            &mut output,
+            &index,
+            &<m![G]>::to_value(),
+            &<m![1]>::to_value(),
+            None,
+            IndexUnit::Positions,
+        );
+
+        assert_eq!(output.to_vec(), vec![20, 21, 0, 1, 30, 31]);
+    }
+
+    #[test]
+    fn an_invalid_index_reports_its_physical_cell() {
+        let index = BufStorage::<_, Vec<u8>>::from_vec([0_i32, 0, 1, 0, -1]);
+
+        assert_eq!(
+            all_axis_positions(&index, &[0, 2, 4], IndexUnit::Positions, 3),
+            Err(IndexValueError::Negative { cell: 4, raw: -1 }),
+        );
+    }
 
     /// `zeroed(n)` must allocate the same byte length as the `from_vec` path it replaced, for every
     /// dtype -- i.e. the host image size `load`/`store` address, not the `BITS`-based wire size. A

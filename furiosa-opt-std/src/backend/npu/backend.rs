@@ -5,10 +5,11 @@ use std::sync::Arc;
 use crate::Error;
 use crate::scalar::{MaterializableScalar, Scalar};
 use crate::storage::BufStorage;
-use crate::tensor::memory::{HbmTensor, HostTensor};
+use crate::tensor::memory::{DmAllocError, DmTensor, HbmScalar, HbmTensor, HostTensor};
 
 use super::{Function, HostBuf};
 use crate::backend::Backend;
+use crate::backend::indirect::IndexUnit;
 use crate::cast::{ContractionAccumulator, ContractionCast};
 use crate::context::{Dma, DmaContext};
 use crate::runtime::Topology;
@@ -103,6 +104,24 @@ impl Backend for Npu {
         HbmTensor::unbacked()
     }
 
+    fn alloc_dm<D: Scalar, Chip: M, Cluster: M, Slice: M, Element: M>(
+        group: &Self::Device,
+    ) -> Result<DmTensor<D, Chip, Cluster, Slice, Element, Self>, DmAllocError> {
+        // One slice's bytes: a resident sits at the same address in every slice of every device.
+        let size = D::size_in_bytes_from_length(Element::SIZE);
+        let devices = group.inner().chips();
+        if Chip::SIZE != devices {
+            return Err(DmAllocError::Topology {
+                tensor_chips: Chip::SIZE,
+                device_chips: devices,
+            });
+        }
+        let buffer = group.inner().alloc(furiosa_opt_rt::image::Memory::Sram, size)?;
+        let mut tensor = DmTensor::from_parts(crate::tensor::Tensor::zeroed());
+        tensor.own(buffer);
+        Ok(tensor)
+    }
+
     fn zeroed<D: Scalar>(mapping: &Mapping) -> Self::Storage<D> {
         BufStorage::zeroed(mapping.size())
     }
@@ -179,22 +198,26 @@ impl Backend for Npu {
         BufStorage::contraction_prewidened(lhs, rhs, lhs_map, rhs_map, pre_reduce, out)
     }
 
-    fn scatter<D: Scalar, Src: M, Key: M, Dst: M, Idx: M>(
+    fn scatter<D: Scalar, Src: M, Domain: M, IndexedAxis: M, Dst: M, Idx: M>(
         src: &Self::Storage<D>,
         dst: &mut Self::Storage<D>,
         index: &Self::Storage<i32>,
-        scaled: bool,
+        chip: &Mapping,
+        unit: IndexUnit,
     ) {
-        src.scatter::<Src, Key, Dst, Idx>(dst, index, scaled);
+        src.scatter::<Src, Domain, IndexedAxis, Dst, Idx>(dst, index, chip, unit);
     }
 
-    fn gather<D: MaterializableScalar, Src: M, Dst: M, Idx: M>(
+    fn gather<D: MaterializableScalar, Src: M, IndexedAxis: M, Dst: M, Idx: M>(
         src: &Self::Storage<D>,
         dst: &mut Self::Storage<D>,
         index: &Self::Storage<i32>,
-        scaled: bool,
+        domain: &Mapping,
+        chip: &Mapping,
+        prefix: Option<usize>,
+        unit: IndexUnit,
     ) {
-        src.gather::<Src, Dst, Idx>(dst, index, scaled);
+        src.gather::<Src, IndexedAxis, Dst, Idx>(dst, index, domain, chip, prefix, unit);
     }
 
     fn reshape<D: Scalar, Src: M, Dst: M>(src: &Self::Storage<D>) -> Self::Storage<D> {
@@ -229,6 +252,21 @@ impl Backend for Npu {
         hbm: &mut HbmTensor<D, Chip, Element2, Self>,
     ) -> Result<(), Error> {
         Function::write_into(dma, host, hbm).await
+    }
+
+    async fn to_hbm_scalar<D: crate::scalar::RuntimeScalar>(
+        value: D,
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+    ) -> Result<HbmScalar<D, Self>, Error> {
+        Function::write_scalar(dma, value).await
+    }
+
+    async fn to_hbm_scalar_into<D: crate::scalar::RuntimeScalar>(
+        value: D,
+        dma: &DmaContext<{ Dma::Pcie }, Self>,
+        hbm: &mut HbmScalar<D, Self>,
+    ) -> Result<(), Error> {
+        Function::write_scalar_into(dma, value, hbm).await
     }
 
     async fn from_hbm_into<D: MaterializableScalar, Chip: M, Element: M, Element2: M>(

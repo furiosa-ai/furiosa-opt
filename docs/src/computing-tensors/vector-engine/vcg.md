@@ -122,10 +122,14 @@ fn reduce_time_only<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, A / 4], m![R # 16], m![A % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_only(i);
+#
+# Ok(())
+# }
 ```
 
 In the example above, the sequencer iterates `R # 16` once with `size 16 : stride 1`, so `idx = t` for every time step.
@@ -163,10 +167,14 @@ fn reduce_time_reordered<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X # 256], m![R # 12 / 4, A, R # 12 % 4], m![B # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_reordered(i);
+#
+# Ok(())
+# }
 ```
 
 The compiler configures the time filter for this placement as follows:
@@ -218,10 +226,14 @@ fn reduce_slice_time_slicemajor<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 16 / 8, X, R # 16 / 4 % 2], m![R # 16 % 2, R # 16 / 2 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_slice_time_slicemajor(i);
+#
+# Ok(())
+# }
 ```
 
 The example places `R = 11` (padded to `R # 16`) across `Slice` and `Time` with the following sub-expressions.
@@ -309,10 +321,14 @@ fn reduce_time_slice_timemajor<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 16 / 2 % 2, X, R # 16 % 2], m![R # 16 / 4 % 2, R # 16 / 8], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_slice_timemajor(i);
+#
+# Ok(())
+# }
 ```
 
 The example places `R = 13` (padded to `R # 16`) across `Slice` and `Time` with the following sub-expressions.
@@ -422,10 +438,14 @@ fn reduce_packet_only<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![1], m![R # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_packet_only(i);
+#
+# Ok(())
+# }
 ```
 
 The example above places `R = 3` (padded to `R # 8`) entirely in `Packet` with a single sub-expression.
@@ -467,10 +487,14 @@ fn reduce_time_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 16 / 4], m![R # 16 % 4 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_packet(i);
+#
+# Ok(())
+# }
 ```
 
 The example above places `R = 10` (padded to `R # 16`) across `Time` and `Packet`:
@@ -670,10 +694,14 @@ fn reduce_wrong_ordering<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4, R # 16 / 8], m![R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_ordering(i);
+#
+# Ok(())
+# }
 ```
 
 ### `R` in `Slice` and `Time`, Interleaved
@@ -705,10 +733,14 @@ fn reduce_wrong_interleave<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 16 / 2 % 4], m![R # 16 / 8, R # 16 % 2], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_interleave(i);
+#
+# Ok(())
+# }
 ```
 
 ### `R` in `Slice` and `Time`, Over-padded
@@ -747,10 +779,14 @@ fn reduce_time_major_wrong<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![X, R # 20 % 4], m![A, R # 20 / 4], m![1 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_time_major_wrong(i);
+#
+# Ok(())
+# }
 ```
 
 ### `R` in `Packet`, Complex
@@ -782,10 +818,14 @@ fn reduce_wrong_packet_outer<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X, A / 2], m![R # 24 % 8], m![R # 24 / 8 # 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_packet_outer(i);
+#
+# Ok(())
+# }
 ```
 
 The second example has `R` sharing `Packet` with another axis `A`, so `A`'s elements occupy positions that the prefix-based count treats as padding.
@@ -813,9 +853,13 @@ fn reduce_wrong_mixed_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let i: VectorBranchTensor<'_, _, f32, m![1], m![1 # 2], m![X], m![R # 24 / 2], m![R # 24 % 2, A], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_mixed_packet(i);
+#
+# Ok(())
+# }
 ```
 
 ### `R` in `Slice` and `Packet`
@@ -861,9 +905,13 @@ fn reduce_wrong_slice_packet<'l, const T: Tu>(
         )
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # let i: VectorBranchTensor<'_, _, i32, m![1], m![1 # 2], m![R # 2048 / 8], m![1], m![R # 2048 % 8], Fresh, { stage::VeOrder::IntraFirst }> = VectorBranchTensor::new(&mut device.main, Tensor::zero(), TagMode::Zero);
 # let _o = reduce_wrong_slice_packet(i);
+#
+# Ok(())
+# }
 ```
 
 ## Constraints

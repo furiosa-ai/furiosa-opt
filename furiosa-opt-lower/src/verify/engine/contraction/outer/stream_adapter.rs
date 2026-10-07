@@ -65,17 +65,19 @@ pub fn config_stream_adapter(input: StreamAdapterInput) -> Result<(), StreamAdap
 
     // Packing pulls the innermost `pack_size` cells of `Time` into the packet.
     let pack_size = out_packet_bytes / FLIT_BYTES;
-    if !in_time.size().is_multiple_of(pack_size) {
-        return Err(StreamAdapterError::TimeNotPackable {
+    let (time_outer, time_packed) = in_time
+        .split_at(pack_size)
+        .map_err(|_| StreamAdapterError::TimeNotPackable {
             pack_size,
             time: in_time,
-        });
-    }
-    let (time_outer, time_packed) = in_time.split_at(pack_size);
+        })?;
 
     // `OutPacket = [packed cells of Time, inner flit]`; the inner flit is the input `Packet`.
     let flit_elements = length_from_bytes(element_bits, FLIT_BYTES)?;
-    let (out_packet_packed, out_packet_flit) = out_packet.split_at(flit_elements);
+    // `OutPacket` is one or two whole flits, checked above.
+    let (out_packet_packed, out_packet_flit) = out_packet
+        .split_at(flit_elements)
+        .expect("a flit divides a packet of whole flits");
     if out_packet_flit.normalize() != in_packet.normalize() {
         return Err(StreamAdapterError::FlitMismatch);
     }
@@ -87,8 +89,11 @@ pub fn config_stream_adapter(input: StreamAdapterInput) -> Result<(), StreamAdap
     if !out_time.size().is_multiple_of(time_outer.size()) {
         return Err(StreamAdapterError::TimeIndivisible);
     }
+    // The outer time divides `OutTime`, so its quotient does too.
     let tiling_size = out_time.size() / time_outer.size();
-    let (out_time_outer, _broadcast) = out_time.split_at(tiling_size);
+    let (out_time_outer, _broadcast) = out_time
+        .split_at(tiling_size)
+        .expect("a quotient divides what it came from");
     if out_time_outer.normalize() != time_outer.normalize() {
         return Err(StreamAdapterError::OutTimeMismatch);
     }

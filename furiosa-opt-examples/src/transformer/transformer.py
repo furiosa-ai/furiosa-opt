@@ -41,7 +41,7 @@ LAYERS = 28
 ROPE_THETA = 1_000_000.0
 SEED = 42
 
-# `dma_scatter` indices are byte offsets, so a `[.., N, D]` bf16 row is this wide.
+# Byte stride of a `[.., N, D]` bf16 cache row for `scatter_byte_offsets`.
 ROW_STRIDE_ND = N * D * 2
 
 # `crate_root` for `compile_from_visa`: the directory holding Cargo.toml.
@@ -211,8 +211,7 @@ def verify_projection(cfg, pos=5):
     k_npu = sample(T, N, D).to(DEVICE)  # k_cache  m![T, N, D]
     v_npu = sample(T, N, D).to(DEVICE)  # v_cache  m![T, N, D]
 
-    # dma_scatter indices are byte offsets along the scattered axis: row `pos` of
-    # a `[.., N, D]` bf16 table is `pos * N * D * 2` bytes in.
+    # Convert a row position to its byte offset in the KV cache.
     index_nd = torch.tensor([pos * N * D * 2], dtype=torch.int32).to(
         DEVICE
     )  # indexnd m![1], into [T, N, D]
@@ -429,7 +428,6 @@ class Pipeline:
         self.rope_cache = {}  # chunk -> (cos [T,D], sin [T,D])
         self.kv_cache = {}  # (chunk, layer) -> (k [T,N,D], v [T,N,D])
 
-        # `dma_scatter` takes byte offsets, one per KV-cache row.
         self.kv_offsets = torch.from_numpy(
             np.arange(T, dtype=np.int32) * ROW_STRIDE_ND
         ).to(DEVICE)
@@ -504,8 +502,7 @@ class Pipeline:
         cos_row, sin_row = cos_full[row], sin_full[row]
         kv_offset_row = self.kv_offsets[row : row + 1]
 
-        # Device-indexed rows everywhere except the KV-cache scatter, which still
-        # goes through the real `dma_scatter`-based kernel with a sliced offset.
+        # KV-cache scatter still receives a sliced byte offset.
         self.kernels['ops::embedding'](self.model['embedding_table'][token], self.x)
 
         def projection(proj, layer):

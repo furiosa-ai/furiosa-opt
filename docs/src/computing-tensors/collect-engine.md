@@ -36,10 +36,14 @@ fn collect_identity<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut device.main, Tensor::zero());
 # let _o = collect_identity(c);
+#
+# Ok(())
+# }
 ```
 
 When the input packet is already exactly 32 bytes, `collect` passes it through unchanged (`B = 32` elements × 1 byte for `i8` = 32 bytes).
@@ -75,10 +79,14 @@ fn collect_padding<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut device.main, Tensor::zero());
 # let _o = collect_padding(c);
+#
+# Ok(())
+# }
 ```
 
 When the input packet is smaller than 32 bytes, `collect` pads to 32 bytes (`B = 16` elements × 1 byte for `i8` = 16 bytes).
@@ -114,10 +122,14 @@ fn collect_multi_flit<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: SwitchTensor<'_, _, bf16, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut device.main, Tensor::zero());
 # let _o = collect_multi_flit(c);
+#
+# Ok(())
+# }
 ```
 
 When the input packet exceeds 32 bytes, `collect` splits into flits and absorbs the outer flit count into Time (`B = 32` elements × 2 bytes for `bf16` = 64 bytes, so `B / 16 = 2` flits).
@@ -155,10 +167,14 @@ fn collect_multi_flit_padded<'l, const T: Tu>(
     input.collect()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: SwitchTensor<'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![A], m![B]> = SwitchTensor::new(&mut device.main, Tensor::zero());
 # let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { collect_multi_flit_padded(c) }));
+#
+# Ok(())
+# }
 ```
 
 When the input packet is not aligned to 32 bytes, it is first padded (`B = 51` elements × 1 byte for `i8` = 51 bytes, padded to 64).

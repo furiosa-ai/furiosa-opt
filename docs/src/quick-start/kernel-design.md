@@ -85,9 +85,11 @@ The Switch Engine connects slices while most stages operate independently within
 |------|----------|-----------------|------|
 | `HbmTensor` | On-package | 48 GB and 1.5 TB/s | Long-term weight and activation storage. |
 | `DmTensor` | On-chip SRAM | 256 MB total and 512 KB per slice | Primary working memory. |
+| `SpmTensor` | On-chip scratchpad | 4 KB per PE and four PEs per cluster | Staging for small, reread values such as gather indices. |
 | `TrfTensor` | On-chip SRAM | 8 KB per lane and eight lanes per slice | Contraction Engine register file. |
 | `VrfTensor` | On-chip SRAM | 8 KB per slice | Vector Engine operand register file. |
 
+Convert a `DmTensor` to scratchpad with `to_spm` and back with `to_dm`; an SPM gather takes its index directly from an `SpmTensor`.
 These choices specialize the constant-add pattern.
 See [Mapping Tensors](../mapping-tensors/index.md) for the complete mapping model, [Moving Tensors](../moving-tensors/index.md) for memory movement, and [Computing Tensors](../computing-tensors/index.md) for the pipeline APIs.
 

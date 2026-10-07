@@ -58,10 +58,14 @@ fn relu<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: ContractTensor<'_, _, f32, m![1], m![B], m![K], m![M, N / 8], m![N % 8]> = ContractTensor::new(&mut device.main, Tensor::zero());
 # let _o = relu(c);
+#
+# Ok(())
+# }
 ```
 
 ### ReLU Then Reduce
@@ -90,10 +94,14 @@ fn relu_then_reduce<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = relu_then_reduce(c);
+#
+# Ok(())
+# }
 ```
 
 ### Reduce Then Bias
@@ -122,10 +130,14 @@ fn reduce_then_add<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8, R], m![1], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = reduce_then_add(c);
+#
+# Ok(())
+# }
 ```
 
 ### Intra- and Inter-Slice Reduction
@@ -159,10 +171,14 @@ fn full_sum<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, i32, m![1], m![B], m![R / 32], m![R % 32 / 4], m![R % 4 # 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = full_sum(c);
+#
+# Ok(())
+# }
 ```
 
 ### Pair Add
@@ -190,8 +206,12 @@ fn pair_add<'l, const T: Tu>(
         .vector_final()
 }
 # 
-# let mut device = Device::new(Topology { chips: 1, pes: 8 }).unwrap();
+# fn main() -> Result<(), Error> {
+# let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 # 
 # let c: CollectTensor<'_, _, i32, m![1], m![B], m![A / 8], m![I], m![A % 8]> = CollectTensor::new(&mut device.main, Tensor::zero());
 # let _o = pair_add(c);
+#
+# Ok(())
+# }
 ```
