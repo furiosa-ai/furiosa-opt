@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-369b31d2.js"></script>
@@ -183,21 +183,15 @@ These register files must be populated before their consumer engine runs.</p>
 <h2 id="tensor-register-file"><a class="header" href="#tensor-register-file">Tensor Register File</a></h2>
 <h3 id="interface"><a class="header" href="#interface">Interface</a></h3>
 <p>A <code>TrfTensor</code> is a tensor stored in the TRF:</p>
-<pre><code class="language-rust ignore">/// Tensor stored in the tensor register file.
-#[primitive(TrfTensor)]
-#[derive(Debug)]
-pub struct TrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Element: M, B: Backend = CurrentBackend&gt; {
-    pub(crate) inner: Tensor&lt;D, Pair&lt;Chip, Pair&lt;Cluster, Pair&lt;Slice, Pair&lt;Lane, Element&gt;&gt;&gt;&gt;, B&gt;,
-    _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Lane, Element)&gt;,
-}</code></pre>
+<pre><code class="language-rust ignore"></code></pre>
 <p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source.
 <code>Lane</code> indexes the spatial parallelism (1, 2, 4, or 8 active lanes).
 <code>Element</code> holds the per-lane layout.</p>
 <h4 id="from-collect-engine"><a class="header" href="#from-collect-engine">From Collect Engine</a></h4>
 <p><code>.to_trf::&lt;Lane, Element&gt;()</code> on <code>CollectTensor</code> produces a <code>TrfTensor</code>.
 Where in the register file it lands is the compiler’s to decide, so the call names no region:</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
-    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, { Tu::Sub }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Stores to the tensor register file.
     #[primitive(TuTensor::to_trf)]
@@ -205,7 +199,26 @@ Where in the register file it lands is the compiler’s to decide, so the call n
         verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;();
         TrfTensor::new(self.inner.transpose(false))
     }
+}
+
+impl&lt;'l, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+{
+    /// Stores to the tensor register file, occupying the sub context the write runs through.
+    ///
+    /// The borrow lasts the statement. The compiler manages register allocation separately,
+    /// so the returned [`TrfTensor`] keeps no context borrow.
+    #[primitive(TuTensor::to_trf_from_main)]
+    pub fn to_trf&lt;Lane: M, Element: M&gt;(
+        self,
+        _sub: &amp;mut TuContext&lt;{ Tu::Sub }&gt;,
+    ) -&gt; TrfTensor&lt;D, Chip, Cluster, Slice, Lane, Element, B&gt; {
+        verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;();
+        TrfTensor::new(self.inner.transpose(false))
+    }
 }</code></pre>
+<p>The store has one signature per context, and the examples here take the sub context’s.
+A store issued from the main context takes <code>device.sub</code> as an argument, because the write registers live in the sub context’s register map: see <a href="#which-context-a-store-occupies">Which context a store occupies</a>.</p>
 <p><code>.to_trf</code> reshapes the streaming <code>Time</code> / <code>Packet</code> into <code>Lane</code> / <code>Element</code>:</p>
 <pre><code class="language-text">Lane    = Time / FlitsPerLane
 Element = [Time % FlitsPerLane, Packet]
@@ -217,8 +230,8 @@ Element = [Time % FlitsPerLane, Packet]
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 32];
 
-fn load_trf&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt;,
+fn load_trf&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Sub }, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt;,
 ) -&gt; TrfTensor&lt;i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; {
     input.to_trf()
 }
@@ -226,7 +239,7 @@ fn load_trf&lt;'l, const T: Tu&gt;(
 </span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
 </span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, { Tu::Sub }, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; = CollectTensor::new(&amp;mut device.sub, Tensor::zero());
 </span><span class="boring">let _o = load_trf(c);
 </span><span class="boring">
 </span><span class="boring">Ok(())
@@ -244,8 +257,8 @@ type Lane    = m![N];
 
 /// Stores matmul weights into TRF for consumption by `bmatmul` in
 /// [Contraction Engine: Example: Batched MatMul](./contraction-engine/index.md#example-batched-matmul).
-fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt;,
+fn store_bmatmul_trf&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Sub }, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt;,
 ) -&gt; TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; {
     input.to_trf()
 }
@@ -253,7 +266,7 @@ fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
 </span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
 </span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, { Tu::Sub }, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.sub, Tensor::zero());
 </span><span class="boring">let _o = store_bmatmul_trf(c);
 </span><span class="boring">
 </span><span class="boring">Ok(())
@@ -292,7 +305,8 @@ Off a <code>vector_final</code>, the pass ends at the Vector Engine’s own writ
 <p>That is the only way a computed value reaches the VRF, since the <a href="#from-data-memory">DM-direct</a> store and the collect-position store both read Data Memory.
 Nothing after the Vector Engine can run in the same command, so a store cannot be combined with a cast, a transpose, or a commit.</p>
 <h4 id="which-context-a-store-occupies"><a class="header" href="#which-context-a-store-occupies">Which context a store occupies</a></h4>
-<p>A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes <code>&amp;mut device.sub</code> as well.
+<p>A store issued from the main context runs its write through the sub context, whichever register file it targets and whichever of the two positions above it takes, so it occupies both and takes <code>&amp;mut device.sub</code> as well.
+The scheduler reserves both contexts for the command, so no sub-context operation overlaps it.
 <code>device.main</code> and <code>device.sub</code> are separate fields, so a kernel (which holds <code>&amp;mut Device</code>) borrows both at once, as the example above does.</p>
 <p>The borrow lasts the statement, which is the extent of the occupancy: the sub context is free again once the command retires.
 How long the <em>register</em> stays occupied is a different question with a different answer (until the operand’s last read), and it is the compiler’s allocation to make, which is why the returned <code>VrfTensor</code> carries no borrow.</p>
@@ -345,13 +359,7 @@ Wide reads (64 bytes) occupy both banks every cycle, so each cache miss blocks t
 <p>The VRF is written either from the <a href="./collect-engine.html">Collect Engine</a> or directly from Data Memory, and read by the <a href="./vector-engine/index.html">Vector Engine</a>.</p>
 <h3 id="interface-1"><a class="header" href="#interface-1">Interface</a></h3>
 <p>A <code>VrfTensor</code> is a tensor stored in the VRF:</p>
-<pre><code class="language-rust ignore">/// Tensor stored in the vector register file (VRF).
-#[primitive(VrfTensor)]
-#[derive(Debug, Clone)]
-pub struct VrfTensor&lt;D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend = CurrentBackend&gt; {
-    pub(crate) inner: Tensor&lt;D, Pair&lt;Chip, Pair&lt;Cluster, Pair&lt;Slice, Element&gt;&gt;&gt;, B&gt;,
-    _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Element)&gt;,
-}</code></pre>
+<pre><code class="language-rust ignore"></code></pre>
 <p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source.
 <code>Element</code> holds the per-(slice) layout.</p>
 <p>Those three are what a Vector Engine op matches an operand against, so an operand carried under a different partition than the stream it feeds is a compile error rather than a read of another slice’s data (see <a href="./vector-engine/intra-slice-chain.html#operands">Operands</a>).

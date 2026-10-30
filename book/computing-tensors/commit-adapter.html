@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-369b31d2.js"></script>
@@ -181,7 +181,7 @@
 It mirrors the <a href="./fetch-adapter.html">Fetch Adapter</a> on the output side of the Tensor Unit.</p>
 <p>The adapter’s stages chain as dedicated <code>.commit_xxx(...)</code> methods on the upstream tensor, and the chain always ends in <code>.commit(...)</code> for the actual DM write.
 <a href="#trimming">Trimming</a> is the mandatory first stage: <code>.commit()</code> / <code>.commit_view()</code> are reachable only after <code>.commit_trim(...)</code>, so every commit is trimmed first (it is how flit padding is dropped).
-The other public stage is optional type casting, and main and sub contexts then diverge.
+After trimming, type casting is optional and available only in the main context.
 Generate Mode is a separate sub-context path used internally by <code>memset</code> for immediate fills; it does not chain off a <code>TuTensor</code>.</p>
 <ul>
 <li>Main pipeline: <a href="#trimming">Trimming</a> → <a href="#type-casting">Type Casting</a> (optionally fusing ReLU) → <code>.commit()</code>.</li>
@@ -199,6 +199,7 @@ Generate Mode is a separate sub-context path used internally by <code>memset</co
 </tbody>
 </table>
 </div>
+<p>The type system enforces each context restriction: each stage’s method exists on one context’s <code>TuTensor</code> only.</p>
 <h2 id="trimming"><a class="header" href="#trimming">Trimming</a></h2>
 <p>Stream packets in the Tensor Unit pipeline are always 32-byte <em>flits</em> (see <a href="./collect-engine.html">Collect Engine</a>), but a flit may carry fewer valid elements than its capacity, with trailing elements filled by padding.
 Writing the full flit verbatim would clobber DM bytes beyond the valid region with the flit’s padding values.</p>
@@ -293,18 +294,8 @@ If the main-context performed its <code>f32</code> → <code>bf16</code> convers
 Routing the conversion through the Commit Adapter instead leaves the Vector Engine free for the sub-context.
 Sub-context itself does not support type casting (consistent with the support matrix above).</p>
 <p><code>commit_cast</code> and <code>commit_cast_relu</code> are separate methods because they are separate hardware conversions, not one conversion with a mode: ReLU has no standalone stage to select at run time, and exists only fused with the narrowing cast.</p>
-<pre><code class="language-rust ignore">impl&lt;
-    'l,
-    const T: Tu,
-    P: CanApplyCommitCast,
-    D: MaterializableScalar,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Time: M,
-    Packet: M,
-    B: Backend,
-&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, P: CanApplyCommitCast, D: MaterializableScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Runs the Commit Adapter's type-casting stage.
     ///
@@ -313,8 +304,12 @@ Sub-context itself does not support type casting (consistent with the support ma
     /// work. See [`CommitCast`](crate::prelude::CommitCast) for why this is the
     /// only conversion, and [`commit_cast_relu`](Self::commit_cast_relu) for the
     /// variant that fuses a ReLU.
+    ///
+    /// Available only in the main context.
     #[primitive(TuTensor::commit_cast)]
-    pub fn commit_cast&lt;OutD: Scalar&gt;(self) -&gt; CommitCastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
+    pub fn commit_cast&lt;OutD: Scalar&gt;(
+        self,
+    ) -&gt; CommitCastTensor&lt;'l, { Tu::Main }, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
     where
         D: CommitCast&lt;OutD&gt;,
     {
@@ -325,10 +320,13 @@ Sub-context itself does not support type casting (consistent with the support ma
     /// The same cast with a ReLU fused in, clamping negative values to zero.
     ///
     /// A separate method rather than an argument because the two are separate
-    /// hardware conversions (`CommitF32ToBf16` and `CommitF32ToBf16Relu`), and
-    /// ReLU has no standalone stage to select at run time.
+    /// hardware conversions, and ReLU has no standalone stage to select at run time.
+    ///
+    /// Available only in the main context.
     #[primitive(TuTensor::commit_cast_relu)]
-    pub fn commit_cast_relu&lt;OutD: Scalar&gt;(self) -&gt; CommitCastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
+    pub fn commit_cast_relu&lt;OutD: Scalar&gt;(
+        self,
+    ) -&gt; CommitCastTensor&lt;'l, { Tu::Main }, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
     where
         D: CommitCast&lt;OutD&gt;,
     {
@@ -357,6 +355,15 @@ fn commit_cast_relu_example&lt;'l, const T: Tu&gt;(
     // e.g. [-5.0, -0.1, 0.0, 3.7] -&gt; [0.0, 0.0, 0.0, 3.7]
     input.commit_cast_relu::&lt;bf16&gt;()
 }</code></pre>
+<h2 id="generate-mode"><a class="header" href="#generate-mode">Generate Mode</a></h2>
+<p>Generate Mode fills a DM region with a constant through <code>DmTensorViewMut::memset(value, &amp;mut device.sub)</code>.
+The fill runs in the sub context and takes a value of the tensor’s element type, such as <code>0</code> for <code>i32</code> or <code>const { bf16::from_f32(1.0) }</code> for <code>bf16</code>.</p>
+<p>It does not fetch from DM and does not consume any upstream Tensor Unit stream.
+The constant <code>value</code> and the destination are the only inputs; the rest of the Tensor Unit pipeline (Fetch / Switch / Collect / Contraction / Vector / Cast / Transpose / Commit Adapter stages) is bypassed entirely.</p>
+<p>Device compilation requires a compile-time constant value and a whole-region view from <code>view_mut()</code>.
+Non-constant values and tiled sub-view fills are rejected at translation.
+Supported element types are <code>i8</code>, <code>i16</code>, <code>i32</code>, <code>f32</code>, <code>bf16</code>, <code>f8e4m3</code>, and <code>i4</code>; sub-byte regions must be byte-aligned.
+<code>f4e2m1</code> fills are not yet supported by device compilation.</p>
 
                     </main>
 

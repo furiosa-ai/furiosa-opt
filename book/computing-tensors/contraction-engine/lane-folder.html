@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-369b31d2.js"></script>
@@ -183,17 +183,19 @@ No values are summed: the stage folds <code>Lane</code> into another axis rather
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p><code>.contract_lane(mode)</code> invokes the Lane Folder.
 The stage drains the upstream Time Reducer’s buffer through an 8-element-wide output bus one cycle at a time, and <code>LaneMode</code> selects what each cycle’s flit carries.</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: ContractionAccumulator, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
-    ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, D: ContractionAccumulator, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
+    ContractTimeTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
     /// Folds the `Lane` dimension into the output stream.
     /// `LaneMode::Interleaved` relocates `Lane` into `OutPacket`;
     /// `LaneMode::Sequential` relocates `Lane` into `OutTime`.
+    ///
+    /// Available only in the main context.
     #[primitive(ContractTimeTensor::contract_lane)]
     pub fn contract_lane&lt;OutTime: M, OutPacket: M&gt;(
         self,
         mode: LaneMode,
-    ) -&gt; ContractTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
+    ) -&gt; ContractTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
         verify_contract_lane(ContractLaneInput {
             in_lane: Lane::to_value(),
             in_time: Time::to_value(),
@@ -234,11 +236,11 @@ OutPacket = [Lane # 8]
 </span>axes![N = 8, M = 4, P = 16];
 
 /// Lane folds into OutPacket.
-fn lane_interleaved&lt;'l, const T: Tu&gt;(
+fn lane_interleaved&lt;'l&gt;(
     // Input from upstream Time Reducer: Lane = m![N], Time = m![M], Packet = m![P].
-    input: ContractTimeTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
+    input: ContractTimeTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
     // Output: OutTime = m![M, P] = [Time, Packet], OutPacket = m![N] = [Lane].
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![M, P], m![N]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![M, P], m![N]&gt; {
     input.contract_lane::&lt;m![M, P], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
@@ -271,11 +273,11 @@ OutPacket = [PadPacket % 8]
 </span>axes![N = 8, M = 4, P = 16];
 
 /// Lane folds into OutTime.
-fn lane_sequential&lt;'l, const T: Tu&gt;(
+fn lane_sequential&lt;'l&gt;(
     // Input from upstream Time Reducer: Lane = m![N], Time = m![M], Packet = m![P].
-    input: ContractTimeTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
+    input: ContractTimeTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
     // Output: OutTime = m![M, N, P / 8] = [Time, Lane, Packet / 8], OutPacket = m![P % 8] = [Packet % 8].
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![M, N, P / 8], m![P % 8]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![M, N, P / 8], m![P % 8]&gt; {
     input.contract_lane::&lt;m![M, N, P / 8], m![P % 8]&gt;(LaneMode::Sequential)
 }
 <span class="boring">

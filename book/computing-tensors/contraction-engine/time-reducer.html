@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-369b31d2.js"></script>
@@ -181,16 +181,18 @@
 <h2 id="interface"><a class="header" href="#interface">Interface</a></h2>
 <p><code>.contract_time::&lt;OutTime&gt;()</code> invokes the Time Reducer.
 <code>OutTime</code> names the <code>Time</code> dimensions that survive (the rest are summed away).</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
-    ContractPacketTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
+    ContractPacketTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
     /// Accumulates per-cycle contractions over the `Time` dimension via the shared
     /// accumulator buffer, shrinking input `Time` to `OutTime`. The axes present in
     /// `Time` but absent from `OutTime` are reduce-added.
+    ///
+    /// Available only in the main context.
     #[primitive(ContractPacketTensor::contract_time)]
     pub fn contract_time&lt;OutTime: M&gt;(
         self,
-    ) -&gt; ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, OutTime, Packet, B&gt; {
+    ) -&gt; ContractTimeTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, Lane, OutTime, Packet, B&gt; {
         verify_contract_time(ContractTimeInput {
             in_time: Time::to_value(),
             out_time: OutTime::to_value(),
@@ -207,15 +209,15 @@
 </span>axes![A = 2048, B = 32];
 
 /// Reduces along B; A survives.
-fn reduce_b&lt;'l, const T: Tu&gt;(
+fn reduce_b&lt;'l&gt;(
     // Streaming operand: Slice = m![A / 8] (256 outer A chunks across slices).
     // Time = m![B / 16, A % 8]; Packet = m![B % 16].
     // B splits across Packet (B % 16) and Time (B / 16): each cycle produces a partial sum.
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt;,
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt;,
     // TRF operand: single-lane weight per slice.
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt;,
     // Output: one f32 per (slice, A % 8) cell.
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A / 8], m![A % 8], m![1 # 8]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![A / 8], m![A % 8], m![1 # 8]&gt; {
     input
          // Outer: Lane = m![1], OutTime = m![B / 16, A % 8], OutPacket = m![B % 16].
          .contract_outer::&lt;m![B / 16, A % 8], m![B % 16], _, _, _&gt;(trf)

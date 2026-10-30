@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-369b31d2.js"></script>
@@ -184,7 +184,6 @@ Each lane receives a 32 B or 64 B Packet of <code>i4</code>, <code>i8</code>, <c
 Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where <code>i</code> ranges over the surviving (output) axes and <code>j</code> ranges over the contracted axes inside <code>Packet</code>.</p>
 <pre><code class="language-rust ignore">impl&lt;
     'l,
-    const T: Tu,
     D: Scalar,
     Storage: ContractionCast&lt;Output = D&gt;,
     Chip: M,
@@ -194,15 +193,17 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
     Time: M,
     Packet: M,
     B: Backend,
-&gt; ContractOuterTensor&lt;'l, T, D, Storage, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+&gt; ContractOuterTensor&lt;'l, { Tu::Main }, D, Storage, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
     /// Spatial reduction within `Packet`: validates the reduce-add along the contracted axes inside
     /// `Packet` that the fused fold at `contract_lane` will perform. `D` is the widened accumulator the
     /// deferred carrier stays keyed on; the DPE input packet is still sized in `Storage` bytes.
+    ///
+    /// Available only in the main context.
     #[primitive(ContractOuterTensor::contract_packet)]
     pub fn contract_packet&lt;OutPacket: M&gt;(
         self,
-    ) -&gt; ContractPacketTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, OutPacket, B&gt; {
+    ) -&gt; ContractPacketTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, Lane, Time, OutPacket, B&gt; {
         verify_contract_packet(ContractPacketInput {
             in_packet: Packet::to_value(),
             out_packet: OutPacket::to_value(),
@@ -219,10 +220,10 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 32, B = 32, C = 8];
 
-fn matmul&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt;,
+fn matmul&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt;,
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt;,
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![A], m![C]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![A], m![C]&gt; {
     //
     // Spatial reduction: tree depth 5 reduces 32 bf16 elements along B → f32
     // Output (Interleaved): Time = [A], Packet = [C]

@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-369b31d2.js"></script>
@@ -457,12 +457,12 @@ Raw DM tensors carry this.
 These positions are accessible and known to hold zero.
 The mapping records that value property; the expression itself does not perform the fill.</li>
 <li><code>m![A #{!} m]</code> is bottom padding to size <code>m</code>.
-These positions are inaccessible and reads/writes are undefined behavior.
-This models addresses the compiler must avoid.</li>
+Reads are allowed and return arbitrary values; writes are forbidden.
+This models positions the compiler must preserve when writing.</li>
 </ul>
 <p><code>#</code> defaults to top kind.
 The Rust type level mirrors this via a const generic of <code>PaddingKind</code> on <code>Padding&lt;L, SIZE, KIND&gt;</code>.
-<code>Padding&lt;L, N&gt;</code> is <code>KIND = PaddingKind::Top</code>, <code>Padding&lt;L, N, { PaddingKind::Zero }&gt;</code> is the zero-filled variant, and <code>Padding&lt;L, N, { PaddingKind::Bottom }&gt;</code> is inaccessible.</p>
+<code>Padding&lt;L, N&gt;</code> is <code>KIND = PaddingKind::Top</code>, <code>Padding&lt;L, N, { PaddingKind::Zero }&gt;</code> is the zero-filled variant, and <code>Padding&lt;L, N, { PaddingKind::Bottom }&gt;</code> is readable but non-writable.</p>
 <p><code>Cell::Padding(kind)</code> reports a position inside the padded extent but outside the inner mapping.
 The <code>kind</code> is <code>Top</code>, <code>Zero</code>, or <code>Bottom</code>; positions beyond the padded extent remain <code>Cell::OutOfBounds</code>.
 The complete <code>Cell</code> result definition appears in <a href="#position-results">Position Results</a>.</p>

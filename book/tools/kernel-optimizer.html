@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-369b31d2.js"></script>
@@ -241,23 +241,6 @@ cargo furiosa-opt compile transpose_simple -p my_kernels
 cargo furiosa-opt compile transpose::transpose_simple \
   --dump-schedule schedule.json
 </code></pre>
-<h3 id="compilation-pipeline-and-dump-options"><a class="header" href="#compilation-pipeline-and-dump-options">Compilation pipeline and dump options</a></h3>
-<p>The dump flags below each capture a different point of the kernel compilation pipeline, which runs in three stages:</p>
-<ol>
-<li><strong>Stage 1 — MIR → vISA.</strong></li>
-<li><strong>Stage 2 — vISA → LIR.</strong></li>
-<li><strong>Stage 3 — LIR → EDF (the kernel binary).</strong></li>
-</ol>
-<p>Each public dump flag targets a stage and emits an artifact for a specific consumer.
-All dump flags are single-kernel options.</p>
-<ul>
-<li><code>--dump-visa</code>: Stage 1 vISA text for compiler/backend inspection.</li>
-<li><code>--dump-ir</code>: Stage 2 LIR as a bincode binary for compiler tooling.</li>
-<li><code>--dump-dfg</code>: Stage 1 vISA data-flow graph serialized as compiler IR binary data to the requested file for graph inspection.</li>
-<li><code>--dump-graph</code>: Stage 2 LIR graph as JSON for the IR graph viewer.</li>
-<li><code>--dump-summary</code>: Stage 3 LIR-to-EDF compilation summary written to the requested directory.</li>
-<li><code>--dump-schedule</code>: Stage 3 scheduling after LIR is lowered to <code>ResourceLir</code>, emitted as JSON for the <a href="./schedule-viewer.html">Schedule Viewer</a>.</li>
-</ul>
 <h3 id="filter"><a class="header" href="#filter"><code>[FILTER]...</code></a></h3>
 <p>Specifies the set of <code>#[device]</code> functions to compile.
 Filters are matched as a substring against <code>#[device]</code> function names as a full path (<code>abc::def::foo</code>).
@@ -273,20 +256,8 @@ When omitted, all kernel packages are compiled.</p>
 <h3 id="--dump-visa-file"><a class="header" href="#--dump-visa-file"><code>--dump-visa</code> <em>file</em></a></h3>
 <p>Dump the intermediate vISA to a file.
 Should only be used when compiling a single kernel.</p>
-<h3 id="--dump-ir-file"><a class="header" href="#--dump-ir-file"><code>--dump-ir</code> <em>file</em></a></h3>
-<p>Dump the intermediate LIR (Low-Level IR) as a bincode binary to a file.
-Should only be used when compiling a single kernel.</p>
 <h3 id="--dump-schedule-file"><a class="header" href="#--dump-schedule-file"><code>--dump-schedule</code> <em>file</em></a></h3>
-<p>Lower LIR to <code>ResourceLir</code> and dump the resulting schedule as JSON for the <a href="./schedule-viewer.html">Schedule Viewer</a>.
-Should only be used when compiling a single kernel.</p>
-<h3 id="--dump-dfg-file"><a class="header" href="#--dump-dfg-file"><code>--dump-dfg</code> <em>file</em></a></h3>
-<p>Dump the Stage 1 vISA data-flow graph to a file.
-Should only be used when compiling a single kernel.</p>
-<h3 id="--dump-graph-file"><a class="header" href="#--dump-graph-file"><code>--dump-graph</code> <em>file</em></a></h3>
-<p>Dump the Stage 2 LIR graph as JSON for the IR graph viewer.
-Should only be used when compiling a single kernel.</p>
-<h3 id="--dump-summary-dir"><a class="header" href="#--dump-summary-dir"><code>--dump-summary</code> <em>dir</em></a></h3>
-<p>Dump the Stage 3 LIR-to-EDF compilation summary to a directory for diagnostic tooling.
+<p>Dump the schedule as JSON for the <a href="./schedule-viewer.html">Schedule Viewer</a>.
 Should only be used when compiling a single kernel.</p>
 <h2 id="environment-variables"><a class="header" href="#environment-variables">Environment variables</a></h2>
 <h3 id="furiosa_opt_out_dir"><a class="header" href="#furiosa_opt_out_dir"><code>FURIOSA_OPT_OUT_DIR</code></a></h3>

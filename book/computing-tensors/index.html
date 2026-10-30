@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-369b31d2.js"></script>
@@ -272,9 +272,22 @@ The hardware exposes three:</p>
 <li><strong>Sub</strong> drives a subset of the same pipeline, typically prefetching operands into TRF / VRF while main computes.</li>
 <li><strong>DMA</strong> drives the DMA Engine alone, external to the Tensor Unit.</li>
 </ul>
-<p>The main context can drive every Tensor Unit engine.
-The sub context drops the Contraction Engine and a handful of other features.
-Everything else carries over from main.</p>
+<p>Every Tensor Unit stage is available in both contexts except these, and the type system enforces each row.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stage</th><th>Context</th></tr>
+</thead>
+<tbody>
+<tr><td><a href="./contraction-engine/index.html"><code>contract_outer</code></a></td><td>main</td></tr>
+<tr><td><a href="./commit-adapter.html#type-casting"><code>commit_cast</code></a>, <code>commit_cast_relu</code></td><td>main</td></tr>
+<tr><td><a href="./fetch-adapter.html"><code>fetch_table_lookup</code></a></td><td>main</td></tr>
+<tr><td><a href="./commit-adapter.html#generate-mode"><code>memset</code></a></td><td>sub</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>to_trf</code> and <code>to_vrf</code> are available in both contexts.
+Both write through the sub context, so the main-context form of each takes it as an argument and holds it for the write.</p>
 <p>Context ordering, overlap, resource conflicts, and memory-rule scheduling are defined in <a href="../scheduling/schedule.html">Schedule</a>.</p>
 
                     </main>

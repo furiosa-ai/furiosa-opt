@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-369b31d2.js"></script>
@@ -198,7 +198,7 @@ This enables:</p>
 </ul>
 <p>Sigmoid and GeLU can also be expressed directly in the <a href="./vector-engine/index.html">Vector Engine</a>, so table lookup is one option among several for these activations rather than the only path.</p>
 <pre><code class="language-rust ignore">// Table lookup is a **main-context-only** hardware feature: only the main Fetch Unit's
-// `mode_indirect_table` can point at a resident lookup table, so this impl is fixed to
+// lookup-table register can point at a resident lookup table, so this impl is fixed to
 // `{ Tu::Main }`. The sub-context Fetch Unit (used by the StoTrf weight-staging path) has no
 // table-lookup register, so decoding a packed weight must happen in a main-context fetch that
 // commits the decoded stream to DM, after which a plain convert-only StoTrf stages it into the TRF.

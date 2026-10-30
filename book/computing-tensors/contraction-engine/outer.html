@@ -37,7 +37,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-369b31d2.js"></script>
@@ -192,7 +192,6 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
 <p><code>.contract_outer(&amp;trf)</code> on <code>CollectTensor</code> invokes the Outer stage.</p>
 <pre><code class="language-rust ignore">impl&lt;
     'l,
-    const T: Tu,
     P: CanApplyContractOuter,
     D: Scalar + ContractionCast,
     Chip: M,
@@ -201,7 +200,7 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
     Time: M,
     Packet: M,
     B: Backend,
-&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+&gt; TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Runs the Outer stage: stashes the two un-broadcast operands (widened to the accumulator type)
     /// and the layouts [`super::ContractTimeTensor::contract_lane`] needs to fuse them into a [`LazyContraction`]. No
@@ -209,11 +208,25 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
     ///
     /// The impl block binds [`ContractionCast`], so this method does not exist on a `TuTensor` whose
     /// element type the Multiplier has no MAC for.
+    ///
+    /// Available only in the main context.
     #[primitive(TuTensor::contract_outer)]
     pub fn contract_outer&lt;OutTime: M, OutPacket: M, Lane: M, TrfElement: M, TrfD&gt;(
         self,
         trf_tensor: &amp;TrfTensor&lt;TrfD, Chip, Cluster, Slice, Lane, TrfElement, B&gt;,
-    ) -&gt; ContractOuterTensor&lt;'l, T, &lt;D as ContractionCast&gt;::Output, D, Chip, Cluster, Slice, Lane, OutTime, OutPacket, B&gt;
+    ) -&gt; ContractOuterTensor&lt;
+        'l,
+        { Tu::Main },
+        &lt;D as ContractionCast&gt;::Output,
+        D,
+        Chip,
+        Cluster,
+        Slice,
+        Lane,
+        OutTime,
+        OutPacket,
+        B,
+    &gt;
     where
         D: Cast&lt;&lt;D as ContractionCast&gt;::Output&gt;,
         // The weight (TRF) type must form a valid contraction-engine operand pair with the
@@ -292,10 +305,10 @@ OutPacket = PackPacket
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 16, L = 2, B = 5];
 
-fn stream_adapter_example&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, { T }, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt;,
+fn stream_adapter_example&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt;,
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, { T }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M, B], m![L, K]&gt; {
+) -&gt; ContractOuterTensor&lt;'l, { Tu::Main }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M, B], m![L, K]&gt; {
     // Packing (PackSize = 2):
     //   L = 2 (innermost Time) absorbed into Packet.
     //   PackTime = [M = 32], PackPacket = [L = 2, K = 16] = 32 bf16 = 64B.
@@ -351,10 +364,10 @@ The TRF Sequencer uses the same nested-loop configuration as all other <a href="
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 32];
 
-fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt;,
+fn trf_sequencer_full_read&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt;,
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, T, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![K]&gt; {
+) -&gt; ContractOuterTensor&lt;'l, { Tu::Main }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![K]&gt; {
     // Element         = K
     // ReadSize        = 32
     // PacketBroadcast = 1
@@ -378,10 +391,10 @@ fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 16, L = 2, O = 2];
 
-fn trf_sequencer_partial_read&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt;,
+fn trf_sequencer_partial_read&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt;,
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, T, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, M], m![L, K]&gt; {
+) -&gt; ContractOuterTensor&lt;'l, { Tu::Main }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, M], m![L, K]&gt; {
     // Element         = [O, K]
     // ReadSize        = 16
     // PacketBroadcast = L

@@ -37,7 +37,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "../searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-369b31d2.js"></script>
@@ -325,7 +325,7 @@ pub fn bounded_dynamic_matmul(
 </span><span class="boring">let mut device = Device::new(scalar_consumer.topology())?;
 </span>let mut active = HbmScalar::&lt;usize&gt;::from_host(0, &amp;mut device.pdma).await?;
 
-active.write(3, &amp;mut device.pdma).await?;
+HbmScalar::from_host(3, &amp;mut device.pdma).output(&amp;mut active).await?;
 launch(scalar_consumer, (&amp;mut device, &amp;active)).await?;
 <span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>

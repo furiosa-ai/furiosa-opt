@@ -38,7 +38,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d54bf775.js";
+            window.path_to_searchindex_js = "searchindex-20102c56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-369b31d2.js"></script>
@@ -1495,12 +1495,12 @@ Raw DM tensors carry this.
 These positions are accessible and known to hold zero.
 The mapping records that value property; the expression itself does not perform the fill.</li>
 <li><code>m![A #{!} m]</code> is bottom padding to size <code>m</code>.
-These positions are inaccessible and reads/writes are undefined behavior.
-This models addresses the compiler must avoid.</li>
+Reads are allowed and return arbitrary values; writes are forbidden.
+This models positions the compiler must preserve when writing.</li>
 </ul>
 <p><code>#</code> defaults to top kind.
 The Rust type level mirrors this via a const generic of <code>PaddingKind</code> on <code>Padding&lt;L, SIZE, KIND&gt;</code>.
-<code>Padding&lt;L, N&gt;</code> is <code>KIND = PaddingKind::Top</code>, <code>Padding&lt;L, N, { PaddingKind::Zero }&gt;</code> is the zero-filled variant, and <code>Padding&lt;L, N, { PaddingKind::Bottom }&gt;</code> is inaccessible.</p>
+<code>Padding&lt;L, N&gt;</code> is <code>KIND = PaddingKind::Top</code>, <code>Padding&lt;L, N, { PaddingKind::Zero }&gt;</code> is the zero-filled variant, and <code>Padding&lt;L, N, { PaddingKind::Bottom }&gt;</code> is readable but non-writable.</p>
 <p><code>Cell::Padding(kind)</code> reports a position inside the padded extent but outside the inner mapping.
 The <code>kind</code> is <code>Top</code>, <code>Zero</code>, or <code>Bottom</code>; positions beyond the padded extent remain <code>Cell::OutOfBounds</code>.
 The complete <code>Cell</code> result definition appears in <a href="#position-results">Position Results</a>.</p>
@@ -3469,45 +3469,7 @@ The kernel writer calls <code>.to_dm()</code>, <code>.to_hbm()</code>, or relate
 <li><code>Device::tdma</code>: Tensor DMA context for on-chip transfers (HBM ↔ HBM, HBM ↔ DM, DM ↔ DM, DM ↔ SPM).</li>
 <li><code>Device::pdma</code>: PCIe DMA context for host ↔ HBM transfers (see <a href="#pcie-dma">PCIe DMA</a>).</li>
 </ul>
-<pre><code class="language-rust ignore">impl&lt;D: Scalar, Chip: M, Element: M, B: Backend&gt; HbmTensor&lt;D, Chip, Element, B&gt; {
-    /// Converts to data memory tensor.
-    #[primitive(HbmTensor::to_dm)]
-    pub fn to_dm&lt;Cluster: M, Slice: M, Element2: M&gt;(
-        &amp;self,
-        _dma: &amp;mut DmaContext&lt;{ Dma::Tensor }, B&gt;,
-    ) -&gt; DmTensor&lt;D, Chip, Cluster, Slice, Element2, B&gt; {
-        assert_dma_layout::&lt;
-            D,
-            m![{ Chip }, { Element }],
-            Element,
-            m![{ Chip }, { Cluster }, { Slice }, { Element2 }],
-            Element2,
-        &gt;(DM_WRITE_ALIGN_BYTES);
-        DmTensor::from_parts(self.inner.transpose(true))
-    }
-
-    /// Reshapes the tensor to a different mapping at the same HBM address, consuming `self`.
-    /// The HBM analogue of [`DmTensor::reshape`]; both delegate to [`Tensor::reshape`].
-    ///
-    /// # Safety
-    ///
-    /// The per-level sizes (`Chip::SIZE == Chip2::SIZE`, `Element`) are asserted at compile time below
-    /// (see [`constraints::assert_hbm_reshape_dimension_preserved`]); the genuine precondition is
-    /// [`Tensor::reshape`]'s: the old and new mappings must lay the elements out in the SAME physical
-    /// (wire) order, so the relabel moves no data. Axis regrouping (merge/split) preserves wire order
-    /// and is valid; a permutation is not (use a transpose). Equal sizes do not guarantee this.
-    /// Consuming `self` is the safety contract made explicit: the old-shaped handle cannot survive to
-    /// alias the same HBM bytes under a conflicting mapping.
-    #[primitive(HbmTensor::reshape)]
-    pub unsafe fn reshape&lt;Chip2: M, Element2: M&gt;(self) -&gt; HbmTensor&lt;D, Chip2, Element2, B&gt; {
-        constraints::assert_hbm_reshape_dimension_preserved::&lt;Chip, Chip2, Element, Element2&gt;();
-        let reshaped = unsafe { self.inner.reshape::&lt;m![{ Chip2 }, { Element2 }]&gt;() };
-        HbmTensor {
-            inner: reshaped,
-            owner: self.owner,
-        }
-    }
-}</code></pre>
+<pre><code class="language-rust ignore"></code></pre>
 <p>The compiler derives the read and write sequencer configurations from the source and destination tensor types.
 An HBM-to-DM transfer keeps the HBM <code>Chip</code> dimension and specifies the destination <code>Cluster</code>, <code>Slice</code>, and <code>Element</code> dimensions.
 A DM-to-DM transfer may specify new <code>Chip</code>, <code>Cluster</code>, <code>Slice</code>, and <code>Element</code> dimensions, while an HBM destination specifies <code>Chip</code> and <code>Element</code>.</p>
@@ -4830,9 +4792,22 @@ The hardware exposes three:</p>
 <li><strong>Sub</strong> drives a subset of the same pipeline, typically prefetching operands into TRF / VRF while main computes.</li>
 <li><strong>DMA</strong> drives the DMA Engine alone, external to the Tensor Unit.</li>
 </ul>
-<p>The main context can drive every Tensor Unit engine.
-The sub context drops the Contraction Engine and a handful of other features.
-Everything else carries over from main.</p>
+<p>Every Tensor Unit stage is available in both contexts except these, and the type system enforces each row.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stage</th><th>Context</th></tr>
+</thead>
+<tbody>
+<tr><td><a href="#contraction-engine"><code>contract_outer</code></a></td><td>main</td></tr>
+<tr><td><a href="#type-casting-1"><code>commit_cast</code></a>, <code>commit_cast_relu</code></td><td>main</td></tr>
+<tr><td><a href="#fetch-adapter"><code>fetch_table_lookup</code></a></td><td>main</td></tr>
+<tr><td><a href="#generate-mode"><code>memset</code></a></td><td>sub</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>to_trf</code> and <code>to_vrf</code> are available in both contexts.
+Both write through the sub context, so the main-context form of each takes it as an argument and holds it for the write.</p>
 <p>Context ordering, overlap, resource conflicts, and memory-rule scheduling are defined in <a href="#schedule">Schedule</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="fetch-adapter"><a class="header" href="#fetch-adapter">Fetch Adapter</a></h1>
@@ -4857,7 +4832,7 @@ This enables:</p>
 </ul>
 <p>Sigmoid and GeLU can also be expressed directly in the <a href="#vector-engine">Vector Engine</a>, so table lookup is one option among several for these activations rather than the only path.</p>
 <pre><code class="language-rust ignore">// Table lookup is a **main-context-only** hardware feature: only the main Fetch Unit's
-// `mode_indirect_table` can point at a resident lookup table, so this impl is fixed to
+// lookup-table register can point at a resident lookup table, so this impl is fixed to
 // `{ Tu::Main }`. The sub-context Fetch Unit (used by the StoTrf weight-staging path) has no
 // table-lookup register, so decoding a packed weight must happen in a main-context fetch that
 // commits the decoded stream to DM, after which a plain convert-only StoTrf stages it into the TRF.
@@ -5803,21 +5778,15 @@ These register files must be populated before their consumer engine runs.</p>
 <h2 id="tensor-register-file"><a class="header" href="#tensor-register-file">Tensor Register File</a></h2>
 <h3 id="interface-6"><a class="header" href="#interface-6">Interface</a></h3>
 <p>A <code>TrfTensor</code> is a tensor stored in the TRF:</p>
-<pre><code class="language-rust ignore">/// Tensor stored in the tensor register file.
-#[primitive(TrfTensor)]
-#[derive(Debug)]
-pub struct TrfTensor&lt;D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Element: M, B: Backend = CurrentBackend&gt; {
-    pub(crate) inner: Tensor&lt;D, Pair&lt;Chip, Pair&lt;Cluster, Pair&lt;Slice, Pair&lt;Lane, Element&gt;&gt;&gt;&gt;, B&gt;,
-    _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Lane, Element)&gt;,
-}</code></pre>
+<pre><code class="language-rust ignore"></code></pre>
 <p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source.
 <code>Lane</code> indexes the spatial parallelism (1, 2, 4, or 8 active lanes).
 <code>Element</code> holds the per-lane layout.</p>
 <h4 id="from-collect-engine"><a class="header" href="#from-collect-engine">From Collect Engine</a></h4>
 <p><code>.to_trf::&lt;Lane, Element&gt;()</code> on <code>CollectTensor</code> produces a <code>TrfTensor</code>.
 Where in the register file it lands is the compiler’s to decide, so the call names no region:</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
-    TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, { Tu::Sub }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Stores to the tensor register file.
     #[primitive(TuTensor::to_trf)]
@@ -5825,7 +5794,26 @@ Where in the register file it lands is the compiler’s to decide, so the call n
         verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;();
         TrfTensor::new(self.inner.transpose(false))
     }
+}
+
+impl&lt;'l, P: CanApplyToTrf, D: Scalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+{
+    /// Stores to the tensor register file, occupying the sub context the write runs through.
+    ///
+    /// The borrow lasts the statement. The compiler manages register allocation separately,
+    /// so the returned [`TrfTensor`] keeps no context borrow.
+    #[primitive(TuTensor::to_trf_from_main)]
+    pub fn to_trf&lt;Lane: M, Element: M&gt;(
+        self,
+        _sub: &amp;mut TuContext&lt;{ Tu::Sub }&gt;,
+    ) -&gt; TrfTensor&lt;D, Chip, Cluster, Slice, Lane, Element, B&gt; {
+        verify_to_trf::&lt;D, Lane, Time, Packet, Element&gt;();
+        TrfTensor::new(self.inner.transpose(false))
+    }
 }</code></pre>
+<p>The store has one signature per context, and the examples here take the sub context’s.
+A store issued from the main context takes <code>device.sub</code> as an argument, because the write registers live in the sub context’s register map: see <a href="#which-context-a-store-occupies">Which context a store occupies</a>.</p>
 <p><code>.to_trf</code> reshapes the streaming <code>Time</code> / <code>Packet</code> into <code>Lane</code> / <code>Element</code>:</p>
 <pre><code class="language-text">Lane    = Time / FlitsPerLane
 Element = [Time % FlitsPerLane, Packet]
@@ -5837,8 +5825,8 @@ Element = [Time % FlitsPerLane, Packet]
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![B = 32];
 
-fn load_trf&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt;,
+fn load_trf&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Sub }, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt;,
 ) -&gt; TrfTensor&lt;i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; {
     input.to_trf()
 }
@@ -5846,7 +5834,7 @@ fn load_trf&lt;'l, const T: Tu&gt;(
 </span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
 </span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, { Tu::Sub }, i8, m![1], m![1 # 2], m![1 # 256], m![1], m![B]&gt; = CollectTensor::new(&amp;mut device.sub, Tensor::zero());
 </span><span class="boring">let _o = load_trf(c);
 </span><span class="boring">
 </span><span class="boring">Ok(())
@@ -5864,8 +5852,8 @@ type Lane    = m![N];
 
 /// Stores matmul weights into TRF for consumption by `bmatmul` in
 /// [Contraction Engine: Example: Batched MatMul](./contraction-engine/index.md#example-batched-matmul).
-fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt;,
+fn store_bmatmul_trf&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Sub }, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt;,
 ) -&gt; TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt; {
     input.to_trf()
 }
@@ -5873,7 +5861,7 @@ fn store_bmatmul_trf&lt;'l, const T: Tu&gt;(
 </span><span class="boring">fn main() -&gt; Result&lt;(), Error&gt; {
 </span><span class="boring">let mut device = Device::new(Topology { chips: 1, pes: 8 })?;
 </span><span class="boring">
-</span><span class="boring">let c: CollectTensor&lt;'_, _, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.main, Tensor::zero());
+</span><span class="boring">let c: CollectTensor&lt;'_, { Tu::Sub }, bf16, Chip, Cluster, Slice, m![N, K / 16], m![K % 16]&gt; = CollectTensor::new(&amp;mut device.sub, Tensor::zero());
 </span><span class="boring">let _o = store_bmatmul_trf(c);
 </span><span class="boring">
 </span><span class="boring">Ok(())
@@ -5912,7 +5900,8 @@ Off a <code>vector_final</code>, the pass ends at the Vector Engine’s own writ
 <p>That is the only way a computed value reaches the VRF, since the <a href="#from-data-memory">DM-direct</a> store and the collect-position store both read Data Memory.
 Nothing after the Vector Engine can run in the same command, so a store cannot be combined with a cast, a transpose, or a commit.</p>
 <h4 id="which-context-a-store-occupies"><a class="header" href="#which-context-a-store-occupies">Which context a store occupies</a></h4>
-<p>A store issued from the main context runs its write through the sub context, whichever of the two positions above it takes, so it occupies both and takes <code>&amp;mut device.sub</code> as well.
+<p>A store issued from the main context runs its write through the sub context, whichever register file it targets and whichever of the two positions above it takes, so it occupies both and takes <code>&amp;mut device.sub</code> as well.
+The scheduler reserves both contexts for the command, so no sub-context operation overlaps it.
 <code>device.main</code> and <code>device.sub</code> are separate fields, so a kernel (which holds <code>&amp;mut Device</code>) borrows both at once, as the example above does.</p>
 <p>The borrow lasts the statement, which is the extent of the occupancy: the sub context is free again once the command retires.
 How long the <em>register</em> stays occupied is a different question with a different answer (until the operand’s last read), and it is the compiler’s allocation to make, which is why the returned <code>VrfTensor</code> carries no borrow.</p>
@@ -5965,13 +5954,7 @@ Wide reads (64 bytes) occupy both banks every cycle, so each cache miss blocks t
 <p>The VRF is written either from the <a href="#collect-engine">Collect Engine</a> or directly from Data Memory, and read by the <a href="#vector-engine">Vector Engine</a>.</p>
 <h3 id="interface-1-1"><a class="header" href="#interface-1-1">Interface</a></h3>
 <p>A <code>VrfTensor</code> is a tensor stored in the VRF:</p>
-<pre><code class="language-rust ignore">/// Tensor stored in the vector register file (VRF).
-#[primitive(VrfTensor)]
-#[derive(Debug, Clone)]
-pub struct VrfTensor&lt;D: VeScalar, Chip: M, Cluster: M, Slice: M, Element: M, B: Backend = CurrentBackend&gt; {
-    pub(crate) inner: Tensor&lt;D, Pair&lt;Chip, Pair&lt;Cluster, Pair&lt;Slice, Element&gt;&gt;&gt;, B&gt;,
-    _marker: PhantomData&lt;(D, Chip, Cluster, Slice, Element)&gt;,
-}</code></pre>
+<pre><code class="language-rust ignore"></code></pre>
 <p><code>Chip</code> / <code>Cluster</code> / <code>Slice</code> pass through from the source.
 <code>Element</code> holds the per-(slice) layout.</p>
 <p>Those three are what a Vector Engine op matches an operand against, so an operand carried under a different partition than the stream it feeds is a compile error rather than a read of another slice’s data (see <a href="#operands">Operands</a>).
@@ -6130,13 +6113,13 @@ type Slice   = m![M % 16, V % 16];      // inner M × inner V = 16 × 16 = 256 s
 type Lane    = m![N];                   // N (output channels) partitions the 8 hardware lanes
 
 /// Batched matmul with K placed in Time.
-fn bmatmul_k_in_time&lt;'l, const T: Tu&gt;(
+fn bmatmul_k_in_time&lt;'l&gt;(
     // Streaming operand: V outer + K in Time, with a one-element Packet m![1].
-    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt;,
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, Chip, Cluster, Slice, m![V / 16, K], m![1 # 16]&gt;,
     // TRF operand: N in Lane, K in Element. Stored into TRF by a prior .to_trf() call.
     trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
     // Output: one (M × N) f32 matrix per (slice, V-outer) pair.
-) -&gt; ContractTensor&lt;'l, T, f32, Chip, Cluster, Slice, m![V / 16], m![N]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, Chip, Cluster, Slice, m![V / 16], m![N]&gt; {
     input
          // Outer: Lane = m![N] (inferred from trf), OutTime = m![V / 16, K], OutPacket = m![1 # 32].
          // input: 1 K-element broadcast across all N lanes.
@@ -6178,15 +6161,15 @@ type Slice   = m![V % 16 # 256];        // inner V split across slices (V % 16 =
 type Lane    = m![N];                   // N (output channels) partitions the 8 hardware lanes (N = 8 fills the cap)
 
 /// Batched matmul: V slices × (M × K) · (K × N) → V × M × N.
-fn bmatmul_m_in_time&lt;'l, const T: Tu&gt;(
+fn bmatmul_m_in_time&lt;'l&gt;(
     // Streaming operand: M in Time, K in Packet.
     // Element type can be i4, i8, f8, or bf16; integers widen to i32 output, floats to f32.
-    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt;,
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, Chip, Cluster, Slice, m![M, K / 16], m![K % 16]&gt;,
     // TRF operand: N in Lane (one output channel per lane), K in Element.
     // Stored into TRF by a prior .to_trf() call in the sub context.
     trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
     // Output: one (M × N) f32 matrix per slice.
-) -&gt; ContractTensor&lt;'l, T, f32, Chip, Cluster, Slice, m![M], m![N]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, Chip, Cluster, Slice, m![M], m![N]&gt; {
     input
          // Outer: broadcast input and trf, multiply elementwise.
          // Lane = m![N] (inferred from trf), OutTime = m![M], OutPacket = m![K].
@@ -6226,13 +6209,13 @@ type Slice   = m![M % 16 # 256];        // inner M split across slices (M % 16 =
 type Lane    = m![N];                   // N (output channels) partitions the 8 hardware lanes
 
 /// Batched matmul with V (batch) placed in Time.
-fn bmatmul_v_in_time&lt;'l, const T: Tu&gt;(
+fn bmatmul_v_in_time&lt;'l&gt;(
     // Streaming operand: V in Time, K in Packet.
-    input: CollectTensor&lt;'l, T, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt;,
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, Chip, Cluster, Slice, m![V, K / 16], m![K % 16]&gt;,
     // TRF operand: N in Lane, K in Element. Stored into TRF by a prior .to_trf() call.
     trf: &amp;TrfTensor&lt;bf16, Chip, Cluster, Slice, Lane, m![K]&gt;,
     // Output: one (V × N) f32 matrix per slice.
-) -&gt; ContractTensor&lt;'l, T, f32, Chip, Cluster, Slice, m![V], m![N]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, Chip, Cluster, Slice, m![V], m![N]&gt; {
     input
          // Outer: Lane = m![N] (inferred from trf), OutTime = m![V], OutPacket = m![K].
          // input: K elements broadcast across all N lanes.
@@ -6272,7 +6255,6 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
 <p><code>.contract_outer(&amp;trf)</code> on <code>CollectTensor</code> invokes the Outer stage.</p>
 <pre><code class="language-rust ignore">impl&lt;
     'l,
-    const T: Tu,
     P: CanApplyContractOuter,
     D: Scalar + ContractionCast,
     Chip: M,
@@ -6281,7 +6263,7 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
     Time: M,
     Packet: M,
     B: Backend,
-&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+&gt; TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Runs the Outer stage: stashes the two un-broadcast operands (widened to the accumulator type)
     /// and the layouts [`super::ContractTimeTensor::contract_lane`] needs to fuse them into a [`LazyContraction`]. No
@@ -6289,11 +6271,25 @@ The Outer stage’s three sub-stages are the hardware embodiment of this exact s
     ///
     /// The impl block binds [`ContractionCast`], so this method does not exist on a `TuTensor` whose
     /// element type the Multiplier has no MAC for.
+    ///
+    /// Available only in the main context.
     #[primitive(TuTensor::contract_outer)]
     pub fn contract_outer&lt;OutTime: M, OutPacket: M, Lane: M, TrfElement: M, TrfD&gt;(
         self,
         trf_tensor: &amp;TrfTensor&lt;TrfD, Chip, Cluster, Slice, Lane, TrfElement, B&gt;,
-    ) -&gt; ContractOuterTensor&lt;'l, T, &lt;D as ContractionCast&gt;::Output, D, Chip, Cluster, Slice, Lane, OutTime, OutPacket, B&gt;
+    ) -&gt; ContractOuterTensor&lt;
+        'l,
+        { Tu::Main },
+        &lt;D as ContractionCast&gt;::Output,
+        D,
+        Chip,
+        Cluster,
+        Slice,
+        Lane,
+        OutTime,
+        OutPacket,
+        B,
+    &gt;
     where
         D: Cast&lt;&lt;D as ContractionCast&gt;::Output&gt;,
         // The weight (TRF) type must form a valid contraction-engine operand pair with the
@@ -6372,10 +6368,10 @@ OutPacket = PackPacket
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 16, L = 2, B = 5];
 
-fn stream_adapter_example&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, { T }, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt;,
+fn stream_adapter_example&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![1 # 256], m![M, L], m![K]&gt;,
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![B, L, K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, { T }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M, B], m![L, K]&gt; {
+) -&gt; ContractOuterTensor&lt;'l, { Tu::Main }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M, B], m![L, K]&gt; {
     // Packing (PackSize = 2):
     //   L = 2 (innermost Time) absorbed into Packet.
     //   PackTime = [M = 32], PackPacket = [L = 2, K = 16] = 32 bf16 = 64B.
@@ -6431,10 +6427,10 @@ The TRF Sequencer uses the same nested-loop configuration as all other <a href="
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 32];
 
-fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt;,
+fn trf_sequencer_full_read&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![1 # 256], m![M, K / 16], m![K % 16]&gt;,
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, T, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![K]&gt; {
+) -&gt; ContractOuterTensor&lt;'l, { Tu::Main }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![K]&gt; {
     // Element         = K
     // ReadSize        = 32
     // PacketBroadcast = 1
@@ -6458,10 +6454,10 @@ fn trf_sequencer_full_read&lt;'l, const T: Tu&gt;(
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![M = 32, N = 8, K = 16, L = 2, O = 2];
 
-fn trf_sequencer_partial_read&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt;,
+fn trf_sequencer_partial_read&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![1 # 256], m![O, M, L], m![K]&gt;,
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, K]&gt;,
-) -&gt; ContractOuterTensor&lt;'l, T, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, M], m![L, K]&gt; {
+) -&gt; ContractOuterTensor&lt;'l, { Tu::Main }, f32, bf16, m![1], m![1 # 2], m![1 # 256], m![N], m![O, M], m![L, K]&gt; {
     // Element         = [O, K]
     // ReadSize        = 16
     // PacketBroadcast = L
@@ -6524,7 +6520,6 @@ Each lane receives a 32 B or 64 B Packet of <code>i4</code>, <code>i8</code>, <c
 Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where <code>i</code> ranges over the surviving (output) axes and <code>j</code> ranges over the contracted axes inside <code>Packet</code>.</p>
 <pre><code class="language-rust ignore">impl&lt;
     'l,
-    const T: Tu,
     D: Scalar,
     Storage: ContractionCast&lt;Output = D&gt;,
     Chip: M,
@@ -6534,15 +6529,17 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
     Time: M,
     Packet: M,
     B: Backend,
-&gt; ContractOuterTensor&lt;'l, T, D, Storage, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+&gt; ContractOuterTensor&lt;'l, { Tu::Main }, D, Storage, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
     /// Spatial reduction within `Packet`: validates the reduce-add along the contracted axes inside
     /// `Packet` that the fused fold at `contract_lane` will perform. `D` is the widened accumulator the
     /// deferred carrier stays keyed on; the DPE input packet is still sized in `Storage` bytes.
+    ///
+    /// Available only in the main context.
     #[primitive(ContractOuterTensor::contract_packet)]
     pub fn contract_packet&lt;OutPacket: M&gt;(
         self,
-    ) -&gt; ContractPacketTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, OutPacket, B&gt; {
+    ) -&gt; ContractPacketTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, Lane, Time, OutPacket, B&gt; {
         verify_contract_packet(ContractPacketInput {
             in_packet: Packet::to_value(),
             out_packet: OutPacket::to_value(),
@@ -6559,10 +6556,10 @@ Formally, it computes \(\text{output}[i] = \sum_{j} \text{input}[i, j]\), where 
 </span><span class="boring">use furiosa_opt_std::prelude::*;
 </span>axes![A = 32, B = 32, C = 8];
 
-fn matmul&lt;'l, const T: Tu&gt;(
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt;,
+fn matmul&lt;'l&gt;(
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![1 # 256], m![A, B / 16], m![B % 16]&gt;,
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![1 # 256], m![C], m![B]&gt;,
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![A], m![C]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![A], m![C]&gt; {
     //
     // Spatial reduction: tree depth 5 reduces 32 bf16 elements along B → f32
     // Output (Interleaved): Time = [A], Packet = [C]
@@ -6607,16 +6604,18 @@ The adder tree is fully pipelined, so depth adds first-output latency but does n
 <h2 id="interface-9"><a class="header" href="#interface-9">Interface</a></h2>
 <p><code>.contract_time::&lt;OutTime&gt;()</code> invokes the Time Reducer.
 <code>OutTime</code> names the <code>Time</code> dimensions that survive (the rest are summed away).</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
-    ContractPacketTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, D: Scalar, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
+    ContractPacketTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
     /// Accumulates per-cycle contractions over the `Time` dimension via the shared
     /// accumulator buffer, shrinking input `Time` to `OutTime`. The axes present in
     /// `Time` but absent from `OutTime` are reduce-added.
+    ///
+    /// Available only in the main context.
     #[primitive(ContractPacketTensor::contract_time)]
     pub fn contract_time&lt;OutTime: M&gt;(
         self,
-    ) -&gt; ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, OutTime, Packet, B&gt; {
+    ) -&gt; ContractTimeTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, Lane, OutTime, Packet, B&gt; {
         verify_contract_time(ContractTimeInput {
             in_time: Time::to_value(),
             out_time: OutTime::to_value(),
@@ -6633,15 +6632,15 @@ The adder tree is fully pipelined, so depth adds first-output latency but does n
 </span>axes![A = 2048, B = 32];
 
 /// Reduces along B; A survives.
-fn reduce_b&lt;'l, const T: Tu&gt;(
+fn reduce_b&lt;'l&gt;(
     // Streaming operand: Slice = m![A / 8] (256 outer A chunks across slices).
     // Time = m![B / 16, A % 8]; Packet = m![B % 16].
     // B splits across Packet (B % 16) and Time (B / 16): each cycle produces a partial sum.
-    input: CollectTensor&lt;'l, T, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt;,
+    input: CollectTensor&lt;'l, { Tu::Main }, bf16, m![1], m![1 # 2], m![A / 8], m![B / 16, A % 8], m![B % 16]&gt;,
     // TRF operand: single-lane weight per slice.
     trf: &amp;TrfTensor&lt;bf16, m![1], m![1 # 2], m![A / 8], m![1], m![B]&gt;,
     // Output: one f32 per (slice, A % 8) cell.
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![A / 8], m![A % 8], m![1 # 8]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![A / 8], m![A % 8], m![1 # 8]&gt; {
     input
          // Outer: Lane = m![1], OutTime = m![B / 16, A % 8], OutPacket = m![B % 16].
          .contract_outer::&lt;m![B / 16, A % 8], m![B % 16], _, _, _&gt;(trf)
@@ -6725,17 +6724,19 @@ No values are summed: the stage folds <code>Lane</code> into another axis rather
 <h2 id="interface-10"><a class="header" href="#interface-10">Interface</a></h2>
 <p><code>.contract_lane(mode)</code> invokes the Lane Folder.
 The stage drains the upstream Time Reducer’s buffer through an 8-element-wide output bus one cycle at a time, and <code>LaneMode</code> selects what each cycle’s flit carries.</p>
-<pre><code class="language-rust ignore">impl&lt;'l, const T: Tu, D: ContractionAccumulator, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
-    ContractTimeTensor&lt;'l, T, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, D: ContractionAccumulator, Chip: M, Cluster: M, Slice: M, Lane: M, Time: M, Packet: M, B: Backend&gt;
+    ContractTimeTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, Lane, Time, Packet, B&gt;
 {
     /// Folds the `Lane` dimension into the output stream.
     /// `LaneMode::Interleaved` relocates `Lane` into `OutPacket`;
     /// `LaneMode::Sequential` relocates `Lane` into `OutTime`.
+    ///
+    /// Available only in the main context.
     #[primitive(ContractTimeTensor::contract_lane)]
     pub fn contract_lane&lt;OutTime: M, OutPacket: M&gt;(
         self,
         mode: LaneMode,
-    ) -&gt; ContractTensor&lt;'l, T, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
+    ) -&gt; ContractTensor&lt;'l, { Tu::Main }, D, Chip, Cluster, Slice, OutTime, OutPacket, B&gt; {
         verify_contract_lane(ContractLaneInput {
             in_lane: Lane::to_value(),
             in_time: Time::to_value(),
@@ -6776,11 +6777,11 @@ OutPacket = [Lane # 8]
 </span>axes![N = 8, M = 4, P = 16];
 
 /// Lane folds into OutPacket.
-fn lane_interleaved&lt;'l, const T: Tu&gt;(
+fn lane_interleaved&lt;'l&gt;(
     // Input from upstream Time Reducer: Lane = m![N], Time = m![M], Packet = m![P].
-    input: ContractTimeTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
+    input: ContractTimeTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
     // Output: OutTime = m![M, P] = [Time, Packet], OutPacket = m![N] = [Lane].
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![M, P], m![N]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![M, P], m![N]&gt; {
     input.contract_lane::&lt;m![M, P], m![N]&gt;(LaneMode::Interleaved)
 }
 <span class="boring">
@@ -6813,11 +6814,11 @@ OutPacket = [PadPacket % 8]
 </span>axes![N = 8, M = 4, P = 16];
 
 /// Lane folds into OutTime.
-fn lane_sequential&lt;'l, const T: Tu&gt;(
+fn lane_sequential&lt;'l&gt;(
     // Input from upstream Time Reducer: Lane = m![N], Time = m![M], Packet = m![P].
-    input: ContractTimeTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
+    input: ContractTimeTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![N], m![M], m![P]&gt;,
     // Output: OutTime = m![M, N, P / 8] = [Time, Lane, Packet / 8], OutPacket = m![P % 8] = [Packet % 8].
-) -&gt; ContractTensor&lt;'l, T, f32, m![1], m![1 # 2], m![1 # 256], m![M, N, P / 8], m![P % 8]&gt; {
+) -&gt; ContractTensor&lt;'l, { Tu::Main }, f32, m![1], m![1 # 2], m![1 # 256], m![M, N, P / 8], m![P % 8]&gt; {
     input.contract_lane::&lt;m![M, N, P / 8], m![P % 8]&gt;(LaneMode::Sequential)
 }
 <span class="boring">
@@ -9746,7 +9747,7 @@ Both buffers are used together, so input and output add together each iteration.
 It mirrors the <a href="#fetch-adapter">Fetch Adapter</a> on the output side of the Tensor Unit.</p>
 <p>The adapter’s stages chain as dedicated <code>.commit_xxx(...)</code> methods on the upstream tensor, and the chain always ends in <code>.commit(...)</code> for the actual DM write.
 <a href="#trimming">Trimming</a> is the mandatory first stage: <code>.commit()</code> / <code>.commit_view()</code> are reachable only after <code>.commit_trim(...)</code>, so every commit is trimmed first (it is how flit padding is dropped).
-The other public stage is optional type casting, and main and sub contexts then diverge.
+After trimming, type casting is optional and available only in the main context.
 Generate Mode is a separate sub-context path used internally by <code>memset</code> for immediate fills; it does not chain off a <code>TuTensor</code>.</p>
 <ul>
 <li>Main pipeline: <a href="#trimming">Trimming</a> → <a href="#type-casting-1">Type Casting</a> (optionally fusing ReLU) → <code>.commit()</code>.</li>
@@ -9764,6 +9765,7 @@ Generate Mode is a separate sub-context path used internally by <code>memset</co
 </tbody>
 </table>
 </div>
+<p>The type system enforces each context restriction: each stage’s method exists on one context’s <code>TuTensor</code> only.</p>
 <h2 id="trimming"><a class="header" href="#trimming">Trimming</a></h2>
 <p>Stream packets in the Tensor Unit pipeline are always 32-byte <em>flits</em> (see <a href="#collect-engine">Collect Engine</a>), but a flit may carry fewer valid elements than its capacity, with trailing elements filled by padding.
 Writing the full flit verbatim would clobber DM bytes beyond the valid region with the flit’s padding values.</p>
@@ -9858,18 +9860,8 @@ If the main-context performed its <code>f32</code> → <code>bf16</code> convers
 Routing the conversion through the Commit Adapter instead leaves the Vector Engine free for the sub-context.
 Sub-context itself does not support type casting (consistent with the support matrix above).</p>
 <p><code>commit_cast</code> and <code>commit_cast_relu</code> are separate methods because they are separate hardware conversions, not one conversion with a mode: ReLU has no standalone stage to select at run time, and exists only fused with the narrowing cast.</p>
-<pre><code class="language-rust ignore">impl&lt;
-    'l,
-    const T: Tu,
-    P: CanApplyCommitCast,
-    D: MaterializableScalar,
-    Chip: M,
-    Cluster: M,
-    Slice: M,
-    Time: M,
-    Packet: M,
-    B: Backend,
-&gt; TuTensor&lt;'l, T, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
+<pre><code class="language-rust ignore">impl&lt;'l, P: CanApplyCommitCast, D: MaterializableScalar, Chip: M, Cluster: M, Slice: M, Time: M, Packet: M, B: Backend&gt;
+    TuTensor&lt;'l, { Tu::Main }, P, D, Chip, Cluster, Slice, Time, Packet, B&gt;
 {
     /// Runs the Commit Adapter's type-casting stage.
     ///
@@ -9878,8 +9870,12 @@ Sub-context itself does not support type casting (consistent with the support ma
     /// work. See [`CommitCast`](crate::prelude::CommitCast) for why this is the
     /// only conversion, and [`commit_cast_relu`](Self::commit_cast_relu) for the
     /// variant that fuses a ReLU.
+    ///
+    /// Available only in the main context.
     #[primitive(TuTensor::commit_cast)]
-    pub fn commit_cast&lt;OutD: Scalar&gt;(self) -&gt; CommitCastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
+    pub fn commit_cast&lt;OutD: Scalar&gt;(
+        self,
+    ) -&gt; CommitCastTensor&lt;'l, { Tu::Main }, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
     where
         D: CommitCast&lt;OutD&gt;,
     {
@@ -9890,10 +9886,13 @@ Sub-context itself does not support type casting (consistent with the support ma
     /// The same cast with a ReLU fused in, clamping negative values to zero.
     ///
     /// A separate method rather than an argument because the two are separate
-    /// hardware conversions (`CommitF32ToBf16` and `CommitF32ToBf16Relu`), and
-    /// ReLU has no standalone stage to select at run time.
+    /// hardware conversions, and ReLU has no standalone stage to select at run time.
+    ///
+    /// Available only in the main context.
     #[primitive(TuTensor::commit_cast_relu)]
-    pub fn commit_cast_relu&lt;OutD: Scalar&gt;(self) -&gt; CommitCastTensor&lt;'l, T, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
+    pub fn commit_cast_relu&lt;OutD: Scalar&gt;(
+        self,
+    ) -&gt; CommitCastTensor&lt;'l, { Tu::Main }, OutD, Chip, Cluster, Slice, Time, Packet, B&gt;
     where
         D: CommitCast&lt;OutD&gt;,
     {
@@ -9922,6 +9921,15 @@ fn commit_cast_relu_example&lt;'l, const T: Tu&gt;(
     // e.g. [-5.0, -0.1, 0.0, 3.7] -&gt; [0.0, 0.0, 0.0, 3.7]
     input.commit_cast_relu::&lt;bf16&gt;()
 }</code></pre>
+<h2 id="generate-mode"><a class="header" href="#generate-mode">Generate Mode</a></h2>
+<p>Generate Mode fills a DM region with a constant through <code>DmTensorViewMut::memset(value, &amp;mut device.sub)</code>.
+The fill runs in the sub context and takes a value of the tensor’s element type, such as <code>0</code> for <code>i32</code> or <code>const { bf16::from_f32(1.0) }</code> for <code>bf16</code>.</p>
+<p>It does not fetch from DM and does not consume any upstream Tensor Unit stream.
+The constant <code>value</code> and the destination are the only inputs; the rest of the Tensor Unit pipeline (Fetch / Switch / Collect / Contraction / Vector / Cast / Transpose / Commit Adapter stages) is bypassed entirely.</p>
+<p>Device compilation requires a compile-time constant value and a whole-region view from <code>view_mut()</code>.
+Non-constant values and tiled sub-view fills are rejected at translation.
+Supported element types are <code>i8</code>, <code>i16</code>, <code>i32</code>, <code>f32</code>, <code>bf16</code>, <code>f8e4m3</code>, and <code>i4</code>; sub-byte regions must be byte-aligned.
+<code>f4e2m1</code> fills are not yet supported by device compilation.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="case-study-chip-and-cluster-reduction"><a class="header" href="#case-study-chip-and-cluster-reduction">Case Study: Chip and Cluster Reduction</a></h1>
 <p>Chip and cluster reduction combines partial values stored along different <code>Chip</code> or <code>Cluster</code> dimensions.
@@ -10548,7 +10556,7 @@ pub fn bounded_dynamic_matmul(
 </span><span class="boring">let mut device = Device::new(scalar_consumer.topology())?;
 </span>let mut active = HbmScalar::&lt;usize&gt;::from_host(0, &amp;mut device.pdma).await?;
 
-active.write(3, &amp;mut device.pdma).await?;
+HbmScalar::from_host(3, &amp;mut device.pdma).output(&amp;mut active).await?;
 launch(scalar_consumer, (&amp;mut device, &amp;active)).await?;
 <span class="boring">Ok(())
 </span><span class="boring">}</span></code></pre>
@@ -11165,23 +11173,6 @@ cargo furiosa-opt compile transpose_simple -p my_kernels
 cargo furiosa-opt compile transpose::transpose_simple \
   --dump-schedule schedule.json
 </code></pre>
-<h3 id="compilation-pipeline-and-dump-options"><a class="header" href="#compilation-pipeline-and-dump-options">Compilation pipeline and dump options</a></h3>
-<p>The dump flags below each capture a different point of the kernel compilation pipeline, which runs in three stages:</p>
-<ol>
-<li><strong>Stage 1 — MIR → vISA.</strong></li>
-<li><strong>Stage 2 — vISA → LIR.</strong></li>
-<li><strong>Stage 3 — LIR → EDF (the kernel binary).</strong></li>
-</ol>
-<p>Each public dump flag targets a stage and emits an artifact for a specific consumer.
-All dump flags are single-kernel options.</p>
-<ul>
-<li><code>--dump-visa</code>: Stage 1 vISA text for compiler/backend inspection.</li>
-<li><code>--dump-ir</code>: Stage 2 LIR as a bincode binary for compiler tooling.</li>
-<li><code>--dump-dfg</code>: Stage 1 vISA data-flow graph serialized as compiler IR binary data to the requested file for graph inspection.</li>
-<li><code>--dump-graph</code>: Stage 2 LIR graph as JSON for the IR graph viewer.</li>
-<li><code>--dump-summary</code>: Stage 3 LIR-to-EDF compilation summary written to the requested directory.</li>
-<li><code>--dump-schedule</code>: Stage 3 scheduling after LIR is lowered to <code>ResourceLir</code>, emitted as JSON for the <a href="#schedule-viewer-1">Schedule Viewer</a>.</li>
-</ul>
 <h3 id="filter-1"><a class="header" href="#filter-1"><code>[FILTER]...</code></a></h3>
 <p>Specifies the set of <code>#[device]</code> functions to compile.
 Filters are matched as a substring against <code>#[device]</code> function names as a full path (<code>abc::def::foo</code>).
@@ -11197,20 +11188,8 @@ When omitted, all kernel packages are compiled.</p>
 <h3 id="--dump-visa-file"><a class="header" href="#--dump-visa-file"><code>--dump-visa</code> <em>file</em></a></h3>
 <p>Dump the intermediate vISA to a file.
 Should only be used when compiling a single kernel.</p>
-<h3 id="--dump-ir-file"><a class="header" href="#--dump-ir-file"><code>--dump-ir</code> <em>file</em></a></h3>
-<p>Dump the intermediate LIR (Low-Level IR) as a bincode binary to a file.
-Should only be used when compiling a single kernel.</p>
 <h3 id="--dump-schedule-file"><a class="header" href="#--dump-schedule-file"><code>--dump-schedule</code> <em>file</em></a></h3>
-<p>Lower LIR to <code>ResourceLir</code> and dump the resulting schedule as JSON for the <a href="#schedule-viewer-1">Schedule Viewer</a>.
-Should only be used when compiling a single kernel.</p>
-<h3 id="--dump-dfg-file"><a class="header" href="#--dump-dfg-file"><code>--dump-dfg</code> <em>file</em></a></h3>
-<p>Dump the Stage 1 vISA data-flow graph to a file.
-Should only be used when compiling a single kernel.</p>
-<h3 id="--dump-graph-file"><a class="header" href="#--dump-graph-file"><code>--dump-graph</code> <em>file</em></a></h3>
-<p>Dump the Stage 2 LIR graph as JSON for the IR graph viewer.
-Should only be used when compiling a single kernel.</p>
-<h3 id="--dump-summary-dir"><a class="header" href="#--dump-summary-dir"><code>--dump-summary</code> <em>dir</em></a></h3>
-<p>Dump the Stage 3 LIR-to-EDF compilation summary to a directory for diagnostic tooling.
+<p>Dump the schedule as JSON for the <a href="#schedule-viewer-1">Schedule Viewer</a>.
 Should only be used when compiling a single kernel.</p>
 <h2 id="environment-variables"><a class="header" href="#environment-variables">Environment variables</a></h2>
 <h3 id="furiosa_opt_out_dir"><a class="header" href="#furiosa_opt_out_dir"><code>FURIOSA_OPT_OUT_DIR</code></a></h3>
@@ -11340,7 +11319,7 @@ The left sidebar shows details such as its name, lifetime, context, and connecte
 For example, selecting an operator highlights its input and output tensors.
 Selecting a tensor highlights operators connected to that tensor.</p>
 <p>Because tensors and operators are based on actual hardware instructions, they may differ from the tensors and operators defined in vISA.
-Whenever possible, the Schedule Viewer shows the vISA tensor name and shape, and the operator description.</p>
+Whenever possible, the Schedule Viewer shows the vISA tensor name and shape, and the vISA code snippet of an operator.</p>
 <h3 id="zoom-in-on-the-schedule"><a class="header" href="#zoom-in-on-the-schedule">Zoom In on the Schedule</a></h3>
 <p>You can zoom in on the schedule to inspect a specific region.</p>
 <p>To adjust only the cycle range, drag across the timeline at the top or use the <strong>Cycle Range</strong> inputs at the top right.
