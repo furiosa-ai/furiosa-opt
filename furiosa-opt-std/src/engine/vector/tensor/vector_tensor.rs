@@ -192,6 +192,8 @@ impl<
         (self.inner, self.tag, self.ve_state)
     }
 
+    /// Internal helper for binary operations.
+    /// Applies a binary operation with ALU tracking and stash support.
     pub(crate) fn apply_binary<NextStage: stage::Stage>(
         mut self,
         alu: RngdAlu,
@@ -313,6 +315,7 @@ impl<
         &mut self.data
     }
 
+    /// Creates a new VectorTensor from parts.
     pub(crate) fn from_parts(
         device: &'l mut TuContext<{ T }>,
         inner: Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
@@ -331,6 +334,7 @@ impl<
         }
     }
 
+    /// Creates a new VectorTensor from context and data.
     pub(crate) fn from_ctx_and_data(
         device: &'l mut TuContext<{ T }>,
         data: VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, W>,
@@ -365,6 +369,9 @@ impl<
     }
 }
 
+// Stash is available only on stages implementing Stashable.
+// The stream must have a Fresh stash slot and Standalone context.
+// Group and Zipped contexts cannot stash.
 impl<
     'l,
     const T: Tu,
