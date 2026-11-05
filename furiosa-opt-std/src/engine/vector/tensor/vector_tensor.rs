@@ -192,15 +192,13 @@ impl<
         (self.inner, self.tag, self.ve_state)
     }
 
-    /// Internal helper for binary operations.
-    /// Applies a binary operation with ALU tracking and stash support.
-    pub(crate) fn apply_binary<NextStage: stage::Stage, NextFS: stage::VeTensorContext>(
+    pub(crate) fn apply_binary<NextStage: stage::Stage>(
         mut self,
         alu: RngdAlu,
         op_fn: impl Fn(D, D) -> D + Sync,
         operand: &BinaryBranchedOperand<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
         stash_data: Option<Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>>,
-    ) -> VeTensorData<NextStage, D, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, NextFS, W> {
+    ) -> VeTensorData<NextStage, D, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, W> {
         self.ve_state.use_alu(alu);
         let result = apply_binary_op(&self.inner, &self.tag, op_fn, operand, stash_data.as_ref());
         VeTensorData {
@@ -315,8 +313,7 @@ impl<
         &mut self.data
     }
 
-    /// Creates a new VectorTensor from parts.
-    pub fn from_parts(
+    pub(crate) fn from_parts(
         device: &'l mut TuContext<{ T }>,
         inner: Tensor<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
         tag: Tensor<u8, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>,
@@ -334,8 +331,7 @@ impl<
         }
     }
 
-    /// Creates a new VectorTensor from context and data.
-    pub fn from_ctx_and_data(
+    pub(crate) fn from_ctx_and_data(
         device: &'l mut TuContext<{ T }>,
         data: VeTensorData<S, D, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS, W>,
     ) -> Self {
@@ -347,12 +343,12 @@ impl<
     /// transition is not expressible at the call sites. The `D` and `W` in the bound are this impl's own,
     /// so an op method naming a different scalar or way fails here rather than reading the stash at the
     /// wrong one.
-    pub(crate) fn do_binary<NextStage: stage::Stage, NextFS: stage::VeTensorContext, Op>(
+    pub(crate) fn do_binary<NextStage: stage::Stage, Op>(
         self,
         op: impl HasAlu + HasBinaryOp<D>,
         mode: Option<BinaryArgMode>,
         operand: Op,
-    ) -> VectorTensor<'l, T, NextStage, D, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, NextFS, W>
+    ) -> VectorTensor<'l, T, NextStage, D, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS, W>
     where
         Op: IntoBranchedOperand<D, VeTensorShape<Chip, Cluster, Slice, Time, Packet>> + StashTransition<Stash, D, W>,
     {
@@ -369,9 +365,6 @@ impl<
     }
 }
 
-// Separate impl for stash on VeTensorData - only stages implementing Stashable can use this
-// Separate impl for stash on VectorTensor - delegates to VeTensorData
-// Also requires Filterable state (not available after binary operations)
 impl<
     'l,
     const T: Tu,
@@ -1026,12 +1019,12 @@ where
         self,
         op: LogicBinaryOpI32,
         operand: Op,
-    ) -> VectorLogicTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorLogicTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<i32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, i32, { Way8 }>,
     {
-        self.do_binary::<stage::Logic, stage::Standalone, Op>(op, None, operand)
+        self.do_binary::<stage::Logic, Op>(op, None, operand)
     }
 
     /// Logic binary operation with explicit mode (i32 only). Requires `Way8` mode.
@@ -1041,12 +1034,12 @@ where
         op: LogicBinaryOpI32,
         mode: BinaryArgMode,
         operand: Op,
-    ) -> VectorLogicTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorLogicTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<i32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, i32, { Way8 }>,
     {
-        self.do_binary::<stage::Logic, stage::Standalone, Op>(op, Some(mode), operand)
+        self.do_binary::<stage::Logic, Op>(op, Some(mode), operand)
     }
 }
 
@@ -1077,12 +1070,12 @@ where
         self,
         op: LogicBinaryOpF32,
         operand: Op,
-    ) -> VectorLogicTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorLogicTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way8 }>,
     {
-        self.do_binary::<stage::Logic, stage::Standalone, Op>(op, None, operand)
+        self.do_binary::<stage::Logic, Op>(op, None, operand)
     }
 
     /// Logic binary operation with explicit mode (f32 only). Requires `Way8` mode.
@@ -1092,12 +1085,12 @@ where
         op: LogicBinaryOpF32,
         mode: BinaryArgMode,
         operand: Op,
-    ) -> VectorLogicTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorLogicTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way8 }>,
     {
-        self.do_binary::<stage::Logic, stage::Standalone, Op>(op, Some(mode), operand)
+        self.do_binary::<stage::Logic, Op>(op, Some(mode), operand)
     }
 }
 
@@ -1128,12 +1121,12 @@ where
         self,
         op: FxpBinaryOp,
         operand: Op,
-    ) -> VectorFxpTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorFxpTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<i32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, i32, { Way8 }>,
     {
-        self.do_binary::<stage::Fxp, stage::Standalone, Op>(op, None, operand)
+        self.do_binary::<stage::Fxp, Op>(op, None, operand)
     }
 
     /// Fixed-point binary operation with explicit mode (i32 only). Requires `Way8` mode.
@@ -1143,12 +1136,12 @@ where
         op: FxpBinaryOp,
         mode: BinaryArgMode,
         operand: Op,
-    ) -> VectorFxpTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorFxpTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<i32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, i32, { Way8 }>,
     {
-        self.do_binary::<stage::Fxp, stage::Standalone, Op>(op, Some(mode), operand)
+        self.do_binary::<stage::Fxp, Op>(op, Some(mode), operand)
     }
 }
 
@@ -1177,7 +1170,7 @@ where
     pub fn vector_fxp_to_fp(
         self,
         int_width: u32,
-    ) -> VectorFxpToFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER> {
+    ) -> VectorFxpToFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS> {
         let op = FxpToFp::new(int_width);
         let op_fn = op.op_fn();
 
@@ -1309,7 +1302,7 @@ where
     pub fn vector_fp_unary<Op: IntoGuardedUnaryOp>(
         mut self,
         op: Op,
-    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER> {
+    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS> {
         let (guard, op) = op.into_guarded_unary_op();
         self.ve_state_mut().use_alu(op.alu());
         let result = apply_unary_op_where(self.inner(), self.tag(), guard, op.unary_op_fn());
@@ -1324,12 +1317,12 @@ where
         self,
         op: FpBinaryOp,
         operand: Op,
-    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way4 }>,
     {
-        self.do_binary::<stage::Fp, stage::Standalone, Op>(op, None, operand)
+        self.do_binary::<stage::Fp, Op>(op, None, operand)
     }
 
     /// Fp binary operation with explicit mode (f32 only). See [`vector_fp_binary`](Self::vector_fp_binary).
@@ -1339,12 +1332,12 @@ where
         op: FpBinaryOp,
         mode: BinaryArgMode,
         operand: Op,
-    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way4 }>,
     {
-        self.do_binary::<stage::Fp, stage::Standalone, Op>(op, Some(mode), operand)
+        self.do_binary::<stage::Fp, Op>(op, Some(mode), operand)
     }
 
     /// Fp ternary operation (f32 only).
@@ -1360,7 +1353,7 @@ where
         self,
         op: FpTernaryOp,
         operands: Op,
-    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoTernaryOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way4 }>,
@@ -1376,7 +1369,7 @@ where
         op: FpTernaryOp,
         mode: TernaryArgMode,
         operands: Op,
-    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorFpTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoTernaryOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way4 }>,
@@ -1570,7 +1563,7 @@ where
         Op: IntoBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way4 }>,
     {
-        self.do_binary::<stage::FpDiv, FS, Op>(FpDivBinaryOp::DivF, None, operand)
+        self.do_binary::<stage::FpDiv, Op>(FpDivBinaryOp::DivF, None, operand)
     }
 
     /// Floating-point division with explicit mode. See [`vector_fp_div`](Self::vector_fp_div).
@@ -1584,7 +1577,7 @@ where
         Op: IntoBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way4 }>,
     {
-        self.do_binary::<stage::FpDiv, FS, Op>(FpDivBinaryOp::DivF, Some(mode), operand)
+        self.do_binary::<stage::FpDiv, Op>(FpDivBinaryOp::DivF, Some(mode), operand)
     }
 }
 
@@ -1696,7 +1689,7 @@ where
     pub fn vector_fp_to_fxp(
         self,
         int_width: u32,
-    ) -> VectorFpToFxpTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER> {
+    ) -> VectorFpToFxpTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Stash, VE_ORDER, FS> {
         let op = FpToFxp::new(int_width);
         let op_fn = op.op_fn();
         let result = self.inner().map(&op_fn);
@@ -1733,12 +1726,12 @@ where
         self,
         op: ClipBinaryOpI32,
         operand: Op,
-    ) -> VectorClipTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorClipTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<i32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, i32, { Way8 }>,
     {
-        self.do_binary::<stage::Clip, stage::Standalone, Op>(op, None, operand)
+        self.do_binary::<stage::Clip, Op>(op, None, operand)
     }
 
     /// Clip binary operation with explicit mode (i32 only). Requires `Way8` mode.
@@ -1748,12 +1741,12 @@ where
         op: ClipBinaryOpI32,
         mode: BinaryArgMode,
         operand: Op,
-    ) -> VectorClipTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorClipTensor<'l, T, i32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<i32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, i32, { Way8 }>,
     {
-        self.do_binary::<stage::Clip, stage::Standalone, Op>(op, Some(mode), operand)
+        self.do_binary::<stage::Clip, Op>(op, Some(mode), operand)
     }
 }
 
@@ -1784,12 +1777,12 @@ where
         self,
         op: ClipBinaryOpF32,
         operand: Op,
-    ) -> VectorClipTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorClipTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way8 }>,
     {
-        self.do_binary::<stage::Clip, stage::Standalone, Op>(op, None, operand)
+        self.do_binary::<stage::Clip, Op>(op, None, operand)
     }
 
     /// Clip binary operation with explicit mode (f32 only). Requires `Way8` mode.
@@ -1799,12 +1792,12 @@ where
         op: ClipBinaryOpF32,
         mode: BinaryArgMode,
         operand: Op,
-    ) -> VectorClipTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER>
+    ) -> VectorClipTensor<'l, T, f32, Chip, Cluster, Slice, Time, Packet, Op::Next, VE_ORDER, FS>
     where
         Op: IntoBranchedOperand<f32, VeTensorShape<Chip, Cluster, Slice, Time, Packet>>
             + StashTransition<Stash, f32, { Way8 }>,
     {
-        self.do_binary::<stage::Clip, stage::Standalone, Op>(op, Some(mode), operand)
+        self.do_binary::<stage::Clip, Op>(op, Some(mode), operand)
     }
 }
 
